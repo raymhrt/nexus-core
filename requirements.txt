@@ -3,3 +3,4 @@ uvicorn
 stripe
 httpx
 pydantic
+python-dotenv
