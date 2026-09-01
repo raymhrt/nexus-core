@@ -65,7 +65,7 @@ def send_telegram_alert(message: str):
         "parse_mode": "Markdown",
     }
     try:
-        response = requests.post(url, json=payload)
+        response = requests.post(url, json=payload, timeout=5)
         response.raise_for_status()
     except Exception as e:
         print(f"Failed to send Telegram notification: {e}")
@@ -117,8 +117,8 @@ async def stripe_webhook(request: Request):
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Webhook error: {str(e)}")
 
-    try:
-        if event.type == "checkout.session.completed":
+    if event.type == "checkout.session.completed":
+        try:
             session = event.data.object
             customer_email = getattr(session, "customer_email", None)
 
@@ -154,8 +154,8 @@ async def stripe_webhook(request: Request):
                 print(
                     f"SUCCESS: Provisioned API key {api_key} for {customer_email}"
                 )
-    except Exception as err:
-        print(f"Webhook processing error: {err}")
+        except Exception as err:
+            print(f"Webhook processing error: {err}")
 
     return {"status": "success"}
 
