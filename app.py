@@ -81,7 +81,7 @@ async def create_checkout_session(email: str):
     try:
         checkout_session = stripe.checkout.Session.create(
             customer_email=email,
-            payment_method_types=["card"],
+            managed_payments={"enabled": False},
             line_items=[
                 {
                     "price_data": {
