@@ -36,6 +36,16 @@ def init_db():
         )
     """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS b2b_leads (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            company_name TEXT,
+            email TEXT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """
+    )
     conn.commit()
     conn.close()
 
@@ -71,6 +81,7 @@ async def create_checkout_session(email: str):
     try:
         checkout_session = stripe.checkout.Session.create(
             customer_email=email,
+            payment_method_types=["card"],
             line_items=[
                 {
                     "price_data": {
@@ -90,6 +101,7 @@ async def create_checkout_session(email: str):
         )
         return {"checkout_url": checkout_session.url}
     except Exception as e:
+        print(f"Stripe Checkout Error: {str(e)}")
         raise HTTPException(status_code=400, detail=str(e))
 
 
