@@ -1,10 +1,11 @@
 from datetime import datetime, timezone
 import os
-from fastapi import FastAPI, Header, HTTPException, Request
-from fastapi.responses import FileResponse
 import secrets
 import sqlite3
 import stripe
+import requests
+from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi.responses import FileResponse
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -13,6 +14,8 @@ app = FastAPI(title="QuantCode Nexus Lead API")
 
 stripe.api_key = os.getenv("STRIPE_API_KEY", "your_stripe_key_here")
 ENDPOINT_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "your_webhook_secret_here")
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 DB_PATH = "quantcode_nexus.db"
 
 
@@ -20,6 +23,42 @@ def get_db():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
+
+
+def init_db():
+    conn = get_db()
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS subscribers (
+            email TEXT PRIMARY KEY,
+            api_key TEXT UNIQUE,
+            active INTEGER DEFAULT 1
+        )
+    """
+    )
+    conn.commit()
+    conn.close()
+
+
+# Initialize database tables on startup
+init_db()
+
+
+def send_telegram_alert(message: str):
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        print("Telegram tokens not configured.")
+        return
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": message,
+        "parse_mode": "Markdown",
+    }
+    try:
+        response = requests.post(url, json=payload)
+        response.raise_for_status()
+    except Exception as e:
+        print(f"Failed to send Telegram notification: {e}")
 
 
 @app.get("/")
@@ -32,19 +71,22 @@ async def create_checkout_session(email: str):
     try:
         checkout_session = stripe.checkout.Session.create(
             customer_email=email,
-            line_items=[{
-                "price_data": {
-                    "currency": "usd",
-                    "product_data": {"name": "QuantCode Nexus B2B Leads Access"},
-                    "unit_amount": 2900,  # $29.00
-                    "recurring": {"interval": "month"},
-                },
-                "quantity": 1,
-            }],
+            line_items=[
+                {
+                    "price_data": {
+                        "currency": "usd",
+                        "product_data": {
+                            "name": "QuantCode Nexus B2B Leads Access"
+                        },
+                        "unit_amount": 2900,  # $29.00
+                        "recurring": {"interval": "month"},
+                    },
+                    "quantity": 1,
+                }
+            ],
             mode="subscription",
-            managed_payments={"enabled": False},
-            success_url="http://localhost:8000/docs?success=true",
-            cancel_url="http://localhost:8000/docs?canceled=true",
+            success_url="https://nexus-core-yfou.onrender.com/docs?success=true",
+            cancel_url="https://nexus-core-yfou.onrender.com/docs?canceled=true",
         )
         return {"checkout_url": checkout_session.url}
     except Exception as e:
@@ -84,13 +126,22 @@ async def stripe_webhook(request: Request):
                 api_key = f"qcn_{secrets.token_hex(16)}"
                 conn = get_db()
                 conn.execute(
-                    "INSERT OR REPLACE INTO subscribers (email, api_key, active) VALUES"
-                    " (?, ?, 1)",
+                    "INSERT OR REPLACE INTO subscribers (email, api_key, active) VALUES (?, ?, 1)",
                     (customer_email, api_key),
                 )
                 conn.commit()
                 conn.close()
-                print(f"SUCCESS: Provisioned API key {api_key} for {customer_email}")
+
+                # Send Telegram Notification Alert
+                alert_msg = (
+                    f"🚀 *New B2B Subscription!* \n\n"
+                    f"Customer: `{customer_email}`\n"
+                    f"API Key Provisioned: `{api_key}`"
+                )
+                send_telegram_alert(alert_msg)
+                print(
+                    f"SUCCESS: Provisioned API key {api_key} for {customer_email}"
+                )
     except Exception as err:
         print(f"Webhook processing error: {err}")
 

@@ -1,6 +1,7 @@
 fastapi
 uvicorn
 stripe
+requests
 httpx
 pydantic
 python-dotenv
