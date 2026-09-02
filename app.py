@@ -3,9 +3,6 @@ import os
 import secrets
 import sqlite3
 import hashlib
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
 import stripe
 import requests
 from fastapi import FastAPI, Header, HTTPException, Request
@@ -21,9 +18,9 @@ ENDPOINT_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "your_webhook_secret_here")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-# Gmail SMTP Configuration
-SMTP_EMAIL = os.getenv("SMTP_EMAIL")
-SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
+# Resend HTTP Email Configuration
+RESEND_API_KEY = os.getenv("RESEND_API_KEY")
+SENDER_EMAIL = os.getenv("SENDER_EMAIL", "onboarding@resend.dev")
 
 # Check for Render Postgres URL, fallback to local sqlite if not set
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -116,12 +113,17 @@ def send_telegram_alert(message: str):
         print(f"Failed to send Telegram notification: {e}")
 
 
-def send_email_via_gmail(to_email: str, api_key: str):
-    if not SMTP_EMAIL or not SMTP_PASSWORD:
-        print("SMTP credentials not configured.")
+def send_email_via_resend(to_email: str, api_key: str):
+    if not RESEND_API_KEY:
+        print("Resend API key not configured.")
         return
 
-    subject = "Your QuantCode Nexus API Key is Here 🚀"
+    url = "https://api.resend.com/emails"
+    headers = {
+        "Authorization": f"Bearer {RESEND_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    
     html_content = f"""
         <h2>Welcome to QuantCode Nexus!</h2>
         <p>Thank you for subscribing. Your B2B lead API key has been generated and activated.</p>
@@ -132,19 +134,19 @@ def send_email_via_gmail(to_email: str, api_key: str):
         <p>Happy building,<br>The QuantCode Nexus Team</p>
     """
 
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = subject
-    msg["From"] = SMTP_EMAIL
-    msg["To"] = to_email
-    msg.attach(MIMEText(html_content, "html"))
+    payload = {
+        "from": f"QuantCode Nexus <{SENDER_EMAIL}>",
+        "to": [to_email],
+        "subject": "Your QuantCode Nexus API Key is Here 🚀",
+        "html": html_content
+    }
 
     try:
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-            server.login(SMTP_EMAIL, SMTP_PASSWORD)
-            server.sendmail(SMTP_EMAIL, to_email, msg.as_string())
-        print(f"SUCCESS: Emailed API key to {to_email} via Gmail SMTP")
+        response = requests.post(url, json=payload, headers=headers, timeout=10)
+        response.raise_for_status()
+        print(f"SUCCESS: Emailed API key to {to_email} via Resend API")
     except Exception as e:
-        print(f"CRITICAL SMTP ERROR: {str(e)}")
+        print(f"CRITICAL RESEND API ERROR: {str(e)}")
 
 
 @app.get("/")
@@ -245,8 +247,8 @@ async def stripe_webhook(request: Request):
                 )
                 send_telegram_alert(alert_msg)
 
-                # 2. Automatically Email API Key to Buyer via Gmail SMTP
-                send_email_via_gmail(customer_email, raw_api_key)
+                # 2. Automatically Email API Key to Buyer via Resend API
+                send_email_via_resend(customer_email, raw_api_key)
 
                 print(
                     f"SUCCESS: Provisioned secure API key for {customer_email}"
