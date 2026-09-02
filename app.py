@@ -144,7 +144,7 @@ def send_email_via_gmail(to_email: str, api_key: str):
             server.sendmail(SMTP_EMAIL, to_email, msg.as_string())
         print(f"SUCCESS: Emailed API key to {to_email} via Gmail SMTP")
     except Exception as e:
-        print(f"Failed to send email via Gmail SMTP: {e}")
+        print(f"CRITICAL SMTP ERROR: {str(e)}")
 
 
 @app.get("/")
