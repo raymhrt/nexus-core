@@ -152,6 +152,11 @@ async def read_index():
     return FileResponse("index.html")
 
 
+@app.get("/success")
+async def success_page():
+    return FileResponse("success.html")
+
+
 @app.post("/create-checkout-session")
 async def create_checkout_session(email: str):
     try:
@@ -172,7 +177,7 @@ async def create_checkout_session(email: str):
                 }
             ],
             mode="subscription",
-            success_url="https://nexus-core-yfou.onrender.com/docs?success=true",
+            success_url="https://nexus-core-yfou.onrender.com/success?session_id={CHECKOUT_SESSION_ID}",
             cancel_url="https://nexus-core-yfou.onrender.com/docs?canceled=true",
         )
         return {"checkout_url": checkout_session.url}
