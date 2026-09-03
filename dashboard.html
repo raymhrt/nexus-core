@@ -2,32 +2,48 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>QuantCode Nexus - Subscriber Dashboard</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QuantCode Nexus | Subscriber Dashboard</title>
     <style>
-        body { font-family: sans-serif; max-width: 800px; margin: 40px auto; padding: 0 20px; color: #333; }
-        input, button { padding: 10px; font-size: 16px; margin-top: 5px; }
-        input { width: 60%; }
-        button { background: #0070f3; color: white; border: none; cursor: pointer; border-radius: 4px; }
-        button:hover { background: #0051a2; }
-        pre { background: #f4f4f4; padding: 15px; border-radius: 5px; overflow-x: auto; }
-        .box { background: #fafafa; border: 1px solid #ddd; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
-        .nav-link { margin-bottom: 20px; display: block; font-size: 14px; color: #0070f3; text-decoration: none; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #f8fafc; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
+        .card { background: #1e293b; padding: 40px; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); width: 100%; max-width: 600px; box-sizing: border-box; }
+        h1 { margin-bottom: 5px; font-size: 24px; color: #38bdf8; text-align: center; }
+        p.sub { color: #94a3b8; font-size: 14px; margin-bottom: 25px; text-align: center; }
+        input { width: 100%; padding: 12px; margin-bottom: 15px; border-radius: 6px; border: 1px solid #334155; background: #0f172a; color: #fff; box-sizing: border-box; font-size: 14px; }
+        button { background: #38bdf8; color: #0f172a; border: none; padding: 12px; width: 100%; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 15px; transition: background 0.2s; }
+        button:hover { background: #7dd3fc; }
+        pre { background: #0f172a; border: 1px solid #334155; padding: 15px; border-radius: 6px; overflow-x: auto; color: #38bdf8; font-size: 13px; max-height: 250px; }
+        .form-group { text-align: left; margin-bottom: 15px; }
+        .form-group label { display: block; font-size: 12px; color: #94a3b8; margin-bottom: 5px; font-weight: 600; text-transform: uppercase; }
+        .nav-link { margin-bottom: 20px; display: block; font-size: 14px; color: #38bdf8; text-decoration: none; }
+        .reset-link { margin-top: 15px; text-align: center; font-size: 13px; }
+        .reset-link a { color: #94a3b8; text-decoration: underline; cursor: pointer; }
+        .reset-link a:hover { color: #38bdf8; }
+        #status { font-weight: 600; margin-bottom: 10px; color: #38bdf8; font-size: 14px; }
     </style>
 </head>
 <body>
-    <a href="/" class="nav-link">&larr; Back to Home / Pricing</a>
-    <h1>NexusCore Subscriber Dashboard</h1>
-    <p>Pull live B2B leads using your active subscription API key.</p>
+    <div class="card">
+        <a href="/" class="nav-link">&larr; Back to Home</a>
+        <h1>Subscriber Dashboard</h1>
+        <p class="sub">Pull live B2B leads using your active subscription API key.</p>
 
-    <div class="box">
-        <label for="apiKey"><strong>Your API Key:</strong></label><br>
-        <input type="password" id="apiKey" placeholder="qcn_..." />
+        <div class="form-group">
+            <label for="apiKey">Your API Key</label>
+            <input type="password" id="apiKey" placeholder="qcn_..." />
+        </div>
         <button onclick="saveAndFetch()">Fetch Leads</button>
-    </div>
 
-    <div id="status" style="font-weight: bold; margin-bottom: 10px; color: #0070f3;"></div>
-    <h3>Live B2B Leads Result:</h3>
-    <pre id="results">Enter your key above and click Fetch Leads.</pre>
+        <div class="reset-link">
+            <a onclick="triggerReset()">Lost your API key? Request a reset link</a>
+        </div>
+
+        <div style="margin-top: 25px;">
+            <div id="status"></div>
+            <label style="font-size: 12px; color: #94a3b8; font-weight: 600; text-transform: uppercase;">Lead Results</label>
+            <pre id="results">Enter your key above and click Fetch Leads.</pre>
+        </div>
+    </div>
 
     <script>
         window.onload = function() {
@@ -48,16 +64,13 @@
             }
 
             localStorage.setItem('nexus_api_key', apiKey);
-
             resultsPre.innerText = "Loading leads...";
             statusDiv.innerText = "";
 
             try {
                 const response = await fetch('/api/v1/leads?limit=10', {
                     method: 'GET',
-                    headers: {
-                        'x-api-key': apiKey
-                    }
+                    headers: { 'x-api-key': apiKey }
                 });
 
                 const limit = response.headers.get('X-RateLimit-Limit');
@@ -68,16 +81,29 @@
                 }
 
                 const data = await response.json();
-
                 if (!response.ok) {
                     resultsPre.innerText = `Error (${response.status}):\n` + JSON.stringify(data, null, 2);
                     return;
                 }
 
                 resultsPre.innerText = JSON.stringify(data, null, 2);
-
             } catch (err) {
                 resultsPre.innerText = `Request failed: ${err.message}`;
+            }
+        }
+
+        async function triggerReset() {
+            const email = prompt("Enter your account email address to receive a replacement key:");
+            if (!email) return;
+
+            try {
+                const res = await fetch(`/api/v1/request-key-reset?email=${encodeURIComponent(email)}`, {
+                    method: 'POST'
+                });
+                const data = await res.json();
+                alert(data.message || "If registered, a reset link has been sent to your email.");
+            } catch (err) {
+                alert("Failed to send reset request.");
             }
         }
     </script>
