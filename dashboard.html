@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>QuantCode Nexus - Subscriber Dashboard</title>
+    <style>
+        body { font-family: sans-serif; max-width: 800px; margin: 40px auto; padding: 0 20px; color: #333; }
+        input, button { padding: 10px; font-size: 16px; margin-top: 5px; }
+        input { width: 60%; }
+        button { background: #0070f3; color: white; border: none; cursor: pointer; }
+        button:hover { background: #0051a2; }
+        pre { background: #f4f4f4; padding: 15px; border-radius: 5px; overflow-x: auto; }
+        .box { background: #fafafa; border: 1px solid #ddd; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
+    </style>
+</head>
+<body>
+    <h1>NexusCore Subscriber Dashboard</h1>
+    <p>Pull live B2B leads using your active subscription API key.</p>
+
+    <div class="box">
+        <label for="apiKey"><strong>Your API Key:</strong></label><br>
+        <input type="password" id="apiKey" placeholder="qcn_..." />
+        <button onclick="saveAndFetch()">Fetch Leads</button>
+    </div>
+
+    <div id="status" style="font-weight: bold; margin-bottom: 10px;"></div>
+    <h3>Live B2B Leads Result:</h3>
+    <pre id="results">Enter your key above and click Fetch Leads.</pre>
+
+    <script>
+        // Load saved key from localStorage on page load
+        window.onload = function() {
+            const savedKey = localStorage.getItem('nexus_api_key');
+            if (savedKey) {
+                document.getElementById('apiKey').value = savedKey;
+            }
+        };
+
+        async function saveAndFetch() {
+            const apiKey = document.getElementById('apiKey').value.trim();
+            const resultsPre = document.getElementById('results');
+            const statusDiv = document.getElementById('status');
+
+            if (!apiKey) {
+                alert("Please enter a valid API key.");
+                return;
+            }
+
+            // Save key in browser storage for convenience
+            localStorage.setItem('nexus_api_key', apiKey);
+
+            resultsPre.innerText = "Loading leads...";
+            statusDiv.innerText = "";
+
+            try {
+                const response = await fetch('/api/v1/leads?limit=10', {
+                    method: 'GET',
+                    headers: {
+                        'x-api-key': apiKey
+                    }
+                });
+
+                const limit = response.headers.get('X-RateLimit-Limit');
+                const remaining = response.headers.get('X-RateLimit-Remaining');
+                
+                if (limit && remaining) {
+                    statusDiv.innerText = `Rate Limit: ${remaining}/${limit} requests remaining this minute.`;
+                }
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    resultsPre.innerText = `Error (${response.status}):\n` + JSON.stringify(data, null, 2);
+                    return;
+                }
+
+                resultsPre.innerText = JSON.stringify(data, null, 2);
+
+            } catch (err) {
+                resultsPre.innerText = `Request failed: ${err.message}`;
+            }
+        }
+    </script>
+</body>
+</html>

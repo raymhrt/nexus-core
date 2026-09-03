@@ -144,7 +144,6 @@ def check_rate_limit(api_key_hash: str, response: Response, max_requests: int = 
     if redis_client:
         redis_key = f"rate_limit:{api_key_hash}:{current_minute}"
         
-        # Use Redis pipeline for atomic count increment and TTL fetch
         pipe = redis_client.pipeline()
         pipe.incr(redis_key, 1)
         pipe.ttl(redis_key)
@@ -157,7 +156,6 @@ def check_rate_limit(api_key_hash: str, response: Response, max_requests: int = 
         remaining = max(0, max_requests - count)
         reset_time = (current_minute + 1) * window_seconds
 
-        # Inject standard rate limit headers
         response.headers["X-RateLimit-Limit"] = str(max_requests)
         response.headers["X-RateLimit-Remaining"] = str(remaining)
         response.headers["X-RateLimit-Reset"] = str(reset_time)
@@ -168,7 +166,6 @@ def check_rate_limit(api_key_hash: str, response: Response, max_requests: int = 
                 detail=f"Rate limit exceeded. Maximum {max_requests} requests per minute allowed for your tier."
             )
     else:
-        # Fallback headers if Redis is not attached
         response.headers["X-RateLimit-Limit"] = str(max_requests)
         response.headers["X-RateLimit-Remaining"] = str(max_requests)
         response.headers["X-RateLimit-Reset"] = str((current_minute + 1) * window_seconds)
@@ -232,6 +229,11 @@ async def read_index():
 @app.get("/success")
 async def success_page():
     return FileResponse("success.html")
+
+
+@app.get("/dashboard")
+async def dashboard_page():
+    return FileResponse("dashboard.html")
 
 
 @app.post("/create-checkout-session")
