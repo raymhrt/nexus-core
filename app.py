@@ -201,8 +201,8 @@ def send_email_via_resend(to_email: str, api_key: str):
         <h2>Welcome to QuantCode Nexus!</h2>
         <p>Thank you for subscribing. Your B2B lead API key has been generated and activated.</p>
         <p><strong>Your API Key:</strong> <code>{api_key}</code></p>
-        <p>You can start making requests immediately using your <code>x-api-key</code> header against our endpoint:</p>
-        <p><code>GET https://nexus-core-yfou.onrender.com/api/v1/leads</code></p>
+        <p>You can access your subscriber dashboard to pull leads instantly:</p>
+        <p><a href="https://nexus-core-yfou.onrender.com/dashboard" style="background: #0070f3; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;">Open Dashboard</a></p>
         <br>
         <p>Happy building,<br>The QuantCode Nexus Team</p>
     """

@@ -7,13 +7,15 @@
         body { font-family: sans-serif; max-width: 800px; margin: 40px auto; padding: 0 20px; color: #333; }
         input, button { padding: 10px; font-size: 16px; margin-top: 5px; }
         input { width: 60%; }
-        button { background: #0070f3; color: white; border: none; cursor: pointer; }
+        button { background: #0070f3; color: white; border: none; cursor: pointer; border-radius: 4px; }
         button:hover { background: #0051a2; }
         pre { background: #f4f4f4; padding: 15px; border-radius: 5px; overflow-x: auto; }
         .box { background: #fafafa; border: 1px solid #ddd; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
+        .nav-link { margin-bottom: 20px; display: block; font-size: 14px; color: #0070f3; text-decoration: none; }
     </style>
 </head>
 <body>
+    <a href="/" class="nav-link">&larr; Back to Home / Pricing</a>
     <h1>NexusCore Subscriber Dashboard</h1>
     <p>Pull live B2B leads using your active subscription API key.</p>
 
@@ -23,12 +25,11 @@
         <button onclick="saveAndFetch()">Fetch Leads</button>
     </div>
 
-    <div id="status" style="font-weight: bold; margin-bottom: 10px;"></div>
+    <div id="status" style="font-weight: bold; margin-bottom: 10px; color: #0070f3;"></div>
     <h3>Live B2B Leads Result:</h3>
     <pre id="results">Enter your key above and click Fetch Leads.</pre>
 
     <script>
-        // Load saved key from localStorage on page load
         window.onload = function() {
             const savedKey = localStorage.getItem('nexus_api_key');
             if (savedKey) {
@@ -46,7 +47,6 @@
                 return;
             }
 
-            // Save key in browser storage for convenience
             localStorage.setItem('nexus_api_key', apiKey);
 
             resultsPre.innerText = "Loading leads...";
