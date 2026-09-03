@@ -3,9 +3,11 @@ import os
 import secrets
 import sqlite3
 import hashlib
+import time
+from collections import defaultdict
 import stripe
 import requests
-from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi import FastAPI, Header, HTTPException, Request, Query
 from fastapi.responses import FileResponse
 from dotenv import load_dotenv
 
@@ -24,6 +26,11 @@ SENDER_EMAIL = os.getenv("SENDER_EMAIL", "onboarding@resend.dev")
 
 # Check for Render Postgres URL, fallback to local sqlite if not set
 DATABASE_URL = os.getenv("DATABASE_URL")
+
+# In-memory rate limiting store: key_hash -> list of timestamps
+REQUEST_HISTORY = defaultdict(list)
+RATE_LIMIT_WINDOW = 60  # seconds
+RATE_LIMIT_MAX_REQUESTS = 30  # max requests per window per API key
 
 
 def get_db():
@@ -53,7 +60,8 @@ def init_db():
             CREATE TABLE IF NOT EXISTS subscribers (
                 email TEXT PRIMARY KEY,
                 api_key TEXT UNIQUE,
-                active INT DEFAULT 1
+                active INT DEFAULT 1,
+                stripe_customer_id TEXT
             )
         """
         )
@@ -73,7 +81,8 @@ def init_db():
             CREATE TABLE IF NOT EXISTS subscribers (
                 email TEXT PRIMARY KEY,
                 api_key TEXT UNIQUE,
-                active INTEGER DEFAULT 1
+                active INTEGER DEFAULT 1,
+                stripe_customer_id TEXT
             )
         """
         )
@@ -94,6 +103,22 @@ def init_db():
 
 # Initialize database tables on startup
 init_db()
+
+
+def check_rate_limit(api_key_hash: str):
+    now = time.time()
+    # Filter out timestamps older than the window
+    history = REQUEST_HISTORY[api_key_hash]
+    recent_requests = [t for t in history if now - t < RATE_LIMIT_WINDOW]
+    
+    if len(recent_requests) >= RATE_LIMIT_MAX_REQUESTS:
+        raise HTTPException(
+            status_code=429,
+            detail="Rate limit exceeded. Maximum 30 requests per minute allowed."
+        )
+    
+    recent_requests.append(now)
+    REQUEST_HISTORY[api_key_hash] = recent_requests
 
 
 def send_telegram_alert(message: str):
@@ -164,7 +189,6 @@ async def create_checkout_session(email: str):
     try:
         checkout_session = stripe.checkout.Session.create(
             customer_email=email,
-            managed_payments={"enabled": False},
             line_items=[
                 {
                     "price_data": {
@@ -188,6 +212,36 @@ async def create_checkout_session(email: str):
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@app.post("/create-portal-session")
+async def create_portal_session(email: str):
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute("SELECT stripe_customer_id FROM subscribers WHERE email = %s", (email,))
+        else:
+            cursor.execute("SELECT stripe_customer_id FROM subscribers WHERE email = ?", (email,))
+        row = cursor.fetchone()
+        cursor.close()
+        conn.close()
+
+        customer_id = row["stripe_customer_id"] if row else None
+
+        if not customer_id:
+            customers = stripe.Customer.list(email=email, limit=1)
+            if not customers.data:
+                raise HTTPException(status_code=404, detail="No active Stripe customer found for this email.")
+            customer_id = customers.data[0].id
+
+        portal_session = stripe.billing_portal.Session.create(
+            customer=customer_id,
+            return_url="https://nexus-core-yfou.onrender.com/success",
+        )
+        return {"portal_url": portal_session.url}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @app.post("/webhook")
 async def stripe_webhook(request: Request):
     payload = await request.body()
@@ -200,22 +254,18 @@ async def stripe_webhook(request: Request):
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Webhook error: {str(e)}")
 
-    if event.type == "checkout.session.completed":
+    event_type = event.type
+    session = event.data.object
+
+    if event_type == "checkout.session.completed":
         try:
-            session = event.data.object
             customer_email = getattr(session, "customer_email", None)
+            customer_id = getattr(session, "customer", None)
 
             if not customer_email and hasattr(session, "customer_details"):
                 details = session.customer_details
                 if details:
                     customer_email = getattr(details, "email", None)
-
-            if not customer_email and getattr(session, "customer", None):
-                try:
-                    cust = stripe.Customer.retrieve(session.customer)
-                    customer_email = getattr(cust, "email", None)
-                except Exception:
-                    pass
 
             if customer_email:
                 raw_api_key = f"qcn_{secrets.token_hex(16)}"
@@ -226,43 +276,64 @@ async def stripe_webhook(request: Request):
                 
                 if DATABASE_URL:
                     cursor.execute(
-                        "INSERT INTO subscribers (email, api_key, active) VALUES (%s, %s, 1) ON CONFLICT (email) DO UPDATE SET api_key = EXCLUDED.api_key, active = 1",
-                        (customer_email, hashed_key),
+                        "INSERT INTO subscribers (email, api_key, active, stripe_customer_id) VALUES (%s, %s, 1, %s) ON CONFLICT (email) DO UPDATE SET api_key = EXCLUDED.api_key, active = 1, stripe_customer_id = EXCLUDED.stripe_customer_id",
+                        (customer_email, hashed_key, customer_id),
                     )
                 else:
                     cursor.execute(
-                        "INSERT OR REPLACE INTO subscribers (email, api_key, active) VALUES (?, ?, 1)",
-                        (customer_email, hashed_key),
+                        "INSERT OR REPLACE INTO subscribers (email, api_key, active, stripe_customer_id) VALUES (?, ?, 1, ?)",
+                        (customer_email, hashed_key, customer_id),
                     )
                 
                 conn.commit()
                 cursor.close()
                 conn.close()
 
-                # 1. Send Telegram Notification Alert (with raw key for your visibility)
                 alert_msg = (
                     f"🚀 *New B2B Subscription!* \n\n"
                     f"Customer: `{customer_email}`\n"
                     f"API Key Provisioned: `{raw_api_key}`"
                 )
                 send_telegram_alert(alert_msg)
-
-                # 2. Automatically Email API Key to Buyer via Resend API
                 send_email_via_resend(customer_email, raw_api_key)
-
-                print(
-                    f"SUCCESS: Provisioned secure API key for {customer_email}"
-                )
         except Exception as err:
             print(f"Webhook processing error: {err}")
+
+    elif event_type in ["customer.subscription.deleted", "invoice.payment_failed"]:
+        try:
+            customer_id = getattr(session, "customer", None)
+            if not customer_id and hasattr(session, "customer"):
+                customer_id = session.customer
+
+            if customer_id:
+                conn = get_db()
+                cursor = conn.cursor()
+                if DATABASE_URL:
+                    cursor.execute("UPDATE subscribers SET active = 0 WHERE stripe_customer_id = %s", (customer_id,))
+                else:
+                    cursor.execute("UPDATE subscribers SET active = 0 WHERE stripe_customer_id = ?", (customer_id,))
+                conn.commit()
+                cursor.close()
+                conn.close()
+                print(f"REVOKED access for customer ID: {customer_id} due to event {event_type}")
+        except Exception as err:
+            print(f"Subscription lifecycle revocation error: {err}")
 
     return {"status": "success"}
 
 
 @app.get("/api/v1/leads")
-async def get_b2b_leads(x_api_key: str = Header(...)):
+async def get_b2b_leads(
+    x_api_key: str = Header(...),
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    company: str | None = Query(None)
+):
     incoming_hash = hash_api_key(x_api_key)
     
+    # Enforce API rate limiting
+    check_rate_limit(incoming_hash)
+
     conn = get_db()
     cursor = conn.cursor()
 
@@ -286,16 +357,34 @@ async def get_b2b_leads(x_api_key: str = Header(...)):
         )
 
     if DATABASE_URL:
-        cursor.execute("SELECT * FROM b2b_leads ORDER BY timestamp DESC LIMIT 50")
+        if company:
+            cursor.execute(
+                "SELECT * FROM b2b_leads WHERE company_name ILIKE %s ORDER BY timestamp DESC LIMIT %s OFFSET %s",
+                (f"%{company}%", limit, offset)
+            )
+        else:
+            cursor.execute(
+                "SELECT * FROM b2b_leads ORDER BY timestamp DESC LIMIT %s OFFSET %s",
+                (limit, offset)
+            )
     else:
-        cursor.execute("SELECT * FROM b2b_leads ORDER BY timestamp DESC LIMIT 50")
+        if company:
+            cursor.execute(
+                "SELECT * FROM b2b_leads WHERE company_name LIKE ? ORDER BY timestamp DESC LIMIT ? OFFSET ?",
+                (f"%{company}%", limit, offset)
+            )
+        else:
+            cursor.execute(
+                "SELECT * FROM b2b_leads ORDER BY timestamp DESC LIMIT ? OFFSET ?",
+                (limit, offset)
+            )
         
     rows = cursor.fetchall()
     leads = [dict(row) for row in rows]
     cursor.close()
     conn.close()
 
-    return {"status": "success", "count": len(leads), "leads": leads}
+    return {"status": "success", "count": len(leads), "limit": limit, "offset": offset, "leads": leads}
 
 
 if __name__ == "__main__":
