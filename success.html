@@ -3,22 +3,90 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Subscription Successful | QuantCode Nexus</title>
-    <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #f8fafc; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
-        .card { background: #1e293b; padding: 40px; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); text-align: center; max-width: 400px; width: 100%; }
-        h1 { color: #38bdf8; margin-top: 0; }
-        p { color: #94a3b8; line-height: 1.5; }
-        .btn { display: inline-block; margin-top: 20px; padding: 12px 24px; background: #38bdf8; color: #0f172a; font-weight: bold; text-decoration: none; border-radius: 6px; }
-        .btn:hover { background: #7dd3fc; }
-    </style>
+    <title>Subscription Success - QuantCode Nexus</title>
+    <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body>
-    <div class="card">
-        <h1>Payment Successful! 🎉</h1>
-        <p>Thank you for subscribing to QuantCode Nexus B2B Leads.</p>
-        <p>Your secure API key has been generated and sent to your email address. Check your inbox to start making requests!</p>
-        <a href="/docs" class="btn">View API Docs</a>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex items-center justify-center px-4">
+    <div class="max-w-md w-full bg-slate-900 border border-slate-800 rounded-2xl p-8 shadow-2xl text-center">
+        <!-- Success Icon -->
+        <div class="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-emerald-500/10 border border-emerald-500/20 mb-6">
+            <svg class="h-8 w-8 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+            </svg>
+        </div>
+
+        <h1 class="text-2xl font-bold tracking-tight mb-2">You're Subscribed! 🚀</h1>
+        <p class="text-slate-400 text-sm mb-6">
+            Your payment was successful. We have securely generated your B2B lead API key and sent it directly to your email inbox and Telegram.
+        </p>
+
+        <!-- Quick API Docs Link -->
+        <div class="bg-slate-950 border border-slate-800 rounded-xl p-4 mb-6 text-left">
+            <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Quick Start</p>
+            <p class="text-xs text-slate-300 font-mono break-all">GET https://nexus-core-yfou.onrender.com/api/v1/leads</p>
+            <p class="text-xs text-slate-500 mt-2">Pass your key via the <code class="text-slate-300">x-api-key</code> header.</p>
+        </div>
+
+        <!-- Billing Portal Section -->
+        <div class="border-t border-slate-800 pt-6">
+            <h2 class="text-sm font-medium text-slate-300 mb-3">Manage Your Subscription</h2>
+            <form id="portal-form" onsubmit="openBillingPortal(event)" class="space-y-3">
+                <input 
+                    type="email" 
+                    id="portal-email" 
+                    placeholder="Enter your subscription email" 
+                    required 
+                    class="w-full px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-lg text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500 transition-colors"
+                >
+                <button 
+                    type="submit" 
+                    id="portal-btn"
+                    class="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-sm rounded-lg transition-colors shadow-lg shadow-indigo-600/20"
+                >
+                    Open Billing Portal
+                </button>
+            </form>
+            <p id="portal-error" class="text-xs text-rose-400 mt-2 hidden"></p>
+        </div>
+
+        <div class="mt-8 text-xs text-slate-600">
+            &copy; 2026 QuantCode Nexus. All rights reserved.
+        </div>
     </div>
+
+    <script>
+        async function openBillingPortal(event) {
+            event.preventDefault();
+            const emailInput = document.getElementById('portal-email').value;
+            const btn = document.getElementById('portal-btn');
+            const errorEl = document.getElementById('portal-error');
+
+            errorEl.classList.add('hidden');
+            btn.textContent = 'Generating Portal...';
+            btn.disabled = true;
+
+            try {
+                const response = await fetch(`/create-portal-session?email=${encodeURIComponent(emailInput)}`, {
+                    method: 'POST',
+                });
+
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.detail || 'Failed to open billing portal.');
+                }
+
+                if (data.portal_url) {
+                    window.location.href = data.portal_url;
+                } else {
+                    throw new Error('No portal URL received.');
+                }
+            } catch (err) {
+                errorEl.textContent = err.message;
+                errorEl.classList.remove('hidden');
+                btn.textContent = 'Open Billing Portal';
+                btn.disabled = false;
+            }
+        }
+    </script>
 </body>
 </html>
