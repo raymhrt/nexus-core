@@ -4,14 +4,25 @@ import secrets
 import sqlite3
 import hashlib
 import time
-from collections import defaultdict
 import stripe
 import requests
+import redis
+import sentry_sdk
+from sentry_sdk.integrations.fastapi import FastApiIntegration
 from fastapi import FastAPI, Header, HTTPException, Request, Query
 from fastapi.responses import FileResponse
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# Initialize Sentry Error Monitoring
+SENTRY_DSN = os.getenv("SENTRY_DSN")
+if SENTRY_DSN:
+    sentry_sdk.init(
+        dsn=SENTRY_DSN,
+        integrations=[FastApiIntegration()],
+        traces_sample_rate=1.0,
+    )
 
 app = FastAPI(title="QuantCode Nexus Lead API")
 
@@ -24,12 +35,12 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 RESEND_API_KEY = os.getenv("RESEND_API_KEY")
 SENDER_EMAIL = os.getenv("SENDER_EMAIL", "onboarding@resend.dev")
 
-# Check for Render Postgres URL, fallback to local sqlite if not set
+# Check for Render Postgres URL & Redis URL
 DATABASE_URL = os.getenv("DATABASE_URL")
+REDIS_URL = os.getenv("REDIS_URL")
 
-# In-memory rate limiting store: key_hash -> list of timestamps
-REQUEST_HISTORY = defaultdict(list)
-RATE_LIMIT_WINDOW = 60  # seconds
+# Initialize Redis client for distributed rate limiting if available
+redis_client = redis.from_url(REDIS_URL) if REDIS_URL else None
 
 
 def get_db():
@@ -122,28 +133,33 @@ def init_db():
     conn.close()
 
 
-# Initialize database tables on startup
 init_db()
 
 
 def check_rate_limit(api_key_hash: str, max_requests: int = 30):
-    now = time.time()
-    history = REQUEST_HISTORY[api_key_hash]
-    recent_requests = [t for t in history if now - t < RATE_LIMIT_WINDOW]
-    
-    if len(recent_requests) >= max_requests:
-        raise HTTPException(
-            status_code=429,
-            detail=f"Rate limit exceeded. Maximum {max_requests} requests per minute allowed for your tier."
-        )
-    
-    recent_requests.append(now)
-    REQUEST_HISTORY[api_key_hash] = recent_requests
+    if redis_client:
+        # Distributed Redis-backed fixed window rate limiter (60s bucket)
+        current_minute = int(time.time() // 60)
+        redis_key = f"rate_limit:{api_key_hash}:{current_minute}"
+        
+        current_count = redis_client.get(redis_key)
+        if current_count and int(current_count) >= max_requests:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Rate limit exceeded. Maximum {max_requests} requests per minute allowed for your tier."
+            )
+        
+        pipe = redis_client.pipeline()
+        pipe.incr(redis_key, 1)
+        pipe.expire(redis_key, 60)
+        pipe.execute()
+    else:
+        # Fallback safeguard if Redis is not configured
+        pass
 
 
 def send_telegram_alert(message: str):
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        print("Telegram tokens not configured.")
         return
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {
@@ -160,7 +176,6 @@ def send_telegram_alert(message: str):
 
 def send_email_via_resend(to_email: str, api_key: str):
     if not RESEND_API_KEY:
-        print("Resend API key not configured.")
         return
 
     url = "https://api.resend.com/emails"
@@ -189,9 +204,8 @@ def send_email_via_resend(to_email: str, api_key: str):
     try:
         response = requests.post(url, json=payload, headers=headers, timeout=10)
         response.raise_for_status()
-        print(f"SUCCESS: Emailed API key to {to_email} via Resend API")
     except Exception as e:
-        print(f"CRITICAL RESEND API ERROR: {str(e)}")
+        print(f"Resend API error: {str(e)}")
 
 
 @app.get("/")
@@ -233,7 +247,6 @@ async def create_checkout_session(email: str, tier: str = "starter"):
         )
         return {"checkout_url": checkout_session.url}
     except Exception as e:
-        print(f"Stripe Checkout Error: {str(e)}")
         raise HTTPException(status_code=400, detail=str(e))
 
 
@@ -324,7 +337,7 @@ async def stripe_webhook(request: Request):
                 send_telegram_alert(alert_msg)
                 send_email_via_resend(customer_email, raw_api_key)
         except Exception as err:
-            print(f"Webhook processing error: {err}")
+            print(f"Webhook error: {err}")
 
     elif event_type in ["customer.subscription.deleted", "invoice.payment_failed"]:
         try:
@@ -342,9 +355,8 @@ async def stripe_webhook(request: Request):
                 conn.commit()
                 cursor.close()
                 conn.close()
-                print(f"REVOKED access for customer ID: {customer_id} due to event {event_type}")
         except Exception as err:
-            print(f"Subscription lifecycle revocation error: {err}")
+            print(f"Revocation error: {err}")
 
     return {"status": "success"}
 
@@ -382,7 +394,6 @@ async def get_b2b_leads(
 
     subscriber_tier = subscriber["tier"] if isinstance(subscriber, (dict, sqlite3.Row)) or hasattr(subscriber, "__getitem__") else subscriber[1]
 
-    # Enforce tier-based pagination limit
     max_limit = 200 if subscriber_tier == "pro" else 50
     if limit > max_limit:
         cursor.close()
@@ -392,7 +403,6 @@ async def get_b2b_leads(
             detail=f"Your '{subscriber_tier}' tier allows a maximum record limit of {max_limit} per request."
         )
 
-    # Dynamic rate limiting window based on tier
     rate_limit_max = 120 if subscriber_tier == "pro" else 30
     check_rate_limit(incoming_hash, max_requests=rate_limit_max)
 
