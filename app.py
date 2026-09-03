@@ -67,6 +67,11 @@ def init_db():
         )
         cursor.execute(
             """
+            ALTER TABLE subscribers ADD COLUMN IF NOT EXISTS stripe_customer_id TEXT;
+            """
+        )
+        cursor.execute(
+            """
             CREATE TABLE IF NOT EXISTS b2b_leads (
                 id SERIAL PRIMARY KEY,
                 company_name TEXT,
@@ -86,6 +91,11 @@ def init_db():
             )
         """
         )
+        try:
+            cursor.execute("ALTER TABLE subscribers ADD COLUMN stripe_customer_id TEXT;")
+        except Exception:
+            pass
+
         cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS b2b_leads (
