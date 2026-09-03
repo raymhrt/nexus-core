@@ -30,7 +30,6 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 # In-memory rate limiting store: key_hash -> list of timestamps
 REQUEST_HISTORY = defaultdict(list)
 RATE_LIMIT_WINDOW = 60  # seconds
-RATE_LIMIT_MAX_REQUESTS = 30  # max requests per window per API key
 
 
 def get_db():
@@ -61,13 +60,19 @@ def init_db():
                 email TEXT PRIMARY KEY,
                 api_key TEXT UNIQUE,
                 active INT DEFAULT 1,
-                stripe_customer_id TEXT
+                stripe_customer_id TEXT,
+                tier TEXT DEFAULT 'starter'
             )
         """
         )
         cursor.execute(
             """
             ALTER TABLE subscribers ADD COLUMN IF NOT EXISTS stripe_customer_id TEXT;
+            """
+        )
+        cursor.execute(
+            """
+            ALTER TABLE subscribers ADD COLUMN IF NOT EXISTS tier TEXT DEFAULT 'starter';
             """
         )
         cursor.execute(
@@ -87,12 +92,18 @@ def init_db():
                 email TEXT PRIMARY KEY,
                 api_key TEXT UNIQUE,
                 active INTEGER DEFAULT 1,
-                stripe_customer_id TEXT
+                stripe_customer_id TEXT,
+                tier TEXT DEFAULT 'starter'
             )
         """
         )
         try:
             cursor.execute("ALTER TABLE subscribers ADD COLUMN stripe_customer_id TEXT;")
+        except Exception:
+            pass
+
+        try:
+            cursor.execute("ALTER TABLE subscribers ADD COLUMN tier TEXT DEFAULT 'starter';")
         except Exception:
             pass
 
@@ -115,15 +126,15 @@ def init_db():
 init_db()
 
 
-def check_rate_limit(api_key_hash: str):
+def check_rate_limit(api_key_hash: str, max_requests: int = 30):
     now = time.time()
     history = REQUEST_HISTORY[api_key_hash]
     recent_requests = [t for t in history if now - t < RATE_LIMIT_WINDOW]
     
-    if len(recent_requests) >= RATE_LIMIT_MAX_REQUESTS:
+    if len(recent_requests) >= max_requests:
         raise HTTPException(
             status_code=429,
-            detail="Rate limit exceeded. Maximum 30 requests per minute allowed."
+            detail=f"Rate limit exceeded. Maximum {max_requests} requests per minute allowed for your tier."
         )
     
     recent_requests.append(now)
@@ -194,19 +205,23 @@ async def success_page():
 
 
 @app.post("/create-checkout-session")
-async def create_checkout_session(email: str):
+async def create_checkout_session(email: str, tier: str = "starter"):
+    amount = 9900 if tier == "pro" else 2900
+    plan_name = "QuantCode Nexus Pro B2B Leads" if tier == "pro" else "QuantCode Nexus Starter B2B Leads"
+    
     try:
         checkout_session = stripe.checkout.Session.create(
             customer_email=email,
             managed_payments={"enabled": False},
+            metadata={"tier": tier},
             line_items=[
                 {
                     "price_data": {
                         "currency": "usd",
                         "product_data": {
-                            "name": "QuantCode Nexus B2B Leads Access"
+                            "name": plan_name
                         },
-                        "unit_amount": 2900,  # $29.00
+                        "unit_amount": amount,
                         "recurring": {"interval": "month"},
                     },
                     "quantity": 1,
@@ -271,6 +286,8 @@ async def stripe_webhook(request: Request):
         try:
             customer_email = getattr(session, "customer_email", None)
             customer_id = getattr(session, "customer", None)
+            metadata = getattr(session, "metadata", {}) or {}
+            tier = metadata.get("tier", "starter")
 
             if not customer_email and hasattr(session, "customer_details"):
                 details = session.customer_details
@@ -286,13 +303,13 @@ async def stripe_webhook(request: Request):
                 
                 if DATABASE_URL:
                     cursor.execute(
-                        "INSERT INTO subscribers (email, api_key, active, stripe_customer_id) VALUES (%s, %s, 1, %s) ON CONFLICT (email) DO UPDATE SET api_key = EXCLUDED.api_key, active = 1, stripe_customer_id = EXCLUDED.stripe_customer_id",
-                        (customer_email, hashed_key, customer_id),
+                        "INSERT INTO subscribers (email, api_key, active, stripe_customer_id, tier) VALUES (%s, %s, 1, %s, %s) ON CONFLICT (email) DO UPDATE SET api_key = EXCLUDED.api_key, active = 1, stripe_customer_id = EXCLUDED.stripe_customer_id, tier = EXCLUDED.tier",
+                        (customer_email, hashed_key, customer_id, tier),
                     )
                 else:
                     cursor.execute(
-                        "INSERT OR REPLACE INTO subscribers (email, api_key, active, stripe_customer_id) VALUES (?, ?, 1, ?)",
-                        (customer_email, hashed_key, customer_id),
+                        "INSERT OR REPLACE INTO subscribers (email, api_key, active, stripe_customer_id, tier) VALUES (?, ?, 1, ?, ?)",
+                        (customer_email, hashed_key, customer_id, tier),
                     )
                 
                 conn.commit()
@@ -300,7 +317,7 @@ async def stripe_webhook(request: Request):
                 conn.close()
 
                 alert_msg = (
-                    f"🚀 *New B2B Subscription!* \n\n"
+                    f"🚀 *New B2B Subscription ({tier.upper()})!* \n\n"
                     f"Customer: `{customer_email}`\n"
                     f"API Key Provisioned: `{raw_api_key}`"
                 )
@@ -335,26 +352,23 @@ async def stripe_webhook(request: Request):
 @app.get("/api/v1/leads")
 async def get_b2b_leads(
     x_api_key: str = Header(...),
-    limit: int = Query(50, ge=1, le=100),
+    limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     company: str | None = Query(None)
 ):
     incoming_hash = hash_api_key(x_api_key)
-    
-    # Enforce API rate limiting
-    check_rate_limit(incoming_hash)
 
     conn = get_db()
     cursor = conn.cursor()
 
     if DATABASE_URL:
         cursor.execute(
-            "SELECT active FROM subscribers WHERE api_key = %s AND active = 1",
+            "SELECT active, tier FROM subscribers WHERE api_key = %s AND active = 1",
             (incoming_hash,),
         )
     else:
         cursor.execute(
-            "SELECT active FROM subscribers WHERE api_key = ? AND active = 1",
+            "SELECT active, tier FROM subscribers WHERE api_key = ? AND active = 1",
             (incoming_hash,),
         )
     subscriber = cursor.fetchone()
@@ -365,6 +379,22 @@ async def get_b2b_leads(
         raise HTTPException(
             status_code=403, detail="Invalid or inactive API subscription key."
         )
+
+    subscriber_tier = subscriber["tier"] if isinstance(subscriber, (dict, sqlite3.Row)) or hasattr(subscriber, "__getitem__") else subscriber[1]
+
+    # Enforce tier-based pagination limit
+    max_limit = 200 if subscriber_tier == "pro" else 50
+    if limit > max_limit:
+        cursor.close()
+        conn.close()
+        raise HTTPException(
+            status_code=400,
+            detail=f"Your '{subscriber_tier}' tier allows a maximum record limit of {max_limit} per request."
+        )
+
+    # Dynamic rate limiting window based on tier
+    rate_limit_max = 120 if subscriber_tier == "pro" else 30
+    check_rate_limit(incoming_hash, max_requests=rate_limit_max)
 
     if DATABASE_URL:
         if company:
@@ -394,7 +424,7 @@ async def get_b2b_leads(
     cursor.close()
     conn.close()
 
-    return {"status": "success", "count": len(leads), "limit": limit, "offset": offset, "leads": leads}
+    return {"status": "success", "tier": subscriber_tier, "count": len(leads), "limit": limit, "offset": offset, "leads": leads}
 
 
 if __name__ == "__main__":
