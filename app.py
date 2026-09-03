@@ -107,7 +107,6 @@ init_db()
 
 def check_rate_limit(api_key_hash: str):
     now = time.time()
-    # Filter out timestamps older than the window
     history = REQUEST_HISTORY[api_key_hash]
     recent_requests = [t for t in history if now - t < RATE_LIMIT_WINDOW]
     
@@ -189,6 +188,7 @@ async def create_checkout_session(email: str):
     try:
         checkout_session = stripe.checkout.Session.create(
             customer_email=email,
+            managed_payments={"enabled": False},
             line_items=[
                 {
                     "price_data": {
