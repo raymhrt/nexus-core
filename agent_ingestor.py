@@ -35,21 +35,27 @@ def run_ai_lead_agent():
     }
     """
 
-    # Retry loop specifically for model availability spikes (503)
     response = None
-    for gemini_attempt in range(3):
-        try:
-            response = client.models.generate_content(
-                model="gemini-3.6-flash",
-                contents=prompt,
-            )
-            break
-        except ServerError as se:
-            print(f"Gemini model busy (Attempt {gemini_attempt + 1}/3): {se}. Retrying in 10s...")
-            time.sleep(10)
+    # Try gemini-2.5-flash first, fallback to gemini-1.5-flash if needed
+    models_to_try = ["gemini-2.5-flash", "gemini-1.5-flash"]
     
+    for model_name in models_to_try:
+        print(f"Attempting generation with model: {model_name}")
+        for gemini_attempt in range(2):
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                )
+                break
+            except ServerError as se:
+                print(f"Model {model_name} busy (Attempt {gemini_attempt + 1}/2): {se}. Retrying in 5s...")
+                time.sleep(5)
+        if response:
+            break
+
     if not response:
-        raise RuntimeError("Gemini model remained unavailable after multiple retries.")
+        raise RuntimeError("All Gemini fallback models are currently unavailable. Please try again later.")
 
     lead_payload = response.text
 
