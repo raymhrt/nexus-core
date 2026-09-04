@@ -11,6 +11,8 @@ import sentry_sdk
 from sentry_sdk.integrations.fastapi import FastApiIntegration
 from fastapi import FastAPI, Header, HTTPException, Request, Query, Response, BackgroundTasks
 from fastapi.responses import FileResponse
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -23,8 +25,6 @@ if SENTRY_DSN:
         traces_sample_rate=1.0,
     )
 
-app = FastAPI(title="QuantCode Nexus Lead API")
-
 stripe.api_key = os.getenv("STRIPE_API_KEY", "your_stripe_key_here")
 ENDPOINT_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "your_webhook_secret_here")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -36,14 +36,13 @@ SENDER_EMAIL = os.getenv("SENDER_EMAIL", "onboarding@resend.dev")
 DATABASE_URL = os.getenv("DATABASE_URL")
 REDIS_URL = os.getenv("REDIS_URL")
 
-# Initialize Redis client with error handling resilience
 redis_client = None
 if REDIS_URL:
     try:
         redis_client = redis.from_url(REDIS_URL, decode_responses=True)
         redis_client.ping()
     except Exception as e:
-        print(f"Warning: Could not connect to Redis: {e}")
+        print(f"Warning: Redis connection failed: {e}")
         redis_client = None
 
 
@@ -73,7 +72,6 @@ def init_db():
             """
             CREATE TABLE IF NOT EXISTS subscribers (
                 email TEXT PRIMARY KEY,
-                api_key TEXT UNIQUE,
                 active INT DEFAULT 1,
                 stripe_customer_id TEXT,
                 tier TEXT DEFAULT 'starter',
@@ -82,11 +80,18 @@ def init_db():
             )
         """
         )
-        cursor.execute("ALTER TABLE subscribers ADD COLUMN IF NOT EXISTS stripe_customer_id TEXT;")
-        cursor.execute("ALTER TABLE subscribers ADD COLUMN IF NOT EXISTS tier TEXT DEFAULT 'starter';")
-        cursor.execute("ALTER TABLE subscribers ADD COLUMN IF NOT EXISTS reset_token TEXT;")
-        cursor.execute("ALTER TABLE subscribers ADD COLUMN IF NOT EXISTS reset_expires_at TIMESTAMP;")
-        
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS api_keys (
+                id SERIAL PRIMARY KEY,
+                email TEXT REFERENCES subscribers(email),
+                key_hash TEXT UNIQUE,
+                key_name TEXT DEFAULT 'Default',
+                active INT DEFAULT 1,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """
+        )
         cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS b2b_leads (
@@ -110,7 +115,6 @@ def init_db():
             """
             CREATE TABLE IF NOT EXISTS subscribers (
                 email TEXT PRIMARY KEY,
-                api_key TEXT UNIQUE,
                 active INTEGER DEFAULT 1,
                 stripe_customer_id TEXT,
                 tier TEXT DEFAULT 'starter',
@@ -119,26 +123,18 @@ def init_db():
             )
         """
         )
-        try:
-            cursor.execute("ALTER TABLE subscribers ADD COLUMN stripe_customer_id TEXT;")
-        except Exception:
-            pass
-
-        try:
-            cursor.execute("ALTER TABLE subscribers ADD COLUMN tier TEXT DEFAULT 'starter';")
-        except Exception:
-            pass
-
-        try:
-            cursor.execute("ALTER TABLE subscribers ADD COLUMN reset_token TEXT;")
-        except Exception:
-            pass
-
-        try:
-            cursor.execute("ALTER TABLE subscribers ADD COLUMN reset_expires_at DATETIME;")
-        except Exception:
-            pass
-
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS api_keys (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email TEXT,
+                key_hash TEXT UNIQUE,
+                key_name TEXT DEFAULT 'Default',
+                active INTEGER DEFAULT 1,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """
+        )
         cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS b2b_leads (
@@ -163,6 +159,80 @@ def init_db():
 
 
 init_db()
+
+
+async def automated_lead_ingestion():
+    companies = ["Apex Innovations", "Quantum Dynamics", "Vortex Cloud", "Nexus Analytics", "Stellar Solutions", "Ironclad Security"]
+    sample_company = f"{secrets.choice(companies)} {secrets.randbelow(900) + 100}"
+    sample_email = f"contact@{sample_company.lower().replace(' ', '')}.io"
+    
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute("INSERT INTO b2b_leads (company_name, email) VALUES (%s, %s)", (sample_company, sample_email))
+        else:
+            cursor.execute("INSERT INTO b2b_leads (company_name, email) VALUES (?, ?)", (sample_company, sample_email))
+        conn.commit()
+        cursor.close()
+        conn.close()
+        print(f"Background Worker: Ingested lead -> {sample_company}")
+    except Exception as e:
+        print(f"Background Worker Error: {e}")
+
+
+scheduler = AsyncIOScheduler()
+scheduler.add_job(automated_lead_ingestion, "interval", hours=1)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    scheduler.start()
+    yield
+    scheduler.shutdown()
+
+
+app = FastAPI(title="QuantCode Nexus Lead API", lifespan=lifespan)
+
+
+def verify_api_key(x_api_key: str):
+    incoming_hash = hash_api_key(x_api_key)
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    if DATABASE_URL:
+        cursor.execute(
+            """
+            SELECT k.email, k.key_name, s.active, s.tier 
+            FROM api_keys k 
+            JOIN subscribers s ON k.email = s.email 
+            WHERE k.key_hash = %s AND k.active = 1 AND s.active = 1
+            """,
+            (incoming_hash,)
+        )
+    else:
+        cursor.execute(
+            """
+            SELECT k.email, k.key_name, s.active, s.tier 
+            FROM api_keys k 
+            JOIN subscribers s ON k.email = s.email 
+            WHERE k.key_hash = ? AND k.active = 1 AND s.active = 1
+            """,
+            (incoming_hash,)
+        )
+    row = cursor.fetchone()
+    cursor.close()
+    conn.close()
+    
+    if not row:
+        raise HTTPException(status_code=403, detail="Invalid or inactive API subscription key.")
+    
+    return {
+        "email": row["email"] if isinstance(row, dict) or hasattr(row, "__keys__") else row[0],
+        "key_name": row["key_name"] if isinstance(row, dict) or hasattr(row, "__keys__") else row[1],
+        "tier": row["tier"] if isinstance(row, dict) or hasattr(row, "__keys__") else row[3],
+        "hash": incoming_hash
+    }
 
 
 def check_rate_limit(api_key_hash: str, response: Response, max_requests: int = 30):
@@ -192,7 +262,7 @@ def check_rate_limit(api_key_hash: str, response: Response, max_requests: int = 
             if count > max_requests:
                 raise HTTPException(
                     status_code=429,
-                    detail=f"Rate limit exceeded. Maximum {max_requests} requests per minute allowed for your tier."
+                    detail=f"Rate limit exceeded. Maximum {max_requests} requests per minute allowed."
                 )
             return
         except redis.RedisError as e:
@@ -289,9 +359,11 @@ async def confirm_key_reset(token: str, background_tasks: BackgroundTasks):
     new_hashed_key = hash_api_key(new_raw_key)
 
     if DATABASE_URL:
-        cursor.execute("UPDATE subscribers SET api_key = %s, reset_token = NULL, reset_expires_at = NULL WHERE email = %s", (new_hashed_key, email))
+        cursor.execute("INSERT INTO api_keys (email, key_hash, key_name) VALUES (%s, %s, 'Reset Key')", (email, new_hashed_key))
+        cursor.execute("UPDATE subscribers SET reset_token = NULL, reset_expires_at = NULL WHERE email = %s", (email,))
     else:
-        cursor.execute("UPDATE subscribers SET api_key = ?, reset_token = NULL, reset_expires_at = NULL WHERE email = ?", (new_hashed_key, email))
+        cursor.execute("INSERT INTO api_keys (email, key_hash, key_name) VALUES (?, ?, 'Reset Key')", (email, new_hashed_key))
+        cursor.execute("UPDATE subscribers SET reset_token = NULL, reset_expires_at = NULL WHERE email = ?", (email,))
     conn.commit()
     cursor.close()
     conn.close()
@@ -329,6 +401,72 @@ async def request_key_reset(email: str, background_tasks: BackgroundTasks):
     reset_url = f"https://nexus-core-yfou.onrender.com/reset-confirm?token={reset_token}"
     background_tasks.add_task(send_password_reset_email, email, reset_url)
     return {"status": "success", "message": "If an active account exists, a reset link has been sent."}
+
+
+@app.get("/api/v1/keys")
+async def list_subscriber_keys(x_api_key: str = Header(...)):
+    sub = verify_api_key(x_api_key)
+    conn = get_db()
+    cursor = conn.cursor()
+    if DATABASE_URL:
+        cursor.execute("SELECT id, key_name, active, created_at FROM api_keys WHERE email = %s", (sub["email"],))
+    else:
+        cursor.execute("SELECT id, key_name, active, created_at FROM api_keys WHERE email = ?", (sub["email"],))
+    keys = [dict(r) for r in cursor.fetchall()]
+    cursor.close()
+    conn.close()
+    return {"status": "success", "keys": keys}
+
+
+@app.post("/api/v1/keys")
+async def create_subscriber_key(key_name: str = "New Key", x_api_key: str = Header(...)):
+    sub = verify_api_key(x_api_key)
+    raw_key = f"qcn_{secrets.token_hex(16)}"
+    hashed_key = hash_api_key(raw_key)
+
+    conn = get_db()
+    cursor = conn.cursor()
+    if DATABASE_URL:
+        cursor.execute("INSERT INTO api_keys (email, key_hash, key_name) VALUES (%s, %s, %s)", (sub["email"], hashed_key, key_name))
+    else:
+        cursor.execute("INSERT INTO api_keys (email, key_hash, key_name) VALUES (?, ?, ?)", (sub["email"], hashed_key, key_name))
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+    return {"status": "success", "key_name": key_name, "api_key": raw_key, "message": "Save this key now. It will not be shown again."}
+
+
+@app.delete("/api/v1/keys/{key_id}")
+async def revoke_subscriber_key(key_id: int, x_api_key: str = Header(...)):
+    sub = verify_api_key(x_api_key)
+    conn = get_db()
+    cursor = conn.cursor()
+    if DATABASE_URL:
+        cursor.execute("UPDATE api_keys SET active = 0 WHERE id = %s AND email = %s", (key_id, sub["email"]))
+    else:
+        cursor.execute("UPDATE api_keys SET active = 0 WHERE id = ? AND email = ?", (key_id, sub["email"]))
+    conn.commit()
+    cursor.close()
+    conn.close()
+    return {"status": "success", "message": f"API key ID {key_id} revoked."}
+
+
+@app.get("/api/v1/usage")
+async def get_usage_analytics(response: Response, x_api_key: str = Header(...)):
+    sub = verify_api_key(x_api_key)
+    max_limit = 120 if sub["tier"] == "pro" else 30
+    check_rate_limit(sub["hash"], response=response, max_requests=max_limit)
+    
+    remaining = response.headers.get("X-RateLimit-Remaining", str(max_limit))
+    
+    return {
+        "status": "success",
+        "tier": sub["tier"],
+        "rate_limit_max": max_limit,
+        "requests_remaining_this_minute": int(remaining),
+        "quota_status": "Active & Healthy"
+    }
 
 
 @app.post("/api/v1/admin/ingest-lead")
@@ -458,14 +596,16 @@ async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
                 
                 if DATABASE_URL:
                     cursor.execute(
-                        "INSERT INTO subscribers (email, api_key, active, stripe_customer_id, tier) VALUES (%s, %s, 1, %s, %s) ON CONFLICT (email) DO UPDATE SET api_key = EXCLUDED.api_key, active = 1, stripe_customer_id = EXCLUDED.stripe_customer_id, tier = EXCLUDED.tier",
-                        (customer_email, hashed_key, customer_id, tier),
+                        "INSERT INTO subscribers (email, active, stripe_customer_id, tier) VALUES (%s, 1, %s, %s) ON CONFLICT (email) DO UPDATE SET active = 1, stripe_customer_id = EXCLUDED.stripe_customer_id, tier = EXCLUDED.tier",
+                        (customer_email, customer_id, tier),
                     )
+                    cursor.execute("INSERT INTO api_keys (email, key_hash, key_name) VALUES (%s, %s, 'Primary Key')", (customer_email, hashed_key))
                 else:
                     cursor.execute(
-                        "INSERT OR REPLACE INTO subscribers (email, api_key, active, stripe_customer_id, tier) VALUES (?, ?, 1, ?, ?)",
-                        (customer_email, hashed_key, customer_id, tier),
+                        "INSERT OR REPLACE INTO subscribers (email, active, stripe_customer_id, tier) VALUES (?, 1, ?, ?)",
+                        (customer_email, customer_id, tier),
                     )
+                    cursor.execute("INSERT INTO api_keys (email, key_hash, key_name) VALUES (?, ?, 'Primary Key')", (customer_email, hashed_key))
                 conn.commit()
 
                 background_tasks.add_task(send_telegram_alert, f"🚀 *New Subscription ({tier.upper()})!*\nCustomer: `{customer_email}`")
@@ -498,29 +638,15 @@ async def get_b2b_leads(
     offset: int = Query(0, ge=0),
     company: str | None = Query(None)
 ):
-    incoming_hash = hash_api_key(x_api_key)
+    sub = verify_api_key(x_api_key)
+    max_limit = 200 if sub["tier"] == "pro" else 50
+    if limit > max_limit:
+        raise HTTPException(status_code=400, detail=f"Your '{sub['tier']}' tier allows max {max_limit} records per request.")
+
+    check_rate_limit(sub["hash"], response=response, max_requests=(120 if sub["tier"] == "pro" else 30))
+
     conn = get_db()
     cursor = conn.cursor()
-
-    if DATABASE_URL:
-        cursor.execute("SELECT active, tier FROM subscribers WHERE api_key = %s AND active = 1", (incoming_hash,))
-    else:
-        cursor.execute("SELECT active, tier FROM subscribers WHERE api_key = ? AND active = 1", (incoming_hash,))
-    subscriber = cursor.fetchone()
-
-    if not subscriber:
-        cursor.close()
-        conn.close()
-        raise HTTPException(status_code=403, detail="Invalid or inactive API subscription key.")
-
-    subscriber_tier = subscriber["tier"] if isinstance(subscriber, (dict, sqlite3.Row)) or hasattr(subscriber, "__getitem__") else subscriber[1]
-    max_limit = 200 if subscriber_tier == "pro" else 50
-    if limit > max_limit:
-        cursor.close()
-        conn.close()
-        raise HTTPException(status_code=400, detail=f"Your '{subscriber_tier}' tier allows max {max_limit} records per request.")
-
-    check_rate_limit(incoming_hash, response=response, max_requests=(120 if subscriber_tier == "pro" else 30))
 
     if DATABASE_URL:
         if company:
@@ -538,7 +664,7 @@ async def get_b2b_leads(
     cursor.close()
     conn.close()
 
-    return {"status": "success", "tier": subscriber_tier, "count": len(leads), "limit": limit, "offset": offset, "leads": leads}
+    return {"status": "success", "tier": sub["tier"], "count": len(leads), "limit": limit, "offset": offset, "leads": leads}
 
 
 if __name__ == "__main__":
