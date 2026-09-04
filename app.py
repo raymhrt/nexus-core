@@ -684,6 +684,25 @@ async def privacy_page():
     return FileResponse("privacy.html")
 
 
+@app.get("/api/v1/admin/cleanup-webhooks")
+async def cleanup_webhooks(admin_key: str):
+    if not ADMIN_SECRET_KEY or admin_key != ADMIN_SECRET_KEY:
+        raise HTTPException(status_code=403, detail="Unauthorized")
+    
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute("DELETE FROM subscriber_webhooks WHERE webhook_url LIKE '%your-unique-url%';")
+        else:
+            cursor.execute("DELETE FROM subscriber_webhooks WHERE webhook_url LIKE '%your-unique-url%';")
+        conn.commit()
+        cursor.close()
+    finally:
+        release_db(conn)
+    return {"status": "success", "message": "Placeholder webhooks cleaned up."}
+
+
 @app.get("/api/v1/claim-session")
 async def claim_session_key(session_id: str):
     try:
