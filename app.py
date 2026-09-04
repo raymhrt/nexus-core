@@ -23,6 +23,7 @@ from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 from psycopg2 import pool
 from psycopg2.extras import RealDictCursor
+from google import genai
 
 load_dotenv()
 
@@ -40,6 +41,9 @@ WEBHOOK_SIGNING_SECRET = os.getenv("WEBHOOK_SIGNING_SECRET", "nexus_sec_sig_defa
 ADMIN_SECRET_KEY = os.getenv("ADMIN_SECRET_KEY")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+ai_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
 RESEND_API_KEY = os.getenv("RESEND_API_KEY")
 SENDER_EMAIL = os.getenv("SENDER_EMAIL", "onboarding@resend.dev")
@@ -448,46 +452,62 @@ def dispatch_outbound_webhooks(lead_data: dict):
 
 
 async def automated_lead_ingestion():
-    companies = ["Apex Innovations", "Quantum Dynamics", "Vortex Cloud", "Nexus Analytics", "Stellar Solutions", "Ironclad Security"]
-    industries = ["Cloud Infrastructure", "FinTech", "Cybersecurity", "Artificial Intelligence", "B2B SaaS"]
-    sizes = ["10-50", "50-200", "200-500", "500+"]
+    if not ai_client:
+        print("Gemini AI Client not initialized. Skipping automated ingestion.")
+        return
+
+    prompt = (
+        "Generate a JSON list of 3 real, active B2B technology, SaaS, or AI companies. "
+        "For each company, provide: "
+        "company_name, contact email format (e.g. contact@domain.com), industry, "
+        "employee_count (e.g. '51-200'), and linkedin_url. "
+        "Return strictly valid JSON matching this schema: "
+        '[{"company_name": "...", "email": "...", "industry": "...", "employee_count": "...", "linkedin_url": "..."}]'
+    )
     
-    sample_company = f"{secrets.choice(companies)} {secrets.randbelow(900) + 100}"
-    sample_email = f"contact@{sample_company.lower().replace(' ', '')}.io"
-    sample_industry = secrets.choice(industries)
-    sample_size = secrets.choice(sizes)
-    sample_linkedin = f"https://linkedin.com/company/{sample_company.lower().replace(' ', '')}"
-    
-    conn = get_db()
     try:
-        cursor = conn.cursor()
-        if DATABASE_URL:
-            cursor.execute(
-                "INSERT INTO b2b_leads (company_name, email, industry, employee_count, linkedin_url) VALUES (%s, %s, %s, %s, %s) ON CONFLICT (company_name) DO NOTHING",
-                (sample_company, sample_email, sample_industry, sample_size, sample_linkedin)
-            )
-        else:
-            cursor.execute(
-                "INSERT OR IGNORE INTO b2b_leads (company_name, email, industry, employee_count, linkedin_url) VALUES (?, ?, ?, ?, ?)",
-                (sample_company, sample_email, sample_industry, sample_size, sample_linkedin)
-            )
-        inserted = cursor.rowcount > 0
-        conn.commit()
-        cursor.close()
+        response = ai_client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt,
+        )
+        raw_text = response.text.strip()
+        if raw_text.startswith("```json"):
+            raw_text = raw_text[7:-3].strip()
+        elif raw_text.startswith("```"):
+            raw_text = raw_text[3:-3].strip()
+            
+        leads = json.loads(raw_text)
         
-        if inserted:
-            dispatch_outbound_webhooks({
-                "company_name": sample_company, 
-                "email": sample_email, 
-                "industry": sample_industry,
-                "employee_count": sample_size,
-                "linkedin_url": sample_linkedin,
-                "timestamp": datetime.now(timezone.utc).isoformat()
-            })
+        conn = get_db()
+        try:
+            cursor = conn.cursor()
+            for lead in leads:
+                if DATABASE_URL:
+                    cursor.execute(
+                        "INSERT INTO b2b_leads (company_name, email, industry, employee_count, linkedin_url) VALUES (%s, %s, %s, %s, %s) ON CONFLICT (company_name) DO NOTHING",
+                        (lead["company_name"], lead["email"], lead["industry"], lead["employee_count"], lead["linkedin_url"])
+                    )
+                else:
+                    cursor.execute(
+                        "INSERT OR IGNORE INTO b2b_leads (company_name, email, industry, employee_count, linkedin_url) VALUES (?, ?, ?, ?, ?)",
+                        (lead["company_name"], lead["email"], lead["industry"], lead["employee_count"], lead["linkedin_url"])
+                    )
+                
+                if cursor.rowcount > 0:
+                    dispatch_outbound_webhooks({
+                        "company_name": lead["company_name"], 
+                        "email": lead["email"], 
+                        "industry": lead["industry"],
+                        "employee_count": lead["employee_count"],
+                        "linkedin_url": lead["linkedin_url"],
+                        "timestamp": datetime.now(timezone.utc).isoformat()
+                    })
+            conn.commit()
+            cursor.close()
+        finally:
+            release_db(conn)
     except Exception as e:
-        print(f"Background Worker Error: {e}")
-    finally:
-        release_db(conn)
+        print(f"Gemini AI Lead Ingestion Error: {e}")
 
 
 scheduler = AsyncIOScheduler()
@@ -771,6 +791,25 @@ async def cleanup_webhooks(admin_key: str):
     finally:
         release_db(conn)
     return {"status": "success", "message": "Placeholder webhooks cleaned up."}
+
+
+@app.get("/api/v1/admin/clear-leads")
+async def clear_leads(admin_key: str):
+    if not ADMIN_SECRET_KEY or admin_key != ADMIN_SECRET_KEY:
+        raise HTTPException(status_code=403, detail="Unauthorized")
+    
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute("TRUNCATE TABLE b2b_leads RESTART IDENTITY CASCADE;")
+        else:
+            cursor.execute("DELETE FROM b2b_leads;")
+        conn.commit()
+        cursor.close()
+    finally:
+        release_db(conn)
+    return {"status": "success", "message": "All historical leads cleared."}
 
 
 @app.get("/api/v1/claim-session")
