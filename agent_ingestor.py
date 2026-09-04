@@ -34,23 +34,20 @@ def run_ai_lead_agent():
     """
 
     response = None
-    models_to_try = ["gemini-3.6-flash"]
+    model_name = "gemini-3.6-flash"
     
-    for model_name in models_to_try:
-        print(f"Attempting generation with model: {model_name}", flush=True)
-        for attempt in range(3):
-            try:
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=prompt,
-                )
-                if response and response.text:
-                    break
-            except Exception as e:
-                print(f"Model {model_name} attempt {attempt + 1} failed: {e}. Retrying...", flush=True)
-                time.sleep(5)
-        if response and response.text:
-            break
+    print(f"Attempting generation with model: {model_name}", flush=True)
+    for attempt in range(3):
+        try:
+            response = client.models.generate_content(
+                model=model_name,
+                contents=prompt,
+            )
+            if response and response.text:
+                break
+        except Exception as e:
+            print(f"Model {model_name} attempt {attempt + 1} failed: {e}. Retrying...", flush=True)
+            time.sleep(5)
 
     if not response or not response.text:
         raise RuntimeError("Gemini model is currently unavailable.")
