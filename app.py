@@ -198,7 +198,6 @@ def check_rate_limit(api_key_hash: str, response: Response, max_requests: int = 
         except redis.RedisError as e:
             print(f"Redis rate limit error (failing open): {e}")
 
-    # Fallback headers when Redis is unavailable
     response.headers["X-RateLimit-Limit"] = str(max_requests)
     response.headers["X-RateLimit-Remaining"] = str(max_requests)
     response.headers["X-RateLimit-Reset"] = str((current_minute + 1) * window_seconds)
@@ -332,6 +331,25 @@ async def request_key_reset(email: str, background_tasks: BackgroundTasks):
     return {"status": "success", "message": "If an active account exists, a reset link has been sent."}
 
 
+@app.post("/api/v1/admin/ingest-lead")
+async def ingest_lead(company_name: str, email: str, admin_key: str = Header(...)):
+    admin_secret = os.getenv("ADMIN_SECRET_KEY")
+    if not admin_secret or admin_key != admin_secret:
+        raise HTTPException(status_code=403, detail="Unauthorized admin key.")
+    
+    conn = get_db()
+    cursor = conn.cursor()
+    if DATABASE_URL:
+        cursor.execute("INSERT INTO b2b_leads (company_name, email) VALUES (%s, %s)", (company_name, email))
+    else:
+        cursor.execute("INSERT INTO b2b_leads (company_name, email) VALUES (?, ?)", (company_name, email))
+    conn.commit()
+    cursor.close()
+    conn.close()
+    
+    return {"status": "success", "message": f"Lead for {company_name} successfully ingested."}
+
+
 @app.post("/create-checkout-session")
 async def create_checkout_session(email: str, tier: str = "starter"):
     amount = 9900 if tier == "pro" else 2900
@@ -401,7 +419,6 @@ async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
     event_type = event.type
     session = event.data.object
 
-    # Idempotency check
     conn = get_db()
     cursor = conn.cursor()
     if DATABASE_URL:
@@ -414,7 +431,6 @@ async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
         conn.close()
         return {"status": "success", "note": "event already processed"}
 
-    # Record event ID
     try:
         if DATABASE_URL:
             cursor.execute("INSERT INTO webhook_events (event_id) VALUES (%s)", (event_id,))
@@ -422,7 +438,7 @@ async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
             cursor.execute("INSERT INTO webhook_events (event_id) VALUES (?)", (event_id,))
         conn.commit()
     except Exception:
-        pass  # ignore duplicate race condition collision
+        pass
 
     if event_type == "checkout.session.completed":
         try:
