@@ -21,6 +21,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 from psycopg2 import pool
+from psycopg2.extras import RealDictCursor
 
 load_dotenv()
 
@@ -65,7 +66,9 @@ if DATABASE_URL:
 
 def get_db():
     if db_pool:
-        return db_pool.getconn()
+        conn = db_pool.getconn()
+        conn.cursor_factory = RealDictCursor
+        return conn
     else:
         conn = sqlite3.connect("quantcode_nexus.db")
         conn.row_factory = sqlite3.Row
@@ -158,7 +161,6 @@ def init_db():
             )
         """
         )
-        # Ensure missing columns are automatically provisioned if the table already existed
         cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS industry TEXT DEFAULT 'SaaS / Tech';")
         cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS employee_count TEXT DEFAULT '10-50';")
         cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS linkedin_url TEXT DEFAULT '';")
