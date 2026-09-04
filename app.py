@@ -9,7 +9,7 @@ import requests
 import redis
 import sentry_sdk
 from sentry_sdk.integrations.fastapi import FastApiIntegration
-from fastapi import FastAPI, Header, HTTPException, Request, Query, Response
+from fastapi import FastAPI, Header, HTTPException, Request, Query, Response, BackgroundTasks
 from fastapi.responses import FileResponse
 from dotenv import load_dotenv
 
@@ -36,7 +36,15 @@ SENDER_EMAIL = os.getenv("SENDER_EMAIL", "onboarding@resend.dev")
 DATABASE_URL = os.getenv("DATABASE_URL")
 REDIS_URL = os.getenv("REDIS_URL")
 
-redis_client = redis.from_url(REDIS_URL, decode_responses=True) if REDIS_URL else None
+# Initialize Redis client with error handling resilience
+redis_client = None
+if REDIS_URL:
+    try:
+        redis_client = redis.from_url(REDIS_URL, decode_responses=True)
+        redis_client.ping()
+    except Exception as e:
+        print(f"Warning: Could not connect to Redis: {e}")
+        redis_client = None
 
 
 def get_db():
@@ -78,6 +86,7 @@ def init_db():
         cursor.execute("ALTER TABLE subscribers ADD COLUMN IF NOT EXISTS tier TEXT DEFAULT 'starter';")
         cursor.execute("ALTER TABLE subscribers ADD COLUMN IF NOT EXISTS reset_token TEXT;")
         cursor.execute("ALTER TABLE subscribers ADD COLUMN IF NOT EXISTS reset_expires_at TIMESTAMP;")
+        
         cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS b2b_leads (
@@ -85,6 +94,14 @@ def init_db():
                 company_name TEXT,
                 email TEXT,
                 timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """
+        )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS webhook_events (
+                event_id TEXT PRIMARY KEY,
+                processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """
         )
@@ -132,6 +149,14 @@ def init_db():
             )
         """
         )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS webhook_events (
+                event_id TEXT PRIMARY KEY,
+                processed_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """
+        )
     conn.commit()
     cursor.close()
     conn.close()
@@ -146,32 +171,37 @@ def check_rate_limit(api_key_hash: str, response: Response, max_requests: int = 
     current_minute = current_time // window_seconds
     
     if redis_client:
-        redis_key = f"rate_limit:{api_key_hash}:{current_minute}"
-        pipe = redis_client.pipeline()
-        pipe.incr(redis_key, 1)
-        pipe.ttl(redis_key)
-        count, ttl = pipe.execute()
-        
-        if ttl == -1:
-            redis_client.expire(redis_key, window_seconds)
-            ttl = window_seconds
+        try:
+            redis_key = f"rate_limit:{api_key_hash}:{current_minute}"
+            pipe = redis_client.pipeline()
+            pipe.incr(redis_key, 1)
+            pipe.ttl(redis_key)
+            count, ttl = pipe.execute()
+            
+            if ttl == -1:
+                redis_client.expire(redis_key, window_seconds)
+                ttl = window_seconds
 
-        remaining = max(0, max_requests - count)
-        reset_time = (current_minute + 1) * window_seconds
+            remaining = max(0, max_requests - count)
+            reset_time = (current_minute + 1) * window_seconds
 
-        response.headers["X-RateLimit-Limit"] = str(max_requests)
-        response.headers["X-RateLimit-Remaining"] = str(remaining)
-        response.headers["X-RateLimit-Reset"] = str(reset_time)
+            response.headers["X-RateLimit-Limit"] = str(max_requests)
+            response.headers["X-RateLimit-Remaining"] = str(remaining)
+            response.headers["X-RateLimit-Reset"] = str(reset_time)
 
-        if count > max_requests:
-            raise HTTPException(
-                status_code=429,
-                detail=f"Rate limit exceeded. Maximum {max_requests} requests per minute allowed for your tier."
-            )
-    else:
-        response.headers["X-RateLimit-Limit"] = str(max_requests)
-        response.headers["X-RateLimit-Remaining"] = str(max_requests)
-        response.headers["X-RateLimit-Reset"] = str((current_minute + 1) * window_seconds)
+            if count > max_requests:
+                raise HTTPException(
+                    status_code=429,
+                    detail=f"Rate limit exceeded. Maximum {max_requests} requests per minute allowed for your tier."
+                )
+            return
+        except redis.RedisError as e:
+            print(f"Redis rate limit error (failing open): {e}")
+
+    # Fallback headers when Redis is unavailable
+    response.headers["X-RateLimit-Limit"] = str(max_requests)
+    response.headers["X-RateLimit-Remaining"] = str(max_requests)
+    response.headers["X-RateLimit-Reset"] = str((current_minute + 1) * window_seconds)
 
 
 def send_telegram_alert(message: str):
@@ -239,7 +269,7 @@ async def reset_success_page():
 
 
 @app.get("/reset-confirm")
-async def confirm_key_reset(token: str):
+async def confirm_key_reset(token: str, background_tasks: BackgroundTasks):
     conn = get_db()
     cursor = conn.cursor()
     now = datetime.now(timezone.utc)
@@ -267,12 +297,12 @@ async def confirm_key_reset(token: str):
     cursor.close()
     conn.close()
 
-    send_email_via_resend(email, new_raw_key)
+    background_tasks.add_task(send_email_via_resend, email, new_raw_key)
     return FileResponse("reset_success.html")
 
 
 @app.post("/api/v1/request-key-reset")
-async def request_key_reset(email: str):
+async def request_key_reset(email: str, background_tasks: BackgroundTasks):
     conn = get_db()
     cursor = conn.cursor()
     if DATABASE_URL:
@@ -298,7 +328,7 @@ async def request_key_reset(email: str):
     conn.close()
 
     reset_url = f"https://nexus-core-yfou.onrender.com/reset-confirm?token={reset_token}"
-    send_password_reset_email(email, reset_url)
+    background_tasks.add_task(send_password_reset_email, email, reset_url)
     return {"status": "success", "message": "If an active account exists, a reset link has been sent."}
 
 
@@ -359,7 +389,7 @@ async def create_portal_session(email: str):
 
 
 @app.post("/webhook")
-async def stripe_webhook(request: Request):
+async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
     payload = await request.body()
     sig_header = request.headers.get("stripe-signature")
     try:
@@ -367,8 +397,32 @@ async def stripe_webhook(request: Request):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+    event_id = event.id
     event_type = event.type
     session = event.data.object
+
+    # Idempotency check
+    conn = get_db()
+    cursor = conn.cursor()
+    if DATABASE_URL:
+        cursor.execute("SELECT event_id FROM webhook_events WHERE event_id = %s", (event_id,))
+    else:
+        cursor.execute("SELECT event_id FROM webhook_events WHERE event_id = ?", (event_id,))
+    
+    if cursor.fetchone():
+        cursor.close()
+        conn.close()
+        return {"status": "success", "note": "event already processed"}
+
+    # Record event ID
+    try:
+        if DATABASE_URL:
+            cursor.execute("INSERT INTO webhook_events (event_id) VALUES (%s)", (event_id,))
+        else:
+            cursor.execute("INSERT INTO webhook_events (event_id) VALUES (?)", (event_id,))
+        conn.commit()
+    except Exception:
+        pass  # ignore duplicate race condition collision
 
     if event_type == "checkout.session.completed":
         try:
@@ -385,8 +439,7 @@ async def stripe_webhook(request: Request):
             if customer_email:
                 raw_api_key = f"qcn_{secrets.token_hex(16)}"
                 hashed_key = hash_api_key(raw_api_key)
-                conn = get_db()
-                cursor = conn.cursor()
+                
                 if DATABASE_URL:
                     cursor.execute(
                         "INSERT INTO subscribers (email, api_key, active, stripe_customer_id, tier) VALUES (%s, %s, 1, %s, %s) ON CONFLICT (email) DO UPDATE SET api_key = EXCLUDED.api_key, active = 1, stripe_customer_id = EXCLUDED.stripe_customer_id, tier = EXCLUDED.tier",
@@ -398,29 +451,26 @@ async def stripe_webhook(request: Request):
                         (customer_email, hashed_key, customer_id, tier),
                     )
                 conn.commit()
-                cursor.close()
-                conn.close()
-                send_telegram_alert(f"🚀 *New Subscription ({tier.upper()})!*\nCustomer: `{customer_email}`")
-                send_email_via_resend(customer_email, raw_api_key)
+
+                background_tasks.add_task(send_telegram_alert, f"🚀 *New Subscription ({tier.upper()})!*\nCustomer: `{customer_email}`")
+                background_tasks.add_task(send_email_via_resend, customer_email, raw_api_key)
         except Exception as err:
-            print(f"Webhook error: {err}")
+            print(f"Webhook processing error: {err}")
 
     elif event_type in ["customer.subscription.deleted", "invoice.payment_failed"]:
         try:
             customer_id = getattr(session, "customer", None)
             if customer_id:
-                conn = get_db()
-                cursor = conn.cursor()
                 if DATABASE_URL:
                     cursor.execute("UPDATE subscribers SET active = 0 WHERE stripe_customer_id = %s", (customer_id,))
                 else:
                     cursor.execute("UPDATE subscribers SET active = 0 WHERE stripe_customer_id = ?", (customer_id,))
                 conn.commit()
-                cursor.close()
-                conn.close()
         except Exception as err:
             print(f"Revocation error: {err}")
 
+    cursor.close()
+    conn.close()
     return {"status": "success"}
 
 
