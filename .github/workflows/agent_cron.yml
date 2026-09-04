@@ -28,6 +28,3 @@ jobs:
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           ADMIN_SECRET_KEY: ${{ secrets.ADMIN_SECRET_KEY }}
-          ADMIN_SECRET_KEY: ${{ secrets.ADMIN_SECRET_KEY }}
-        run: |
-          python agent_ingestor.py
