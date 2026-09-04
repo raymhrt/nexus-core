@@ -13,6 +13,8 @@ import sentry_sdk
 from sentry_sdk.integrations.fastapi import FastApiIntegration
 from fastapi import FastAPI, Header, HTTPException, Request, Query, Response, BackgroundTasks
 from fastapi.responses import FileResponse
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
@@ -393,6 +395,19 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="QuantCode Nexus Lead API", lifespan=lifespan)
 
+app.add_middleware(
+    TrustedHostMiddleware, 
+    allowed_hosts=["nexus-core-yfou.onrender.com", "localhost", "127.0.0.1"]
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["https://nexus-core-yfou.onrender.com", "http://localhost:8000"],
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "DELETE"],
+    allow_headers=["*"],
+)
+
 
 def verify_api_key(x_api_key: str, request: Request):
     incoming_hash = hash_api_key(x_api_key)
@@ -547,7 +562,6 @@ async def reset_success_page():
 
 @app.get("/api/v1/claim-session")
 async def claim_session_key(session_id: str):
-    """Allows a customer to instantly retrieve their API key using their Stripe checkout session ID if email delivery failed."""
     try:
         session = stripe.checkout.Session.retrieve(session_id)
         customer_email = session.customer_email or (session.customer_details and session.customer_details.email)
@@ -561,7 +575,6 @@ async def claim_session_key(session_id: str):
         else:
             cursor.execute("SELECT k.key_name FROM api_keys k JOIN subscribers s ON k.email = s.email WHERE s.email = ? LIMIT 1", (customer_email,))
         
-        # If subscription exists in Stripe but key wasn't generated yet (fallback claim)
         row = cursor.fetchone()
         if not row:
             raw_api_key = f"qcn_{secrets.token_hex(16)}"
