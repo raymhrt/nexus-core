@@ -277,7 +277,6 @@ def dispatch_outbound_webhooks(lead_data: dict):
         status_code = None
         error_msg = None
         
-        # Retry loop (3 attempts with backoff)
         for attempt in range(3):
             try:
                 response = requests.post(url, json=payload_data, timeout=5)
@@ -294,7 +293,6 @@ def dispatch_outbound_webhooks(lead_data: dict):
             
             time.sleep(2 * (attempt + 1))
 
-        # Log delivery attempt result
         try:
             log_conn = get_db()
             log_cursor = log_conn.cursor()
@@ -663,7 +661,7 @@ async def get_webhook_logs(request: Request, x_api_key: str = Header(...)):
     if DATABASE_URL:
         cursor.execute(
             """
-            SELECT l.id, l.webhook_url, l.status_code, l.success, l.error_message, l.timestamp 
+            SELECT DISTINCT l.id, l.webhook_url, l.status_code, l.success, l.error_message, l.timestamp 
             FROM webhook_logs l
             JOIN subscriber_webhooks w ON l.webhook_url = w.webhook_url
             WHERE w.email = %s
@@ -674,7 +672,7 @@ async def get_webhook_logs(request: Request, x_api_key: str = Header(...)):
     else:
         cursor.execute(
             """
-            SELECT l.id, l.webhook_url, l.status_code, l.success, l.error_message, l.timestamp 
+            SELECT DISTINCT l.id, l.webhook_url, l.status_code, l.success, l.error_message, l.timestamp 
             FROM webhook_logs l
             JOIN subscriber_webhooks w ON l.webhook_url = w.webhook_url
             WHERE w.email = ?
