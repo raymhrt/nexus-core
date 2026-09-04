@@ -59,9 +59,10 @@ def run_ai_lead_agent():
         lead_payload = lead_payload[:-3]
     lead_payload = lead_payload.strip()
 
-    headers = {"Content-Type": "application/json", "admin_key": ADMIN_SECRET_KEY}
+    headers = {"Content-Type": "application/json", "admin_key": ADMIN_SECRET_KEY or ""}
 
     print("Sending payload to Render...")
+    print(f"Payload being sent: {lead_payload}")
     for attempt in range(3):
         try:
             res = requests.post(API_URL, data=lead_payload, headers=headers, timeout=30)
