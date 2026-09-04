@@ -6,7 +6,7 @@ from google.genai.errors import ServerError
 
 api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
 if not api_key:
-    raise RuntimeError("No API key found! Please ensure 'GEMINI_API_KEY' is added in your GitHub repository secrets.")
+    raise RuntimeError("No API key found!")
 
 client = genai.Client(api_key=api_key)
 
@@ -35,15 +35,11 @@ def run_ai_lead_agent():
 
     response = None
     models_to_try = ["gemini-2.5-flash", "gemini-1.5-flash"]
-    
     for model_name in models_to_try:
         print(f"Attempting generation with model: {model_name}")
         for gemini_attempt in range(2):
             try:
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=prompt,
-                )
+                response = client.models.generate_content(model=model_name, contents=prompt)
                 break
             except ServerError as se:
                 print(f"Model {model_name} busy: {se}. Retrying...")
@@ -52,7 +48,7 @@ def run_ai_lead_agent():
             break
 
     if not response:
-        raise RuntimeError("All Gemini fallback models are currently unavailable.")
+        raise RuntimeError("All Gemini fallback models are unavailable.")
 
     lead_payload = response.text.strip()
     if lead_payload.startswith("```json"):
@@ -63,10 +59,7 @@ def run_ai_lead_agent():
         lead_payload = lead_payload[:-3]
     lead_payload = lead_payload.strip()
 
-    headers = {
-        "Content-Type": "application/json",
-        "admin_key": ADMIN_SECRET_KEY
-    }
+    headers = {"Content-Type": "application/json", "admin_key": ADMIN_SECRET_KEY}
 
     print("Sending payload to Render...")
     for attempt in range(3):
@@ -75,13 +68,12 @@ def run_ai_lead_agent():
             print(f"Response Status Code: {res.status_code}")
             print(f"Response Body: {res.text}")
             if res.status_code == 200:
-                print("Agent Ingestion Success:", res.json())
+                print("Success:", res.json())
                 return
         except Exception as e:
-            print(f"Attempt {attempt + 1} failed: {e}")
+            print(f"Attempt failed: {e}")
         time.sleep(10)
-
-    raise RuntimeError("Failed to reach live Render API after multiple retries.")
+    raise RuntimeError("Failed to reach Render API.")
 
 if __name__ == "__main__":
     run_ai_lead_agent()
