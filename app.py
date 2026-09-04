@@ -3,6 +3,7 @@ import os
 import secrets
 import sqlite3
 import hashlib
+import hmac
 import time
 import json
 import stripe
@@ -28,6 +29,7 @@ if SENTRY_DSN:
 
 stripe.api_key = os.getenv("STRIPE_API_KEY", "your_stripe_key_here")
 ENDPOINT_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "your_webhook_secret_here")
+WEBHOOK_SIGNING_SECRET = os.getenv("WEBHOOK_SIGNING_SECRET", "nexus_sec_sig_default_99")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
@@ -62,6 +64,14 @@ def get_db():
 
 def hash_api_key(api_key: str) -> str:
     return hashlib.sha256(api_key.encode("utf-8")).hexdigest()
+
+
+def generate_hmac_signature(payload_json: str) -> str:
+    return hmac.new(
+        WEBHOOK_SIGNING_SECRET.encode("utf-8"),
+        payload_json.encode("utf-8"),
+        hashlib.sha256
+    ).hexdigest()
 
 
 def log_audit_event(email: str, action: str, details: str, ip_address: str = "127.0.0.1"):
@@ -274,7 +284,6 @@ init_db()
 
 
 def record_usage_hit(email: str):
-    """Records an API request hit for historical analytics tracking."""
     try:
         conn = get_db()
         cursor = conn.cursor()
@@ -302,6 +311,11 @@ def dispatch_outbound_webhooks(lead_data: dict):
 
     payload_data = {"event": "lead.ingested", "data": lead_data}
     payload_json = json.dumps(payload_data)
+    signature = generate_hmac_signature(payload_json)
+    headers = {
+        "Content-Type": "application/json",
+        "X-Nexus-Signature": signature
+    }
 
     for wh in webhooks:
         url = wh["webhook_url"] if isinstance(wh, dict) or hasattr(wh, "__keys__") else wh[1]
@@ -311,7 +325,7 @@ def dispatch_outbound_webhooks(lead_data: dict):
         
         for attempt in range(3):
             try:
-                response = requests.post(url, json=payload_data, timeout=5)
+                response = requests.post(url, data=payload_json, headers=headers, timeout=5)
                 status_code = response.status_code
                 if 200 <= response.status_code < 300:
                     success = 1
@@ -418,7 +432,6 @@ def verify_api_key(x_api_key: str, request: Request):
     key_name = row["key_name"] if isinstance(row, dict) or hasattr(row, "__keys__") else row[1]
     tier = row["tier"] if isinstance(row, dict) or hasattr(row, "__keys__") else row[3]
 
-    # Record historical usage hit
     record_usage_hit(email)
 
     return {
@@ -530,6 +543,53 @@ async def dashboard_page():
 @app.get("/reset-success")
 async def reset_success_page():
     return FileResponse("reset_success.html")
+
+
+@app.get("/api/v1/claim-session")
+async def claim_session_key(session_id: str):
+    """Allows a customer to instantly retrieve their API key using their Stripe checkout session ID if email delivery failed."""
+    try:
+        session = stripe.checkout.Session.retrieve(session_id)
+        customer_email = session.customer_email or (session.customer_details and session.customer_details.email)
+        if not customer_email:
+            raise HTTPException(status_code=400, detail="No email attached to this checkout session.")
+
+        conn = get_db()
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute("SELECT k.key_name FROM api_keys k JOIN subscribers s ON k.email = s.email WHERE s.email = %s LIMIT 1", (customer_email,))
+        else:
+            cursor.execute("SELECT k.key_name FROM api_keys k JOIN subscribers s ON k.email = s.email WHERE s.email = ? LIMIT 1", (customer_email,))
+        
+        # If subscription exists in Stripe but key wasn't generated yet (fallback claim)
+        row = cursor.fetchone()
+        if not row:
+            raw_api_key = f"qcn_{secrets.token_hex(16)}"
+            hashed_key = hash_api_key(raw_api_key)
+            tier = session.metadata.get("tier", "starter") if session.metadata else "starter"
+            
+            if DATABASE_URL:
+                cursor.execute(
+                    "INSERT INTO subscribers (email, active, stripe_customer_id, tier) VALUES (%s, 1, %s, %s) ON CONFLICT (email) DO UPDATE SET active = 1",
+                    (customer_email, session.customer, tier)
+                )
+                cursor.execute("INSERT INTO api_keys (email, key_hash, key_name) VALUES (%s, %s, 'Primary Key')", (customer_email, hashed_key))
+            else:
+                cursor.execute(
+                    "INSERT OR REPLACE INTO subscribers (email, active, stripe_customer_id, tier) VALUES (?, 1, ?, ?)",
+                    (customer_email, session.customer, tier)
+                )
+                cursor.execute("INSERT INTO api_keys (email, key_hash, key_name) VALUES (?, ?, 'Primary Key')", (customer_email, hashed_key))
+            conn.commit()
+            cursor.close()
+            conn.close()
+            return {"status": "success", "email": customer_email, "api_key": raw_api_key, "note": "Key freshly generated and claimed."}
+
+        cursor.close()
+        conn.close()
+        return {"status": "success", "email": customer_email, "message": "Subscription active. Check your email or generate a new key in your dashboard."}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @app.get("/reset-confirm")
