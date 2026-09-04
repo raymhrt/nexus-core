@@ -157,7 +157,7 @@ def init_db():
             """
             CREATE TABLE IF NOT EXISTS b2b_leads (
                 id SERIAL PRIMARY KEY,
-                company_name TEXT UNIQUE,
+                company_name VARCHAR(255) UNIQUE,
                 email TEXT,
                 industry TEXT DEFAULT 'SaaS / Tech',
                 employee_count TEXT DEFAULT '10-50',
@@ -1099,7 +1099,7 @@ class BatchLeadUpload(BaseModel):
 
 
 @app.post("/api/v1/admin/upload-leads")
-async def admin_upload_leads(payload: BatchLeadUpload, background_tasks: BackgroundTasks, admin_key: str = Header(...)):
+async def admin_upload_leads(payload: BatchLeadUpload, background_tasks: BackgroundTasks, admin_key: str = Header(None, alias="admin-key")):
     admin_secret = os.getenv("ADMIN_SECRET_KEY")
     if not admin_secret or admin_key != admin_secret:
         raise HTTPException(status_code=403, detail="Unauthorized admin key.")
