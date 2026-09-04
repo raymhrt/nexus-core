@@ -1,124 +1,80 @@
 import os
-import time
 import json
 import requests
 from google import genai
+from dotenv import load_dotenv
 
-api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-if not api_key:
-    raise RuntimeError("No API key found!")
+load_dotenv()
 
-client = genai.Client(api_key=api_key)
-
-API_URL = "https://nexus-core-yfou.onrender.com/api/v1/admin/upload-leads"
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 ADMIN_SECRET_KEY = os.getenv("ADMIN_SECRET_KEY")
+RENDER_API_URL = os.getenv("RENDER_API_URL", "https://nexus-core-yfou.onrender.com/api/v1/admin/upload-leads")
+
+ai_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
 def run_ai_lead_agent():
-    print("Generating leads via Gemini...", flush=True)
-    prompt = """
-    Act as an elite B2B lead generation researcher. Generate 3 realistic, high-value tech/SaaS companies 
-    that match a target buyer profile (B2B SaaS, FinTech, or AI Infrastructure). 
-    Provide valid company_name (string), email (string), industry (string), employee_count (string like '10-50'), and linkedin_url (string). 
-    Output strictly in valid JSON format matching this exact structure:
-    {
-      "leads": [
-        {
-          "company_name": "Acme Corp",
-          "email": "contact@acme.io",
-          "industry": "B2B SaaS",
-          "employee_count": "10-50",
-          "linkedin_url": "https://linkedin.com/company/acme"
-        }
-      ]
-    }
-    """
+    if not ai_client:
+        print("Error: GEMINI_API_KEY is not configured.")
+        return
 
+    print("Generating leads via Gemini...")
+    prompt = (
+        "Generate a JSON list of 3 real, active B2B technology, SaaS, or AI companies. "
+        "For each company, provide: "
+        "company_name, contact email format (e.g. contact@domain.com), industry, "
+        "employee_count (e.g. '51-200'), and linkedin_url. "
+        "Return strictly valid JSON matching this schema: "
+        '[{"company_name": "...", "email": "...", "industry": "...", "employee_count": "...", "linkedin_url": "..."}]'
+    )
+
+    models_to_try = ['gemini-3.6-flash', 'gemini-1.5-flash', 'gemini-1.5-pro']
     response = None
-    model_name = "gemini-3.6-flash"
-    
-    print(f"Attempting generation with model: {model_name}", flush=True)
-    for attempt in range(3):
-        try:
-            response = client.models.generate_content(
-                model=model_name,
-                contents=prompt,
-            )
-            if response and response.text:
+    success = False
+
+    for model_name in models_to_try:
+        print(f"Attempting generation with model: {model_name}")
+        for attempt in range(1, 4):
+            try:
+                response = ai_client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                )
+                success = True
                 break
-        except Exception as e:
-            print(f"Model {model_name} attempt {attempt + 1} failed: {e}. Retrying...", flush=True)
-            time.sleep(5)
+            except Exception as e:
+                print(f"Model {model_name} attempt {attempt} failed: {e}. Retrying...")
+        if success:
+            break
 
-    if not response or not response.text:
-        raise RuntimeError("Gemini model is currently unavailable.")
+    if not success or not response:
+        raise RuntimeError("All Gemini models are currently unavailable.")
 
-    lead_text = response.text.strip()
-    if lead_text.startswith("```json"):
-        lead_text = lead_text[7:]
-    if lead_text.startswith("```"):
-        lead_text = lead_text[3:]
-    if lead_text.endswith("```"):
-        lead_text = lead_text[:-3]
-    lead_text = lead_text.strip()
+    raw_text = response.text.strip()
+    if raw_text.startswith("```json"):
+        raw_text = raw_text[7:-3].strip()
+    elif raw_text.startswith("```"):
+        raw_text = raw_text[3:-3].strip()
 
     try:
-        lead_json = json.loads(lead_text)
-    except Exception as e:
-        print(f"JSON Parse Error: {e}", flush=True)
-        print(f"Raw text was: {lead_text}", flush=True)
-        raise
+        leads_data = json.loads(raw_text)
+    except json.JSONDecodeError as jde:
+        print(f"Failed to parse JSON response from Gemini: {jde}")
+        print(f"Raw text was: {raw_text}")
+        return
 
-    if isinstance(lead_json, list):
-        lead_json = {"leads": lead_json}
-    elif not isinstance(lead_json, dict) or "leads" not in lead_json:
-        found_list = None
-        for v in lead_json.values():
-            if isinstance(v, list):
-                found_list = v
-                break
-        lead_json = {"leads": found_list if found_list is not None else [lead_json]}
-
-    normalized_leads = []
-    for item in lead_json.get("leads", []):
-        if not isinstance(item, dict):
-            continue
-        normalized_leads.append({
-            "company_name": str(item.get("company_name") or item.get("company") or "Unknown Corp"),
-            "email": str(item.get("email") or "contact@unknown.io"),
-            "industry": str(item.get("industry") or "SaaS / Tech"),
-            "employee_count": str(item.get("employee_count") or "10-50"),
-            "linkedin_url": str(item.get("linkedin_url") or item.get("linkedin") or "")
-        })
-    lead_json = {"leads": normalized_leads}
-
+    payload = {"leads": leads_data}
     headers = {
-        "admin-key": ADMIN_SECRET_KEY or "",
-        "admin_key": ADMIN_SECRET_KEY or "",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "admin-key": ADMIN_SECRET_KEY if ADMIN_SECRET_KEY else ""
     }
 
-    print("Sending JSON payload to Render...", flush=True)
-    print(f"Payload: {json.dumps(lead_json, indent=2)}", flush=True)
-    print(f"Using Secret Key Length: {len(ADMIN_SECRET_KEY or '')}", flush=True)
-    
-    for attempt in range(3):
-        try:
-            res = requests.post(API_URL, json=lead_json, headers=headers, timeout=30)
-            print(f"Response Status Code: {res.status_code}", flush=True)
-            try:
-                error_detail = json.dumps(res.json(), indent=2)
-            except Exception:
-                error_detail = res.text
-            print(f"=== FASTAPI RESPONSE BODY ===\n{error_detail}\n=============================", flush=True)
-            
-            if res.status_code == 200:
-                print("Success:", res.json(), flush=True)
-                return
-        except Exception as e:
-            print(f"Attempt failed: {e}", flush=True)
-        time.sleep(10)
-    
-    raise RuntimeError("Failed to reach live Render API due to validation error.")
+    print(f"Pushing {len(leads_data)} leads to Render API: {RENDER_API_URL}")
+    try:
+        res = requests.post(RENDER_API_URL, json=payload, headers=headers, timeout=15)
+        print(f"Response Status: {res.status_code}")
+        print(f"Response Body: {res.text}")
+    except Exception as err:
+        print(f"Failed to transmit leads to Render API: {err}")
 
 if __name__ == "__main__":
     run_ai_lead_agent()
