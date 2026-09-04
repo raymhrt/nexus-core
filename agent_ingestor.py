@@ -34,7 +34,7 @@ def run_ai_lead_agent():
     """
 
     response = None
-    models_to_try = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"]
+    models_to_try = ["gemini-3.6-flash"]
     
     for model_name in models_to_try:
         print(f"Attempting generation with model: {model_name}", flush=True)
@@ -53,7 +53,7 @@ def run_ai_lead_agent():
             break
 
     if not response or not response.text:
-        raise RuntimeError("All Gemini models are currently unavailable.")
+        raise RuntimeError("Gemini model is currently unavailable.")
 
     lead_text = response.text.strip()
     if lead_text.startswith("```json"):
