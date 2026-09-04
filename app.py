@@ -157,7 +157,7 @@ def init_db():
             """
             CREATE TABLE IF NOT EXISTS b2b_leads (
                 id SERIAL PRIMARY KEY,
-                company_name VARCHAR(255) UNIQUE,
+                company_name TEXT,
                 email TEXT,
                 industry TEXT DEFAULT 'SaaS / Tech',
                 employee_count TEXT DEFAULT '10-50',
@@ -169,6 +169,7 @@ def init_db():
         cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS industry TEXT DEFAULT 'SaaS / Tech';")
         cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS employee_count TEXT DEFAULT '10-50';")
         cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS linkedin_url TEXT DEFAULT '';")
+        cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_b2b_leads_company_unique ON b2b_leads (company_name);")
 
         cursor.execute(
             """
