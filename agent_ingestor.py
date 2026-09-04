@@ -27,7 +27,8 @@ def run_ai_lead_agent():
         '[{"company_name": "...", "email": "...", "industry": "...", "employee_count": "...", "linkedin_url": "..."}]'
     )
 
-    models_to_try = ['gemini-3.6-flash', 'gemini-3.8-flash', 'gemini-3.5-flash']
+    # Use gemini-2.0-flash as the standard robust baseline for the google-genai SDK
+    models_to_try = ['gemini-2.0-flash', 'gemini-1.5-flash']
     response = None
     success = False
 
