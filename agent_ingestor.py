@@ -81,11 +81,14 @@ def run_ai_lead_agent():
     }
 
     print("Sending payload to Render...", flush=True)
+    print(f"Payload sent: {json.dumps(lead_json, indent=2)}", flush=True)
     for attempt in range(3):
         try:
             res = requests.post(API_URL, json=lead_json, headers=headers, timeout=30)
             print(f"Response Status Code: {res.status_code}", flush=True)
-            print(f"Response Body: {res.text}", flush=True)
+            print(f"=== RESPONSE BODY ===
+{res.text}
+=====================", flush=True)
             if res.status_code == 200:
                 print("Success:", res.json(), flush=True)
                 return
