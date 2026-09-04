@@ -47,13 +47,13 @@ def run_ai_lead_agent():
                 if response and response.text:
                     break
             except Exception as e:
-                print(f"Model {model_name} attempt {attempt + 1} failed with error: {e}. Retrying...", flush=True)
+                print(f"Model {model_name} attempt {attempt + 1} failed: {e}. Retrying...", flush=True)
                 time.sleep(5)
         if response and response.text:
             break
 
     if not response or not response.text:
-        raise RuntimeError("All Gemini models are currently experiencing high demand or unavailable.")
+        raise RuntimeError("All Gemini models are currently unavailable.")
 
     lead_text = response.text.strip()
     if lead_text.startswith("```json"):
@@ -94,11 +94,17 @@ def run_ai_lead_agent():
         })
     lead_json = {"leads": normalized_leads}
 
-    headers = {"admin-key": ADMIN_SECRET_KEY or "", "Admin-Key": ADMIN_SECRET_KEY or ""}
+    headers = {
+        "admin-key": ADMIN_SECRET_KEY or "",
+        "Admin-Key": ADMIN_SECRET_KEY or ""
+    }
 
-    print("Sending payload to Render...", flush=True)
+    print("Sending JSON payload to Render...", flush=True)
+    print(f"Payload: {json.dumps(lead_json, indent=2)}", flush=True)
+    
     for attempt in range(3):
         try:
+            # CRITICAL FIX: Use `json=lead_json` instead of `data=` to serialize as application/json
             res = requests.post(API_URL, json=lead_json, headers=headers, timeout=30)
             print(f"Response Status Code: {res.status_code}", flush=True)
             try:
