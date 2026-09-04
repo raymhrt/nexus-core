@@ -32,6 +32,7 @@ if SENTRY_DSN:
 stripe.api_key = os.getenv("STRIPE_API_KEY", "your_stripe_key_here")
 ENDPOINT_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "your_webhook_secret_here")
 WEBHOOK_SIGNING_SECRET = os.getenv("WEBHOOK_SIGNING_SECRET", "nexus_sec_sig_default_99")
+ADMIN_SECRET_KEY = os.getenv("ADMIN_SECRET_KEY")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
@@ -388,6 +389,8 @@ scheduler.add_job(automated_lead_ingestion, "interval", hours=1)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    if not ADMIN_SECRET_KEY:
+        print("CRITICAL WARNING: ADMIN_SECRET_KEY environment variable is not configured!")
     scheduler.start()
     yield
     scheduler.shutdown()
@@ -407,6 +410,40 @@ app.add_middleware(
     allow_methods=["GET", "POST", "DELETE"],
     allow_headers=["*"],
 )
+
+
+@app.get("/health")
+async def health_check():
+    """Deep health check endpoint for monitoring uptime, database, and Redis status."""
+    db_status = "ok"
+    redis_status = "ok" if redis_client else "disabled"
+    
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("SELECT 1")
+        cursor.fetchone()
+        cursor.close()
+        conn.close()
+    except Exception as e:
+        db_status = f"error: {str(e)}"
+    
+    if redis_client:
+        try:
+            redis_client.ping()
+        except Exception as e:
+            redis_status = f"error: {str(e)}"
+            
+    is_healthy = (db_status == "ok" and (redis_status == "ok" or redis_status == "disabled"))
+    if not is_healthy:
+        raise HTTPException(status_code=503, detail={"status": "degraded", "database": db_status, "redis": redis_status})
+
+    return {
+        "status": "healthy",
+        "database": db_status,
+        "redis": redis_status,
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
 
 
 def verify_api_key(x_api_key: str, request: Request):
