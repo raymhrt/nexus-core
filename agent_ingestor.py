@@ -10,7 +10,7 @@ if not api_key:
 
 client = genai.Client(api_key=api_key)
 
-API_URL = "[https://nexus-core-yfou.onrender.com/api/v1/admin/upload-leads](https://nexus-core-yfou.onrender.com/api/v1/admin/upload-leads)"
+API_URL = "https://nexus-core-yfou.onrender.com/api/v1/admin/upload-leads"
 ADMIN_SECRET_KEY = os.getenv("ADMIN_SECRET_KEY")
 
 def run_ai_lead_agent():
@@ -27,7 +27,7 @@ def run_ai_lead_agent():
           "email": "contact@acme.io",
           "industry": "B2B SaaS",
           "employee_count": "10-50",
-          "linkedin_url": "[https://linkedin.com/company/acme](https://linkedin.com/company/acme)"
+          "linkedin_url": "https://linkedin.com/company/acme"
         }
       ]
     }
