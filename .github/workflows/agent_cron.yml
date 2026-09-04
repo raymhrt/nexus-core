@@ -2,7 +2,7 @@ name: Autonomous AI Lead Generator
 
 on:
   schedule:
-    - cron: '0 * * * *'
+    - cron: '0 */6 * * *'  # Runs every 6 hours
   workflow_dispatch:
 
 jobs:
@@ -16,15 +16,18 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: 'pip'
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run agent ingestor
+      - name: Run agent_ingestor.py
+        run: python agent_ingestor.py
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ADMIN_SECRET_KEY: ${{ secrets.ADMIN_SECRET_KEY }}
           ADMIN_SECRET_KEY: ${{ secrets.ADMIN_SECRET_KEY }}
         run: |
           python agent_ingestor.py
