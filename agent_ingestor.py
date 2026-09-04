@@ -29,7 +29,7 @@ def run_ai_lead_agent():
 
     try:
         response = ai_client.models.generate_content(
-            model='gemini-2.0-flash',
+            model='gemini-3.6-flash',
             contents=prompt,
         )
     except Exception as e:
