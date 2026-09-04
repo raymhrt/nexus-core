@@ -3,7 +3,6 @@ import time
 import json
 import requests
 from google import genai
-from google.genai.errors import ServerError
 
 api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
 if not api_key:
@@ -11,7 +10,7 @@ if not api_key:
 
 client = genai.Client(api_key=api_key)
 
-API_URL = "[https://nexus-core-yfou.onrender.com/api/v1/admin/upload-leads](https://nexus-core-yfou.onrender.com/api/v1/admin/upload-leads)"
+API_URL = "https://nexus-core-yfou.onrender.com/api/v1/admin/upload-leads"
 ADMIN_SECRET_KEY = os.getenv("ADMIN_SECRET_KEY")
 
 def run_ai_lead_agent():
@@ -28,28 +27,33 @@ def run_ai_lead_agent():
           "email": "contact@acme.io",
           "industry": "B2B SaaS",
           "employee_count": "10-50",
-          "linkedin_url": "[https://linkedin.com/company/acme](https://linkedin.com/company/acme)"
+          "linkedin_url": "https://linkedin.com/company/acme"
         }
       ]
     }
     """
 
     response = None
-    models_to_try = ["gemini-2.5-flash", "gemini-1.5-flash"]
+    models_to_try = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"]
+    
     for model_name in models_to_try:
         print(f"Attempting generation with model: {model_name}", flush=True)
-        for gemini_attempt in range(2):
+        for attempt in range(3):
             try:
-                response = client.models.generate_content(model=model_name, contents=prompt)
-                break
-            except ServerError as se:
-                print(f"Model {model_name} busy: {se}. Retrying...", flush=True)
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                )
+                if response and response.text:
+                    break
+            except Exception as e:
+                print(f"Model {model_name} attempt {attempt + 1} failed with error: {e}. Retrying...", flush=True)
                 time.sleep(5)
-        if response:
+        if response and response.text:
             break
 
-    if not response:
-        raise RuntimeError("All Gemini fallback models are unavailable.")
+    if not response or not response.text:
+        raise RuntimeError("All Gemini models are currently experiencing high demand or unavailable.")
 
     lead_text = response.text.strip()
     if lead_text.startswith("```json"):
@@ -64,6 +68,7 @@ def run_ai_lead_agent():
         lead_json = json.loads(lead_text)
     except Exception as e:
         print(f"JSON Parse Error: {e}", flush=True)
+        print(f"Raw text was: {lead_text}", flush=True)
         raise
 
     if isinstance(lead_json, list):
@@ -92,8 +97,6 @@ def run_ai_lead_agent():
     headers = {"admin-key": ADMIN_SECRET_KEY or "", "Admin-Key": ADMIN_SECRET_KEY or ""}
 
     print("Sending payload to Render...", flush=True)
-    print(f"Payload sent: {json.dumps(lead_json, indent=2)}", flush=True)
-    
     for attempt in range(3):
         try:
             res = requests.post(API_URL, json=lead_json, headers=headers, timeout=30)
