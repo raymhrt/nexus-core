@@ -20,16 +20,17 @@ def run_ai_lead_agent():
     prompt = """
     Act as an elite B2B lead generation researcher. Generate 3 realistic, high-value tech/SaaS companies 
     that match a target buyer profile (B2B SaaS, FinTech, or AI Infrastructure). 
-    Provide real corporate domain patterns, industry, employee counts as a string (e.g., '10-50'), and LinkedIn URLs.
+    Provide valid company_name (string), email (string), industry (string), employee_count (string like '10-50'), and linkedin_url (string). 
+    Ensure no fields are null or missing.
     Output strictly in valid JSON format matching this exact structure:
     {
       "leads": [
         {
-          "company_name": "...",
-          "email": "...",
-          "industry": "...",
-          "employee_count": "...",
-          "linkedin_url": "..."
+          "company_name": "Acme Corp",
+          "email": "contact@acme.io",
+          "industry": "B2B SaaS",
+          "employee_count": "10-50",
+          "linkedin_url": "https://linkedin.com/company/acme"
         }
       ]
     }
@@ -61,6 +62,8 @@ def run_ai_lead_agent():
         lead_text = lead_text[:-3]
     lead_text = lead_text.strip()
 
+    print(f"Cleaned JSON text from Gemini:\n{lead_text}", flush=True)
+
     try:
         lead_json = json.loads(lead_text)
     except Exception as e:
@@ -81,21 +84,18 @@ def run_ai_lead_agent():
     }
 
     print("Sending payload to Render...", flush=True)
-    print(f"Payload sent: {json.dumps(lead_json, indent=2)}", flush=True)
     for attempt in range(3):
         try:
             res = requests.post(API_URL, json=lead_json, headers=headers, timeout=30)
             print(f"Response Status Code: {res.status_code}", flush=True)
-            print(f"=== RESPONSE BODY ===
-{res.text}
-=====================", flush=True)
+            print(f"FASTAPI VALIDATION ERROR BODY:\n{res.text}", flush=True)
             if res.status_code == 200:
                 print("Success:", res.json(), flush=True)
                 return
         except Exception as e:
             print(f"Attempt failed: {e}", flush=True)
         time.sleep(10)
-    raise RuntimeError("Failed to reach Render API.")
+    raise RuntimeError("Failed to reach Render API due to validation error.")
 
 if __name__ == "__main__":
     run_ai_lead_agent()
