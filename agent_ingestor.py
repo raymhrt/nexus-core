@@ -59,7 +59,6 @@ def run_ai_lead_agent():
         lead_payload = lead_payload[:-3]
     lead_payload = lead_payload.strip()
 
-    # Fixed: FastAPI expects hyphenated header 'admin-key' instead of 'admin_key'
     headers = {"Content-Type": "application/json", "admin-key": ADMIN_SECRET_KEY or ""}
 
     print("Sending payload to Render...")
