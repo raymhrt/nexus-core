@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>QuantCode Nexus | Subscriber Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #f8fafc; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
         .card { background: #1e293b; padding: 40px; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); width: 100%; max-width: 650px; box-sizing: border-box; }
@@ -28,13 +29,14 @@
         .key-meta { color: #94a3b8; font-size: 11px; margin-top: 2px; }
         .revoke-btn { background: #ef4444; color: #fff; border: none; padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer; width: auto; font-weight: 600; }
         .revoke-btn:hover { background: #f87171; }
+        .chart-container { position: relative; margin-top: 20px; height: 220px; width: 100%; }
     </style>
 </head>
 <body>
     <div class="card">
         <a href="/" class="nav-link">&larr; Back to Home</a>
         <h1>Subscriber Dashboard</h1>
-        <p class="sub">Manage keys, track usage quotas, and monitor webhooks.</p>
+        <p class="sub">Manage keys, track usage quotas, and monitor historical analytics.</p>
 
         <div class="form-group">
             <label for="apiKey">Your Active API Key</label>
@@ -51,7 +53,14 @@
             <div class="progress-bar-container">
                 <div id="usageBar" class="progress-bar"></div>
             </div>
-            <label style="font-size: 12px; color: #94a3b8; font-weight: 600; text-transform: uppercase;">Lead Results</label>
+            
+            <!-- Historical Usage Chart -->
+            <label style="font-size: 12px; color: #94a3b8; font-weight: 600; text-transform: uppercase; margin-top: 20px; display: block;">7-Day API Request History</label>
+            <div class="chart-container">
+                <canvas id="usageChart"></canvas>
+            </div>
+
+            <label style="font-size: 12px; color: #94a3b8; font-weight: 600; text-transform: uppercase; margin-top: 20px; display: block;">Lead Results</label>
             <pre id="results">Enter your key above and click Fetch Leads & Usage.</pre>
         </div>
 
@@ -70,6 +79,8 @@
     </div>
 
     <script>
+        let usageChartInstance = null;
+
         window.onload = function() {
             const savedKey = localStorage.getItem('nexus_api_key');
             if (savedKey) {
@@ -114,8 +125,55 @@
 
                 resultsPre.innerText = JSON.stringify(data, null, 2);
                 loadKeys(apiKey);
+                loadUsageChart(apiKey);
             } catch (err) {
                 resultsPre.innerText = `Request failed: ${err.message}`;
+            }
+        }
+
+        async function loadUsageChart(apiKey) {
+            try {
+                const res = await fetch('/api/v1/analytics/usage', {
+                    headers: { 'x-api-key': apiKey }
+                });
+                const data = await res.json();
+                if (!res.ok) return;
+
+                const history = data.usage_history || [];
+                const labels = history.map(item => item.day);
+                const counts = history.map(item => item.request_count);
+
+                const ctx = document.getElementById('usageChart').getContext('2d');
+                if (usageChartInstance) {
+                    usageChartInstance.destroy();
+                }
+
+                usageChartInstance = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'API Requests',
+                            data: counts,
+                            borderColor: '#38bdf8',
+                            backgroundColor: 'rgba(56, 189, 248, 0.1)',
+                            borderWidth: 2,
+                            fill: true,
+                            tension: 0.3
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { display: false } },
+                        scales: {
+                            x: { grid: { color: '#334155' }, ticks: { color: '#94a3b8' } },
+                            y: { grid: { color: '#334155' }, ticks: { color: '#94a3b8', beginAtZero: true } }
+                        }
+                    }
+                });
+            } catch (e) {
+                console.error("Failed to load usage chart", e);
             }
         }
 

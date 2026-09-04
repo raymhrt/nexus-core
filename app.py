@@ -158,6 +158,15 @@ def init_db():
         )
         cursor.execute(
             """
+            CREATE TABLE IF NOT EXISTS api_usage_history (
+                id SERIAL PRIMARY KEY,
+                email TEXT,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """
+        )
+        cursor.execute(
+            """
             CREATE TABLE IF NOT EXISTS audit_logs (
                 id SERIAL PRIMARY KEY,
                 email TEXT,
@@ -237,6 +246,15 @@ def init_db():
         )
         cursor.execute(
             """
+            CREATE TABLE IF NOT EXISTS api_usage_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email TEXT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """
+        )
+        cursor.execute(
+            """
             CREATE TABLE IF NOT EXISTS audit_logs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 email TEXT,
@@ -255,8 +273,23 @@ def init_db():
 init_db()
 
 
+def record_usage_hit(email: str):
+    """Records an API request hit for historical analytics tracking."""
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute("INSERT INTO api_usage_history (email) VALUES (%s)", (email,))
+        else:
+            cursor.execute("INSERT INTO api_usage_history (email) VALUES (?)", (email,))
+        conn.commit()
+        cursor.close()
+        conn.close()
+    except Exception as e:
+        print(f"Usage analytics record error: {e}")
+
+
 def dispatch_outbound_webhooks(lead_data: dict):
-    """Dispatches outbound webhook payloads with retry logic and failure logging."""
     conn = get_db()
     cursor = conn.cursor()
     if DATABASE_URL:
@@ -272,7 +305,6 @@ def dispatch_outbound_webhooks(lead_data: dict):
 
     for wh in webhooks:
         url = wh["webhook_url"] if isinstance(wh, dict) or hasattr(wh, "__keys__") else wh[1]
-        
         success = 0
         status_code = None
         error_msg = None
@@ -311,9 +343,6 @@ def dispatch_outbound_webhooks(lead_data: dict):
             log_conn.close()
         except Exception as log_err:
             print(f"Failed to log webhook delivery: {log_err}")
-
-        if success == 0:
-            print(f"Webhook {url} failed after 3 retries: {error_msg}")
 
 
 async def automated_lead_ingestion():
@@ -388,6 +417,9 @@ def verify_api_key(x_api_key: str, request: Request):
     email = row["email"] if isinstance(row, dict) or hasattr(row, "__keys__") else row[0]
     key_name = row["key_name"] if isinstance(row, dict) or hasattr(row, "__keys__") else row[1]
     tier = row["tier"] if isinstance(row, dict) or hasattr(row, "__keys__") else row[3]
+
+    # Record historical usage hit
+    record_usage_hit(email)
 
     return {
         "email": email,
@@ -619,21 +651,39 @@ async def revoke_subscriber_key(key_id: int, request: Request, x_api_key: str = 
     return {"status": "success", "message": f"API key ID {key_id} revoked."}
 
 
-@app.get("/api/v1/usage")
-async def get_usage_analytics(request: Request, response: Response, x_api_key: str = Header(...)):
+@app.get("/api/v1/analytics/usage")
+async def get_usage_analytics_history(request: Request, x_api_key: str = Header(...)):
     sub = verify_api_key(x_api_key, request)
-    max_limit = 120 if sub["tier"] == "pro" else 30
-    check_rate_limit(sub["hash"], response=response, max_requests=max_limit)
+    conn = get_db()
+    cursor = conn.cursor()
     
-    remaining = response.headers.get("X-RateLimit-Remaining", str(max_limit))
-    
-    return {
-        "status": "success",
-        "tier": sub["tier"],
-        "rate_limit_max": max_limit,
-        "requests_remaining_this_minute": int(remaining),
-        "quota_status": "Active & Healthy"
-    }
+    if DATABASE_URL:
+        cursor.execute(
+            """
+            SELECT TO_CHAR(timestamp, 'YYYY-MM-DD') as day, COUNT(*) as request_count
+            FROM api_usage_history
+            WHERE email = %s AND timestamp >= NOW() - INTERVAL '7 days'
+            GROUP BY TO_CHAR(timestamp, 'YYYY-MM-DD')
+            ORDER BY day ASC
+            """,
+            (sub["email"],)
+        )
+    else:
+        cursor.execute(
+            """
+            SELECT DATE(timestamp) as day, COUNT(*) as request_count
+            FROM api_usage_history
+            WHERE email = ? AND timestamp >= datetime('now', '-7 days')
+            GROUP BY DATE(timestamp)
+            ORDER BY day ASC
+            """,
+            (sub["email"],)
+        )
+    rows = cursor.fetchall()
+    history = [dict(r) for r in rows]
+    cursor.close()
+    conn.close()
+    return {"status": "success", "usage_history": history}
 
 
 @app.post("/api/v1/webhooks")
