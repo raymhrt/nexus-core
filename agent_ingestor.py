@@ -20,7 +20,7 @@ def run_ai_lead_agent():
     Act as an elite B2B lead generation researcher. Generate 3 realistic, high-value tech/SaaS companies 
     that match a target buyer profile (B2B SaaS, FinTech, or AI Infrastructure). 
     Provide real corporate domain patterns, industry, employee counts as a string (e.g., '10-50'), and LinkedIn URLs.
-    Output strictly in valid JSON format matching this exact structure:
+    Output strictly in valid JSON format matching this exact root structure:
     {
       "leads": [
         {
@@ -63,13 +63,23 @@ def run_ai_lead_agent():
     try:
         lead_json = json.loads(lead_text)
     except Exception as e:
-        print(f"Failed to parse Gemini response as JSON: {e}", flush=True)
-        print(f"Raw text was: {lead_text}", flush=True)
+        print(f"JSON Parse Error: {e}", flush=True)
         raise
+
+    # Ensure dictionary wrapper has 'leads' key
+    if isinstance(lead_json, list):
+        lead_json = {"leads": lead_json}
+    elif "leads" not in lead_json:
+        # Find first list element if nested differently
+        for k, v in lead_json.items():
+            if isinstance(v, list):
+                lead_json = {"leads": v}
+                break
 
     headers = {"admin-key": ADMIN_SECRET_KEY or ""}
 
     print("Sending payload to Render...", flush=True)
+    print(f"Payload keys: {list(lead_json.keys())}", flush=True)
     for attempt in range(3):
         try:
             res = requests.post(API_URL, json=lead_json, headers=headers, timeout=30)
