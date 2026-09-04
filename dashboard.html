@@ -132,7 +132,10 @@
                 });
                 const data = await res.json();
                 if (data.api_key) {
-                    alert(`New Key Generated Successfully!\n\n${data.api_key}\n\nCopy this now as it will not be shown again.`);
+                    document.getElementById('results').innerText = 
+                        `⚠️ NEW API KEY CREATED (${keyName}):\n\n` + 
+                        data.api_key + 
+                        `\n\n[Copy this key now! It will not be shown again.]`;
                     loadKeys(apiKey);
                 } else {
                     alert(data.detail || "Failed to create key.");
