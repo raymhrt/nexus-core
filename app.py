@@ -158,6 +158,11 @@ def init_db():
             )
         """
         )
+        # Ensure missing columns are automatically provisioned if the table already existed
+        cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS industry TEXT DEFAULT 'SaaS / Tech';")
+        cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS employee_count TEXT DEFAULT '10-50';")
+        cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS linkedin_url TEXT DEFAULT '';")
+
         cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS webhook_events (
@@ -441,7 +446,6 @@ async def automated_lead_ingestion():
 
 scheduler = AsyncIOScheduler()
 
-# Only register the automated mock generator if ENABLE_MOCK_LEEDS is explicitly set to true
 if os.getenv("ENABLE_MOCK_LEEDS", "false").lower() == "true":
     scheduler.add_job(automated_lead_ingestion, "interval", hours=1)
 
