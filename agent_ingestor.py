@@ -13,6 +13,7 @@ client = genai.Client(api_key=api_key)
 
 API_URL = "https://nexus-core-yfou.onrender.com/api/v1/admin/upload-leads"
 ADMIN_SECRET_KEY = os.getenv("ADMIN_SECRET_KEY")
+print(f"DEBUG: ADMIN_SECRET_KEY loaded? {bool(ADMIN_SECRET_KEY)}", flush=True)
 
 def run_ai_lead_agent():
     print("Generating leads via Gemini...", flush=True)
@@ -20,7 +21,7 @@ def run_ai_lead_agent():
     Act as an elite B2B lead generation researcher. Generate 3 realistic, high-value tech/SaaS companies 
     that match a target buyer profile (B2B SaaS, FinTech, or AI Infrastructure). 
     Provide real corporate domain patterns, industry, employee counts as a string (e.g., '10-50'), and LinkedIn URLs.
-    Output strictly in valid JSON format matching this exact root structure:
+    Output strictly in valid JSON format matching this exact structure:
     {
       "leads": [
         {
@@ -66,20 +67,20 @@ def run_ai_lead_agent():
         print(f"JSON Parse Error: {e}", flush=True)
         raise
 
-    # Ensure dictionary wrapper has 'leads' key
     if isinstance(lead_json, list):
         lead_json = {"leads": lead_json}
     elif "leads" not in lead_json:
-        # Find first list element if nested differently
         for k, v in lead_json.items():
             if isinstance(v, list):
                 lead_json = {"leads": v}
                 break
 
-    headers = {"admin-key": ADMIN_SECRET_KEY or ""}
+    headers = {
+        "admin-key": ADMIN_SECRET_KEY or "",
+        "Admin-Key": ADMIN_SECRET_KEY or ""
+    }
 
     print("Sending payload to Render...", flush=True)
-    print(f"Payload keys: {list(lead_json.keys())}", flush=True)
     for attempt in range(3):
         try:
             res = requests.post(API_URL, json=lead_json, headers=headers, timeout=30)
