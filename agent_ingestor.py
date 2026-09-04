@@ -2,12 +2,12 @@ import os
 import time
 import requests
 from google import genai
+from google.genai.errors import ServerError
 
-# Fallback to check alternative secret names if needed
 api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
 if not api_key:
     raise RuntimeError(
-        "No API key found! Please ensure 'GEMINI_API_KEY' is added in your GitHub repository secrets (Settings > Secrets and variables > Actions)."
+        "No API key found! Please ensure 'GEMINI_API_KEY' is added in your GitHub repository secrets."
     )
 
 client = genai.Client(api_key=api_key)
@@ -35,10 +35,21 @@ def run_ai_lead_agent():
     }
     """
 
-    response = client.models.generate_content(
-        model="gemini-3.6-flash",
-        contents=prompt,
-    )
+    # Retry loop specifically for model availability spikes (503)
+    response = None
+    for gemini_attempt in range(3):
+        try:
+            response = client.models.generate_content(
+                model="gemini-3.6-flash",
+                contents=prompt,
+            )
+            break
+        except ServerError as se:
+            print(f"Gemini model busy (Attempt {gemini_attempt + 1}/3): {se}. Retrying in 10s...")
+            time.sleep(10)
+    
+    if not response:
+        raise RuntimeError("Gemini model remained unavailable after multiple retries.")
 
     lead_payload = response.text
 
