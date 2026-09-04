@@ -17,7 +17,7 @@ def run_ai_lead_agent():
         print("Error: GEMINI_API_KEY is not configured.")
         return
 
-    print("Generating real B2B leads via Gemini...")
+    print("Generating real B2B leads via Gemini using gemini-3.6-flash...")
     prompt = (
         "Generate a JSON list of 3 real, active B2B technology, SaaS, or AI companies. "
         "For each company, provide: "
