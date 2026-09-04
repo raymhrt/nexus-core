@@ -3,7 +3,14 @@ import time
 import requests
 from google import genai
 
-client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+# Fallback to check alternative secret names if needed
+api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+if not api_key:
+    raise RuntimeError(
+        "No API key found! Please ensure 'GEMINI_API_KEY' is added in your GitHub repository secrets (Settings > Secrets and variables > Actions)."
+    )
+
+client = genai.Client(api_key=api_key)
 
 API_URL = "https://nexus-core-yfou.onrender.com/api/v1/admin/upload-leads"
 ADMIN_SECRET_KEY = os.getenv("ADMIN_SECRET_KEY")
