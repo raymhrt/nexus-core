@@ -3,7 +3,7 @@ import time
 import requests
 from google import genai
 
-client = genai.Client(api_key=os.getenv("OPENAI_API_KEY")) # Or store as GEMINI_API_KEY
+client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 API_URL = "https://nexus-core-yfou.onrender.com/api/v1/admin/upload-leads"
 ADMIN_SECRET_KEY = os.getenv("ADMIN_SECRET_KEY")
@@ -29,7 +29,7 @@ def run_ai_lead_agent():
     """
 
     response = client.models.generate_content(
-        model="gemini-2.5-flash",
+        model="gemini-3.6-flash",
         contents=prompt,
     )
 
