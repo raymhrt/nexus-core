@@ -10,7 +10,7 @@ if not api_key:
 
 client = genai.Client(api_key=api_key)
 
-API_URL = "https://nexus-core-yfou.onrender.com/api/v1/admin/upload-leads"
+API_URL = "[https://nexus-core-yfou.onrender.com/api/v1/admin/upload-leads](https://nexus-core-yfou.onrender.com/api/v1/admin/upload-leads)"
 ADMIN_SECRET_KEY = os.getenv("ADMIN_SECRET_KEY")
 
 def run_ai_lead_agent():
@@ -27,7 +27,7 @@ def run_ai_lead_agent():
           "email": "contact@acme.io",
           "industry": "B2B SaaS",
           "employee_count": "10-50",
-          "linkedin_url": "https://linkedin.com/company/acme"
+          "linkedin_url": "[https://linkedin.com/company/acme](https://linkedin.com/company/acme)"
         }
       ]
     }
@@ -86,25 +86,26 @@ def run_ai_lead_agent():
         if not isinstance(item, dict):
             continue
         normalized_leads.append({
-            "company_name": item.get("company_name") or item.get("company") or "Unknown Corp",
-            "email": item.get("email") or "contact@unknown.io",
-            "industry": item.get("industry") or "SaaS / Tech",
+            "company_name": str(item.get("company_name") or item.get("company") or "Unknown Corp"),
+            "email": str(item.get("email") or "contact@unknown.io"),
+            "industry": str(item.get("industry") or "SaaS / Tech"),
             "employee_count": str(item.get("employee_count") or "10-50"),
-            "linkedin_url": item.get("linkedin_url") or item.get("linkedin") or ""
+            "linkedin_url": str(item.get("linkedin_url") or item.get("linkedin") or "")
         })
     lead_json = {"leads": normalized_leads}
 
     headers = {
         "admin-key": ADMIN_SECRET_KEY or "",
-        "Admin-Key": ADMIN_SECRET_KEY or ""
+        "admin_key": ADMIN_SECRET_KEY or "",
+        "Content-Type": "application/json"
     }
 
     print("Sending JSON payload to Render...", flush=True)
     print(f"Payload: {json.dumps(lead_json, indent=2)}", flush=True)
+    print(f"Using Secret Key Length: {len(ADMIN_SECRET_KEY or '')}", flush=True)
     
     for attempt in range(3):
         try:
-            # CRITICAL FIX: Use `json=lead_json` instead of `data=` to serialize as application/json
             res = requests.post(API_URL, json=lead_json, headers=headers, timeout=30)
             print(f"Response Status Code: {res.status_code}", flush=True)
             try:
