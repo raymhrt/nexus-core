@@ -15,6 +15,8 @@ from fastapi import FastAPI, Header, HTTPException, Request, Query, Response, Ba
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from pydantic import BaseModel
+from typing import List, Optional
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
@@ -133,6 +135,9 @@ def init_db():
                 id SERIAL PRIMARY KEY,
                 company_name TEXT,
                 email TEXT,
+                industry TEXT DEFAULT 'SaaS / Tech',
+                employee_count TEXT DEFAULT '10-50',
+                linkedin_url TEXT DEFAULT '',
                 timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """
@@ -190,6 +195,11 @@ def init_db():
             )
         """
         )
+        # Performance Indexes
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_leads_timestamp ON b2b_leads(timestamp DESC);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_leads_company ON b2b_leads(company_name);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_usage_email_time ON api_usage_history(email, timestamp);")
     else:
         cursor.execute(
             """
@@ -221,6 +231,9 @@ def init_db():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 company_name TEXT,
                 email TEXT,
+                industry TEXT DEFAULT 'SaaS / Tech',
+                employee_count TEXT DEFAULT '10-50',
+                linkedin_url TEXT DEFAULT '',
                 timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         """
@@ -278,6 +291,10 @@ def init_db():
             )
         """
         )
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_leads_timestamp ON b2b_leads(timestamp DESC);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_leads_company ON b2b_leads(company_name);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_usage_email_time ON api_usage_history(email, timestamp);")
     conn.commit()
     cursor.close()
     conn.close()
@@ -364,21 +381,40 @@ def dispatch_outbound_webhooks(lead_data: dict):
 
 async def automated_lead_ingestion():
     companies = ["Apex Innovations", "Quantum Dynamics", "Vortex Cloud", "Nexus Analytics", "Stellar Solutions", "Ironclad Security"]
+    industries = ["Cloud Infrastructure", "FinTech", "Cybersecurity", "Artificial Intelligence", "B2B SaaS"]
+    sizes = ["10-50", "50-200", "200-500", "500+"]
+    
     sample_company = f"{secrets.choice(companies)} {secrets.randbelow(900) + 100}"
     sample_email = f"contact@{sample_company.lower().replace(' ', '')}.io"
+    sample_industry = secrets.choice(industries)
+    sample_size = secrets.choice(sizes)
+    sample_linkedin = f"https://linkedin.com/company/{sample_company.lower().replace(' ', '')}"
     
     try:
         conn = get_db()
         cursor = conn.cursor()
         if DATABASE_URL:
-            cursor.execute("INSERT INTO b2b_leads (company_name, email) VALUES (%s, %s)", (sample_company, sample_email))
+            cursor.execute(
+                "INSERT INTO b2b_leads (company_name, email, industry, employee_count, linkedin_url) VALUES (%s, %s, %s, %s, %s)",
+                (sample_company, sample_email, sample_industry, sample_size, sample_linkedin)
+            )
         else:
-            cursor.execute("INSERT INTO b2b_leads (company_name, email) VALUES (?, ?)", (sample_company, sample_email))
+            cursor.execute(
+                "INSERT INTO b2b_leads (company_name, email, industry, employee_count, linkedin_url) VALUES (?, ?, ?, ?, ?)",
+                (sample_company, sample_email, sample_industry, sample_size, sample_linkedin)
+            )
         conn.commit()
         cursor.close()
         conn.close()
         
-        dispatch_outbound_webhooks({"company_name": sample_company, "email": sample_email, "timestamp": datetime.now(timezone.utc).isoformat()})
+        dispatch_outbound_webhooks({
+            "company_name": sample_company, 
+            "email": sample_email, 
+            "industry": sample_industry,
+            "employee_count": sample_size,
+            "linkedin_url": sample_linkedin,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        })
     except Exception as e:
         print(f"Background Worker Error: {e}")
 
@@ -414,7 +450,6 @@ app.add_middleware(
 
 @app.get("/health")
 async def health_check():
-    """Deep health check endpoint for monitoring uptime, database, and Redis status."""
     db_status = "ok"
     redis_status = "ok" if redis_client else "disabled"
     
@@ -595,6 +630,14 @@ async def dashboard_page():
 @app.get("/reset-success")
 async def reset_success_page():
     return FileResponse("reset_success.html")
+
+@app.get("/terms")
+async def terms_page():
+    return FileResponse("terms.html")
+
+@app.get("/privacy")
+async def privacy_page():
+    return FileResponse("privacy.html")
 
 
 @app.get("/api/v1/claim-session")
@@ -847,24 +890,50 @@ async def get_webhook_logs(request: Request, x_api_key: str = Header(...)):
     return {"status": "success", "delivery_logs": logs}
 
 
-@app.post("/api/v1/admin/ingest-lead")
-async def ingest_lead(company_name: str, email: str, admin_key: str = Header(...)):
+class LeadItem(BaseModel):
+    company_name: str
+    email: str
+    industry: Optional[str] = "SaaS / Tech"
+    employee_count: Optional[str] = "10-50"
+    linkedin_url: Optional[str] = ""
+
+class BatchLeadUpload(BaseModel):
+    leads: List[LeadItem]
+
+
+@app.post("/api/v1/admin/upload-leads")
+async def admin_upload_leads(payload: BatchLeadUpload, admin_key: str = Header(...)):
     admin_secret = os.getenv("ADMIN_SECRET_KEY")
     if not admin_secret or admin_key != admin_secret:
         raise HTTPException(status_code=403, detail="Unauthorized admin key.")
     
     conn = get_db()
     cursor = conn.cursor()
-    if DATABASE_URL:
-        cursor.execute("INSERT INTO b2b_leads (company_name, email) VALUES (%s, %s)", (company_name, email))
-    else:
-        cursor.execute("INSERT INTO b2b_leads (company_name, email) VALUES (?, ?)", (company_name, email))
+    count = 0
+    for lead in payload.leads:
+        if DATABASE_URL:
+            cursor.execute(
+                "INSERT INTO b2b_leads (company_name, email, industry, employee_count, linkedin_url) VALUES (%s, %s, %s, %s, %s)",
+                (lead.company_name, lead.email, lead.industry, lead.employee_count, lead.linkedin_url)
+            )
+        else:
+            cursor.execute(
+                "INSERT INTO b2b_leads (company_name, email, industry, employee_count, linkedin_url) VALUES (?, ?, ?, ?, ?)",
+                (lead.company_name, lead.email, lead.industry, lead.employee_count, lead.linkedin_url)
+            )
+        count += 1
+        dispatch_outbound_webhooks({
+            "company_name": lead.company_name,
+            "email": lead.email,
+            "industry": lead.industry,
+            "employee_count": lead.employee_count,
+            "linkedin_url": lead.linkedin_url,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        })
     conn.commit()
     cursor.close()
     conn.close()
-    
-    dispatch_outbound_webhooks({"company_name": company_name, "email": email, "timestamp": datetime.now(timezone.utc).isoformat()})
-    return {"status": "success", "message": f"Lead for {company_name} successfully ingested."}
+    return {"status": "success", "imported_count": count}
 
 
 @app.post("/create-checkout-session")

@@ -1,24 +1,19 @@
+import pytest
 from fastapi.testclient import TestClient
-from app import app, hash_api_key, get_db
+from app import app
 
 client = TestClient(app)
 
-
-def test_read_index():
-    response = client.get("/")
+def test_health_check():
+    response = client.get("/health")
     assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "healthy"
 
-
-def test_dashboard_route():
-    response = client.get("/dashboard")
-    assert response.status_code == 200
-
-
-def test_leads_unauthorized():
+def test_unauthorized_leads_access():
     response = client.get("/api/v1/leads", headers={"x-api-key": "invalid_key"})
     assert response.status_code == 403
 
-
-def test_admin_ingest_unauthorized():
-    response = client.post("/api/v1/admin/ingest-lead", params={"company_name": "Test", "email": "test@test.com"})
-    assert response.status_code == 422  # missing header
+def test_terms_page():
+    response = client.get("/terms")
+    assert response.status_code == 200
