@@ -12,7 +12,7 @@ import redis
 import sentry_sdk
 from sentry_sdk.integrations.fastapi import FastApiIntegration
 from fastapi import FastAPI, Header, HTTPException, Request, Query, Response, BackgroundTasks
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from pydantic import BaseModel
@@ -20,6 +20,7 @@ from typing import List, Optional
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
+from psycopg2 import pool
 
 load_dotenv()
 
@@ -53,18 +54,32 @@ if REDIS_URL:
         print(f"Warning: Redis connection failed: {e}")
         redis_client = None
 
+db_pool = None
+if DATABASE_URL:
+    try:
+        db_url = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+        db_pool = pool.ThreadedConnectionPool(minconn=2, maxconn=20, dsn=db_url)
+    except Exception as e:
+        print(f"Warning: Database connection pool initialization failed: {e}")
+
 
 def get_db():
-    if DATABASE_URL:
-        import psycopg2
-        import psycopg2.extras
-        db_url = DATABASE_URL.replace("postgres://", "postgresql://", 1)
-        conn = psycopg2.connect(db_url, cursor_factory=psycopg2.extras.RealDictCursor)
-        return conn
+    if db_pool:
+        return db_pool.getconn()
     else:
         conn = sqlite3.connect("quantcode_nexus.db")
         conn.row_factory = sqlite3.Row
         return conn
+
+
+def release_db(conn):
+    if db_pool:
+        try:
+            db_pool.putconn(conn)
+        except Exception:
+            pass
+    else:
+        conn.close()
 
 
 def hash_api_key(api_key: str) -> str:
@@ -80,8 +95,8 @@ def generate_hmac_signature(payload_json: str) -> str:
 
 
 def log_audit_event(email: str, action: str, details: str, ip_address: str = "127.0.0.1"):
+    conn = get_db()
     try:
-        conn = get_db()
         cursor = conn.cursor()
         if DATABASE_URL:
             cursor.execute(
@@ -95,9 +110,10 @@ def log_audit_event(email: str, action: str, details: str, ip_address: str = "12
             )
         conn.commit()
         cursor.close()
-        conn.close()
     except Exception as e:
         print(f"Audit log error: {e}")
+    finally:
+        release_db(conn)
 
 
 def init_db():
@@ -195,7 +211,6 @@ def init_db():
             )
         """
         )
-        # Performance Indexes
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_leads_timestamp ON b2b_leads(timestamp DESC);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_leads_company ON b2b_leads(company_name);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash);")
@@ -297,15 +312,15 @@ def init_db():
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_usage_email_time ON api_usage_history(email, timestamp);")
     conn.commit()
     cursor.close()
-    conn.close()
+    release_db(conn)
 
 
 init_db()
 
 
 def record_usage_hit(email: str):
+    conn = get_db()
     try:
-        conn = get_db()
         cursor = conn.cursor()
         if DATABASE_URL:
             cursor.execute("INSERT INTO api_usage_history (email) VALUES (%s)", (email,))
@@ -313,21 +328,24 @@ def record_usage_hit(email: str):
             cursor.execute("INSERT INTO api_usage_history (email) VALUES (?)", (email,))
         conn.commit()
         cursor.close()
-        conn.close()
     except Exception as e:
         print(f"Usage analytics record error: {e}")
+    finally:
+        release_db(conn)
 
 
 def dispatch_outbound_webhooks(lead_data: dict):
     conn = get_db()
-    cursor = conn.cursor()
-    if DATABASE_URL:
-        cursor.execute("SELECT id, webhook_url FROM subscriber_webhooks WHERE active = 1")
-    else:
-        cursor.execute("SELECT id, webhook_url FROM subscriber_webhooks WHERE active = 1")
-    webhooks = cursor.fetchall()
-    cursor.close()
-    conn.close()
+    try:
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute("SELECT id, webhook_url FROM subscriber_webhooks WHERE active = 1")
+        else:
+            cursor.execute("SELECT id, webhook_url FROM subscriber_webhooks WHERE active = 1")
+        webhooks = cursor.fetchall()
+        cursor.close()
+    finally:
+        release_db(conn)
 
     payload_data = {"event": "lead.ingested", "data": lead_data}
     payload_json = json.dumps(payload_data)
@@ -359,8 +377,8 @@ def dispatch_outbound_webhooks(lead_data: dict):
             
             time.sleep(2 * (attempt + 1))
 
+        log_conn = get_db()
         try:
-            log_conn = get_db()
             log_cursor = log_conn.cursor()
             if DATABASE_URL:
                 log_cursor.execute(
@@ -374,9 +392,10 @@ def dispatch_outbound_webhooks(lead_data: dict):
                 )
             log_conn.commit()
             log_cursor.close()
-            log_conn.close()
         except Exception as log_err:
             print(f"Failed to log webhook delivery: {log_err}")
+        finally:
+            release_db(log_conn)
 
 
 async def automated_lead_ingestion():
@@ -390,8 +409,8 @@ async def automated_lead_ingestion():
     sample_size = secrets.choice(sizes)
     sample_linkedin = f"https://linkedin.com/company/{sample_company.lower().replace(' ', '')}"
     
+    conn = get_db()
     try:
-        conn = get_db()
         cursor = conn.cursor()
         if DATABASE_URL:
             cursor.execute(
@@ -405,7 +424,6 @@ async def automated_lead_ingestion():
             )
         conn.commit()
         cursor.close()
-        conn.close()
         
         dispatch_outbound_webhooks({
             "company_name": sample_company, 
@@ -417,10 +435,15 @@ async def automated_lead_ingestion():
         })
     except Exception as e:
         print(f"Background Worker Error: {e}")
+    finally:
+        release_db(conn)
 
 
 scheduler = AsyncIOScheduler()
-scheduler.add_job(automated_lead_ingestion, "interval", hours=1)
+
+# Only register the automated mock generator if ENABLE_MOCK_LEEDS is explicitly set to true
+if os.getenv("ENABLE_MOCK_LEEDS", "false").lower() == "true":
+    scheduler.add_job(automated_lead_ingestion, "interval", hours=1)
 
 
 @asynccontextmanager
@@ -436,7 +459,7 @@ app = FastAPI(title="QuantCode Nexus Lead API", lifespan=lifespan)
 
 app.add_middleware(
     TrustedHostMiddleware, 
-    allowed_hosts=["nexus-core-yfou.onrender.com", "localhost", "127.0.0.1"]
+    allowed_hosts=["nexus-core-yfou.onrender.com", "localhost", "127.0.0.1", "testserver"]
 )
 
 app.add_middleware(
@@ -448,20 +471,34 @@ app.add_middleware(
 )
 
 
+@app.exception_handler(HTTPException)
+async def custom_http_exception_handler(request: Request, exc: HTTPException):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "status": "error",
+            "code": exc.status_code,
+            "message": exc.detail,
+            "path": request.url.path
+        },
+    )
+
+
 @app.get("/health")
 async def health_check():
     db_status = "ok"
     redis_status = "ok" if redis_client else "disabled"
     
+    conn = get_db()
     try:
-        conn = get_db()
         cursor = conn.cursor()
         cursor.execute("SELECT 1")
         cursor.fetchone()
         cursor.close()
-        conn.close()
     except Exception as e:
         db_status = f"error: {str(e)}"
+    finally:
+        release_db(conn)
     
     if redis_client:
         try:
@@ -484,31 +521,32 @@ async def health_check():
 def verify_api_key(x_api_key: str, request: Request):
     incoming_hash = hash_api_key(x_api_key)
     conn = get_db()
-    cursor = conn.cursor()
-    
-    if DATABASE_URL:
-        cursor.execute(
-            """
-            SELECT k.email, k.key_name, s.active, s.tier 
-            FROM api_keys k 
-            JOIN subscribers s ON k.email = s.email 
-            WHERE k.key_hash = %s AND k.active = 1 AND s.active = 1
-            """,
-            (incoming_hash,)
-        )
-    else:
-        cursor.execute(
-            """
-            SELECT k.email, k.key_name, s.active, s.tier 
-            FROM api_keys k 
-            JOIN subscribers s ON k.email = s.email 
-            WHERE k.key_hash = ? AND k.active = 1 AND s.active = 1
-            """,
-            (incoming_hash,)
-        )
-    row = cursor.fetchone()
-    cursor.close()
-    conn.close()
+    try:
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute(
+                """
+                SELECT k.email, k.key_name, s.active, s.tier 
+                FROM api_keys k 
+                JOIN subscribers s ON k.email = s.email 
+                WHERE k.key_hash = %s AND k.active = 1 AND s.active = 1
+                """,
+                (incoming_hash,)
+            )
+        else:
+            cursor.execute(
+                """
+                SELECT k.email, k.key_name, s.active, s.tier 
+                FROM api_keys k 
+                JOIN subscribers s ON k.email = s.email 
+                WHERE k.key_hash = ? AND k.active = 1 AND s.active = 1
+                """,
+                (incoming_hash,)
+            )
+        row = cursor.fetchone()
+        cursor.close()
+    finally:
+        release_db(conn)
     
     client_ip = request.client.host if request.client else "unknown"
     if not row:
@@ -649,38 +687,39 @@ async def claim_session_key(session_id: str):
             raise HTTPException(status_code=400, detail="No email attached to this checkout session.")
 
         conn = get_db()
-        cursor = conn.cursor()
-        if DATABASE_URL:
-            cursor.execute("SELECT k.key_name FROM api_keys k JOIN subscribers s ON k.email = s.email WHERE s.email = %s LIMIT 1", (customer_email,))
-        else:
-            cursor.execute("SELECT k.key_name FROM api_keys k JOIN subscribers s ON k.email = s.email WHERE s.email = ? LIMIT 1", (customer_email,))
-        
-        row = cursor.fetchone()
-        if not row:
-            raw_api_key = f"qcn_{secrets.token_hex(16)}"
-            hashed_key = hash_api_key(raw_api_key)
-            tier = session.metadata.get("tier", "starter") if session.metadata else "starter"
-            
+        try:
+            cursor = conn.cursor()
             if DATABASE_URL:
-                cursor.execute(
-                    "INSERT INTO subscribers (email, active, stripe_customer_id, tier) VALUES (%s, 1, %s, %s) ON CONFLICT (email) DO UPDATE SET active = 1",
-                    (customer_email, session.customer, tier)
-                )
-                cursor.execute("INSERT INTO api_keys (email, key_hash, key_name) VALUES (%s, %s, 'Primary Key')", (customer_email, hashed_key))
+                cursor.execute("SELECT k.key_name FROM api_keys k JOIN subscribers s ON k.email = s.email WHERE s.email = %s LIMIT 1", (customer_email,))
             else:
-                cursor.execute(
-                    "INSERT OR REPLACE INTO subscribers (email, active, stripe_customer_id, tier) VALUES (?, 1, ?, ?)",
-                    (customer_email, session.customer, tier)
-                )
-                cursor.execute("INSERT INTO api_keys (email, key_hash, key_name) VALUES (?, ?, 'Primary Key')", (customer_email, hashed_key))
-            conn.commit()
-            cursor.close()
-            conn.close()
-            return {"status": "success", "email": customer_email, "api_key": raw_api_key, "note": "Key freshly generated and claimed."}
+                cursor.execute("SELECT k.key_name FROM api_keys k JOIN subscribers s ON k.email = s.email WHERE s.email = ? LIMIT 1", (customer_email,))
+            
+            row = cursor.fetchone()
+            if not row:
+                raw_api_key = f"qcn_{secrets.token_hex(16)}"
+                hashed_key = hash_api_key(raw_api_key)
+                tier = session.metadata.get("tier", "starter") if session.metadata else "starter"
+                
+                if DATABASE_URL:
+                    cursor.execute(
+                        "INSERT INTO subscribers (email, active, stripe_customer_id, tier) VALUES (%s, 1, %s, %s) ON CONFLICT (email) DO UPDATE SET active = 1",
+                        (customer_email, session.customer, tier)
+                    )
+                    cursor.execute("INSERT INTO api_keys (email, key_hash, key_name) VALUES (%s, %s, 'Primary Key')", (customer_email, hashed_key))
+                else:
+                    cursor.execute(
+                        "INSERT OR REPLACE INTO subscribers (email, active, stripe_customer_id, tier) VALUES (?, 1, ?, ?)",
+                        (customer_email, session.customer, tier)
+                    )
+                    cursor.execute("INSERT INTO api_keys (email, key_hash, key_name) VALUES (?, ?, 'Primary Key')", (customer_email, hashed_key))
+                conn.commit()
+                cursor.close()
+                return {"status": "success", "email": customer_email, "api_key": raw_api_key, "note": "Key freshly generated and claimed."}
 
-        cursor.close()
-        conn.close()
-        return {"status": "success", "email": customer_email, "message": "Subscription active. Check your email or generate a new key in your dashboard."}
+            cursor.close()
+            return {"status": "success", "email": customer_email, "message": "Subscription active. Check your email or generate a new key in your dashboard."}
+        finally:
+            release_db(conn)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -688,33 +727,33 @@ async def claim_session_key(session_id: str):
 @app.get("/reset-confirm")
 async def confirm_key_reset(token: str, background_tasks: BackgroundTasks, request: Request):
     conn = get_db()
-    cursor = conn.cursor()
-    now = datetime.now(timezone.utc)
-    
-    if DATABASE_URL:
-        cursor.execute("SELECT email FROM subscribers WHERE reset_token = %s AND reset_expires_at > %s", (token, now))
-    else:
-        cursor.execute("SELECT email FROM subscribers WHERE reset_token = ? AND reset_expires_at > ?", (token, now))
-    row = cursor.fetchone()
-    
-    if not row:
+    try:
+        cursor = conn.cursor()
+        now = datetime.now(timezone.utc)
+        
+        if DATABASE_URL:
+            cursor.execute("SELECT email FROM subscribers WHERE reset_token = %s AND reset_expires_at > %s", (token, now))
+        else:
+            cursor.execute("SELECT email FROM subscribers WHERE reset_token = ? AND reset_expires_at > ?", (token, now))
+        row = cursor.fetchone()
+        
+        if not row:
+            raise HTTPException(status_code=400, detail="Invalid or expired reset token.")
+
+        email = row["email"] if isinstance(row, dict) or hasattr(row, "__keys__") else row[0]
+        new_raw_key = f"qcn_{secrets.token_hex(16)}"
+        new_hashed_key = hash_api_key(new_raw_key)
+
+        if DATABASE_URL:
+            cursor.execute("INSERT INTO api_keys (email, key_hash, key_name) VALUES (%s, %s, 'Reset Key')", (email, new_hashed_key))
+            cursor.execute("UPDATE subscribers SET reset_token = NULL, reset_expires_at = NULL WHERE email = %s", (email,))
+        else:
+            cursor.execute("INSERT INTO api_keys (email, key_hash, key_name) VALUES (?, ?, 'Reset Key')", (email, new_hashed_key))
+            cursor.execute("UPDATE subscribers SET reset_token = NULL, reset_expires_at = NULL WHERE email = ?", (email,))
+        conn.commit()
         cursor.close()
-        conn.close()
-        raise HTTPException(status_code=400, detail="Invalid or expired reset token.")
-
-    email = row["email"] if isinstance(row, dict) or hasattr(row, "__keys__") else row[0]
-    new_raw_key = f"qcn_{secrets.token_hex(16)}"
-    new_hashed_key = hash_api_key(new_raw_key)
-
-    if DATABASE_URL:
-        cursor.execute("INSERT INTO api_keys (email, key_hash, key_name) VALUES (%s, %s, 'Reset Key')", (email, new_hashed_key))
-        cursor.execute("UPDATE subscribers SET reset_token = NULL, reset_expires_at = NULL WHERE email = %s", (email,))
-    else:
-        cursor.execute("INSERT INTO api_keys (email, key_hash, key_name) VALUES (?, ?, 'Reset Key')", (email, new_hashed_key))
-        cursor.execute("UPDATE subscribers SET reset_token = NULL, reset_expires_at = NULL WHERE email = ?", (email,))
-    conn.commit()
-    cursor.close()
-    conn.close()
+    finally:
+        release_db(conn)
 
     log_audit_event(email, "KEY_RESET", "API key successfully reset via email token", request.client.host if request.client else "unknown")
     background_tasks.add_task(send_email_via_resend, email, new_raw_key)
@@ -724,28 +763,29 @@ async def confirm_key_reset(token: str, background_tasks: BackgroundTasks, reque
 @app.post("/api/v1/request-key-reset")
 async def request_key_reset(email: str, background_tasks: BackgroundTasks, request: Request):
     conn = get_db()
-    cursor = conn.cursor()
-    if DATABASE_URL:
-        cursor.execute("SELECT active FROM subscribers WHERE email = %s", (email,))
-    else:
-        cursor.execute("SELECT active FROM subscribers WHERE email = ?", (email,))
-    row = cursor.fetchone()
-    
-    if not row or (row["active"] if isinstance(row, dict) or hasattr(row, "__keys__") else row[0]) == 0:
+    try:
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute("SELECT active FROM subscribers WHERE email = %s", (email,))
+        else:
+            cursor.execute("SELECT active FROM subscribers WHERE email = ?", (email,))
+        row = cursor.fetchone()
+        
+        if not row or (row["active"] if isinstance(row, dict) or hasattr(row, "__keys__") else row[0]) == 0:
+            cursor.close()
+            return {"status": "success", "message": "If an active account exists, a reset link has been sent."}
+
+        reset_token = secrets.token_urlsafe(32)
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=15)
+
+        if DATABASE_URL:
+            cursor.execute("UPDATE subscribers SET reset_token = %s, reset_expires_at = %s WHERE email = %s", (reset_token, expires_at, email))
+        else:
+            cursor.execute("UPDATE subscribers SET reset_token = ?, reset_expires_at = ? WHERE email = ?", (reset_token, expires_at, email))
+        conn.commit()
         cursor.close()
-        conn.close()
-        return {"status": "success", "message": "If an active account exists, a reset link has been sent."}
-
-    reset_token = secrets.token_urlsafe(32)
-    expires_at = datetime.now(timezone.utc) + timedelta(minutes=15)
-
-    if DATABASE_URL:
-        cursor.execute("UPDATE subscribers SET reset_token = %s, reset_expires_at = %s WHERE email = %s", (reset_token, expires_at, email))
-    else:
-        cursor.execute("UPDATE subscribers SET reset_token = ?, reset_expires_at = ? WHERE email = ?", (reset_token, expires_at, email))
-    conn.commit()
-    cursor.close()
-    conn.close()
+    finally:
+        release_db(conn)
 
     log_audit_event(email, "KEY_RESET_REQUEST", "Requested password/key reset link", request.client.host if request.client else "unknown")
     reset_url = f"https://nexus-core-yfou.onrender.com/reset-confirm?token={reset_token}"
@@ -757,14 +797,16 @@ async def request_key_reset(email: str, background_tasks: BackgroundTasks, reque
 async def list_subscriber_keys(request: Request, x_api_key: str = Header(...)):
     sub = verify_api_key(x_api_key, request)
     conn = get_db()
-    cursor = conn.cursor()
-    if DATABASE_URL:
-        cursor.execute("SELECT id, key_name, active, created_at FROM api_keys WHERE email = %s", (sub["email"],))
-    else:
-        cursor.execute("SELECT id, key_name, active, created_at FROM api_keys WHERE email = ?", (sub["email"],))
-    keys = [dict(r) for r in cursor.fetchall()]
-    cursor.close()
-    conn.close()
+    try:
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute("SELECT id, key_name, active, created_at FROM api_keys WHERE email = %s", (sub["email"],))
+        else:
+            cursor.execute("SELECT id, key_name, active, created_at FROM api_keys WHERE email = ?", (sub["email"],))
+        keys = [dict(r) for r in cursor.fetchall()]
+        cursor.close()
+    finally:
+        release_db(conn)
     return {"status": "success", "keys": keys}
 
 
@@ -775,14 +817,16 @@ async def create_subscriber_key(request: Request, key_name: str = "New Key", x_a
     hashed_key = hash_api_key(raw_key)
 
     conn = get_db()
-    cursor = conn.cursor()
-    if DATABASE_URL:
-        cursor.execute("INSERT INTO api_keys (email, key_hash, key_name) VALUES (%s, %s, %s)", (sub["email"], hashed_key, key_name))
-    else:
-        cursor.execute("INSERT INTO api_keys (email, key_hash, key_name) VALUES (?, ?, ?)", (sub["email"], hashed_key, key_name))
-    conn.commit()
-    cursor.close()
-    conn.close()
+    try:
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute("INSERT INTO api_keys (email, key_hash, key_name) VALUES (%s, %s, %s)", (sub["email"], hashed_key, key_name))
+        else:
+            cursor.execute("INSERT INTO api_keys (email, key_hash, key_name) VALUES (?, ?, ?)", (sub["email"], hashed_key, key_name))
+        conn.commit()
+        cursor.close()
+    finally:
+        release_db(conn)
 
     log_audit_event(sub["email"], "KEY_CREATED", f"Created new API key labeled '{key_name}'", sub["ip"])
     return {"status": "success", "key_name": key_name, "api_key": raw_key, "message": "Save this key now. It will not be shown again."}
@@ -792,14 +836,16 @@ async def create_subscriber_key(request: Request, key_name: str = "New Key", x_a
 async def revoke_subscriber_key(key_id: int, request: Request, x_api_key: str = Header(...)):
     sub = verify_api_key(x_api_key, request)
     conn = get_db()
-    cursor = conn.cursor()
-    if DATABASE_URL:
-        cursor.execute("UPDATE api_keys SET active = 0 WHERE id = %s AND email = %s", (key_id, sub["email"]))
-    else:
-        cursor.execute("UPDATE api_keys SET active = 0 WHERE id = ? AND email = ?", (key_id, sub["email"]))
-    conn.commit()
-    cursor.close()
-    conn.close()
+    try:
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute("UPDATE api_keys SET active = 0 WHERE id = %s AND email = %s", (key_id, sub["email"]))
+        else:
+            cursor.execute("UPDATE api_keys SET active = 0 WHERE id = ? AND email = ?", (key_id, sub["email"]))
+        conn.commit()
+        cursor.close()
+    finally:
+        release_db(conn)
     log_audit_event(sub["email"], "KEY_REVOKED", f"Revoked API key ID {key_id}", sub["ip"])
     return {"status": "success", "message": f"API key ID {key_id} revoked."}
 
@@ -808,34 +854,35 @@ async def revoke_subscriber_key(key_id: int, request: Request, x_api_key: str = 
 async def get_usage_analytics_history(request: Request, x_api_key: str = Header(...)):
     sub = verify_api_key(x_api_key, request)
     conn = get_db()
-    cursor = conn.cursor()
-    
-    if DATABASE_URL:
-        cursor.execute(
-            """
-            SELECT TO_CHAR(timestamp, 'YYYY-MM-DD') as day, COUNT(*) as request_count
-            FROM api_usage_history
-            WHERE email = %s AND timestamp >= NOW() - INTERVAL '7 days'
-            GROUP BY TO_CHAR(timestamp, 'YYYY-MM-DD')
-            ORDER BY day ASC
-            """,
-            (sub["email"],)
-        )
-    else:
-        cursor.execute(
-            """
-            SELECT DATE(timestamp) as day, COUNT(*) as request_count
-            FROM api_usage_history
-            WHERE email = ? AND timestamp >= datetime('now', '-7 days')
-            GROUP BY DATE(timestamp)
-            ORDER BY day ASC
-            """,
-            (sub["email"],)
-        )
-    rows = cursor.fetchall()
-    history = [dict(r) for r in rows]
-    cursor.close()
-    conn.close()
+    try:
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute(
+                """
+                SELECT TO_CHAR(timestamp, 'YYYY-MM-DD') as day, COUNT(*) as request_count
+                FROM api_usage_history
+                WHERE email = %s AND timestamp >= NOW() - INTERVAL '7 days'
+                GROUP BY TO_CHAR(timestamp, 'YYYY-MM-DD')
+                ORDER BY day ASC
+                """,
+                (sub["email"],)
+            )
+        else:
+            cursor.execute(
+                """
+                SELECT DATE(timestamp) as day, COUNT(*) as request_count
+                FROM api_usage_history
+                WHERE email = ? AND timestamp >= datetime('now', '-7 days')
+                GROUP BY DATE(timestamp)
+                ORDER BY day ASC
+                """,
+                (sub["email"],)
+            )
+        rows = cursor.fetchall()
+        history = [dict(r) for r in rows]
+        cursor.close()
+    finally:
+        release_db(conn)
     return {"status": "success", "usage_history": history}
 
 
@@ -843,14 +890,16 @@ async def get_usage_analytics_history(request: Request, x_api_key: str = Header(
 async def register_subscriber_webhook(webhook_url: str, request: Request, x_api_key: str = Header(...)):
     sub = verify_api_key(x_api_key, request)
     conn = get_db()
-    cursor = conn.cursor()
-    if DATABASE_URL:
-        cursor.execute("INSERT INTO subscriber_webhooks (email, webhook_url) VALUES (%s, %s)", (sub["email"], webhook_url))
-    else:
-        cursor.execute("INSERT INTO subscriber_webhooks (email, webhook_url) VALUES (?, ?)", (sub["email"], webhook_url))
-    conn.commit()
-    cursor.close()
-    conn.close()
+    try:
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute("INSERT INTO subscriber_webhooks (email, webhook_url) VALUES (%s, %s)", (sub["email"], webhook_url))
+        else:
+            cursor.execute("INSERT INTO subscriber_webhooks (email, webhook_url) VALUES (?, ?)", (sub["email"], webhook_url))
+        conn.commit()
+        cursor.close()
+    finally:
+        release_db(conn)
     log_audit_event(sub["email"], "WEBHOOK_REGISTERED", f"Registered destination URL: {webhook_url}", sub["ip"])
     return {"status": "success", "message": "Webhook URL registered successfully."}
 
@@ -859,34 +908,35 @@ async def register_subscriber_webhook(webhook_url: str, request: Request, x_api_
 async def get_webhook_logs(request: Request, x_api_key: str = Header(...)):
     sub = verify_api_key(x_api_key, request)
     conn = get_db()
-    cursor = conn.cursor()
-    
-    if DATABASE_URL:
-        cursor.execute(
-            """
-            SELECT DISTINCT l.id, l.webhook_url, l.status_code, l.success, l.error_message, l.timestamp 
-            FROM webhook_logs l
-            JOIN subscriber_webhooks w ON l.webhook_url = w.webhook_url
-            WHERE w.email = %s
-            ORDER BY l.timestamp DESC LIMIT 20
-            """,
-            (sub["email"],)
-        )
-    else:
-        cursor.execute(
-            """
-            SELECT DISTINCT l.id, l.webhook_url, l.status_code, l.success, l.error_message, l.timestamp 
-            FROM webhook_logs l
-            JOIN subscriber_webhooks w ON l.webhook_url = w.webhook_url
-            WHERE w.email = ?
-            ORDER BY l.timestamp DESC LIMIT 20
-            """,
-            (sub["email"],)
-        )
-    rows = cursor.fetchall()
-    logs = [dict(r) for r in rows]
-    cursor.close()
-    conn.close()
+    try:
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute(
+                """
+                SELECT DISTINCT l.id, l.webhook_url, l.status_code, l.success, l.error_message, l.timestamp 
+                FROM webhook_logs l
+                JOIN subscriber_webhooks w ON l.webhook_url = w.webhook_url
+                WHERE w.email = %s
+                ORDER BY l.timestamp DESC LIMIT 20
+                """,
+                (sub["email"],)
+            )
+        else:
+            cursor.execute(
+                """
+                SELECT DISTINCT l.id, l.webhook_url, l.status_code, l.success, l.error_message, l.timestamp 
+                FROM webhook_logs l
+                JOIN subscriber_webhooks w ON l.webhook_url = w.webhook_url
+                WHERE w.email = ?
+                ORDER BY l.timestamp DESC LIMIT 20
+                """,
+                (sub["email"],)
+            )
+        rows = cursor.fetchall()
+        logs = [dict(r) for r in rows]
+        cursor.close()
+    finally:
+        release_db(conn)
     return {"status": "success", "delivery_logs": logs}
 
 
@@ -908,31 +958,33 @@ async def admin_upload_leads(payload: BatchLeadUpload, admin_key: str = Header(.
         raise HTTPException(status_code=403, detail="Unauthorized admin key.")
     
     conn = get_db()
-    cursor = conn.cursor()
-    count = 0
-    for lead in payload.leads:
-        if DATABASE_URL:
-            cursor.execute(
-                "INSERT INTO b2b_leads (company_name, email, industry, employee_count, linkedin_url) VALUES (%s, %s, %s, %s, %s)",
-                (lead.company_name, lead.email, lead.industry, lead.employee_count, lead.linkedin_url)
-            )
-        else:
-            cursor.execute(
-                "INSERT INTO b2b_leads (company_name, email, industry, employee_count, linkedin_url) VALUES (?, ?, ?, ?, ?)",
-                (lead.company_name, lead.email, lead.industry, lead.employee_count, lead.linkedin_url)
-            )
-        count += 1
-        dispatch_outbound_webhooks({
-            "company_name": lead.company_name,
-            "email": lead.email,
-            "industry": lead.industry,
-            "employee_count": lead.employee_count,
-            "linkedin_url": lead.linkedin_url,
-            "timestamp": datetime.now(timezone.utc).isoformat()
-        })
-    conn.commit()
-    cursor.close()
-    conn.close()
+    try:
+        cursor = conn.cursor()
+        count = 0
+        for lead in payload.leads:
+            if DATABASE_URL:
+                cursor.execute(
+                    "INSERT INTO b2b_leads (company_name, email, industry, employee_count, linkedin_url) VALUES (%s, %s, %s, %s, %s)",
+                    (lead.company_name, lead.email, lead.industry, lead.employee_count, lead.linkedin_url)
+                )
+            else:
+                cursor.execute(
+                    "INSERT INTO b2b_leads (company_name, email, industry, employee_count, linkedin_url) VALUES (?, ?, ?, ?, ?)",
+                    (lead.company_name, lead.email, lead.industry, lead.employee_count, lead.linkedin_url)
+                )
+            count += 1
+            dispatch_outbound_webhooks({
+                "company_name": lead.company_name,
+                "email": lead.email,
+                "industry": lead.industry,
+                "employee_count": lead.employee_count,
+                "linkedin_url": lead.linkedin_url,
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            })
+        conn.commit()
+        cursor.close()
+    finally:
+        release_db(conn)
     return {"status": "success", "imported_count": count}
 
 
@@ -967,14 +1019,16 @@ async def create_checkout_session(email: str, tier: str = "starter"):
 async def create_portal_session(email: str):
     try:
         conn = get_db()
-        cursor = conn.cursor()
-        if DATABASE_URL:
-            cursor.execute("SELECT stripe_customer_id FROM subscribers WHERE email = %s", (email,))
-        else:
-            cursor.execute("SELECT stripe_customer_id FROM subscribers WHERE email = ?", (email,))
-        row = cursor.fetchone()
-        cursor.close()
-        conn.close()
+        try:
+            cursor = conn.cursor()
+            if DATABASE_URL:
+                cursor.execute("SELECT stripe_customer_id FROM subscribers WHERE email = %s", (email,))
+            else:
+                cursor.execute("SELECT stripe_customer_id FROM subscribers WHERE email = ?", (email,))
+            row = cursor.fetchone()
+            cursor.close()
+        finally:
+            release_db(conn)
 
         customer_id = row["stripe_customer_id"] if row else None
         if not customer_id:
@@ -1007,76 +1061,77 @@ async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
     session_dict = session.to_dict() if hasattr(session, "to_dict") else dict(session)
 
     conn = get_db()
-    cursor = conn.cursor()
-    if DATABASE_URL:
-        cursor.execute("SELECT event_id FROM webhook_events WHERE event_id = %s", (event_id,))
-    else:
-        cursor.execute("SELECT event_id FROM webhook_events WHERE event_id = ?", (event_id,))
-    
-    if cursor.fetchone():
-        cursor.close()
-        conn.close()
-        return {"status": "success", "note": "event already processed"}
-
     try:
+        cursor = conn.cursor()
         if DATABASE_URL:
-            cursor.execute("INSERT INTO webhook_events (event_id) VALUES (%s)", (event_id,))
+            cursor.execute("SELECT event_id FROM webhook_events WHERE event_id = %s", (event_id,))
         else:
-            cursor.execute("INSERT INTO webhook_events (event_id) VALUES (?)", (event_id,))
-        conn.commit()
-    except Exception:
-        pass
+            cursor.execute("SELECT event_id FROM webhook_events WHERE event_id = ?", (event_id,))
+        
+        if cursor.fetchone():
+            cursor.close()
+            return {"status": "success", "note": "event already processed"}
 
-    if event_type == "checkout.session.completed":
         try:
-            customer_email = session_dict.get("customer_email")
-            customer_id = session_dict.get("customer")
-            metadata = session_dict.get("metadata", {}) or {}
-            tier = metadata.get("tier", "starter")
+            if DATABASE_URL:
+                cursor.execute("INSERT INTO webhook_events (event_id) VALUES (%s)", (event_id,))
+            else:
+                cursor.execute("INSERT INTO webhook_events (event_id) VALUES (?)", (event_id,))
+            conn.commit()
+        except Exception:
+            pass
 
-            if not customer_email and session_dict.get("customer_details"):
-                details = session_dict.get("customer_details")
-                if isinstance(details, dict):
-                    customer_email = details.get("email")
+        if event_type == "checkout.session.completed":
+            try:
+                customer_email = session_dict.get("customer_email")
+                customer_id = session_dict.get("customer")
+                metadata = session_dict.get("metadata", {}) or {}
+                tier = metadata.get("tier", "starter")
 
-            if customer_email:
-                raw_api_key = f"qcn_{secrets.token_hex(16)}"
-                hashed_key = hash_api_key(raw_api_key)
-                
-                if DATABASE_URL:
-                    cursor.execute(
-                        "INSERT INTO subscribers (email, active, stripe_customer_id, tier) VALUES (%s, 1, %s, %s) ON CONFLICT (email) DO UPDATE SET active = 1, stripe_customer_id = EXCLUDED.stripe_customer_id, tier = EXCLUDED.tier",
-                        (customer_email, customer_id, tier),
-                    )
-                    cursor.execute("INSERT INTO api_keys (email, key_hash, key_name) VALUES (%s, %s, 'Primary Key')", (customer_email, hashed_key))
-                else:
-                    cursor.execute(
-                        "INSERT OR REPLACE INTO subscribers (email, active, stripe_customer_id, tier) VALUES (?, 1, ?, ?)",
-                        (customer_email, customer_id, tier),
-                    )
-                    cursor.execute("INSERT INTO api_keys (email, key_hash, key_name) VALUES (?, ?, 'Primary Key')", (customer_email, hashed_key))
-                conn.commit()
+                if not customer_email and session_dict.get("customer_details"):
+                    details = session_dict.get("customer_details")
+                    if isinstance(details, dict):
+                        customer_email = details.get("email")
 
-                log_audit_event(customer_email, "SUBSCRIPTION_CREATED", f"New subscription created on tier {tier}")
-                background_tasks.add_task(send_telegram_alert, f"🚀 *New Subscription ({tier.upper()})!*\nCustomer: `{customer_email}`")
-                background_tasks.add_task(send_email_via_resend, customer_email, raw_api_key)
-        except Exception as err:
-            print(f"Webhook processing error: {err}")
+                if customer_email:
+                    raw_api_key = f"qcn_{secrets.token_hex(16)}"
+                    hashed_key = hash_api_key(raw_api_key)
+                    
+                    if DATABASE_URL:
+                        cursor.execute(
+                            "INSERT INTO subscribers (email, active, stripe_customer_id, tier) VALUES (%s, 1, %s, %s) ON CONFLICT (email) DO UPDATE SET active = 1, stripe_customer_id = EXCLUDED.stripe_customer_id, tier = EXCLUDED.tier",
+                            (customer_email, customer_id, tier),
+                        )
+                        cursor.execute("INSERT INTO api_keys (email, key_hash, key_name) VALUES (%s, %s, 'Primary Key')", (customer_email, hashed_key))
+                    else:
+                        cursor.execute(
+                            "INSERT OR REPLACE INTO subscribers (email, active, stripe_customer_id, tier) VALUES (?, 1, ?, ?)",
+                            (customer_email, customer_id, tier),
+                        )
+                        cursor.execute("INSERT INTO api_keys (email, key_hash, key_name) VALUES (?, ?, 'Primary Key')", (customer_email, hashed_key))
+                    conn.commit()
 
-    elif event_type in ["customer.subscription.deleted", "invoice.payment_failed"]:
-        try:
-            customer_id = session_dict.get("customer")
-            if customer_id:
-                if DATABASE_URL:
-                    cursor.execute("UPDATE subscribers SET active = 0 WHERE stripe_customer_id = %s", (customer_id,))
-                else:
-                    cursor.execute("UPDATE subscribers SET active = 0 WHERE stripe_customer_id = ?", (customer_id,))
-                conn.commit()
-        except Exception as err:
-            print(f"Revocation error: {err}")
+                    log_audit_event(customer_email, "SUBSCRIPTION_CREATED", f"New subscription created on tier {tier}")
+                    background_tasks.add_task(send_telegram_alert, f"🚀 *New Subscription ({tier.upper()})!*\nCustomer: `{customer_email}`")
+                    background_tasks.add_task(send_email_via_resend, customer_email, raw_api_key)
+            except Exception as err:
+                print(f"Webhook processing error: {err}")
 
-    cursor.close()
-    conn.close()
+        elif event_type in ["customer.subscription.deleted", "invoice.payment_failed"]:
+            try:
+                customer_id = session_dict.get("customer")
+                if customer_id:
+                    if DATABASE_URL:
+                        cursor.execute("UPDATE subscribers SET active = 0 WHERE stripe_customer_id = %s", (customer_id,))
+                    else:
+                        cursor.execute("UPDATE subscribers SET active = 0 WHERE stripe_customer_id = ?", (customer_id,))
+                    conn.commit()
+            except Exception as err:
+                print(f"Revocation error: {err}")
+
+        cursor.close()
+    finally:
+        release_db(conn)
     return {"status": "success"}
 
 
@@ -1097,23 +1152,25 @@ async def get_b2b_leads(
     check_rate_limit(sub["hash"], response=response, max_requests=(120 if sub["tier"] == "pro" else 30))
 
     conn = get_db()
-    cursor = conn.cursor()
+    try:
+        cursor = conn.cursor()
 
-    if DATABASE_URL:
-        if company:
-            cursor.execute("SELECT * FROM b2b_leads WHERE company_name ILIKE %s ORDER BY timestamp DESC LIMIT %s OFFSET %s", (f"%{company}%", limit, offset))
+        if DATABASE_URL:
+            if company:
+                cursor.execute("SELECT * FROM b2b_leads WHERE company_name ILIKE %s ORDER BY timestamp DESC LIMIT %s OFFSET %s", (f"%{company}%", limit, offset))
+            else:
+                cursor.execute("SELECT * FROM b2b_leads ORDER BY timestamp DESC LIMIT %s OFFSET %s", (limit, offset))
         else:
-            cursor.execute("SELECT * FROM b2b_leads ORDER BY timestamp DESC LIMIT %s OFFSET %s", (limit, offset))
-    else:
-        if company:
-            cursor.execute("SELECT * FROM b2b_leads WHERE company_name LIKE ? ORDER BY timestamp DESC LIMIT ? OFFSET ?", (f"%{company}%", limit, offset))
-        else:
-            cursor.execute("SELECT * FROM b2b_leads ORDER BY timestamp DESC LIMIT ? OFFSET ?", (limit, offset))
+            if company:
+                cursor.execute("SELECT * FROM b2b_leads WHERE company_name LIKE ? ORDER BY timestamp DESC LIMIT ? OFFSET ?", (f"%{company}%", limit, offset))
+            else:
+                cursor.execute("SELECT * FROM b2b_leads ORDER BY timestamp DESC LIMIT ? OFFSET ?", (limit, offset))
 
-    rows = cursor.fetchall()
-    leads = [dict(row) for row in rows]
-    cursor.close()
-    conn.close()
+        rows = cursor.fetchall()
+        leads = [dict(row) for row in rows]
+        cursor.close()
+    finally:
+        release_db(conn)
 
     return {"status": "success", "tier": sub["tier"], "count": len(leads), "limit": limit, "offset": offset, "leads": leads}
 
