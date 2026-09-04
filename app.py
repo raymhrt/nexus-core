@@ -153,7 +153,7 @@ def init_db():
             """
             CREATE TABLE IF NOT EXISTS b2b_leads (
                 id SERIAL PRIMARY KEY,
-                company_name TEXT,
+                company_name TEXT UNIQUE,
                 email TEXT,
                 industry TEXT DEFAULT 'SaaS / Tech',
                 employee_count TEXT DEFAULT '10-50',
@@ -265,7 +265,7 @@ def init_db():
             """
             CREATE TABLE IF NOT EXISTS b2b_leads (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                company_name TEXT,
+                company_name TEXT UNIQUE,
                 email TEXT,
                 industry TEXT DEFAULT 'SaaS / Tech',
                 employee_count TEXT DEFAULT '10-50',
@@ -463,25 +463,27 @@ async def automated_lead_ingestion():
         cursor = conn.cursor()
         if DATABASE_URL:
             cursor.execute(
-                "INSERT INTO b2b_leads (company_name, email, industry, employee_count, linkedin_url) VALUES (%s, %s, %s, %s, %s)",
+                "INSERT INTO b2b_leads (company_name, email, industry, employee_count, linkedin_url) VALUES (%s, %s, %s, %s, %s) ON CONFLICT (company_name) DO NOTHING",
                 (sample_company, sample_email, sample_industry, sample_size, sample_linkedin)
             )
         else:
             cursor.execute(
-                "INSERT INTO b2b_leads (company_name, email, industry, employee_count, linkedin_url) VALUES (?, ?, ?, ?, ?)",
+                "INSERT OR IGNORE INTO b2b_leads (company_name, email, industry, employee_count, linkedin_url) VALUES (?, ?, ?, ?, ?)",
                 (sample_company, sample_email, sample_industry, sample_size, sample_linkedin)
             )
+        inserted = cursor.rowcount > 0
         conn.commit()
         cursor.close()
         
-        dispatch_outbound_webhooks({
-            "company_name": sample_company, 
-            "email": sample_email, 
-            "industry": sample_industry,
-            "employee_count": sample_size,
-            "linkedin_url": sample_linkedin,
-            "timestamp": datetime.now(timezone.utc).isoformat()
-        })
+        if inserted:
+            dispatch_outbound_webhooks({
+                "company_name": sample_company, 
+                "email": sample_email, 
+                "industry": sample_industry,
+                "employee_count": sample_size,
+                "linkedin_url": sample_linkedin,
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            })
     except Exception as e:
         print(f"Background Worker Error: {e}")
     finally:
@@ -570,7 +572,6 @@ def verify_api_key(x_api_key: str, request: Request):
     incoming_hash = hash_api_key(x_api_key)
     client_ip = request.client.host if request.client else "unknown"
     
-    # Check Redis Cache first to reduce DB load
     cached_data = None
     if redis_client:
         try:
@@ -625,7 +626,6 @@ def verify_api_key(x_api_key: str, request: Request):
     key_name = row["key_name"] if isinstance(row, dict) or hasattr(row, "__keys__") else row[1]
     tier = row["tier"] if isinstance(row, dict) or hasattr(row, "__keys__") else row[3]
 
-    # Populate Redis cache for 60 seconds
     if redis_client:
         try:
             redis_client.setex(
@@ -923,7 +923,6 @@ async def create_subscriber_key(request: Request, key_name: str = "New Key", x_a
     finally:
         release_db(conn)
 
-    # Invalidate cache
     if redis_client:
         try:
             redis_client.delete(f"apikey_cache:{sub['hash']}")
@@ -1073,27 +1072,28 @@ async def admin_upload_leads(payload: BatchLeadUpload, background_tasks: Backgro
         for lead in payload.leads:
             if DATABASE_URL:
                 cursor.execute(
-                    "INSERT INTO b2b_leads (company_name, email, industry, employee_count, linkedin_url) VALUES (%s, %s, %s, %s, %s)",
+                    "INSERT INTO b2b_leads (company_name, email, industry, employee_count, linkedin_url) VALUES (%s, %s, %s, %s, %s) ON CONFLICT (company_name) DO NOTHING",
                     (lead.company_name, lead.email, lead.industry, lead.employee_count, lead.linkedin_url)
                 )
             else:
                 cursor.execute(
-                    "INSERT INTO b2b_leads (company_name, email, industry, employee_count, linkedin_url) VALUES (?, ?, ?, ?, ?)",
+                    "INSERT OR IGNORE INTO b2b_leads (company_name, email, industry, employee_count, linkedin_url) VALUES (?, ?, ?, ?, ?)",
                     (lead.company_name, lead.email, lead.industry, lead.employee_count, lead.linkedin_url)
                 )
-            count += 1
-            # Offload webhook dispatches to async background tasks
-            background_tasks.add_task(
-                dispatch_outbound_webhooks,
-                {
-                    "company_name": lead.company_name,
-                    "email": lead.email,
-                    "industry": lead.industry,
-                    "employee_count": lead.employee_count,
-                    "linkedin_url": lead.linkedin_url,
-                    "timestamp": datetime.now(timezone.utc).isoformat()
-                }
-            )
+            
+            if cursor.rowcount > 0:
+                count += 1
+                background_tasks.add_task(
+                    dispatch_outbound_webhooks,
+                    {
+                        "company_name": lead.company_name,
+                        "email": lead.email,
+                        "industry": lead.industry,
+                        "employee_count": lead.employee_count,
+                        "linkedin_url": lead.linkedin_url,
+                        "timestamp": datetime.now(timezone.utc).isoformat()
+                    }
+                )
         conn.commit()
         cursor.close()
     finally:
