@@ -34,7 +34,7 @@
     <div class="card">
         <a href="/" class="nav-link">&larr; Back to Home</a>
         <h1>Subscriber Dashboard</h1>
-        <p class="sub">Manage keys, track usage quotas, and configure webhooks.</p>
+        <p class="sub">Manage keys, track usage quotas, and monitor webhooks.</p>
 
         <div class="form-group">
             <label for="apiKey">Your Active API Key</label>
@@ -64,7 +64,8 @@
         <div style="margin-top: 30px; border-top: 1px solid #334155; padding-top: 20px;">
             <label style="font-size: 12px; color: #94a3b8; font-weight: 600; text-transform: uppercase; margin-bottom: 10px; display: block;">Outbound Webhook Dispatcher</label>
             <input type="text" id="webhookUrl" placeholder="https://your-server.com/webhook-receiver" />
-            <button onclick="registerWebhook()" style="background: #334155; color: #38bdf8;">Register Webhook URL</button>
+            <button onclick="registerWebhook()" style="background: #334155; color: #38bdf8; margin-bottom: 15px;">Register Webhook URL</button>
+            <button onclick="fetchWebhookLogs()" style="background: #334155; color: #38bdf8;">View Recent Webhook Delivery Logs</button>
         </div>
     </div>
 
@@ -215,6 +216,29 @@
                 alert(data.message || "Webhook registered successfully.");
             } catch (err) {
                 alert("Failed to register webhook.");
+            }
+        }
+
+        async function fetchWebhookLogs() {
+            const apiKey = document.getElementById('apiKey').value.trim();
+            const resultsPre = document.getElementById('results');
+            if (!apiKey) {
+                alert("Please enter your API key first.");
+                return;
+            }
+
+            try {
+                const res = await fetch('/api/v1/webhook-logs', {
+                    headers: { 'x-api-key': apiKey }
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    resultsPre.innerText = JSON.stringify(data, null, 2);
+                } else {
+                    resultsPre.innerText = `Error: ${data.detail || "Failed to fetch logs"}`;
+                }
+            } catch (err) {
+                resultsPre.innerText = `Request failed: ${err.message}`;
             }
         }
 

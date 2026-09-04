@@ -4,6 +4,7 @@ import secrets
 import sqlite3
 import hashlib
 import time
+import json
 import stripe
 import requests
 import redis
@@ -144,6 +145,19 @@ def init_db():
         )
         cursor.execute(
             """
+            CREATE TABLE IF NOT EXISTS webhook_logs (
+                id SERIAL PRIMARY KEY,
+                webhook_url TEXT NOT NULL,
+                payload TEXT,
+                status_code INT,
+                success INT DEFAULT 0,
+                error_message TEXT,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """
+        )
+        cursor.execute(
+            """
             CREATE TABLE IF NOT EXISTS audit_logs (
                 id SERIAL PRIMARY KEY,
                 email TEXT,
@@ -210,6 +224,19 @@ def init_db():
         )
         cursor.execute(
             """
+            CREATE TABLE IF NOT EXISTS webhook_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                webhook_url TEXT NOT NULL,
+                payload TEXT,
+                status_code INT,
+                success INTEGER DEFAULT 0,
+                error_message TEXT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """
+        )
+        cursor.execute(
+            """
             CREATE TABLE IF NOT EXISTS audit_logs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 email TEXT,
@@ -229,26 +256,66 @@ init_db()
 
 
 def dispatch_outbound_webhooks(lead_data: dict):
-    """Dispatches outbound webhook payloads to all active subscriber webhook endpoints."""
-    try:
-        conn = get_db()
-        cursor = conn.cursor()
-        if DATABASE_URL:
-            cursor.execute("SELECT webhook_url FROM subscriber_webhooks WHERE active = 1")
-        else:
-            cursor.execute("SELECT webhook_url FROM subscriber_webhooks WHERE active = 1")
-        webhooks = cursor.fetchall()
-        cursor.close()
-        conn.close()
+    """Dispatches outbound webhook payloads with retry logic and failure logging."""
+    conn = get_db()
+    cursor = conn.cursor()
+    if DATABASE_URL:
+        cursor.execute("SELECT id, webhook_url FROM subscriber_webhooks WHERE active = 1")
+    else:
+        cursor.execute("SELECT id, webhook_url FROM subscriber_webhooks WHERE active = 1")
+    webhooks = cursor.fetchall()
+    cursor.close()
+    conn.close()
 
-        for wh in webhooks:
-            url = wh["webhook_url"] if isinstance(wh, dict) or hasattr(wh, "__keys__") else wh[0]
+    payload_data = {"event": "lead.ingested", "data": lead_data}
+    payload_json = json.dumps(payload_data)
+
+    for wh in webhooks:
+        url = wh["webhook_url"] if isinstance(wh, dict) or hasattr(wh, "__keys__") else wh[1]
+        
+        success = 0
+        status_code = None
+        error_msg = None
+        
+        # Retry loop (3 attempts with backoff)
+        for attempt in range(3):
             try:
-                requests.post(url, json={"event": "lead.ingested", "data": lead_data}, timeout=5)
+                response = requests.post(url, json=payload_data, timeout=5)
+                status_code = response.status_code
+                if 200 <= response.status_code < 300:
+                    success = 1
+                    error_msg = None
+                    break
+                else:
+                    error_msg = f"HTTP Error Status: {response.status_code}"
             except Exception as e:
-                print(f"Failed to dispatch webhook to {url}: {e}")
-    except Exception as err:
-        print(f"Outbound webhook dispatcher error: {err}")
+                error_msg = str(e)
+                status_code = 500
+            
+            time.sleep(2 * (attempt + 1))
+
+        # Log delivery attempt result
+        try:
+            log_conn = get_db()
+            log_cursor = log_conn.cursor()
+            if DATABASE_URL:
+                log_cursor.execute(
+                    "INSERT INTO webhook_logs (webhook_url, payload, status_code, success, error_message) VALUES (%s, %s, %s, %s, %s)",
+                    (url, payload_json, status_code, success, error_msg)
+                )
+            else:
+                log_cursor.execute(
+                    "INSERT INTO webhook_logs (webhook_url, payload, status_code, success, error_message) VALUES (?, ?, ?, ?, ?)",
+                    (url, payload_json, status_code, success, error_msg)
+                )
+            log_conn.commit()
+            log_cursor.close()
+            log_conn.close()
+        except Exception as log_err:
+            print(f"Failed to log webhook delivery: {log_err}")
+
+        if success == 0:
+            print(f"Webhook {url} failed after 3 retries: {error_msg}")
 
 
 async def automated_lead_ingestion():
@@ -266,9 +333,7 @@ async def automated_lead_ingestion():
         conn.commit()
         cursor.close()
         conn.close()
-        print(f"Background Worker: Ingested lead -> {sample_company}")
         
-        # Dispatch to outbound webhooks asynchronously
         dispatch_outbound_webhooks({"company_name": sample_company, "email": sample_email, "timestamp": datetime.now(timezone.utc).isoformat()})
     except Exception as e:
         print(f"Background Worker Error: {e}")
@@ -319,7 +384,7 @@ def verify_api_key(x_api_key: str, request: Request):
     
     client_ip = request.client.host if request.client else "unknown"
     if not row:
-        log_audit_event("unknown", "API_AUTH_FAILURE", f"Invalid key hash attempt", client_ip)
+        log_audit_event("unknown", "API_AUTH_FAILURE", "Invalid key hash attempt", client_ip)
         raise HTTPException(status_code=403, detail="Invalid or inactive API subscription key.")
     
     email = row["email"] if isinstance(row, dict) or hasattr(row, "__keys__") else row[0]
@@ -573,7 +638,6 @@ async def get_usage_analytics(request: Request, response: Response, x_api_key: s
     }
 
 
-# Subscriber Webhook Endpoint Registration
 @app.post("/api/v1/webhooks")
 async def register_subscriber_webhook(webhook_url: str, request: Request, x_api_key: str = Header(...)):
     sub = verify_api_key(x_api_key, request)
@@ -588,6 +652,41 @@ async def register_subscriber_webhook(webhook_url: str, request: Request, x_api_
     conn.close()
     log_audit_event(sub["email"], "WEBHOOK_REGISTERED", f"Registered destination URL: {webhook_url}", sub["ip"])
     return {"status": "success", "message": "Webhook URL registered successfully."}
+
+
+@app.get("/api/v1/webhook-logs")
+async def get_webhook_logs(request: Request, x_api_key: str = Header(...)):
+    sub = verify_api_key(x_api_key, request)
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    if DATABASE_URL:
+        cursor.execute(
+            """
+            SELECT l.id, l.webhook_url, l.status_code, l.success, l.error_message, l.timestamp 
+            FROM webhook_logs l
+            JOIN subscriber_webhooks w ON l.webhook_url = w.webhook_url
+            WHERE w.email = %s
+            ORDER BY l.timestamp DESC LIMIT 20
+            """,
+            (sub["email"],)
+        )
+    else:
+        cursor.execute(
+            """
+            SELECT l.id, l.webhook_url, l.status_code, l.success, l.error_message, l.timestamp 
+            FROM webhook_logs l
+            JOIN subscriber_webhooks w ON l.webhook_url = w.webhook_url
+            WHERE w.email = ?
+            ORDER BY l.timestamp DESC LIMIT 20
+            """,
+            (sub["email"],)
+        )
+    rows = cursor.fetchall()
+    logs = [dict(r) for r in rows]
+    cursor.close()
+    conn.close()
+    return {"status": "success", "delivery_logs": logs}
 
 
 @app.post("/api/v1/admin/ingest-lead")
