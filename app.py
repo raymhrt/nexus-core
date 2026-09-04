@@ -63,6 +63,27 @@ def hash_api_key(api_key: str) -> str:
     return hashlib.sha256(api_key.encode("utf-8")).hexdigest()
 
 
+def log_audit_event(email: str, action: str, details: str, ip_address: str = "127.0.0.1"):
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute(
+                "INSERT INTO audit_logs (email, action, details, ip_address) VALUES (%s, %s, %s, %s)",
+                (email, action, details, ip_address)
+            )
+        else:
+            cursor.execute(
+                "INSERT INTO audit_logs (email, action, details, ip_address) VALUES (?, ?, ?, ?)",
+                (email, action, details, ip_address)
+            )
+        conn.commit()
+        cursor.close()
+        conn.close()
+    except Exception as e:
+        print(f"Audit log error: {e}")
+
+
 def init_db():
     conn = get_db()
     cursor = conn.cursor()
@@ -110,6 +131,29 @@ def init_db():
             )
         """
         )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS subscriber_webhooks (
+                id SERIAL PRIMARY KEY,
+                email TEXT REFERENCES subscribers(email),
+                webhook_url TEXT NOT NULL,
+                active INT DEFAULT 1,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """
+        )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS audit_logs (
+                id SERIAL PRIMARY KEY,
+                email TEXT,
+                action TEXT NOT NULL,
+                details TEXT,
+                ip_address TEXT,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """
+        )
     else:
         cursor.execute(
             """
@@ -153,12 +197,58 @@ def init_db():
             )
         """
         )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS subscriber_webhooks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email TEXT,
+                webhook_url TEXT NOT NULL,
+                active INTEGER DEFAULT 1,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """
+        )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS audit_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email TEXT,
+                action TEXT NOT NULL,
+                details TEXT,
+                ip_address TEXT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """
+        )
     conn.commit()
     cursor.close()
     conn.close()
 
 
 init_db()
+
+
+def dispatch_outbound_webhooks(lead_data: dict):
+    """Dispatches outbound webhook payloads to all active subscriber webhook endpoints."""
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute("SELECT webhook_url FROM subscriber_webhooks WHERE active = 1")
+        else:
+            cursor.execute("SELECT webhook_url FROM subscriber_webhooks WHERE active = 1")
+        webhooks = cursor.fetchall()
+        cursor.close()
+        conn.close()
+
+        for wh in webhooks:
+            url = wh["webhook_url"] if isinstance(wh, dict) or hasattr(wh, "__keys__") else wh[0]
+            try:
+                requests.post(url, json={"event": "lead.ingested", "data": lead_data}, timeout=5)
+            except Exception as e:
+                print(f"Failed to dispatch webhook to {url}: {e}")
+    except Exception as err:
+        print(f"Outbound webhook dispatcher error: {err}")
 
 
 async def automated_lead_ingestion():
@@ -177,6 +267,9 @@ async def automated_lead_ingestion():
         cursor.close()
         conn.close()
         print(f"Background Worker: Ingested lead -> {sample_company}")
+        
+        # Dispatch to outbound webhooks asynchronously
+        dispatch_outbound_webhooks({"company_name": sample_company, "email": sample_email, "timestamp": datetime.now(timezone.utc).isoformat()})
     except Exception as e:
         print(f"Background Worker Error: {e}")
 
@@ -195,7 +288,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="QuantCode Nexus Lead API", lifespan=lifespan)
 
 
-def verify_api_key(x_api_key: str):
+def verify_api_key(x_api_key: str, request: Request):
     incoming_hash = hash_api_key(x_api_key)
     conn = get_db()
     cursor = conn.cursor()
@@ -224,14 +317,21 @@ def verify_api_key(x_api_key: str):
     cursor.close()
     conn.close()
     
+    client_ip = request.client.host if request.client else "unknown"
     if not row:
+        log_audit_event("unknown", "API_AUTH_FAILURE", f"Invalid key hash attempt", client_ip)
         raise HTTPException(status_code=403, detail="Invalid or inactive API subscription key.")
     
+    email = row["email"] if isinstance(row, dict) or hasattr(row, "__keys__") else row[0]
+    key_name = row["key_name"] if isinstance(row, dict) or hasattr(row, "__keys__") else row[1]
+    tier = row["tier"] if isinstance(row, dict) or hasattr(row, "__keys__") else row[3]
+
     return {
-        "email": row["email"] if isinstance(row, dict) or hasattr(row, "__keys__") else row[0],
-        "key_name": row["key_name"] if isinstance(row, dict) or hasattr(row, "__keys__") else row[1],
-        "tier": row["tier"] if isinstance(row, dict) or hasattr(row, "__keys__") else row[3],
-        "hash": incoming_hash
+        "email": email,
+        "key_name": key_name,
+        "tier": tier,
+        "hash": incoming_hash,
+        "ip": client_ip
     }
 
 
@@ -338,7 +438,7 @@ async def reset_success_page():
 
 
 @app.get("/reset-confirm")
-async def confirm_key_reset(token: str, background_tasks: BackgroundTasks):
+async def confirm_key_reset(token: str, background_tasks: BackgroundTasks, request: Request):
     conn = get_db()
     cursor = conn.cursor()
     now = datetime.now(timezone.utc)
@@ -368,12 +468,13 @@ async def confirm_key_reset(token: str, background_tasks: BackgroundTasks):
     cursor.close()
     conn.close()
 
+    log_audit_event(email, "KEY_RESET", "API key successfully reset via email token", request.client.host if request.client else "unknown")
     background_tasks.add_task(send_email_via_resend, email, new_raw_key)
     return FileResponse("reset_success.html")
 
 
 @app.post("/api/v1/request-key-reset")
-async def request_key_reset(email: str, background_tasks: BackgroundTasks):
+async def request_key_reset(email: str, background_tasks: BackgroundTasks, request: Request):
     conn = get_db()
     cursor = conn.cursor()
     if DATABASE_URL:
@@ -398,14 +499,15 @@ async def request_key_reset(email: str, background_tasks: BackgroundTasks):
     cursor.close()
     conn.close()
 
+    log_audit_event(email, "KEY_RESET_REQUEST", "Requested password/key reset link", request.client.host if request.client else "unknown")
     reset_url = f"https://nexus-core-yfou.onrender.com/reset-confirm?token={reset_token}"
     background_tasks.add_task(send_password_reset_email, email, reset_url)
     return {"status": "success", "message": "If an active account exists, a reset link has been sent."}
 
 
 @app.get("/api/v1/keys")
-async def list_subscriber_keys(x_api_key: str = Header(...)):
-    sub = verify_api_key(x_api_key)
+async def list_subscriber_keys(request: Request, x_api_key: str = Header(...)):
+    sub = verify_api_key(x_api_key, request)
     conn = get_db()
     cursor = conn.cursor()
     if DATABASE_URL:
@@ -419,8 +521,8 @@ async def list_subscriber_keys(x_api_key: str = Header(...)):
 
 
 @app.post("/api/v1/keys")
-async def create_subscriber_key(key_name: str = "New Key", x_api_key: str = Header(...)):
-    sub = verify_api_key(x_api_key)
+async def create_subscriber_key(request: Request, key_name: str = "New Key", x_api_key: str = Header(...)):
+    sub = verify_api_key(x_api_key, request)
     raw_key = f"qcn_{secrets.token_hex(16)}"
     hashed_key = hash_api_key(raw_key)
 
@@ -434,12 +536,13 @@ async def create_subscriber_key(key_name: str = "New Key", x_api_key: str = Head
     cursor.close()
     conn.close()
 
+    log_audit_event(sub["email"], "KEY_CREATED", f"Created new API key labeled '{key_name}'", sub["ip"])
     return {"status": "success", "key_name": key_name, "api_key": raw_key, "message": "Save this key now. It will not be shown again."}
 
 
 @app.delete("/api/v1/keys/{key_id}")
-async def revoke_subscriber_key(key_id: int, x_api_key: str = Header(...)):
-    sub = verify_api_key(x_api_key)
+async def revoke_subscriber_key(key_id: int, request: Request, x_api_key: str = Header(...)):
+    sub = verify_api_key(x_api_key, request)
     conn = get_db()
     cursor = conn.cursor()
     if DATABASE_URL:
@@ -449,12 +552,13 @@ async def revoke_subscriber_key(key_id: int, x_api_key: str = Header(...)):
     conn.commit()
     cursor.close()
     conn.close()
+    log_audit_event(sub["email"], "KEY_REVOKED", f"Revoked API key ID {key_id}", sub["ip"])
     return {"status": "success", "message": f"API key ID {key_id} revoked."}
 
 
 @app.get("/api/v1/usage")
-async def get_usage_analytics(response: Response, x_api_key: str = Header(...)):
-    sub = verify_api_key(x_api_key)
+async def get_usage_analytics(request: Request, response: Response, x_api_key: str = Header(...)):
+    sub = verify_api_key(x_api_key, request)
     max_limit = 120 if sub["tier"] == "pro" else 30
     check_rate_limit(sub["hash"], response=response, max_requests=max_limit)
     
@@ -467,6 +571,23 @@ async def get_usage_analytics(response: Response, x_api_key: str = Header(...)):
         "requests_remaining_this_minute": int(remaining),
         "quota_status": "Active & Healthy"
     }
+
+
+# Subscriber Webhook Endpoint Registration
+@app.post("/api/v1/webhooks")
+async def register_subscriber_webhook(webhook_url: str, request: Request, x_api_key: str = Header(...)):
+    sub = verify_api_key(x_api_key, request)
+    conn = get_db()
+    cursor = conn.cursor()
+    if DATABASE_URL:
+        cursor.execute("INSERT INTO subscriber_webhooks (email, webhook_url) VALUES (%s, %s)", (sub["email"], webhook_url))
+    else:
+        cursor.execute("INSERT INTO subscriber_webhooks (email, webhook_url) VALUES (?, ?)", (sub["email"], webhook_url))
+    conn.commit()
+    cursor.close()
+    conn.close()
+    log_audit_event(sub["email"], "WEBHOOK_REGISTERED", f"Registered destination URL: {webhook_url}", sub["ip"])
+    return {"status": "success", "message": "Webhook URL registered successfully."}
 
 
 @app.post("/api/v1/admin/ingest-lead")
@@ -485,6 +606,7 @@ async def ingest_lead(company_name: str, email: str, admin_key: str = Header(...
     cursor.close()
     conn.close()
     
+    dispatch_outbound_webhooks({"company_name": company_name, "email": email, "timestamp": datetime.now(timezone.utc).isoformat()})
     return {"status": "success", "message": f"Lead for {company_name} successfully ingested."}
 
 
@@ -556,8 +678,6 @@ async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
     event_id = event.id
     event_type = event.type
     session = event.data.object
-
-    # Convert StripeObject to standard dictionary for safe .get() operations
     session_dict = session.to_dict() if hasattr(session, "to_dict") else dict(session)
 
     conn = get_db()
@@ -611,6 +731,7 @@ async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
                     cursor.execute("INSERT INTO api_keys (email, key_hash, key_name) VALUES (?, ?, 'Primary Key')", (customer_email, hashed_key))
                 conn.commit()
 
+                log_audit_event(customer_email, "SUBSCRIPTION_CREATED", f"New subscription created on tier {tier}")
                 background_tasks.add_task(send_telegram_alert, f"🚀 *New Subscription ({tier.upper()})!*\nCustomer: `{customer_email}`")
                 background_tasks.add_task(send_email_via_resend, customer_email, raw_api_key)
         except Exception as err:
@@ -635,13 +756,14 @@ async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
 
 @app.get("/api/v1/leads")
 async def get_b2b_leads(
+    request: Request,
     response: Response,
     x_api_key: str = Header(...),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     company: str | None = Query(None)
 ):
-    sub = verify_api_key(x_api_key)
+    sub = verify_api_key(x_api_key, request)
     max_limit = 200 if sub["tier"] == "pro" else 50
     if limit > max_limit:
         raise HTTPException(status_code=400, detail=f"Your '{sub['tier']}' tier allows max {max_limit} records per request.")

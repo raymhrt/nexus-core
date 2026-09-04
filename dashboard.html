@@ -34,7 +34,7 @@
     <div class="card">
         <a href="/" class="nav-link">&larr; Back to Home</a>
         <h1>Subscriber Dashboard</h1>
-        <p class="sub">Manage keys, track usage quotas, and pull live B2B leads.</p>
+        <p class="sub">Manage keys, track usage quotas, and configure webhooks.</p>
 
         <div class="form-group">
             <label for="apiKey">Your Active API Key</label>
@@ -59,6 +59,12 @@
             <label style="font-size: 12px; color: #94a3b8; font-weight: 600; text-transform: uppercase; margin-bottom: 10px; display: block;">Multi-Key Management</label>
             <button onclick="createNewKey()" style="background: #334155; color: #38bdf8; margin-bottom: 15px;">Generate New API Key</button>
             <div id="keyList" style="color: #94a3b8; font-size: 13px;">Click Fetch Leads to load your active keys.</div>
+        </div>
+
+        <div style="margin-top: 30px; border-top: 1px solid #334155; padding-top: 20px;">
+            <label style="font-size: 12px; color: #94a3b8; font-weight: 600; text-transform: uppercase; margin-bottom: 10px; display: block;">Outbound Webhook Dispatcher</label>
+            <input type="text" id="webhookUrl" placeholder="https://your-server.com/webhook-receiver" />
+            <button onclick="registerWebhook()" style="background: #334155; color: #38bdf8;">Register Webhook URL</button>
         </div>
     </div>
 
@@ -173,9 +179,7 @@
             const apiKey = document.getElementById('apiKey').value.trim();
             if (!apiKey) return;
 
-            if (!confirm(`Are you sure you want to revoke API key ID ${keyId}? This action cannot be undone.`)) {
-                return;
-            }
+            if (!confirm(`Are you sure you want to revoke API key ID ${keyId}?`)) return;
 
             try {
                 const res = await fetch(`/api/v1/keys/${keyId}`, {
@@ -194,6 +198,26 @@
             }
         }
 
+        async function registerWebhook() {
+            const apiKey = document.getElementById('apiKey').value.trim();
+            const webhookUrl = document.getElementById('webhookUrl').value.trim();
+            if (!apiKey || !webhookUrl) {
+                alert("Please enter your API key and a valid webhook destination URL.");
+                return;
+            }
+
+            try {
+                const res = await fetch(`/api/v1/webhooks?webhook_url=${encodeURIComponent(webhookUrl)}`, {
+                    method: 'POST',
+                    headers: { 'x-api-key': apiKey }
+                });
+                const data = await res.json();
+                alert(data.message || "Webhook registered successfully.");
+            } catch (err) {
+                alert("Failed to register webhook.");
+            }
+        }
+
         async function triggerReset() {
             const email = prompt("Enter your account email address to receive a replacement key:");
             if (!email) return;
@@ -203,7 +227,7 @@
                     method: 'POST'
                 });
                 const data = await res.json();
-                alert(data.message || "If registered, a reset link has been sent to your email.");
+                alert(data.message || "If registered, a reset link has been sent.");
             } catch (err) {
                 alert("Failed to send reset request.");
             }
