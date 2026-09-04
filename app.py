@@ -557,6 +557,9 @@ async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
     event_type = event.type
     session = event.data.object
 
+    # Convert StripeObject to standard dictionary for safe .get() operations
+    session_dict = session.to_dict() if hasattr(session, "to_dict") else dict(session)
+
     conn = get_db()
     cursor = conn.cursor()
     if DATABASE_URL:
@@ -580,15 +583,15 @@ async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
 
     if event_type == "checkout.session.completed":
         try:
-            customer_email = getattr(session, "customer_email", None)
-            customer_id = getattr(session, "customer", None)
-            metadata = getattr(session, "metadata", {}) or {}
+            customer_email = session_dict.get("customer_email")
+            customer_id = session_dict.get("customer")
+            metadata = session_dict.get("metadata", {}) or {}
             tier = metadata.get("tier", "starter")
 
-            if not customer_email and hasattr(session, "customer_details"):
-                details = session.customer_details
-                if details:
-                    customer_email = getattr(details, "email", None)
+            if not customer_email and session_dict.get("customer_details"):
+                details = session_dict.get("customer_details")
+                if isinstance(details, dict):
+                    customer_email = details.get("email")
 
             if customer_email:
                 raw_api_key = f"qcn_{secrets.token_hex(16)}"
@@ -615,7 +618,7 @@ async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
 
     elif event_type in ["customer.subscription.deleted", "invoice.payment_failed"]:
         try:
-            customer_id = getattr(session, "customer", None)
+            customer_id = session_dict.get("customer")
             if customer_id:
                 if DATABASE_URL:
                     cursor.execute("UPDATE subscribers SET active = 0 WHERE stripe_customer_id = %s", (customer_id,))
