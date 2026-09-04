@@ -2,9 +2,10 @@ fastapi
 uvicorn
 stripe
 requests
-httpx
-pydantic
-python-dotenv
-psycopg2-binary
 redis
 sentry-sdk
+psycopg2-binary
+python-dotenv
+apscheduler
+httpx
+pytest
