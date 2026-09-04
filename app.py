@@ -6,6 +6,7 @@ import hashlib
 import hmac
 import time
 import json
+import uuid
 import stripe
 import requests
 import redis
@@ -188,10 +189,23 @@ def init_db():
             """
             CREATE TABLE IF NOT EXISTS webhook_logs (
                 id SERIAL PRIMARY KEY,
+                event_id TEXT,
                 webhook_url TEXT NOT NULL,
                 payload TEXT,
                 status_code INT,
                 success INT DEFAULT 0,
+                error_message TEXT,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """
+        )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS webhook_dlq (
+                id SERIAL PRIMARY KEY,
+                event_id TEXT,
+                webhook_url TEXT NOT NULL,
+                payload TEXT,
                 error_message TEXT,
                 timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
@@ -283,10 +297,23 @@ def init_db():
             """
             CREATE TABLE IF NOT EXISTS webhook_logs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_id TEXT,
                 webhook_url TEXT NOT NULL,
                 payload TEXT,
                 status_code INT,
                 success INTEGER DEFAULT 0,
+                error_message TEXT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """
+        )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS webhook_dlq (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_id TEXT,
+                webhook_url TEXT NOT NULL,
+                payload TEXT,
                 error_message TEXT,
                 timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
             )
@@ -345,21 +372,18 @@ def dispatch_outbound_webhooks(lead_data: dict):
     conn = get_db()
     try:
         cursor = conn.cursor()
-        if DATABASE_URL:
-            cursor.execute("SELECT id, webhook_url FROM subscriber_webhooks WHERE active = 1")
-        else:
-            cursor.execute("SELECT id, webhook_url FROM subscriber_webhooks WHERE active = 1")
+        cursor.execute("SELECT id, webhook_url FROM subscriber_webhooks WHERE active = 1")
         webhooks = cursor.fetchall()
         cursor.close()
     finally:
         release_db(conn)
 
-    payload_data = {"event": "lead.ingested", "data": lead_data}
-    payload_json = json.dumps(payload_data)
-    signature = generate_hmac_signature(payload_json)
-    headers = {
-        "Content-Type": "application/json",
-        "X-Nexus-Signature": signature
+    event_id = f"evt_{uuid.uuid4()}"
+    base_payload = {
+        "event_id": event_id,
+        "event": "lead.ingested",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "data": lead_data
     }
 
     for wh in webhooks:
@@ -368,7 +392,15 @@ def dispatch_outbound_webhooks(lead_data: dict):
         status_code = None
         error_msg = None
         
-        for attempt in range(3):
+        for attempt in range(1, 4):
+            payload_data = {**base_payload, "attempt": attempt}
+            payload_json = json.dumps(payload_data)
+            signature = generate_hmac_signature(payload_json)
+            headers = {
+                "Content-Type": "application/json",
+                "X-Nexus-Signature": signature
+            }
+
             try:
                 response = requests.post(url, data=payload_json, headers=headers, timeout=5)
                 status_code = response.status_code
@@ -382,20 +414,30 @@ def dispatch_outbound_webhooks(lead_data: dict):
                 error_msg = str(e)
                 status_code = 500
             
-            time.sleep(2 * (attempt + 1))
+            time.sleep(2 * attempt)
 
         log_conn = get_db()
         try:
             log_cursor = log_conn.cursor()
             if DATABASE_URL:
+                if success == 0:
+                    log_cursor.execute(
+                        "INSERT INTO webhook_dlq (event_id, webhook_url, payload, error_message) VALUES (%s, %s, %s, %s)",
+                        (event_id, url, json.dumps(base_payload), error_msg)
+                    )
                 log_cursor.execute(
-                    "INSERT INTO webhook_logs (webhook_url, payload, status_code, success, error_message) VALUES (%s, %s, %s, %s, %s)",
-                    (url, payload_json, status_code, success, error_msg)
+                    "INSERT INTO webhook_logs (event_id, webhook_url, payload, status_code, success, error_message) VALUES (%s, %s, %s, %s, %s, %s)",
+                    (event_id, url, json.dumps(base_payload), status_code, success, error_msg)
                 )
             else:
+                if success == 0:
+                    log_cursor.execute(
+                        "INSERT INTO webhook_dlq (event_id, webhook_url, payload, error_message) VALUES (?, ?, ?, ?)",
+                        (event_id, url, json.dumps(base_payload), error_msg)
+                    )
                 log_cursor.execute(
-                    "INSERT INTO webhook_logs (webhook_url, payload, status_code, success, error_message) VALUES (?, ?, ?, ?, ?)",
-                    (url, payload_json, status_code, success, error_msg)
+                    "INSERT INTO webhook_logs (event_id, webhook_url, payload, status_code, success, error_message) VALUES (?, ?, ?, ?, ?, ?)",
+                    (event_id, url, json.dumps(base_payload), status_code, success, error_msg)
                 )
             log_conn.commit()
             log_cursor.close()
@@ -526,6 +568,27 @@ async def health_check():
 
 def verify_api_key(x_api_key: str, request: Request):
     incoming_hash = hash_api_key(x_api_key)
+    client_ip = request.client.host if request.client else "unknown"
+    
+    # Check Redis Cache first to reduce DB load
+    cached_data = None
+    if redis_client:
+        try:
+            cached_data = redis_client.get(f"apikey_cache:{incoming_hash}")
+        except Exception:
+            pass
+
+    if cached_data:
+        sub_info = json.loads(cached_data)
+        record_usage_hit(sub_info["email"])
+        return {
+            "email": sub_info["email"],
+            "key_name": sub_info["key_name"],
+            "tier": sub_info["tier"],
+            "hash": incoming_hash,
+            "ip": client_ip
+        }
+
     conn = get_db()
     try:
         cursor = conn.cursor()
@@ -554,7 +617,6 @@ def verify_api_key(x_api_key: str, request: Request):
     finally:
         release_db(conn)
     
-    client_ip = request.client.host if request.client else "unknown"
     if not row:
         log_audit_event("unknown", "API_AUTH_FAILURE", "Invalid key hash attempt", client_ip)
         raise HTTPException(status_code=403, detail="Invalid or inactive API subscription key.")
@@ -562,6 +624,17 @@ def verify_api_key(x_api_key: str, request: Request):
     email = row["email"] if isinstance(row, dict) or hasattr(row, "__keys__") else row[0]
     key_name = row["key_name"] if isinstance(row, dict) or hasattr(row, "__keys__") else row[1]
     tier = row["tier"] if isinstance(row, dict) or hasattr(row, "__keys__") else row[3]
+
+    # Populate Redis cache for 60 seconds
+    if redis_client:
+        try:
+            redis_client.setex(
+                f"apikey_cache:{incoming_hash}",
+                60,
+                json.dumps({"email": email, "key_name": key_name, "tier": tier})
+            )
+        except Exception:
+            pass
 
     record_usage_hit(email)
 
@@ -692,10 +765,7 @@ async def cleanup_webhooks(admin_key: str):
     conn = get_db()
     try:
         cursor = conn.cursor()
-        if DATABASE_URL:
-            cursor.execute("DELETE FROM subscriber_webhooks WHERE webhook_url LIKE '%your-unique-url%';")
-        else:
-            cursor.execute("DELETE FROM subscriber_webhooks WHERE webhook_url LIKE '%your-unique-url%';")
+        cursor.execute("DELETE FROM subscriber_webhooks WHERE webhook_url LIKE '%your-unique-url%';")
         conn.commit()
         cursor.close()
     finally:
@@ -853,6 +923,13 @@ async def create_subscriber_key(request: Request, key_name: str = "New Key", x_a
     finally:
         release_db(conn)
 
+    # Invalidate cache
+    if redis_client:
+        try:
+            redis_client.delete(f"apikey_cache:{sub['hash']}")
+        except Exception:
+            pass
+
     log_audit_event(sub["email"], "KEY_CREATED", f"Created new API key labeled '{key_name}'", sub["ip"])
     return {"status": "success", "key_name": key_name, "api_key": raw_key, "message": "Save this key now. It will not be shown again."}
 
@@ -871,6 +948,13 @@ async def revoke_subscriber_key(key_id: int, request: Request, x_api_key: str = 
         cursor.close()
     finally:
         release_db(conn)
+
+    if redis_client:
+        try:
+            redis_client.delete(f"apikey_cache:{sub['hash']}")
+        except Exception:
+            pass
+
     log_audit_event(sub["email"], "KEY_REVOKED", f"Revoked API key ID {key_id}", sub["ip"])
     return {"status": "success", "message": f"API key ID {key_id} revoked."}
 
@@ -938,7 +1022,7 @@ async def get_webhook_logs(request: Request, x_api_key: str = Header(...)):
         if DATABASE_URL:
             cursor.execute(
                 """
-                SELECT DISTINCT l.id, l.webhook_url, l.status_code, l.success, l.error_message, l.timestamp 
+                SELECT DISTINCT l.id, l.event_id, l.webhook_url, l.status_code, l.success, l.error_message, l.timestamp 
                 FROM webhook_logs l
                 JOIN subscriber_webhooks w ON l.webhook_url = w.webhook_url
                 WHERE w.email = %s
@@ -949,7 +1033,7 @@ async def get_webhook_logs(request: Request, x_api_key: str = Header(...)):
         else:
             cursor.execute(
                 """
-                SELECT DISTINCT l.id, l.webhook_url, l.status_code, l.success, l.error_message, l.timestamp 
+                SELECT DISTINCT l.id, l.event_id, l.webhook_url, l.status_code, l.success, l.error_message, l.timestamp 
                 FROM webhook_logs l
                 JOIN subscriber_webhooks w ON l.webhook_url = w.webhook_url
                 WHERE w.email = ?
@@ -977,7 +1061,7 @@ class BatchLeadUpload(BaseModel):
 
 
 @app.post("/api/v1/admin/upload-leads")
-async def admin_upload_leads(payload: BatchLeadUpload, admin_key: str = Header(...)):
+async def admin_upload_leads(payload: BatchLeadUpload, background_tasks: BackgroundTasks, admin_key: str = Header(...)):
     admin_secret = os.getenv("ADMIN_SECRET_KEY")
     if not admin_secret or admin_key != admin_secret:
         raise HTTPException(status_code=403, detail="Unauthorized admin key.")
@@ -998,14 +1082,18 @@ async def admin_upload_leads(payload: BatchLeadUpload, admin_key: str = Header(.
                     (lead.company_name, lead.email, lead.industry, lead.employee_count, lead.linkedin_url)
                 )
             count += 1
-            dispatch_outbound_webhooks({
-                "company_name": lead.company_name,
-                "email": lead.email,
-                "industry": lead.industry,
-                "employee_count": lead.employee_count,
-                "linkedin_url": lead.linkedin_url,
-                "timestamp": datetime.now(timezone.utc).isoformat()
-            })
+            # Offload webhook dispatches to async background tasks
+            background_tasks.add_task(
+                dispatch_outbound_webhooks,
+                {
+                    "company_name": lead.company_name,
+                    "email": lead.email,
+                    "industry": lead.industry,
+                    "employee_count": lead.employee_count,
+                    "linkedin_url": lead.linkedin_url,
+                    "timestamp": datetime.now(timezone.utc).isoformat()
+                }
+            )
         conn.commit()
         cursor.close()
     finally:
