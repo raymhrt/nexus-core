@@ -22,6 +22,12 @@
         .progress-bar-container { background: #334155; border-radius: 6px; height: 10px; width: 100%; overflow: hidden; margin-bottom: 15px; }
         .progress-bar { background: #38bdf8; height: 100%; width: 0%; transition: width 0.3s ease; }
         #status { font-weight: 600; margin-bottom: 10px; color: #38bdf8; font-size: 14px; }
+        .key-item { display: flex; justify-content: space-between; align-items: center; background: #0f172a; border: 1px solid #334155; padding: 10px 15px; border-radius: 6px; margin-bottom: 10px; font-size: 13px; }
+        .key-info { display: flex; flex-direction: column; }
+        .key-name { font-weight: bold; color: #f8fafc; }
+        .key-meta { color: #94a3b8; font-size: 11px; margin-top: 2px; }
+        .revoke-btn { background: #ef4444; color: #fff; border: none; padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer; width: auto; font-weight: 600; }
+        .revoke-btn:hover { background: #f87171; }
     </style>
 </head>
 <body>
@@ -52,7 +58,7 @@
         <div style="margin-top: 30px; border-top: 1px solid #334155; padding-top: 20px;">
             <label style="font-size: 12px; color: #94a3b8; font-weight: 600; text-transform: uppercase; margin-bottom: 10px; display: block;">Multi-Key Management</label>
             <button onclick="createNewKey()" style="background: #334155; color: #38bdf8; margin-bottom: 15px;">Generate New API Key</button>
-            <pre id="keyList">Click Fetch Leads to load your active keys.</pre>
+            <div id="keyList" style="color: #94a3b8; font-size: 13px;">Click Fetch Leads to load your active keys.</div>
         </div>
     </div>
 
@@ -112,8 +118,26 @@
                     headers: { 'x-api-key': apiKey }
                 });
                 const data = await res.json();
-                if (data.keys) {
-                    document.getElementById('keyList').innerText = JSON.stringify(data.keys, null, 2);
+                const keyListContainer = document.getElementById('keyList');
+                
+                if (data.keys && data.keys.length > 0) {
+                    let html = '';
+                    data.keys.forEach(k => {
+                        if (k.active === 1) {
+                            html += `
+                                <div class="key-item">
+                                    <div class="key-info">
+                                        <span class="key-name">${escapeHtml(k.key_name)} (ID: ${k.id})</span>
+                                        <span class="key-meta">Created: ${k.created_at || 'N/A'}</span>
+                                    </div>
+                                    <button class="revoke-btn" onclick="revokeKey(${k.id})">Revoke</button>
+                                </div>
+                            `;
+                        }
+                    });
+                    keyListContainer.innerHTML = html || 'No active keys found.';
+                } else {
+                    keyListContainer.innerHTML = 'No keys found.';
                 }
             } catch(e) {
                 console.error("Failed to load keys", e);
@@ -145,6 +169,31 @@
             }
         }
 
+        async function revokeKey(keyId) {
+            const apiKey = document.getElementById('apiKey').value.trim();
+            if (!apiKey) return;
+
+            if (!confirm(`Are you sure you want to revoke API key ID ${keyId}? This action cannot be undone.`)) {
+                return;
+            }
+
+            try {
+                const res = await fetch(`/api/v1/keys/${keyId}`, {
+                    method: 'DELETE',
+                    headers: { 'x-api-key': apiKey }
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    alert(data.message || "Key revoked successfully.");
+                    loadKeys(apiKey);
+                } else {
+                    alert(data.detail || "Failed to revoke key.");
+                }
+            } catch (err) {
+                alert("Error revoking key.");
+            }
+        }
+
         async function triggerReset() {
             const email = prompt("Enter your account email address to receive a replacement key:");
             if (!email) return;
@@ -158,6 +207,10 @@
             } catch (err) {
                 alert("Failed to send reset request.");
             }
+        }
+
+        function escapeHtml(str) {
+            return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
         }
     </script>
 </body>
