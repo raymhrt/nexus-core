@@ -27,28 +27,14 @@ def run_ai_lead_agent():
         '[{"company_name": "...", "email": "...", "industry": "...", "employee_count": "...", "linkedin_url": "..."}]'
     )
 
-    # Use gemini-2.0-flash as the standard robust baseline for the google-genai SDK
-    models_to_try = ['gemini-2.0-flash', 'gemini-1.5-flash']
-    response = None
-    success = False
-
-    for model_name in models_to_try:
-        print(f"Attempting generation with model: {model_name}")
-        for attempt in range(1, 4):
-            try:
-                response = ai_client.models.generate_content(
-                    model=model_name,
-                    contents=prompt,
-                )
-                success = True
-                break
-            except Exception as e:
-                print(f"Model {model_name} attempt {attempt} failed: {e}. Retrying...")
-        if success:
-            break
-
-    if not success or not response:
-        raise RuntimeError("All Gemini models are currently unavailable.")
+    try:
+        response = ai_client.models.generate_content(
+            model='gemini-2.0-flash',
+            contents=prompt,
+        )
+    except Exception as e:
+        print(f"Gemini API generation failed: {e}")
+        raise e
 
     raw_text = response.text.strip()
     if raw_text.startswith("```json"):
