@@ -251,6 +251,8 @@ def init_db():
         )
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_leads_timestamp ON b2b_leads(timestamp DESC);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_leads_domain ON b2b_leads(domain);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_usage_email_time ON api_usage_history(email, timestamp);")
     else:
         cursor.execute(
             """
@@ -368,6 +370,8 @@ def init_db():
         )
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_leads_timestamp ON b2b_leads(timestamp DESC);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_leads_domain ON b2b_leads(domain);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_usage_email_time ON api_usage_history(email, timestamp);")
     conn.commit()
     cursor.close()
     release_db(conn)
@@ -510,6 +514,8 @@ async def health_check():
 
 def verify_api_key(x_api_key: str, request: Request):
     incoming_hash = hash_api_key(x_api_key)
+    client_ip = request.client.host if request.client else "unknown"
+    
     conn = get_db()
     try:
         cursor = conn.cursor()
@@ -533,7 +539,155 @@ def verify_api_key(x_api_key: str, request: Request):
     
     email = row["email"] if isinstance(row, dict) or hasattr(row, "__keys__") else row[0]
     tier = row["tier"] if isinstance(row, dict) or hasattr(row, "__keys__") else row[3]
-    return {"email": email, "tier": tier, "hash": incoming_hash}
+    
+    record_usage_hit(email)
+    return {"email": email, "tier": tier, "hash": incoming_hash, "ip": client_ip}
+
+
+# RESTORED USAGE ANALYTICS ENDPOINT (Powers the dashboard graph)
+@app.get("/api/v1/analytics/usage")
+async def get_usage_analytics_history(request: Request, x_api_key: str = Header(...)):
+    sub = verify_api_key(x_api_key, request)
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute(
+                """
+                SELECT TO_CHAR(timestamp, 'YYYY-MM-DD') as day, COUNT(*) as request_count
+                FROM api_usage_history
+                WHERE email = %s AND timestamp >= NOW() - INTERVAL '7 days'
+                GROUP BY TO_CHAR(timestamp, 'YYYY-MM-DD')
+                ORDER BY day ASC
+                """,
+                (sub["email"],)
+            )
+        else:
+            cursor.execute(
+                """
+                SELECT DATE(timestamp) as day, COUNT(*) as request_count
+                FROM api_usage_history
+                WHERE email = ? AND timestamp >= datetime('now', '-7 days')
+                GROUP BY DATE(timestamp)
+                ORDER BY day ASC
+                """,
+                (sub["email"],)
+            )
+        rows = cursor.fetchall()
+        history = [dict(r) for r in rows]
+        cursor.close()
+    finally:
+        release_db(conn)
+    return {"status": "success", "usage_history": history}
+
+
+# RESTORED API KEY & WEBHOOK MANAGEMENT ENDPOINTS
+@app.get("/api/v1/keys")
+async def list_subscriber_keys(request: Request, x_api_key: str = Header(...)):
+    sub = verify_api_key(x_api_key, request)
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute("SELECT id, key_name, active, created_at FROM api_keys WHERE email = %s", (sub["email"],))
+        else:
+            cursor.execute("SELECT id, key_name, active, created_at FROM api_keys WHERE email = ?", (sub["email"],))
+        keys = [dict(r) for r in cursor.fetchall()]
+        cursor.close()
+    finally:
+        release_db(conn)
+    return {"status": "success", "keys": keys}
+
+
+@app.post("/api/v1/keys")
+async def create_subscriber_key(request: Request, key_name: str = "New Key", x_api_key: str = Header(...)):
+    sub = verify_api_key(x_api_key, request)
+    raw_key = f"qcn_{secrets.token_hex(16)}"
+    hashed_key = hash_api_key(raw_key)
+
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute("INSERT INTO api_keys (email, key_hash, key_name) VALUES (%s, %s, %s)", (sub["email"], hashed_key, key_name))
+        else:
+            cursor.execute("INSERT INTO api_keys (email, key_hash, key_name) VALUES (?, ?, ?)", (sub["email"], hashed_key, key_name))
+        conn.commit()
+        cursor.close()
+    finally:
+        release_db(conn)
+
+    return {"status": "success", "key_name": key_name, "api_key": raw_key, "message": "Save this key now. It will not be shown again."}
+
+
+@app.delete("/api/v1/keys/{key_id}")
+async def revoke_subscriber_key(key_id: int, request: Request, x_api_key: str = Header(...)):
+    sub = verify_api_key(x_api_key, request)
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute("UPDATE api_keys SET active = 0 WHERE id = %s AND email = %s", (key_id, sub["email"]))
+        else:
+            cursor.execute("UPDATE api_keys SET active = 0 WHERE id = ? AND email = ?", (key_id, sub["email"]))
+        conn.commit()
+        cursor.close()
+    finally:
+        release_db(conn)
+    return {"status": "success", "message": f"API key ID {key_id} revoked."}
+
+
+@app.post("/api/v1/webhooks")
+async def register_subscriber_webhook(webhook_url: str, request: Request, x_api_key: str = Header(...)):
+    sub = verify_api_key(x_api_key, request)
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute("INSERT INTO subscriber_webhooks (email, webhook_url) VALUES (%s, %s)", (sub["email"], webhook_url))
+        else:
+            cursor.execute("INSERT INTO subscriber_webhooks (email, webhook_url) VALUES (?, ?)", (sub["email"], webhook_url))
+        conn.commit()
+        cursor.close()
+    finally:
+        release_db(conn)
+    return {"status": "success", "message": "Webhook URL registered successfully."}
+
+
+@app.get("/api/v1/webhook-logs")
+async def get_webhook_logs(request: Request, x_api_key: str = Header(...)):
+    sub = verify_api_key(x_api_key, request)
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute(
+                """
+                SELECT DISTINCT l.id, l.event_id, l.webhook_url, l.status_code, l.success, l.error_message, l.timestamp 
+                FROM webhook_logs l
+                JOIN subscriber_webhooks w ON l.webhook_url = w.webhook_url
+                WHERE w.email = %s
+                ORDER BY l.timestamp DESC LIMIT 20
+                """,
+                (sub["email"],)
+            )
+        else:
+            cursor.execute(
+                """
+                SELECT DISTINCT l.id, l.event_id, l.webhook_url, l.status_code, l.success, l.error_message, l.timestamp 
+                FROM webhook_logs l
+                JOIN subscriber_webhooks w ON l.webhook_url = w.webhook_url
+                WHERE w.email = ?
+                ORDER BY l.timestamp DESC LIMIT 20
+                """,
+                (sub["email"],)
+            )
+        rows = cursor.fetchall()
+        logs = [dict(r) for r in rows]
+        cursor.close()
+    finally:
+        release_db(conn)
+    return {"status": "success", "delivery_logs": logs}
 
 
 class LeadItem(BaseModel):
@@ -634,8 +788,6 @@ async def admin_upload_leads(payload: BatchLeadUpload, background_tasks: Backgro
     return {"status": "success", "imported_count": count}
 
 
-# Option: If you want /api/v1/leads to be viewable publicly OR authenticated. 
-# Keeping API key required as part of the tiering architecture:
 @app.get("/api/v1/leads")
 async def get_b2b_leads(request: Request, x_api_key: str = Header(...), limit: int = 50, offset: int = 0):
     sub = verify_api_key(x_api_key, request)
