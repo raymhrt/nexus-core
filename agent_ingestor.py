@@ -12,12 +12,18 @@ RENDER_API_URL = os.getenv("RENDER_API_URL", "https://nexus-core-yfou.onrender.c
 
 ai_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
+# List of models to try sequentially if quota limits (429) are encountered
+FALLBACK_MODELS = [
+    "gemini-3.6-flash",
+    "gemini-2.5-flash",
+    "gemini-3.5-flash-lite"
+]
+
 def run_ai_lead_agent():
     if not ai_client:
         print("Error: GEMINI_API_KEY is not configured.")
         return
 
-    print("Generating real B2B leads via Gemini using gemini-3.6-flash...")
     prompt = (
         "Generate a JSON list of 3 real, active B2B technology, SaaS, or AI companies. "
         "For each company, provide: "
@@ -27,14 +33,32 @@ def run_ai_lead_agent():
         '[{"company_name": "...", "email": "...", "industry": "...", "employee_count": "...", "linkedin_url": "..."}]'
     )
 
-    try:
-        response = ai_client.models.generate_content(
-            model='gemini-3.6-flash',
-            contents=prompt,
-        )
-    except Exception as e:
-        print(f"Gemini API generation failed: {e}")
-        raise e
+    response = None
+    success_model = None
+
+    # Try each model in sequence
+    for model_name in FALLBACK_MODELS:
+        print(f"Attempting to generate leads using model: {model_name}...")
+        try:
+            response = ai_client.models.generate_content(
+                model=model_name,
+                contents=prompt,
+            )
+            success_model = model_name
+            print(f"Successfully generated content using {model_name}.")
+            break
+        except Exception as e:
+            print(f"Model {model_name} failed: {e}")
+            if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+                print(f"Quota exhausted for {model_name}, falling back to next model...")
+                continue
+            else:
+                # If it's a different error (like a bad prompt structure), raise it immediately
+                raise e
+
+    if not response:
+        print("Error: All fallback models exhausted their rate limits or failed.")
+        return
 
     raw_text = response.text.strip()
     if raw_text.startswith("```json"):
@@ -55,7 +79,7 @@ def run_ai_lead_agent():
         "admin-key": ADMIN_SECRET_KEY if ADMIN_SECRET_KEY else ""
     }
 
-    print(f"Pushing {len(leads_data)} leads to Render API: {RENDER_API_URL}")
+    print(f"Pushing {len(leads_data)} leads to Render API using {success_model}: {RENDER_API_URL}")
     try:
         res = requests.post(RENDER_API_URL, json=payload, headers=headers, timeout=15)
         print(f"Response Status: {res.status_code}")
