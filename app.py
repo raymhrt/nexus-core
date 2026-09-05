@@ -525,6 +525,26 @@ async def store_ai_error(payload: AIErrorDLQItem, admin_key: str = Header(None, 
     return {"status": "success", "message": "AI parsing error stored in DLQ"}
 
 
+@app.get("/api/v1/admin/ai-dlq")
+async def get_ai_dlq_logs(admin_key: str = Header(None, alias="admin-key")):
+    if not ADMIN_SECRET_KEY or admin_key != ADMIN_SECRET_KEY:
+        raise HTTPException(status_code=403, detail="Unauthorized")
+    
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute("SELECT * FROM ai_error_dlq ORDER BY timestamp DESC LIMIT 20")
+        else:
+            cursor.execute("SELECT * FROM ai_error_dlq ORDER BY timestamp DESC LIMIT 20")
+        rows = cursor.fetchall()
+        logs = [dict(row) for row in rows]
+        cursor.close()
+    finally:
+        release_db(conn)
+    return {"status": "success", "dlq_errors": logs}
+
+
 @app.post("/api/v1/admin/upload-leads")
 async def admin_upload_leads(payload: BatchLeadUpload, background_tasks: BackgroundTasks, admin_key: str = Header(None, alias="admin-key")):
     if not ADMIN_SECRET_KEY or admin_key != ADMIN_SECRET_KEY:
