@@ -64,14 +64,17 @@ def run_ai_lead_agent():
             print(f"Success with {model_name}.")
             break
         except Exception as e:
-            print(f"Model {model_name} failed: {e}")
-            if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+            error_str = str(e)
+            print(f"Model {model_name} failed: {error_str}")
+            # Catch rate limits (429), server unavailability/high demand (503), or general temporary server errors
+            if any(code in error_str for code in ["429", "503", "RESOURCE_EXHAUSTED", "UNAVAILABLE", "Server error"]):
+                print(f"Temporary issue with {model_name}, falling back to next model...")
                 continue
             else:
                 raise e
 
     if not response:
-        print("Error: All fallback models exhausted.")
+        print("Error: All fallback models exhausted due to rate limits or high demand.")
         return
 
     raw_text = response.text.strip()
