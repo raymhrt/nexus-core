@@ -252,6 +252,12 @@ def init_db():
             )
         """
         )
+        cursor.execute("ALTER TABLE webhook_logs ADD COLUMN IF NOT EXISTS event_id TEXT;")
+        cursor.execute("ALTER TABLE webhook_logs ADD COLUMN IF NOT EXISTS payload TEXT;")
+        cursor.execute("ALTER TABLE webhook_logs ADD COLUMN IF NOT EXISTS status_code INT;")
+        cursor.execute("ALTER TABLE webhook_logs ADD COLUMN IF NOT EXISTS success INT DEFAULT 0;")
+        cursor.execute("ALTER TABLE webhook_logs ADD COLUMN IF NOT EXISTS error_message TEXT;")
+
         cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS webhook_dlq (
@@ -330,35 +336,6 @@ def init_db():
         )
         cursor.execute(
             """
-            CREATE TABLE IF NOT EXISTS ai_error_dlq (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                raw_payload TEXT,
-                error_message TEXT,
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-            )
-        """
-        )
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS webhook_events (
-                event_id TEXT PRIMARY KEY,
-                processed_at DATETIME DEFAULT CURRENT_TIMESTAMP
-            )
-        """
-        )
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS subscriber_webhooks (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                email TEXT,
-                webhook_url TEXT NOT NULL,
-                active INTEGER DEFAULT 1,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-            )
-        """
-        )
-        cursor.execute(
-            """
             CREATE TABLE IF NOT EXISTS webhook_logs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 event_id TEXT,
@@ -371,43 +348,6 @@ def init_db():
             )
         """
         )
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS webhook_dlq (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                event_id TEXT,
-                webhook_url TEXT NOT NULL,
-                payload TEXT,
-                error_message TEXT,
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-            )
-        """
-        )
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS api_usage_history (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                email TEXT,
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-            )
-        """
-        )
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS audit_logs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                email TEXT,
-                action TEXT NOT NULL,
-                details TEXT,
-                ip_address TEXT,
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-            )
-        """
-        )
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_leads_timestamp ON b2b_leads(timestamp DESC);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_leads_domain ON b2b_leads(domain);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_usage_email_time ON api_usage_history(email, timestamp);")
     conn.commit()
     cursor.close()
     release_db(conn)
