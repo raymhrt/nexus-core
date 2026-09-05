@@ -7,6 +7,7 @@ import hmac
 import time
 import json
 import uuid
+import logging
 import stripe
 import requests
 import redis
@@ -26,6 +27,13 @@ from psycopg2.extras import RealDictCursor
 from google import genai
 
 load_dotenv()
+
+# Setup Structured Logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+)
+logger = logging.getLogger("nexus-core")
 
 SENTRY_DSN = os.getenv("SENTRY_DSN")
 if SENTRY_DSN:
@@ -57,7 +65,7 @@ if REDIS_URL:
         redis_client = redis.from_url(REDIS_URL, decode_responses=True)
         redis_client.ping()
     except Exception as e:
-        print(f"Warning: Redis connection failed: {e}")
+        logger.warning(f"Redis connection failed: {e}")
         redis_client = None
 
 db_pool = None
@@ -66,7 +74,7 @@ if DATABASE_URL:
         db_url = DATABASE_URL.replace("postgres://", "postgresql://", 1)
         db_pool = pool.ThreadedConnectionPool(minconn=2, maxconn=20, dsn=db_url)
     except Exception as e:
-        print(f"Warning: Database connection pool initialization failed: {e}")
+        logger.warning(f"Database connection pool initialization failed: {e}")
 
 
 def get_db():
@@ -119,9 +127,37 @@ def log_audit_event(email: str, action: str, details: str, ip_address: str = "12
         conn.commit()
         cursor.close()
     except Exception as e:
-        print(f"Audit log error: {e}")
+        logger.error(f"Audit log error: {e}")
     finally:
         release_db(conn)
+
+
+def send_telegram_alert(message: str):
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        return
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+        requests.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "Markdown"}, timeout=5)
+    except Exception as e:
+        logger.error(f"Telegram alert failed: {e}")
+
+
+def send_email_via_resend(to_email: str, api_key: str):
+    if not RESEND_API_KEY:
+        return
+    url = "https://api.resend.com/emails"
+    headers = {"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"}
+    html_content = f"""
+        <h2>Welcome to QuantCode Nexus!</h2>
+        <p>Your B2B lead API key has been generated and activated.</p>
+        <p><strong>Your API Key:</strong> <code>{api_key}</code></p>
+        <p><a href="https://nexus-core-yfou.onrender.com/dashboard" style="background: #38bdf8; color: #0f172a; padding: 12px 20px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold;">Open Dashboard</a></p>
+    """
+    payload = {"from": f"QuantCode Nexus <{SENDER_EMAIL}>", "to": [to_email], "subject": "Your QuantCode Nexus API Key 🚀", "html": html_content}
+    try:
+        requests.post(url, json=payload, headers=headers, timeout=10)
+    except Exception as e:
+        logger.error(f"Resend error: {e}")
 
 
 def init_db():
@@ -391,7 +427,7 @@ def record_usage_hit(email: str):
         conn.commit()
         cursor.close()
     except Exception as e:
-        print(f"Usage analytics record error: {e}")
+        logger.error(f"Usage analytics record error: {e}")
     finally:
         release_db(conn)
 
@@ -470,18 +506,93 @@ def dispatch_outbound_webhooks(lead_data: dict):
             log_conn.commit()
             log_cursor.close()
         except Exception as log_err:
-            print(f"Failed to log webhook delivery: {log_err}")
+            logger.error(f"Failed to log webhook delivery: {log_err}")
         finally:
             release_db(log_conn)
 
 
-app = FastAPI(title="QuantCode Nexus Lead API")
+async def automated_lead_ingestion():
+    if not ai_client:
+        logger.warning("Gemini AI Client not initialized. Skipping automated ingestion.")
+        return
+
+    prompt = (
+        "Generate a JSON list of 3 real, active B2B technology, SaaS, or AI companies. "
+        "For each company, provide: "
+        "company_name, domain (e.g. 'datadog.com'), email format (e.g. contact@domain.com), industry, "
+        "employee_count (e.g. '51-200'), and linkedin_url. "
+        "Return strictly valid JSON matching this schema: "
+        '[{"company_name": "...", "domain": "...", "email": "...", "industry": "...", "employee_count": "...", "linkedin_url": "..."}]'
+    )
+    
+    try:
+        response = ai_client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt,
+        )
+        raw_text = response.text.strip()
+        if raw_text.startswith("```json"):
+            raw_text = raw_text[7:-3].strip()
+        elif raw_text.startswith("```"):
+            raw_text = raw_text[3:-3].strip()
+            
+        leads = json.loads(raw_text)
+        
+        conn = get_db()
+        try:
+            cursor = conn.cursor()
+            for lead in leads:
+                clean_domain = lead.get("domain", "unknown.com").lower().strip().replace("https://", "").replace("http://", "").rstrip("/")
+                if DATABASE_URL:
+                    cursor.execute(
+                        "INSERT INTO b2b_leads (company_name, domain, email, industry, employee_count, linkedin_url) VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT (domain) DO NOTHING",
+                        (lead["company_name"], clean_domain, lead["email"], lead.get("industry", "SaaS / Tech"), lead.get("employee_count", "10-50"), lead.get("linkedin_url", ""))
+                    )
+                else:
+                    cursor.execute(
+                        "INSERT OR IGNORE INTO b2b_leads (company_name, domain, email, industry, employee_count, linkedin_url) VALUES (?, ?, ?, ?, ?, ?)",
+                        (lead["company_name"], clean_domain, lead["email"], lead.get("industry", "SaaS / Tech"), lead.get("employee_count", "10-50"), lead.get("linkedin_url", ""))
+                    )
+                
+                if cursor.rowcount > 0:
+                    dispatch_outbound_webhooks({
+                        "company_name": lead["company_name"], 
+                        "domain": clean_domain,
+                        "email": lead["email"], 
+                        "industry": lead.get("industry", "SaaS / Tech"),
+                        "employee_count": lead.get("employee_count", "10-50"),
+                        "linkedin_url": lead.get("linkedin_url", ""),
+                        "timestamp": datetime.now(timezone.utc).isoformat()
+                    })
+            conn.commit()
+            cursor.close()
+        finally:
+            release_db(conn)
+    except Exception as e:
+        logger.error(f"Gemini AI Lead Ingestion Error: {e}")
+
+
+scheduler = AsyncIOScheduler()
+if os.getenv("ENABLE_MOCK_LEEDS", "false").lower() == "true":
+    scheduler.add_job(automated_lead_ingestion, "interval", hours=1)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    if not ADMIN_SECRET_KEY:
+        logger.warning("CRITICAL WARNING: ADMIN_SECRET_KEY environment variable is not configured!")
+    scheduler.start()
+    yield
+    scheduler.shutdown()
+
+
+app = FastAPI(title="QuantCode Nexus Lead API", lifespan=lifespan)
 
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=["*"])
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 
-# RESTORED HTML FRONTEND FILE ROUTES
+# FRONTEND FILE ROUTES
 @app.get("/")
 async def read_index():
     return FileResponse("index.html")
@@ -544,7 +655,45 @@ def verify_api_key(x_api_key: str, request: Request):
     return {"email": email, "tier": tier, "hash": incoming_hash, "ip": client_ip}
 
 
-# RESTORED USAGE ANALYTICS ENDPOINT (Powers the dashboard graph)
+def check_rate_limit(api_key_hash: str, response: Response, max_requests: int = 30):
+    window_seconds = 60
+    current_time = int(time.time())
+    current_minute = current_time // window_seconds
+    
+    if redis_client:
+        try:
+            redis_key = f"rate_limit:{api_key_hash}:{current_minute}"
+            pipe = redis_client.pipeline()
+            pipe.incr(redis_key, 1)
+            pipe.ttl(redis_key)
+            count, ttl = pipe.execute()
+            
+            if ttl == -1:
+                redis_client.expire(redis_key, window_seconds)
+                ttl = window_seconds
+
+            remaining = max(0, max_requests - count)
+            reset_time = (current_minute + 1) * window_seconds
+
+            response.headers["X-RateLimit-Limit"] = str(max_requests)
+            response.headers["X-RateLimit-Remaining"] = str(remaining)
+            response.headers["X-RateLimit-Reset"] = str(reset_time)
+
+            if count > max_requests:
+                raise HTTPException(
+                    status_code=429,
+                    detail=f"Rate limit exceeded. Maximum {max_requests} requests per minute allowed."
+                )
+            return
+        except redis.RedisError as e:
+            logger.warning(f"Redis rate limit error (failing open): {e}")
+
+    response.headers["X-RateLimit-Limit"] = str(max_requests)
+    response.headers["X-RateLimit-Remaining"] = str(max_requests)
+    response.headers["X-RateLimit-Reset"] = str((current_minute + 1) * window_seconds)
+
+
+# USAGE ANALYTICS ENDPOINT
 @app.get("/api/v1/analytics/usage")
 async def get_usage_analytics_history(request: Request, x_api_key: str = Header(...)):
     sub = verify_api_key(x_api_key, request)
@@ -581,7 +730,7 @@ async def get_usage_analytics_history(request: Request, x_api_key: str = Header(
     return {"status": "success", "usage_history": history}
 
 
-# RESTORED API KEY & WEBHOOK MANAGEMENT ENDPOINTS
+# API KEY & WEBHOOK MANAGEMENT
 @app.get("/api/v1/keys")
 async def list_subscriber_keys(request: Request, x_api_key: str = Header(...)):
     sub = verify_api_key(x_api_key, request)
@@ -690,6 +839,53 @@ async def get_webhook_logs(request: Request, x_api_key: str = Header(...)):
     return {"status": "success", "delivery_logs": logs}
 
 
+# SESSION CLAIM ENDPOINT
+@app.get("/api/v1/claim-session")
+async def claim_session_key(session_id: str):
+    try:
+        session = stripe.checkout.Session.retrieve(session_id)
+        customer_email = session.customer_email or (session.customer_details and session.customer_details.email)
+        if not customer_email:
+            raise HTTPException(status_code=400, detail="No email attached to this checkout session.")
+
+        conn = get_db()
+        try:
+            cursor = conn.cursor()
+            if DATABASE_URL:
+                cursor.execute("SELECT k.key_name FROM api_keys k JOIN subscribers s ON k.email = s.email WHERE s.email = %s LIMIT 1", (customer_email,))
+            else:
+                cursor.execute("SELECT k.key_name FROM api_keys k JOIN subscribers s ON k.email = s.email WHERE s.email = ? LIMIT 1", (customer_email,))
+            
+            row = cursor.fetchone()
+            if not row:
+                raw_api_key = f"qcn_{secrets.token_hex(16)}"
+                hashed_key = hash_api_key(raw_api_key)
+                tier = session.metadata.get("tier", "starter") if session.metadata else "starter"
+                
+                if DATABASE_URL:
+                    cursor.execute(
+                        "INSERT INTO subscribers (email, active, stripe_customer_id, tier) VALUES (%s, 1, %s, %s) ON CONFLICT (email) DO UPDATE SET active = 1",
+                        (customer_email, session.customer, tier)
+                    )
+                    cursor.execute("INSERT INTO api_keys (email, key_hash, key_name) VALUES (%s, %s, 'Primary Key')", (customer_email, hashed_key))
+                else:
+                    cursor.execute(
+                        "INSERT OR REPLACE INTO subscribers (email, active, stripe_customer_id, tier) VALUES (?, 1, ?, ?)",
+                        (customer_email, session.customer, tier)
+                    )
+                    cursor.execute("INSERT INTO api_keys (email, key_hash, key_name) VALUES (?, ?, 'Primary Key')", (customer_email, hashed_key))
+                conn.commit()
+                cursor.close()
+                return {"status": "success", "email": customer_email, "api_key": raw_api_key, "note": "Key freshly generated and claimed."}
+
+            cursor.close()
+            return {"status": "success", "email": customer_email, "message": "Subscription active. Check your email or generate a new key in your dashboard."}
+        finally:
+            release_db(conn)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 class LeadItem(BaseModel):
     company_name: str
     domain: str
@@ -789,21 +985,191 @@ async def admin_upload_leads(payload: BatchLeadUpload, background_tasks: Backgro
 
 
 @app.get("/api/v1/leads")
-async def get_b2b_leads(request: Request, x_api_key: str = Header(...), limit: int = 50, offset: int = 0):
+async def get_b2b_leads(
+    request: Request,
+    response: Response,
+    x_api_key: str = Header(...),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    company: str | None = Query(None)
+):
     sub = verify_api_key(x_api_key, request)
+    max_limit = 200 if sub["tier"] == "pro" else 50
+    if limit > max_limit:
+        raise HTTPException(status_code=400, detail=f"Your '{sub['tier']}' tier allows max {max_limit} records per request.")
+
+    check_rate_limit(sub["hash"], response=response, max_requests=(120 if sub["tier"] == "pro" else 30))
+
     conn = get_db()
     try:
         cursor = conn.cursor()
+
         if DATABASE_URL:
-            cursor.execute("SELECT * FROM b2b_leads ORDER BY timestamp DESC LIMIT %s OFFSET %s", (limit, offset))
+            if company:
+                cursor.execute("SELECT * FROM b2b_leads WHERE company_name ILIKE %s ORDER BY timestamp DESC LIMIT %s OFFSET %s", (f"%{company}%", limit, offset))
+            else:
+                cursor.execute("SELECT * FROM b2b_leads ORDER BY timestamp DESC LIMIT %s OFFSET %s", (limit, offset))
         else:
-            cursor.execute("SELECT * FROM b2b_leads ORDER BY timestamp DESC LIMIT ? OFFSET ?", (limit, offset))
+            if company:
+                cursor.execute("SELECT * FROM b2b_leads WHERE company_name LIKE ? ORDER BY timestamp DESC LIMIT ? OFFSET ?", (f"%{company}%", limit, offset))
+            else:
+                cursor.execute("SELECT * FROM b2b_leads ORDER BY timestamp DESC LIMIT ? OFFSET ?", (limit, offset))
+
         rows = cursor.fetchall()
         leads = [dict(row) for row in rows]
         cursor.close()
     finally:
         release_db(conn)
-    return {"status": "success", "tier": sub["tier"], "count": len(leads), "leads": leads}
+
+    return {"status": "success", "tier": sub["tier"], "count": len(leads), "limit": limit, "offset": offset, "leads": leads}
+
+
+# STRIPE CHECKOUT & PORTAL SESSIONS
+@app.post("/create-checkout-session")
+async def create_checkout_session(email: str, tier: str = "starter"):
+    amount = 9900 if tier == "pro" else 2900
+    plan_name = "QuantCode Nexus Pro B2B Leads" if tier == "pro" else "QuantCode Nexus Starter B2B Leads"
+    try:
+        checkout_session = stripe.checkout.Session.create(
+            customer_email=email,
+            metadata={"tier": tier},
+            line_items=[{
+                "price_data": {
+                    "currency": "usd",
+                    "product_data": {"name": plan_name},
+                    "unit_amount": amount,
+                    "recurring": {"interval": "month"},
+                },
+                "quantity": 1,
+            }],
+            mode="subscription",
+            success_url="https://nexus-core-yfou.onrender.com/success?session_id={CHECKOUT_SESSION_ID}",
+            cancel_url="https://nexus-core-yfou.onrender.com/dashboard?canceled=true",
+        )
+        return {"checkout_url": checkout_session.url}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/create-portal-session")
+async def create_portal_session(email: str):
+    try:
+        conn = get_db()
+        try:
+            cursor = conn.cursor()
+            if DATABASE_URL:
+                cursor.execute("SELECT stripe_customer_id FROM subscribers WHERE email = %s", (email,))
+            else:
+                cursor.execute("SELECT stripe_customer_id FROM subscribers WHERE email = ?", (email,))
+            row = cursor.fetchone()
+            cursor.close()
+        finally:
+            release_db(conn)
+
+        customer_id = row["stripe_customer_id"] if row else None
+        if not customer_id:
+            customers = stripe.Customer.list(email=email, limit=1)
+            if not customers.data:
+                raise HTTPException(status_code=404, detail="No active Stripe customer found.")
+            customer_id = customers.data[0].id
+
+        portal_session = stripe.billing_portal.Session.create(
+            customer=customer_id,
+            return_url="https://nexus-core-yfou.onrender.com/dashboard",
+        )
+        return {"portal_url": portal_session.url}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# STRIPE WEBHOOK LISTENER
+@app.post("/webhook")
+async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
+    payload = await request.body()
+    sig_header = request.headers.get("stripe-signature")
+    try:
+        event = stripe.Webhook.construct_event(payload, sig_header, ENDPOINT_SECRET)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    event_id = event.id
+    event_type = event.type
+    session = event.data.object
+    session_dict = session.to_dict() if hasattr(session, "to_dict") else dict(session)
+
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute("SELECT event_id FROM webhook_events WHERE event_id = %s", (event_id,))
+        else:
+            cursor.execute("SELECT event_id FROM webhook_events WHERE event_id = ?", (event_id,))
+        
+        if cursor.fetchone():
+            cursor.close()
+            return {"status": "success", "note": "event already processed"}
+
+        try:
+            if DATABASE_URL:
+                cursor.execute("INSERT INTO webhook_events (event_id) VALUES (%s)", (event_id,))
+            else:
+                cursor.execute("INSERT INTO webhook_events (event_id) VALUES (?)", (event_id,))
+            conn.commit()
+        except Exception:
+            pass
+
+        if event_type == "checkout.session.completed":
+            try:
+                customer_email = session_dict.get("customer_email")
+                customer_id = session_dict.get("customer")
+                metadata = session_dict.get("metadata", {}) or {}
+                tier = metadata.get("tier", "starter")
+
+                if not customer_email and session_dict.get("customer_details"):
+                    details = session_dict.get("customer_details")
+                    if isinstance(details, dict):
+                        customer_email = details.get("email")
+
+                if customer_email:
+                    raw_api_key = f"qcn_{secrets.token_hex(16)}"
+                    hashed_key = hash_api_key(raw_api_key)
+                    
+                    if DATABASE_URL:
+                        cursor.execute(
+                            "INSERT INTO subscribers (email, active, stripe_customer_id, tier) VALUES (%s, 1, %s, %s) ON CONFLICT (email) DO UPDATE SET active = 1, stripe_customer_id = EXCLUDED.stripe_customer_id, tier = EXCLUDED.tier",
+                            (customer_email, customer_id, tier),
+                        )
+                        cursor.execute("INSERT INTO api_keys (email, key_hash, key_name) VALUES (%s, %s, 'Primary Key')", (customer_email, hashed_key))
+                    else:
+                        cursor.execute(
+                            "INSERT OR REPLACE INTO subscribers (email, active, stripe_customer_id, tier) VALUES (?, 1, ?, ?)",
+                            (customer_email, customer_id, tier),
+                        )
+                        cursor.execute("INSERT INTO api_keys (email, key_hash, key_name) VALUES (?, ?, 'Primary Key')", (customer_email, hashed_key))
+                    conn.commit()
+
+                    log_audit_event(customer_email, "SUBSCRIPTION_CREATED", f"New subscription created on tier {tier}")
+                    background_tasks.add_task(send_telegram_alert, f"🚀 *New Subscription ({tier.upper()})!*\nCustomer: `{customer_email}`")
+                    background_tasks.add_task(send_email_via_resend, customer_email, raw_api_key)
+            except Exception as err:
+                logger.error(f"Webhook processing error: {err}")
+
+        elif event_type in ["customer.subscription.deleted", "invoice.payment_failed"]:
+            try:
+                customer_id = session_dict.get("customer")
+                if customer_id:
+                    if DATABASE_URL:
+                        cursor.execute("UPDATE subscribers SET active = 0 WHERE stripe_customer_id = %s", (customer_id,))
+                    else:
+                        cursor.execute("UPDATE subscribers SET active = 0 WHERE stripe_customer_id = ?", (customer_id,))
+                    conn.commit()
+            except Exception as err:
+                logger.error(f"Revocation error: {err}")
+
+        cursor.close()
+    finally:
+        release_db(conn)
+    return {"status": "success"}
 
 
 if __name__ == "__main__":
