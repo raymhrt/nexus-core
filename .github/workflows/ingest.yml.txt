@@ -1,0 +1,29 @@
+name: Automated B2B Lead Ingestor
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'  # Runs every 6 hours automatically
+  workflow_dispatch:        # Allows manual triggering from GitHub UI
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install google-genai requests pydantic psycopg2-binary
+
+      - name: Run AI Ingestor Agent
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ADMIN_SECRET_KEY: ${{ secrets.ADMIN_SECRET_KEY }}
+        run: python agent_ingestor.py
