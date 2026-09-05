@@ -1024,7 +1024,7 @@ async def get_b2b_leads(
     return {"status": "success", "tier": sub["tier"], "count": len(leads), "limit": limit, "offset": offset, "leads": leads}
 
 
-# STRIPE CHECKOUT & PORTAL SESSIONS
+# STRIPE CHECKOUT & PORTAL SESSIONS (Managed Payments disabled to prevent tax code requirement)
 @app.post("/create-checkout-session")
 async def create_checkout_session(email: str, tier: str = "starter"):
     amount = 9900 if tier == "pro" else 2900
@@ -1032,6 +1032,7 @@ async def create_checkout_session(email: str, tier: str = "starter"):
     try:
         checkout_session = stripe.checkout.Session.create(
             customer_email=email,
+            managed_payments={"enabled": False},
             metadata={"tier": tier},
             line_items=[{
                 "price_data": {
