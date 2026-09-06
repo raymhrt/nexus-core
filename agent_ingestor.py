@@ -16,8 +16,8 @@ RENDER_DLQ_URL = os.getenv("RENDER_DLQ_URL", "https://nexus-core-yfou.onrender.c
 ai_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
 FALLBACK_MODELS = [
-    "gemini-3.6-flash",
-    "gemini-2.5-flash",
+    "gemini-3.7-flash",
+    "gemini-3.5-flash",
     "gemini-3.5-flash-lite"
 ]
 
@@ -66,15 +66,14 @@ def run_ai_lead_agent():
         except Exception as e:
             error_str = str(e)
             print(f"Model {model_name} failed: {error_str}")
-            # Catch rate limits (429), server unavailability/high demand (503), or general temporary server errors
-            if any(code in error_str for code in ["429", "503", "RESOURCE_EXHAUSTED", "UNAVAILABLE", "Server error"]):
-                print(f"Temporary issue with {model_name}, falling back to next model...")
+            if any(code in error_str for code in ["429", "404", "503", "RESOURCE_EXHAUSTED", "UNAVAILABLE", "Server error", "NOT_FOUND"]):
+                print(f"Temporary issue or deprecation with {model_name}, falling back to next model...")
                 continue
             else:
                 raise e
 
     if not response:
-        print("Error: All fallback models exhausted due to rate limits or high demand.")
+        print("Error: All fallback models exhausted due to rate limits, high demand, or deprecation.")
         return
 
     raw_text = response.text.strip()
