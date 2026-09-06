@@ -21,6 +21,7 @@ def init_db():
             founder_email TEXT,
             industry TEXT DEFAULT 'SaaS / Tech',
             employee_count TEXT DEFAULT '10-50',
+            confidence_score REAL DEFAULT 0.9,
             timestamp TEXT
         )
     """
@@ -32,16 +33,15 @@ def init_db():
 def generate_lead_details_with_ai(repo_name: str, owner_login: str):
     """Attempt generation across multiple active Flash models to bypass 503 capacity issues."""
     if not ai_client:
-        return f"contact@{owner_login.lower()}dev.com", "SaaS / Tech", "10-50"
+        return f"contact@{owner_login.lower()}dev.com", "SaaS / Tech", "10-50", 0.9
 
-    # Fallback model chain for production stability
     candidate_models = ["gemini-3.7-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite"]
 
     prompt = (
         f"For the GitHub repository '{repo_name}' by owner '{owner_login}', estimate a realistic corporate email format "
-        f"(e.g. contact@domain.com), industry, and employee count ('10-50', '51-200', etc.). "
+        f"(e.g. contact@domain.com), industry, employee count ('10-50', '51-200', etc.), and confidence_score float (0.0 to 1.0). "
         f"Return strictly valid JSON matching this schema: "
-        f'{{"email": "...", "industry": "...", "employee_count": "..."}}'
+        f'{{"email": "...", "industry": "...", "employee_count": "...", "confidence_score": 0.95}}'
     )
 
     for model_name in candidate_models:
@@ -62,14 +62,14 @@ def generate_lead_details_with_ai(repo_name: str, owner_login: str):
                 data.get("email", f"contact@{owner_login.lower()}dev.com"),
                 data.get("industry", "SaaS / Tech"),
                 data.get("employee_count", "10-50"),
+                data.get("confidence_score", 0.9)
             )
         except Exception as e:
             print(
-                f"Model {model_name} failed or unavailable (likely 503/rate-limit): {e}. Trying next..."
+                f"Model {model_name} failed or unavailable: {e}. Trying next..."
             )
 
-    # Final fallback if all AI models are temporarily unavailable
-    return f"contact@{owner_login.lower()}dev.com", "SaaS / Tech", "10-50"
+    return f"contact@{owner_login.lower()}dev.com", "SaaS / Tech", "10-50", 0.9
 
 
 def ingest_github_leads(query: str = "fastapi stars:>100"):
@@ -92,8 +92,7 @@ def ingest_github_leads(query: str = "fastapi stars:>100"):
             owner = repo.get("owner", {})
             owner_login = owner.get("login", "unknown")
 
-            # Enrich using resilient multi-model AI fallback handler
-            founder_email, industry, employee_count = (
+            founder_email, industry, employee_count, confidence_score = (
                 generate_lead_details_with_ai(repo_name, owner_login)
             )
             current_time = datetime.now(timezone.utc).strftime(
@@ -104,8 +103,8 @@ def ingest_github_leads(query: str = "fastapi stars:>100"):
             if not cursor.fetchone():
                 cursor.execute(
                     """
-                    INSERT INTO b2b_leads (repo_name, url, founder_email, industry, employee_count, timestamp)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    INSERT INTO b2b_leads (repo_name, url, founder_email, industry, employee_count, confidence_score, timestamp)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                     (
                         repo_name,
@@ -113,6 +112,7 @@ def ingest_github_leads(query: str = "fastapi stars:>100"):
                         founder_email,
                         industry,
                         employee_count,
+                        confidence_score,
                         current_time,
                     ),
                 )

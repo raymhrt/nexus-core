@@ -17,7 +17,7 @@ from fastapi import FastAPI, Header, HTTPException, Request, Query, Response, Ba
 from fastapi.responses import FileResponse, JSONResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from contextlib import asynccontextmanager
@@ -217,6 +217,7 @@ def init_db():
                 industry TEXT DEFAULT 'SaaS / Tech',
                 employee_count TEXT DEFAULT '10-50',
                 linkedin_url TEXT DEFAULT '',
+                confidence_score FLOAT DEFAULT 0.9,
                 timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """
@@ -225,6 +226,7 @@ def init_db():
         cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS industry TEXT DEFAULT 'SaaS / Tech';")
         cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS employee_count TEXT DEFAULT '10-50';")
         cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS linkedin_url TEXT DEFAULT '';")
+        cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS confidence_score FLOAT DEFAULT 0.9;")
         cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_b2b_leads_domain_unique ON b2b_leads (domain);")
 
         cursor.execute(
@@ -342,6 +344,7 @@ def init_db():
                 industry TEXT DEFAULT 'SaaS / Tech',
                 employee_count TEXT DEFAULT '10-50',
                 linkedin_url TEXT DEFAULT '',
+                confidence_score REAL DEFAULT 0.9,
                 timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         """
@@ -356,6 +359,60 @@ def init_db():
                 status_code INT,
                 success INTEGER DEFAULT 0,
                 error_message TEXT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """
+        )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ai_error_dlq (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                raw_payload TEXT,
+                error_message TEXT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """
+        )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS webhook_dlq (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_id TEXT,
+                webhook_url TEXT NOT NULL,
+                payload TEXT,
+                error_message TEXT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """
+        )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS subscriber_webhooks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email TEXT,
+                webhook_url TEXT NOT NULL,
+                active INTEGER DEFAULT 1,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """
+        )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS api_usage_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email TEXT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """
+        )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS audit_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email TEXT,
+                action TEXT NOT NULL,
+                details TEXT,
+                ip_address TEXT,
                 timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         """
@@ -385,6 +442,7 @@ def record_usage_hit(email: str):
 
 
 def dispatch_outbound_webhooks(lead_data: dict):
+    """Apex Dispatcher with Circuit Breaker via Redis"""
     conn = get_db()
     try:
         cursor = conn.cursor()
@@ -404,6 +462,14 @@ def dispatch_outbound_webhooks(lead_data: dict):
 
     for wh in webhooks:
         url = wh["webhook_url"] if isinstance(wh, dict) or hasattr(wh, "__keys__") else wh[1]
+        circuit_key = f"circuit_breaker:{hashlib.md5(url.encode()).hexdigest()}"
+
+        if redis_client:
+            failures = redis_client.get(circuit_key)
+            if failures and int(failures) >= 5:
+                logger.warning(f"Circuit breaker open for webhook URL {url}. Skipping dispatch.")
+                continue
+
         success = 0
         status_code = None
         error_msg = None
@@ -423,6 +489,8 @@ def dispatch_outbound_webhooks(lead_data: dict):
                 if 200 <= response.status_code < 300:
                     success = 1
                     error_msg = None
+                    if redis_client:
+                        redis_client.delete(circuit_key)
                     break
                 else:
                     error_msg = f"HTTP Error Status: {response.status_code}"
@@ -431,6 +499,10 @@ def dispatch_outbound_webhooks(lead_data: dict):
                 status_code = 500
             
             time.sleep(2 * attempt)
+
+        if success == 0 and redis_client:
+            redis_client.incr(circuit_key)
+            redis_client.expire(circuit_key, 600)
 
         log_conn = get_db()
         try:
@@ -472,16 +544,29 @@ async def automated_lead_ingestion():
         "Generate a JSON list of 3 real, active B2B technology, SaaS, or AI companies. "
         "For each company, provide: "
         "company_name, domain (e.g. 'datadog.com'), email format (e.g. contact@domain.com), industry, "
-        "employee_count (e.g. '51-200'), and linkedin_url. "
+        "employee_count (e.g. '51-200'), linkedin_url, and confidence_score float between 0.0 and 1.0. "
         "Return strictly valid JSON matching this schema: "
-        '[{"company_name": "...", "domain": "...", "email": "...", "industry": "...", "employee_count": "...", "linkedin_url": "..."}]'
+        '[{"company_name": "...", "domain": "...", "email": "...", "industry": "...", "employee_count": "...", "linkedin_url": "...", "confidence_score": 0.95}]'
     )
     
+    candidate_models = ["gemini-3.7-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite"]
+    response = None
+    
+    for model_name in candidate_models:
+        try:
+            response = ai_client.models.generate_content(
+                model=model_name,
+                contents=prompt,
+            )
+            break
+        except Exception as e:
+            logger.warning(f"Model {model_name} failed during automated ingestion: {e}")
+
+    if not response:
+        logger.error("All AI fallback models exhausted during automated ingestion.")
+        return
+
     try:
-        response = ai_client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=prompt,
-        )
         raw_text = response.text.strip()
         if raw_text.startswith("```json"):
             raw_text = raw_text[7:-3].strip()
@@ -495,15 +580,16 @@ async def automated_lead_ingestion():
             cursor = conn.cursor()
             for lead in leads:
                 clean_domain = lead.get("domain", "unknown.com").lower().strip().replace("https://", "").replace("http://", "").rstrip("/")
+                conf_score = lead.get("confidence_score", 0.9)
                 if DATABASE_URL:
                     cursor.execute(
-                        "INSERT INTO b2b_leads (company_name, domain, email, industry, employee_count, linkedin_url) VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT (domain) DO NOTHING",
-                        (lead["company_name"], clean_domain, lead["email"], lead.get("industry", "SaaS / Tech"), lead.get("employee_count", "10-50"), lead.get("linkedin_url", ""))
+                        "INSERT INTO b2b_leads (company_name, domain, email, industry, employee_count, linkedin_url, confidence_score) VALUES (%s, %s, %s, %s, %s, %s, %s) ON CONFLICT (domain) DO NOTHING",
+                        (lead["company_name"], clean_domain, lead["email"], lead.get("industry", "SaaS / Tech"), lead.get("employee_count", "10-50"), lead.get("linkedin_url", ""), conf_score)
                     )
                 else:
                     cursor.execute(
-                        "INSERT OR IGNORE INTO b2b_leads (company_name, domain, email, industry, employee_count, linkedin_url) VALUES (?, ?, ?, ?, ?, ?)",
-                        (lead["company_name"], clean_domain, lead["email"], lead.get("industry", "SaaS / Tech"), lead.get("employee_count", "10-50"), lead.get("linkedin_url", ""))
+                        "INSERT OR IGNORE INTO b2b_leads (company_name, domain, email, industry, employee_count, linkedin_url, confidence_score) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        (lead["company_name"], clean_domain, lead["email"], lead.get("industry", "SaaS / Tech"), lead.get("employee_count", "10-50"), lead.get("linkedin_url", ""), conf_score)
                     )
                 
                 if cursor.rowcount > 0:
@@ -514,6 +600,7 @@ async def automated_lead_ingestion():
                         "industry": lead.get("industry", "SaaS / Tech"),
                         "employee_count": lead.get("employee_count", "10-50"),
                         "linkedin_url": lead.get("linkedin_url", ""),
+                        "confidence_score": conf_score,
                         "timestamp": datetime.now(timezone.utc).isoformat()
                     })
             conn.commit()
@@ -521,7 +608,7 @@ async def automated_lead_ingestion():
         finally:
             release_db(conn)
     except Exception as e:
-        logger.error(f"Gemini AI Lead Ingestion Error: {e}")
+        logger.error(f"Gemini AI Lead Ingestion Processing Error: {e}")
 
 
 scheduler = AsyncIOScheduler()
@@ -538,7 +625,7 @@ async def lifespan(app: FastAPI):
     scheduler.shutdown()
 
 
-app = FastAPI(title="QuantCode Nexus Lead API", lifespan=lifespan)
+app = FastAPI(title="QuantCode Nexus Apex Lead API", lifespan=lifespan)
 
 app.add_middleware(
     TrustedHostMiddleware, 
@@ -1060,6 +1147,7 @@ class LeadItem(BaseModel):
     industry: Optional[str] = "SaaS / Tech"
     employee_count: Optional[str] = "10-50"
     linkedin_url: Optional[str] = ""
+    confidence_score: Optional[float] = 0.9
 
 class BatchLeadUpload(BaseModel):
     leads: List[LeadItem]
@@ -1119,15 +1207,16 @@ async def admin_upload_leads(payload: BatchLeadUpload, background_tasks: Backgro
         count = 0
         for lead in payload.leads:
             clean_domain = lead.domain.lower().strip().replace("https://", "").replace("http://", "").rstrip("/")
+            conf_score = lead.confidence_score if lead.confidence_score is not None else 0.9
             if DATABASE_URL:
                 cursor.execute(
-                    "INSERT INTO b2b_leads (company_name, domain, email, industry, employee_count, linkedin_url) VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT (domain) DO NOTHING",
-                    (lead.company_name, clean_domain, lead.email, lead.industry, lead.employee_count, lead.linkedin_url)
+                    "INSERT INTO b2b_leads (company_name, domain, email, industry, employee_count, linkedin_url, confidence_score) VALUES (%s, %s, %s, %s, %s, %s, %s) ON CONFLICT (domain) DO NOTHING",
+                    (lead.company_name, clean_domain, lead.email, lead.industry, lead.employee_count, lead.linkedin_url, conf_score)
                 )
             else:
                 cursor.execute(
-                    "INSERT OR IGNORE INTO b2b_leads (company_name, domain, email, industry, employee_count, linkedin_url) VALUES (?, ?, ?, ?, ?, ?)",
-                    (lead.company_name, clean_domain, lead.email, lead.industry, lead.employee_count, lead.linkedin_url)
+                    "INSERT OR IGNORE INTO b2b_leads (company_name, domain, email, industry, employee_count, linkedin_url, confidence_score) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (lead.company_name, clean_domain, lead.email, lead.industry, lead.employee_count, lead.linkedin_url, conf_score)
                 )
             
             if cursor.rowcount > 0:
@@ -1141,6 +1230,7 @@ async def admin_upload_leads(payload: BatchLeadUpload, background_tasks: Backgro
                         "industry": lead.industry,
                         "employee_count": lead.employee_count,
                         "linkedin_url": lead.linkedin_url,
+                        "confidence_score": conf_score,
                         "timestamp": datetime.now(timezone.utc).isoformat()
                     }
                 )

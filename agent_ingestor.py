@@ -2,8 +2,8 @@ import os
 import json
 import requests
 from google import genai
-from pydantic import BaseModel, ValidationError
-from typing import List, Optional
+from pydantic import BaseModel, Field, ValidationError
+from typing import Optional
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -28,6 +28,7 @@ class IncomingLead(BaseModel):
     industry: Optional[str] = "SaaS / Tech"
     employee_count: Optional[str] = "10-50"
     linkedin_url: Optional[str] = ""
+    confidence_score: float = Field(default=0.9, ge=0.0, le=1.0)
 
 def send_to_dlq(raw_text: str, error_msg: str):
     try:
@@ -43,11 +44,11 @@ def run_ai_lead_agent():
 
     prompt = (
         "Generate a JSON list of 3 real, active B2B technology, SaaS, or AI companies. "
-        "For each company, provide: "
+        "For each company, provide verified data points: "
         "company_name, domain (e.g. 'datadog.com'), contact email format (e.g. contact@domain.com), industry, "
-        "employee_count (e.g. '51-200'), and linkedin_url. "
+        "employee_count (e.g. '51-200'), linkedin_url, and a confidence_score float between 0.0 and 1.0 reflecting data accuracy. "
         "Return strictly valid JSON matching this schema: "
-        '[{"company_name": "...", "domain": "...", "email": "...", "industry": "...", "employee_count": "...", "linkedin_url": "..."}]'
+        '[{"company_name": "...", "domain": "...", "email": "...", "industry": "...", "employee_count": "...", "linkedin_url": "...", "confidence_score": 0.95}]'
     )
 
     response = None
