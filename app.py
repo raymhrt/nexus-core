@@ -781,6 +781,37 @@ async def clear_leads(admin_key: str):
     return {"status": "success", "message": "All historical leads cleared."}
 
 
+@app.get("/api/v1/admin/backfill-embeddings")
+async def backfill_embeddings(admin_key: str = Header(None, alias="admin-key")):
+    if not ADMIN_SECRET_KEY or admin_key != ADMIN_SECRET_KEY:
+        raise HTTPException(status_code=403, detail="Unauthorized admin key.")
+    
+    if not DATABASE_URL:
+        raise HTTPException(status_code=400, detail="Backfill requires PostgreSQL with pgvector.")
+
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, company_name, industry, domain FROM b2b_leads WHERE embedding IS NULL")
+        rows = cursor.fetchall()
+        count = 0
+        for row in rows:
+            r = dict(row)
+            text_content = f"{r['company_name']} {r['industry']} {r['domain']}"
+            vec = generate_lead_embedding(text_content)
+            if vec:
+                cursor.execute(
+                    "UPDATE b2b_leads SET embedding = %s WHERE id = %s",
+                    (str(vec), r['id'])
+                )
+                count += 1
+        conn.commit()
+        cursor.close()
+    finally:
+        release_db(conn)
+    return {"status": "success", "backfilled_count": count}
+
+
 @app.get("/api/v1/claim-session")
 async def claim_session_key(session_id: str):
     try:
