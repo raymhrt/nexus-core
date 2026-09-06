@@ -231,6 +231,7 @@ def init_db():
         cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS linkedin_url TEXT DEFAULT '';")
         cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS confidence_score FLOAT DEFAULT 0.9;")
         cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS trust_score INT DEFAULT 95;")
+        cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS embedding vector(768);")
         cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_b2b_leads_domain_unique ON b2b_leads (domain);")
 
         cursor.execute(
