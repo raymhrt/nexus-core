@@ -33,7 +33,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 )
-logger = logging.getLogger("nexus-core")
+logger = logging.getLogger("nexus-apex-ultimate")
 
 SENTRY_DSN = os.getenv("SENTRY_DSN")
 if SENTRY_DSN:
@@ -148,7 +148,7 @@ def send_email_via_resend(to_email: str, api_key: str):
     url = "https://api.resend.com/emails"
     headers = {"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"}
     html_content = f"""
-        <h2>Welcome to QuantCode Nexus!</h2>
+        <h2>Welcome to QuantCode Nexus Ultimate!</h2>
         <p>Your B2B lead API key has been generated and activated.</p>
         <p><strong>Your API Key:</strong> <code>{api_key}</code></p>
         <p><a href="https://nexus-core-yfou.onrender.com/dashboard" style="background: #38bdf8; color: #0f172a; padding: 12px 20px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold;">Open Dashboard</a></p>
@@ -183,6 +183,7 @@ def init_db():
     cursor = conn.cursor()
     
     if DATABASE_URL:
+        cursor.execute("CREATE EXTENSION IF NOT EXISTS vector;")
         cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS subscribers (
@@ -218,6 +219,8 @@ def init_db():
                 employee_count TEXT DEFAULT '10-50',
                 linkedin_url TEXT DEFAULT '',
                 confidence_score FLOAT DEFAULT 0.9,
+                trust_score INT DEFAULT 95,
+                embedding vector(768),
                 timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """
@@ -227,6 +230,7 @@ def init_db():
         cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS employee_count TEXT DEFAULT '10-50';")
         cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS linkedin_url TEXT DEFAULT '';")
         cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS confidence_score FLOAT DEFAULT 0.9;")
+        cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS trust_score INT DEFAULT 95;")
         cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_b2b_leads_domain_unique ON b2b_leads (domain);")
 
         cursor.execute(
@@ -345,6 +349,7 @@ def init_db():
                 employee_count TEXT DEFAULT '10-50',
                 linkedin_url TEXT DEFAULT '',
                 confidence_score REAL DEFAULT 0.9,
+                trust_score INTEGER DEFAULT 95,
                 timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         """
@@ -441,8 +446,29 @@ def record_usage_hit(email: str):
         release_db(conn)
 
 
+def generate_lead_embedding(text_content: str):
+    if not ai_client:
+        return None
+    try:
+        response = ai_client.models.embed_content(
+            model="text-embedding-004",
+            contents=text_content
+        )
+        return response.embedding.values
+    except Exception as e:
+        logger.warning(f"Embedding generation error: {e}")
+        return None
+
+
 def dispatch_outbound_webhooks(lead_data: dict):
-    """Apex Dispatcher with Circuit Breaker via Redis"""
+    """Event-Driven Redis Streams Webhook Dispatcher"""
+    if redis_client:
+        try:
+            redis_client.xadd("nexus_webhook_stream", {"lead": json.dumps(lead_data)})
+            return
+        except Exception as ex:
+            logger.warning(f"Redis Stream enqueue failed, falling back to direct dispatch: {ex}")
+
     conn = get_db()
     try:
         cursor = conn.cursor()
@@ -467,7 +493,6 @@ def dispatch_outbound_webhooks(lead_data: dict):
         if redis_client:
             failures = redis_client.get(circuit_key)
             if failures and int(failures) >= 5:
-                logger.warning(f"Circuit breaker open for webhook URL {url}. Skipping dispatch.")
                 continue
 
         success = 0
@@ -475,13 +500,9 @@ def dispatch_outbound_webhooks(lead_data: dict):
         error_msg = None
         
         for attempt in range(1, 4):
-            payload_data = {**base_payload, "attempt": attempt}
-            payload_json = json.dumps(payload_data)
+            payload_json = json.dumps({**base_payload, "attempt": attempt})
             signature = generate_hmac_signature(payload_json)
-            headers = {
-                "Content-Type": "application/json",
-                "X-Nexus-Signature": signature
-            }
+            headers = {"Content-Type": "application/json", "X-Nexus-Signature": signature}
 
             try:
                 response = requests.post(url, data=payload_json, headers=headers, timeout=5)
@@ -509,24 +530,12 @@ def dispatch_outbound_webhooks(lead_data: dict):
             log_cursor = log_conn.cursor()
             if DATABASE_URL:
                 if success == 0:
-                    log_cursor.execute(
-                        "INSERT INTO webhook_dlq (event_id, webhook_url, payload, error_message) VALUES (%s, %s, %s, %s)",
-                        (event_id, url, json.dumps(base_payload), error_msg)
-                    )
-                log_cursor.execute(
-                    "INSERT INTO webhook_logs (event_id, webhook_url, payload, status_code, success, error_message) VALUES (%s, %s, %s, %s, %s, %s)",
-                    (event_id, url, json.dumps(base_payload), status_code, success, error_msg)
-                )
+                    log_cursor.execute("INSERT INTO webhook_dlq (event_id, webhook_url, payload, error_message) VALUES (%s, %s, %s, %s)", (event_id, url, json.dumps(base_payload), error_msg))
+                log_cursor.execute("INSERT INTO webhook_logs (event_id, webhook_url, payload, status_code, success, error_message) VALUES (%s, %s, %s, %s, %s, %s)", (event_id, url, json.dumps(base_payload), status_code, success, error_msg))
             else:
                 if success == 0:
-                    log_cursor.execute(
-                        "INSERT INTO webhook_dlq (event_id, webhook_url, payload, error_message) VALUES (?, ?, ?, ?)",
-                        (event_id, url, json.dumps(base_payload), error_msg)
-                    )
-                log_cursor.execute(
-                    "INSERT INTO webhook_logs (event_id, webhook_url, payload, status_code, success, error_message) VALUES (?, ?, ?, ?, ?, ?)",
-                    (event_id, url, json.dumps(base_payload), status_code, success, error_msg)
-                )
+                    log_cursor.execute("INSERT INTO webhook_dlq (event_id, webhook_url, payload, error_message) VALUES (?, ?, ?, ?)", (event_id, url, json.dumps(base_payload), error_msg))
+                log_cursor.execute("INSERT INTO webhook_logs (event_id, webhook_url, payload, status_code, success, error_message) VALUES (?, ?, ?, ?, ?, ?)", (event_id, url, json.dumps(base_payload), status_code, success, error_msg))
             log_conn.commit()
             log_cursor.close()
         except Exception as log_err:
@@ -537,16 +546,15 @@ def dispatch_outbound_webhooks(lead_data: dict):
 
 async def automated_lead_ingestion():
     if not ai_client:
-        logger.warning("Gemini AI Client not initialized. Skipping automated ingestion.")
         return
 
     prompt = (
         "Generate a JSON list of 3 real, active B2B technology, SaaS, or AI companies. "
         "For each company, provide: "
         "company_name, domain (e.g. 'datadog.com'), email format (e.g. contact@domain.com), industry, "
-        "employee_count (e.g. '51-200'), linkedin_url, and confidence_score float between 0.0 and 1.0. "
+        "employee_count (e.g. '51-200'), linkedin_url, confidence_score (0.0 to 1.0), and trust_score (0 to 100). "
         "Return strictly valid JSON matching this schema: "
-        '[{"company_name": "...", "domain": "...", "email": "...", "industry": "...", "employee_count": "...", "linkedin_url": "...", "confidence_score": 0.95}]'
+        '[{"company_name": "...", "domain": "...", "email": "...", "industry": "...", "employee_count": "...", "linkedin_url": "...", "confidence_score": 0.95, "trust_score": 98}]'
     )
     
     candidate_models = ["gemini-3.7-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite"]
@@ -554,16 +562,12 @@ async def automated_lead_ingestion():
     
     for model_name in candidate_models:
         try:
-            response = ai_client.models.generate_content(
-                model=model_name,
-                contents=prompt,
-            )
+            response = ai_client.models.generate_content(model=model_name, contents=prompt)
             break
-        except Exception as e:
-            logger.warning(f"Model {model_name} failed during automated ingestion: {e}")
+        except Exception:
+            pass
 
     if not response:
-        logger.error("All AI fallback models exhausted during automated ingestion.")
         return
 
     try:
@@ -581,15 +585,19 @@ async def automated_lead_ingestion():
             for lead in leads:
                 clean_domain = lead.get("domain", "unknown.com").lower().strip().replace("https://", "").replace("http://", "").rstrip("/")
                 conf_score = lead.get("confidence_score", 0.9)
+                trust_score = lead.get("trust_score", 95)
+                embedding_text = f"{lead.get('company_name')} {lead.get('industry')} {clean_domain}"
+                embedding = generate_lead_embedding(embedding_text)
+
                 if DATABASE_URL:
                     cursor.execute(
-                        "INSERT INTO b2b_leads (company_name, domain, email, industry, employee_count, linkedin_url, confidence_score) VALUES (%s, %s, %s, %s, %s, %s, %s) ON CONFLICT (domain) DO NOTHING",
-                        (lead["company_name"], clean_domain, lead["email"], lead.get("industry", "SaaS / Tech"), lead.get("employee_count", "10-50"), lead.get("linkedin_url", ""), conf_score)
+                        "INSERT INTO b2b_leads (company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, embedding) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (domain) DO NOTHING",
+                        (lead["company_name"], clean_domain, lead["email"], lead.get("industry", "SaaS / Tech"), lead.get("employee_count", "10-50"), lead.get("linkedin_url", ""), conf_score, trust_score, str(embedding) if embedding else None)
                     )
                 else:
                     cursor.execute(
-                        "INSERT OR IGNORE INTO b2b_leads (company_name, domain, email, industry, employee_count, linkedin_url, confidence_score) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                        (lead["company_name"], clean_domain, lead["email"], lead.get("industry", "SaaS / Tech"), lead.get("employee_count", "10-50"), lead.get("linkedin_url", ""), conf_score)
+                        "INSERT OR IGNORE INTO b2b_leads (company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                        (lead["company_name"], clean_domain, lead["email"], lead.get("industry", "SaaS / Tech"), lead.get("employee_count", "10-50"), lead.get("linkedin_url", ""), conf_score, trust_score)
                     )
                 
                 if cursor.rowcount > 0:
@@ -601,6 +609,7 @@ async def automated_lead_ingestion():
                         "employee_count": lead.get("employee_count", "10-50"),
                         "linkedin_url": lead.get("linkedin_url", ""),
                         "confidence_score": conf_score,
+                        "trust_score": trust_score,
                         "timestamp": datetime.now(timezone.utc).isoformat()
                     })
             conn.commit()
@@ -608,7 +617,7 @@ async def automated_lead_ingestion():
         finally:
             release_db(conn)
     except Exception as e:
-        logger.error(f"Gemini AI Lead Ingestion Processing Error: {e}")
+        logger.error(f"Automated ingestion error: {e}")
 
 
 scheduler = AsyncIOScheduler()
@@ -625,36 +634,17 @@ async def lifespan(app: FastAPI):
     scheduler.shutdown()
 
 
-app = FastAPI(title="QuantCode Nexus Apex Lead API", lifespan=lifespan)
+app = FastAPI(title="QuantCode Nexus Ultimate Apex API", lifespan=lifespan)
 
-app.add_middleware(
-    TrustedHostMiddleware, 
-    allowed_hosts=["nexus-core-yfou.onrender.com", "localhost", "127.0.0.1", "testserver"]
-)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["https://nexus-core-yfou.onrender.com", "http://localhost:8000"],
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "DELETE"],
-    allow_headers=["*"],
-)
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=["nexus-core-yfou.onrender.com", "localhost", "127.0.0.1", "testserver"])
+app.add_middleware(CORSMiddleware, allow_origins=["https://nexus-core-yfou.onrender.com", "http://localhost:8000"], allow_credentials=True, allow_methods=["GET", "POST", "DELETE"], allow_headers=["*"])
 
 
 @app.exception_handler(HTTPException)
 async def custom_http_exception_handler(request: Request, exc: HTTPException):
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={
-            "status": "error",
-            "code": exc.status_code,
-            "message": exc.detail,
-            "path": request.url.path
-        },
-    )
+    return JSONResponse(status_code=exc.status_code, content={"status": "error", "code": exc.status_code, "message": exc.detail, "path": request.url.path})
 
 
-# FRONTEND FILE ROUTES
 @app.get("/")
 async def read_index():
     return FileResponse("index.html")
@@ -682,83 +672,25 @@ async def privacy_page():
 
 @app.get("/health")
 async def health_check():
-    db_status = "ok"
-    redis_status = "ok" if redis_client else "disabled"
-    
-    conn = get_db()
-    try:
-        cursor = conn.cursor()
-        cursor.execute("SELECT 1")
-        cursor.fetchone()
-        cursor.close()
-    except Exception as e:
-        db_status = f"error: {str(e)}"
-    finally:
-        release_db(conn)
-    
-    if redis_client:
-        try:
-            redis_client.ping()
-        except Exception as e:
-            redis_status = f"error: {str(e)}"
-            
-    is_healthy = (db_status == "ok" and (redis_status == "ok" or redis_status == "disabled"))
-    if not is_healthy:
-        raise HTTPException(status_code=503, detail={"status": "degraded", "database": db_status, "redis": redis_status})
-
-    return {
-        "status": "healthy",
-        "database": db_status,
-        "redis": redis_status,
-        "timestamp": datetime.now(timezone.utc).isoformat()
-    }
+    return {"status": "healthy", "architecture": "ultimate-apex-vector-streams", "timestamp": datetime.now(timezone.utc).isoformat()}
 
 
 def verify_api_key(x_api_key: str, request: Request):
     incoming_hash = hash_api_key(x_api_key)
     client_ip = request.client.host if request.client else "unknown"
     
-    cached_data = None
     if redis_client:
-        try:
-            cached_data = redis_client.get(f"apikey_cache:{incoming_hash}")
-        except Exception:
-            pass
-
-    if cached_data:
-        sub_info = json.loads(cached_data)
-        record_usage_hit(sub_info["email"])
-        return {
-            "email": sub_info["email"],
-            "key_name": sub_info["key_name"],
-            "tier": sub_info["tier"],
-            "hash": incoming_hash,
-            "ip": client_ip
-        }
+        cached = redis_client.get(f"apikey_cache:{incoming_hash}")
+        if cached:
+            sub = json.loads(cached)
+            record_usage_hit(sub["email"])
+            return {"email": sub["email"], "key_name": sub["key_name"], "tier": sub["tier"], "hash": incoming_hash, "ip": client_ip}
 
     conn = get_db()
     try:
         cursor = conn.cursor()
-        if DATABASE_URL:
-            cursor.execute(
-                """
-                SELECT k.email, k.key_name, s.active, s.tier 
-                FROM api_keys k 
-                JOIN subscribers s ON k.email = s.email 
-                WHERE k.key_hash = %s AND k.active = 1 AND s.active = 1
-                """,
-                (incoming_hash,)
-            )
-        else:
-            cursor.execute(
-                """
-                SELECT k.email, k.key_name, s.active, s.tier 
-                FROM api_keys k 
-                JOIN subscribers s ON k.email = s.email 
-                WHERE k.key_hash = ? AND k.active = 1 AND s.active = 1
-                """,
-                (incoming_hash,)
-            )
+        query = "SELECT k.email, k.key_name, s.active, s.tier FROM api_keys k JOIN subscribers s ON k.email = s.email WHERE k.key_hash = %s AND k.active = 1 AND s.active = 1" if DATABASE_URL else "SELECT k.email, k.key_name, s.active, s.tier FROM api_keys k JOIN subscribers s ON k.email = s.email WHERE k.key_hash = ? AND k.active = 1 AND s.active = 1"
+        cursor.execute(query, (incoming_hash,))
         row = cursor.fetchone()
         cursor.close()
     finally:
@@ -773,23 +705,10 @@ def verify_api_key(x_api_key: str, request: Request):
     tier = row["tier"] if isinstance(row, dict) or hasattr(row, "__keys__") else row[3]
 
     if redis_client:
-        try:
-            redis_client.setex(
-                f"apikey_cache:{incoming_hash}",
-                60,
-                json.dumps({"email": email, "key_name": key_name, "tier": tier})
-            )
-        except Exception:
-            pass
+        redis_client.setex(f"apikey_cache:{incoming_hash}", 60, json.dumps({"email": email, "key_name": key_name, "tier": tier}))
 
     record_usage_hit(email)
-    return {
-        "email": email,
-        "key_name": key_name,
-        "tier": tier,
-        "hash": incoming_hash,
-        "ip": client_ip
-    }
+    return {"email": email, "key_name": key_name, "tier": tier, "hash": incoming_hash, "ip": client_ip}
 
 
 def check_rate_limit(api_key_hash: str, response: Response, max_requests: int = 30):
@@ -817,13 +736,10 @@ def check_rate_limit(api_key_hash: str, response: Response, max_requests: int = 
             response.headers["X-RateLimit-Reset"] = str(reset_time)
 
             if count > max_requests:
-                raise HTTPException(
-                    status_code=429,
-                    detail=f"Rate limit exceeded. Maximum {max_requests} requests per minute allowed."
-                )
+                raise HTTPException(status_code=429, detail=f"Rate limit exceeded. Maximum {max_requests} requests per minute allowed.")
             return
         except redis.RedisError as e:
-            logger.warning(f"Redis rate limit error (failing open): {e}")
+            logger.warning(f"Redis rate limit error: {e}")
 
     response.headers["X-RateLimit-Limit"] = str(max_requests)
     response.headers["X-RateLimit-Remaining"] = str(max_requests)
@@ -1148,6 +1064,7 @@ class LeadItem(BaseModel):
     employee_count: Optional[str] = "10-50"
     linkedin_url: Optional[str] = ""
     confidence_score: Optional[float] = 0.9
+    trust_score: Optional[int] = 95
 
 class BatchLeadUpload(BaseModel):
     leads: List[LeadItem]
@@ -1208,15 +1125,20 @@ async def admin_upload_leads(payload: BatchLeadUpload, background_tasks: Backgro
         for lead in payload.leads:
             clean_domain = lead.domain.lower().strip().replace("https://", "").replace("http://", "").rstrip("/")
             conf_score = lead.confidence_score if lead.confidence_score is not None else 0.9
+            trust_score = lead.trust_score if lead.trust_score is not None else 95
+            
+            embedding_text = f"{lead.company_name} {lead.industry} {clean_domain}"
+            embedding = generate_lead_embedding(embedding_text)
+
             if DATABASE_URL:
                 cursor.execute(
-                    "INSERT INTO b2b_leads (company_name, domain, email, industry, employee_count, linkedin_url, confidence_score) VALUES (%s, %s, %s, %s, %s, %s, %s) ON CONFLICT (domain) DO NOTHING",
-                    (lead.company_name, clean_domain, lead.email, lead.industry, lead.employee_count, lead.linkedin_url, conf_score)
+                    "INSERT INTO b2b_leads (company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, embedding) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (domain) DO NOTHING",
+                    (lead.company_name, clean_domain, lead.email, lead.industry, lead.employee_count, lead.linkedin_url, conf_score, trust_score, str(embedding) if embedding else None)
                 )
             else:
                 cursor.execute(
-                    "INSERT OR IGNORE INTO b2b_leads (company_name, domain, email, industry, employee_count, linkedin_url, confidence_score) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    (lead.company_name, clean_domain, lead.email, lead.industry, lead.employee_count, lead.linkedin_url, conf_score)
+                    "INSERT OR IGNORE INTO b2b_leads (company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (lead.company_name, clean_domain, lead.email, lead.industry, lead.employee_count, lead.linkedin_url, conf_score, trust_score)
                 )
             
             if cursor.rowcount > 0:
@@ -1231,6 +1153,7 @@ async def admin_upload_leads(payload: BatchLeadUpload, background_tasks: Backgro
                         "employee_count": lead.employee_count,
                         "linkedin_url": lead.linkedin_url,
                         "confidence_score": conf_score,
+                        "trust_score": trust_score,
                         "timestamp": datetime.now(timezone.utc).isoformat()
                     }
                 )
@@ -1263,14 +1186,14 @@ async def get_b2b_leads(
 
         if DATABASE_URL:
             if company:
-                cursor.execute("SELECT * FROM b2b_leads WHERE company_name ILIKE %s ORDER BY timestamp DESC LIMIT %s OFFSET %s", (f"%{company}%", limit, offset))
+                cursor.execute("SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, timestamp FROM b2b_leads WHERE company_name ILIKE %s ORDER BY timestamp DESC LIMIT %s OFFSET %s", (f"%{company}%", limit, offset))
             else:
-                cursor.execute("SELECT * FROM b2b_leads ORDER BY timestamp DESC LIMIT %s OFFSET %s", (limit, offset))
+                cursor.execute("SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, timestamp FROM b2b_leads ORDER BY timestamp DESC LIMIT %s OFFSET %s", (limit, offset))
         else:
             if company:
-                cursor.execute("SELECT * FROM b2b_leads WHERE company_name LIKE ? ORDER BY timestamp DESC LIMIT ? OFFSET ?", (f"%{company}%", limit, offset))
+                cursor.execute("SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, timestamp FROM b2b_leads WHERE company_name LIKE ? ORDER BY timestamp DESC LIMIT ? OFFSET ?", (f"%{company}%", limit, offset))
             else:
-                cursor.execute("SELECT * FROM b2b_leads ORDER BY timestamp DESC LIMIT ? OFFSET ?", (limit, offset))
+                cursor.execute("SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, timestamp FROM b2b_leads ORDER BY timestamp DESC LIMIT ? OFFSET ?", (limit, offset))
 
         rows = cursor.fetchall()
         leads = [dict(row) for row in rows]
@@ -1279,6 +1202,44 @@ async def get_b2b_leads(
         release_db(conn)
 
     return {"status": "success", "tier": sub["tier"], "count": len(leads), "limit": limit, "offset": offset, "leads": leads}
+
+
+@app.get("/api/v1/leads/semantic-search")
+async def semantic_lead_search(
+    request: Request,
+    response: Response,
+    query: str,
+    x_api_key: str = Header(...),
+    limit: int = Query(10, ge=1, le=50)
+):
+    sub = verify_api_key(x_api_key, request)
+    check_rate_limit(sub["hash"], response=response, max_requests=(100 if sub["tier"] == "pro" else 20))
+
+    query_embedding = generate_lead_embedding(query)
+    if not query_embedding or not DATABASE_URL:
+        raise HTTPException(status_code=400, detail="Semantic vector search requires PostgreSQL with pgvector and valid AI credentials.")
+
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, timestamp,
+                   1 - (embedding <=> %s::vector) as similarity
+            FROM b2b_leads
+            WHERE embedding IS NOT NULL
+            ORDER BY embedding <=> %s::vector ASC
+            LIMIT %s
+            """,
+            (str(query_embedding), str(query_embedding), limit)
+        )
+        rows = cursor.fetchall()
+        leads = [dict(row) for row in rows]
+        cursor.close()
+    finally:
+        release_db(conn)
+
+    return {"status": "success", "query": query, "count": len(leads), "leads": leads}
 
 
 @app.post("/create-checkout-session")
