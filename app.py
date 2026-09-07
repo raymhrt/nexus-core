@@ -113,6 +113,7 @@ def generate_hmac_signature(payload_json: str) -> str:
 
 def call_gemini_rest(prompt: str) -> str:
     if not GEMINI_API_KEY:
+        logger.error("GEMINI_API_KEY environment variable is missing or empty.")
         raise Exception("GEMINI_API_KEY not configured")
     
     headers = {"Content-Type": "application/json"}
@@ -122,24 +123,20 @@ def call_gemini_rest(prompt: str) -> str:
         }]
     }
     
-    # Try gemini-2.0-flash first
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
-    try:
-        res = requests.post(url, json=payload, headers=headers, timeout=15)
-        if res.status_code == 200:
-            data = res.json()
-            return data["candidates"][0]["content"]["parts"][0]["text"]
-    except Exception:
-        pass
+    # Try reliable production models with 404 fallbacks
+    for model in ["gemini-1.5-pro", "gemini-pro"]:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={GEMINI_API_KEY}"
+        try:
+            res = requests.post(url, json=payload, headers=headers, timeout=15)
+            if res.status_code == 200:
+                data = res.json()
+                return data["candidates"][0]["content"]["parts"][0]["text"]
+            else:
+                logger.warning(f"Model {model} failed with status {res.status_code}: {res.text}")
+        except Exception as err:
+            logger.warning(f"Model {model} exception: {err}")
 
-    # Fallback to gemini-1.5-flash
-    url_fallback = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
-    res_fb = requests.post(url_fallback, json=payload, headers=headers, timeout=15)
-    if res_fb.status_code == 200:
-        data = res_fb.json()
-        return data["candidates"][0]["content"]["parts"][0]["text"]
-    
-    raise Exception(f"Gemini REST API error: {res_fb.status_code} - {res_fb.text}")
+    raise Exception("All Gemini REST API model fallbacks returned 404 or failed.")
 
 
 def log_audit_event(email: str, action: str, details: str, ip_address: str = "127.0.0.1"):
@@ -1283,6 +1280,7 @@ async def generate_leads_on_demand(payload: OnDemandGeneratePayload, request: Re
 
         return {"status": "success", "credits_remaining": new_balance, "leads_generated": len(new_leads), "leads": new_leads}
     except Exception as e:
+        logger.error(f"On-demand generation endpoint failure: {e}")
         raise HTTPException(status_code=500, detail=f"On-demand parsing error: {e}")
 
 
@@ -2115,7 +2113,7 @@ async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
                     background_tasks.add_task(send_telegram_alert, f"🚀 *New Enterprise Subscription ({tier.upper()})!*\nCustomer: `{customer_email}`")
                     background_tasks.add_task(send_email_via_resend, customer_email, raw_api_key)
             except Exception as err:
-                logger.error(f"Checkout completion error: {err}")
+5                logger.error(f"Checkout completion error: {err}")
 
         elif event_type == "customer.subscription.updated":
             try:
