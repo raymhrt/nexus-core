@@ -4,7 +4,7 @@ import secrets
 import sqlite3
 import hashlib
 import hmac
-import time
+import asyncio
 import json
 import uuid
 import logging
@@ -18,7 +18,7 @@ from fastapi import FastAPI, Header, HTTPException, Request, Query, Response, Ba
 from fastapi.responses import FileResponse, JSONResponse, Response as FastAPIResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 from typing import List, Optional, Dict, Any
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from contextlib import asynccontextmanager
@@ -420,7 +420,7 @@ def async_background_enrichment_worker(lead_id: int, company_name: str, domain: 
         release_db(conn)
 
 
-def dispatch_outbound_webhooks(lead_data: dict):
+async def dispatch_outbound_webhooks(lead_data: dict):
     conn = get_db()
     try:
         cursor = conn.cursor()
@@ -437,6 +437,10 @@ def dispatch_outbound_webhooks(lead_data: dict):
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "data": lead_data
     }
+
+    trace_id = sentry_sdk.get_current_span().get_trace_context().get("trace_id") if sentry_sdk.get_current_span() else uuid.uuid4().hex
+    span_id = uuid.uuid4().hex[:16]
+    traceparent_header = f"00-{trace_id}-{span_id}-01"
 
     for wh in webhooks:
         wh_dict = dict(wh) if not isinstance(wh, dict) and not hasattr(wh, "keys") else wh
@@ -483,7 +487,12 @@ def dispatch_outbound_webhooks(lead_data: dict):
         for attempt in range(1, max_retries + 1):
             payload_json = json.dumps({**base_payload, "attempt": attempt})
             signature = generate_hmac_signature(payload_json)
-            headers = {"Content-Type": "application/json", "X-Nexus-Signature": signature, "X-Nexus-Event-Id": event_id}
+            headers = {
+                "Content-Type": "application/json",
+                "X-Nexus-Signature": signature,
+                "X-Nexus-Event-Id": event_id,
+                "traceparent": traceparent_header
+            }
 
             try:
                 response = requests.post(url, data=payload_json, headers=headers, timeout=10)
@@ -502,7 +511,7 @@ def dispatch_outbound_webhooks(lead_data: dict):
             
             jitter = random.uniform(0.1, 1.0)
             sleep_time = (base_backoff ** attempt) + jitter
-            time.sleep(sleep_time)
+            await asyncio.sleep(sleep_time)
 
         sub_conn = get_db()
         try:
@@ -546,8 +555,19 @@ def dispatch_outbound_webhooks(lead_data: dict):
             release_db(log_conn)
 
 
+class GeminiLeadSchema(BaseModel):
+    company_name: str
+    domain: str
+    email: str
+    industry: Optional[str] = "SaaS / Tech"
+    employee_count: Optional[str] = "10-50"
+    linkedin_url: Optional[str] = ""
+    confidence_score: Optional[float] = 0.9
+    trust_score: Optional[int] = 95
+
+
 async def automated_lead_ingestion():
-    """Dynamic, subscriber-aware agentic ingestion loop tailoring leads to configured ICP profiles."""
+    """Dynamic, subscriber-aware agentic ingestion loop tailoring leads to configured ICP profiles with Pydantic guardrails."""
     if not ai_client:
         return
 
@@ -596,43 +616,49 @@ async def automated_lead_ingestion():
             elif raw_text.startswith("```"):
                 raw_text = raw_text[3:-3].strip()
                 
-            leads = json.loads(raw_text)
+            parsed_data = json.loads(raw_text)
+            validated_leads = []
+            for item in parsed_data:
+                try:
+                    validated_leads.append(GeminiLeadSchema(**item))
+                except ValidationError as val_err:
+                    logger.warning(f"Skipping malformed lead item from Gemini: {val_err}")
             
             insert_conn = get_db()
             try:
                 cursor = insert_conn.cursor()
-                for lead in leads:
-                    clean_domain = lead.get("domain", "unknown.com").lower().strip().replace("https://", "").replace("http://", "").rstrip("/")
-                    conf_score = lead.get("confidence_score", 0.9)
-                    trust_score = lead.get("trust_score", 95)
+                for lead in validated_leads:
+                    clean_domain = lead.domain.lower().strip().replace("https://", "").replace("http://", "").rstrip("/")
+                    conf_score = lead.confidence_score if lead.confidence_score is not None else 0.9
+                    trust_score = lead.trust_score if lead.trust_score is not None else 95
 
                     if DATABASE_URL:
                         cursor.execute(
                             "INSERT INTO b2b_leads (company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score) VALUES (%s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (domain) DO NOTHING RETURNING id",
-                            (lead["company_name"], clean_domain, lead["email"], lead.get("industry", industries), lead.get("employee_count", employee_size), lead.get("linkedin_url", ""), conf_score, trust_score)
+                            (lead.company_name, clean_domain, lead.email, lead.industry, lead.employee_count, lead.linkedin_url, conf_score, trust_score)
                         )
                         row = cursor.fetchone()
                         lead_id = row["id"] if row else None
                     else:
                         cursor.execute(
                             "INSERT OR IGNORE INTO b2b_leads (company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                            (lead["company_name"], clean_domain, lead["email"], lead.get("industry", industries), lead.get("employee_count", employee_size), lead.get("linkedin_url", ""), conf_score, trust_score)
+                            (lead.company_name, clean_domain, lead.email, lead.industry, lead.employee_count, lead.linkedin_url, conf_score, trust_score)
                         )
                         lead_id = cursor.lastrowid
                     
                     if lead_id and cursor.rowcount > 0:
-                        dispatch_outbound_webhooks({
+                        asyncio.create_task(dispatch_outbound_webhooks({
                             "lead_id": lead_id,
-                            "company_name": lead["company_name"],
+                            "company_name": lead.company_name,
                             "domain": clean_domain,
-                            "email": lead["email"],
-                            "industry": lead.get("industry", industries),
-                            "employee_count": lead.get("employee_count", employee_size),
-                            "linkedin_url": lead.get("linkedin_url", ""),
+                            "email": lead.email,
+                            "industry": lead.industry,
+                            "employee_count": lead.employee_count,
+                            "linkedin_url": lead.linkedin_url,
                             "confidence_score": conf_score,
                             "trust_score": trust_score,
                             "timestamp": datetime.now(timezone.utc).isoformat()
-                        })
+                        }))
                 insert_conn.commit()
                 cursor.close()
             finally:
@@ -641,7 +667,29 @@ async def automated_lead_ingestion():
             logger.error(f"Agentic ICP ingestion error for niche {industries}: {e}")
 
 
+async def gdpr_compliance_cleanup():
+    """Automated GDPR/CCPA compliance retention routine clearing audit logs and inactive records past 30 days."""
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+        if DATABASE_URL:
+            cursor.execute("DELETE FROM audit_logs WHERE timestamp < %s;", (cutoff,))
+            cursor.execute("DELETE FROM webhook_logs WHERE timestamp < %s;", (cutoff,))
+        else:
+            cursor.execute("DELETE FROM audit_logs WHERE timestamp < ?;", (cutoff,))
+            cursor.execute("DELETE FROM webhook_logs WHERE timestamp < ?;", (cutoff,))
+        conn.commit()
+        cursor.close()
+        logger.info("GDPR/CCPA 30-day compliance cleanup executed successfully.")
+    except Exception as e:
+        logger.error(f"GDPR compliance cleanup error: {e}")
+    finally:
+        release_db(conn)
+
+
 scheduler = AsyncIOScheduler()
+scheduler.add_job(gdpr_compliance_cleanup, "interval", hours=24)
 if os.getenv("ENABLE_MOCK_LEEDS", "false").lower() == "true":
     scheduler.add_job(automated_lead_ingestion, "interval", hours=1)
 
