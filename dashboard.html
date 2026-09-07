@@ -17,8 +17,8 @@
             --text-main: #f8fafc;
             --text-muted: #94a3b8;
             --danger: #ef4444;
-            --danger-hover: #f87171;
             --success: #22c55e;
+            --warning: #f59e0b;
         }
 
         body {
@@ -35,7 +35,7 @@
 
         .dashboard-wrapper {
             width: 100%;
-            max-width: 900px;
+            max-width: 960px;
             display: flex;
             flex-direction: column;
             gap: 24px;
@@ -166,16 +166,86 @@
             background: #334155;
         }
 
-        pre {
+        .lead-card {
             background: var(--bg-input);
             border: 1px solid var(--border-color);
-            padding: 16px;
-            border-radius: 8px;
-            overflow-x: auto;
-            color: var(--accent-cyan);
+            padding: 16px 20px;
+            border-radius: 12px;
+            margin-bottom: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            transition: border-color 0.2s;
+        }
+
+        .lead-card:hover {
+            border-color: var(--accent-cyan);
+        }
+
+        .lead-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .lead-title {
+            font-weight: bold;
+            font-size: 16px;
+            color: #fff;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .badge-abm {
+            background: rgba(34, 197, 94, 0.1);
+            color: var(--success);
+            border: 1px solid rgba(34, 197, 94, 0.3);
+            font-size: 10px;
+            padding: 2px 8px;
+            border-radius: 4px;
+            text-transform: uppercase;
+            font-weight: 700;
+        }
+
+        .lead-meta {
+            display: flex;
+            gap: 16px;
             font-size: 12px;
-            margin-top: 8px;
-            max-height: 250px;
+            color: var(--text-muted);
+        }
+
+        .strategic-insight {
+            background: rgba(56, 189, 248, 0.05);
+            border-left: 3px solid var(--accent-cyan);
+            padding: 8px 12px;
+            font-size: 12px;
+            color: #cbd5e1;
+            border-radius: 0 6px 6px 0;
+            margin-top: 4px;
+        }
+
+        .feedback-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 6px;
+        }
+
+        .feedback-btn {
+            background: #1e293b;
+            color: var(--text-muted);
+            border: 1px solid var(--border-color);
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 11px;
+            cursor: pointer;
+            width: auto;
+            font-weight: 600;
+        }
+
+        .feedback-btn:hover {
+            background: #334155;
+            color: #fff;
         }
 
         .progress-bar-container {
@@ -347,8 +417,12 @@
 
         <!-- Lead Results & Management Card -->
         <div class="card">
-            <span class="section-label">Live Lead Feed & Explorer</span>
-            <pre id="results">Authenticate above to explore ingested leads.</pre>
+            <span class="section-label">Live Lead Feed & Strategic Intelligence Explorer</span>
+            <p class="sub" style="margin-bottom: 16px;">High-value anchor accounts verified for ABM targeting and ecosystem integration.</p>
+            
+            <div id="leadFeedContainer">
+                <p style="color: var(--text-muted); font-size: 13px; margin: 0;">Authenticate above to explore ingested leads.</p>
+            </div>
 
             <hr class="divider">
 
@@ -402,7 +476,7 @@
 
         async function saveAndFetch() {
             const apiKey = document.getElementById('apiKey').value.trim();
-            const resultsPre = document.getElementById('results');
+            const leadFeedContainer = document.getElementById('leadFeedContainer');
             const statusDiv = document.getElementById('status');
             const usageBar = document.getElementById('usageBar');
 
@@ -412,7 +486,7 @@
             }
 
             localStorage.setItem('nexus_api_key', apiKey);
-            resultsPre.innerText = "Loading telemetry data...";
+            leadFeedContainer.innerHTML = '<p style="color: var(--text-muted);">Loading strategic lead intelligence...</p>';
             statusDiv.innerText = "Syncing with cluster...";
 
             try {
@@ -431,16 +505,86 @@
 
                 const data = await response.json();
                 if (!response.ok) {
-                    resultsPre.innerText = `Error (${response.status}):\n` + JSON.stringify(data, null, 2);
+                    leadFeedContainer.innerHTML = `<pre style="color: var(--danger);">Error (${response.status}):\n` + JSON.stringify(data, null, 2) + `</pre>`;
                     return;
                 }
 
-                resultsPre.innerText = JSON.stringify(data, null, 2);
+                renderLeadFeed(data.leads || []);
                 loadKeys(apiKey);
                 loadUsageChart(apiKey);
                 loadICPProfile(apiKey);
             } catch (err) {
-                resultsPre.innerText = `Request failed: ${err.message}`;
+                leadFeedContainer.innerHTML = `<p style="color: var(--danger);">Request failed: ${err.message}</p>`;
+            }
+        }
+
+        function renderLeadFeed(leads) {
+            const container = document.getElementById('leadFeedContainer');
+            if (!leads || leads.length === 0) {
+                container.innerHTML = '<p style="color: var(--text-muted);">No leads ingested yet.</p>';
+                return;
+            }
+
+            let html = '';
+            leads.forEach(lead => {
+                const trust = lead.trust_score || 90;
+                let strategicValue = "Prime ABM Enterprise Target for direct outreach.";
+                if (trust >= 97) {
+                    strategicValue = "Category-defining anchor logo. Ideal for ecosystem partnership & co-selling motions.";
+                } else if (lead.industry && lead.industry.toLowerCase().includes('fintech')) {
+                    strategicValue = "High-intent financial technology ecosystem match for API integration.";
+                }
+
+                html += `
+                    <div class="lead-card">
+                        <div class="lead-header">
+                            <span class="lead-title">
+                                ${escapeHtml(lead.company_name)} 
+                                <span class="badge-abm">Trust: ${trust}/100</span>
+                            </span>
+                            <span style="color: var(--accent-cyan); font-size: 12px;">${escapeHtml(lead.domain)}</span>
+                        </div>
+                        <div class="lead-meta">
+                            <span>Industry: <strong>${escapeHtml(lead.industry)}</strong></span>
+                            <span>Scale: <strong>${escapeHtml(lead.employee_count)} employees</strong></span>
+                            <span>Tech: <strong>${escapeHtml(lead.tech_stack || 'Python, PostgreSQL')}</strong></span>
+                        </div>
+                        <div class="strategic-insight">
+                            💡 <strong>Strategic Value:</strong> ${strategicValue}
+                        </div>
+                        <div class="feedback-actions">
+                            <span style="font-size: 11px; color: var(--text-muted); align-self: center; margin-right: 4px;">Train Agent:</span>
+                            <button class="feedback-btn" onclick="submitFeedback(${lead.id}, 'converted')">🚀 Mark Converted</button>
+                            <button class="feedback-btn" onclick="submitFeedback(${lead.id}, 'qualified')">⭐ Qualified</button>
+                            <button class="feedback-btn" onclick="submitFeedback(${lead.id}, 'disqualified')">❌ Disqualified</button>
+                        </div>
+                    </div>
+                `;
+            });
+            container.innerHTML = html;
+        }
+
+        async function submitFeedback(leadId, status) {
+            const apiKey = document.getElementById('apiKey').value.trim();
+            if (!apiKey) return;
+
+            try {
+                const res = await fetch(`/api/v1/leads/${leadId}/feedback`, {
+                    method: 'POST',
+                    headers: {
+                        'x-api-key': apiKey,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ feedback_status: status })
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    alert(`Feedback '${status}' recorded! The self-optimizing agent will factor this into future crawls.`);
+                } else {
+                    alert(data.detail || "Failed to submit feedback.");
+                }
+            } catch (err) {
+                alert("Error recording feedback.");
             }
         }
 
@@ -647,10 +791,7 @@
                 });
                 const data = await res.json();
                 if (data.api_key) {
-                    document.getElementById('results').innerText = 
-                        `⚠️ NEW API KEY CREATED (${keyName} - Scope: ${scope}):\n\n` + 
-                        data.api_key + 
-                        `\n\n[Copy this key now! It will not be shown again.]`;
+                    alert(`New API Key Created (${keyName}):\n\n` + data.api_key + `\n\n[Copy this key now! It will not be shown again.]`);
                     loadKeys(apiKey);
                 } else {
                     alert(data.detail || "Failed to create key.");
@@ -708,7 +849,6 @@
 
         async function fetchWebhookLogs() {
             const apiKey = document.getElementById('apiKey').value.trim();
-            const resultsPre = document.getElementById('results');
             if (!apiKey) {
                 alert("Please authenticate first.");
                 return;
@@ -720,12 +860,16 @@
                 });
                 const data = await res.json();
                 if (res.ok) {
-                    resultsPre.innerText = JSON.stringify(data, null, 2);
+                    let logSummary = "Recent Webhook Deliveries:\n\n";
+                    (data.delivery_logs || []).forEach(l => {
+                        logSummary += `[${l.timestamp}] URL: ${l.webhook_url} | Status: ${l.status_code} | Success: ${l.success}\n`;
+                    });
+                    alert(logSummary);
                 } else {
-                    resultsPre.innerText = `Error: ${data.detail || "Failed to fetch logs"}`;
+                    alert(data.detail || "Failed to fetch logs");
                 }
             } catch (err) {
-                resultsPre.innerText = `Request failed: ${err.message}`;
+                alert(`Request failed: ${err.message}`);
             }
         }
 
@@ -745,7 +889,7 @@
         }
 
         function escapeHtml(str) {
-            return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+            return (str || '').replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
         }
     </script>
 </body>
