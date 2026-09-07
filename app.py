@@ -2113,7 +2113,7 @@ async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
                     background_tasks.add_task(send_telegram_alert, f"🚀 *New Enterprise Subscription ({tier.upper()})!*\nCustomer: `{customer_email}`")
                     background_tasks.add_task(send_email_via_resend, customer_email, raw_api_key)
             except Exception as err:
-5                logger.error(f"Checkout completion error: {err}")
+                logger.error(f"Checkout completion error: {err}")
 
         elif event_type == "customer.subscription.updated":
             try:
