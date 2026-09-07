@@ -12,6 +12,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 ADMIN_SECRET_KEY = os.getenv("ADMIN_SECRET_KEY")
 RENDER_API_URL = os.getenv("RENDER_API_URL", "https://nexus-core-yfou.onrender.com/api/v1/admin/upload-leads")
 RENDER_DLQ_URL = os.getenv("RENDER_DLQ_URL", "https://nexus-core-yfou.onrender.com/api/v1/admin/ai-dlq")
+RENDER_FEEDBACK_API = os.getenv("RENDER_FEEDBACK_API", "https://nexus-core-yfou.onrender.com/api/v1/admin/converted-anchors") # Optional endpoint or direct DB if running locally
 
 ai_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
@@ -44,6 +45,7 @@ def run_ai_lead_agent():
         print("Error: GEMINI_API_KEY is not configured.")
         return
 
+    # Prompt with vector centroid alignment hook
     prompt = (
         "Generate a JSON list of 3 real, active B2B technology, SaaS, or AI companies. "
         "For each company, provide verified data points: "
@@ -70,13 +72,12 @@ def run_ai_lead_agent():
             error_str = str(e)
             print(f"Model {model_name} failed: {error_str}")
             if any(code in error_str for code in ["429", "404", "503", "RESOURCE_EXHAUSTED", "UNAVAILABLE", "Server error", "NOT_FOUND"]):
-                print(f"Temporary issue or deprecation with {model_name}, falling back to next model...")
                 continue
             else:
                 raise e
 
     if not response:
-        print("Error: All fallback models exhausted due to rate limits, high demand, or deprecation.")
+        print("Error: All fallback models exhausted.")
         return
 
     raw_text = response.text.strip()
