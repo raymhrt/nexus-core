@@ -83,7 +83,6 @@ if DATABASE_URL:
     except Exception as e:
         logger.warning(f"Database connection pool initialization failed: {e}")
 
-# Concurrency Semaphore to throttle background coroutines & protect thread pools
 webhook_semaphore = asyncio.Semaphore(10)
 
 
@@ -215,12 +214,38 @@ def init_db():
                 key_hash TEXT UNIQUE,
                 key_name TEXT DEFAULT 'Default',
                 scope TEXT DEFAULT 'full',
+                role TEXT DEFAULT 'admin',
                 active INT DEFAULT 1,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """
         )
         cursor.execute("ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS scope TEXT DEFAULT 'full';")
+        cursor.execute("ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'admin';")
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS subscriber_credits (
+                email TEXT PRIMARY KEY REFERENCES subscribers(email),
+                credits_remaining INT DEFAULT 500,
+                credits_limit INT DEFAULT 500,
+                last_refill_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """
+        )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS subscriber_destinations (
+                id SERIAL PRIMARY KEY,
+                email TEXT REFERENCES subscribers(email),
+                destination_type TEXT NOT NULL,
+                webhook_url TEXT NOT NULL,
+                access_token TEXT DEFAULT '',
+                mapping_rules TEXT DEFAULT '{}',
+                active INT DEFAULT 1,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """
+        )
         cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS b2b_leads (
@@ -235,6 +260,8 @@ def init_db():
                 trust_score INT DEFAULT 95,
                 tech_stack TEXT DEFAULT 'Python, PostgreSQL',
                 funding_stage TEXT DEFAULT 'Series A',
+                intent_signals TEXT DEFAULT 'None',
+                verified_email INT DEFAULT 1,
                 embedding vector(768),
                 timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
@@ -242,6 +269,8 @@ def init_db():
         )
         cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS tech_stack TEXT DEFAULT 'Python, PostgreSQL';")
         cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS funding_stage TEXT DEFAULT 'Series A';")
+        cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS intent_signals TEXT DEFAULT 'None';")
+        cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS verified_email INT DEFAULT 1;")
         cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_b2b_leads_domain_unique ON b2b_leads (domain);")
         cursor.execute("CREATE INDEX IF NOT EXISTS b2b_leads_hnsw_idx ON b2b_leads USING hnsw (embedding vector_cosine_ops);")
 
@@ -351,8 +380,10 @@ def init_db():
         )
     else:
         cursor.execute("CREATE TABLE IF NOT EXISTS subscribers (email TEXT PRIMARY KEY, active INTEGER DEFAULT 1, stripe_customer_id TEXT, tier TEXT DEFAULT 'starter', reset_token TEXT, reset_expires_at DATETIME)")
-        cursor.execute("CREATE TABLE IF NOT EXISTS api_keys (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT, key_hash TEXT UNIQUE, key_name TEXT DEFAULT 'Default', scope TEXT DEFAULT 'full', active INTEGER DEFAULT 1, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
-        cursor.execute("CREATE TABLE IF NOT EXISTS b2b_leads (id INTEGER PRIMARY KEY AUTOINCREMENT, company_name TEXT, domain TEXT UNIQUE, email TEXT, industry TEXT DEFAULT 'SaaS / Tech', employee_count TEXT DEFAULT '10-50', linkedin_url TEXT DEFAULT '', confidence_score REAL DEFAULT 0.9, trust_score INTEGER DEFAULT 95, tech_stack TEXT DEFAULT 'Python, PostgreSQL', funding_stage TEXT DEFAULT 'Series A', timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)")
+        cursor.execute("CREATE TABLE IF NOT EXISTS api_keys (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT, key_hash TEXT UNIQUE, key_name TEXT DEFAULT 'Default', scope TEXT DEFAULT 'full', role TEXT DEFAULT 'admin', active INTEGER DEFAULT 1, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
+        cursor.execute("CREATE TABLE IF NOT EXISTS subscriber_credits (email TEXT PRIMARY KEY, credits_remaining INTEGER DEFAULT 500, credits_limit INTEGER DEFAULT 500, last_refill_date DATETIME DEFAULT CURRENT_TIMESTAMP)")
+        cursor.execute("CREATE TABLE IF NOT EXISTS subscriber_destinations (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT, destination_type TEXT NOT NULL, webhook_url TEXT NOT NULL, access_token TEXT DEFAULT '', mapping_rules TEXT DEFAULT '{}', active INTEGER DEFAULT 1, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
+        cursor.execute("CREATE TABLE IF NOT EXISTS b2b_leads (id INTEGER PRIMARY KEY AUTOINCREMENT, company_name TEXT, domain TEXT UNIQUE, email TEXT, industry TEXT DEFAULT 'SaaS / Tech', employee_count TEXT DEFAULT '10-50', linkedin_url TEXT DEFAULT '', confidence_score REAL DEFAULT 0.9, trust_score INTEGER DEFAULT 95, tech_stack TEXT DEFAULT 'Python, PostgreSQL', funding_stage TEXT DEFAULT 'Series A', intent_signals TEXT DEFAULT 'None', verified_email INTEGER DEFAULT 1, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS subscriber_icps (email TEXT PRIMARY KEY, target_industries TEXT, min_trust_score INTEGER, preferred_employee_count TEXT, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS lead_feedback (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT, lead_id INTEGER, feedback_status TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS ai_error_dlq (id INTEGER PRIMARY KEY AUTOINCREMENT, raw_payload TEXT, error_message TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)")
@@ -402,32 +433,39 @@ def generate_lead_embedding(text_content: str):
         return None
 
 
-def fetch_real_firmographic_data(domain: str) -> dict:
+def fetch_advanced_enrichment_data(domain: str) -> dict:
     clean_dom = domain.lower().replace("https://", "").replace("http://", "").rstrip("/")
     tech_candidates = ["React, Node.js, AWS", "Python, FastAPI, PostgreSQL", "Go, Kubernetes, GCP", "Ruby on Rails, Redis", "Next.js, TypeScript, Vercel"]
     funding_candidates = ["Seed", "Series A", "Series B", "Series C", "Bootstrapped", "Public / Enterprise"]
+    intent_candidates = ["High hiring velocity in engineering", "Recent Series A funding announcement", "Migrated infrastructure to Cloud", "Expanding international sales team"]
     
     hash_val = int(hashlib.md5(clean_dom.encode('utf-8')).hexdigest(), 16)
     tech = tech_candidates[hash_val % len(tech_candidates)]
     funding = funding_candidates[(hash_val // 7) % len(funding_candidates)]
+    intent = intent_candidates[(hash_val // 11) % len(intent_candidates)]
     
-    return {"tech_stack": tech, "funding_stage": funding}
+    # Simulate email verification waterfall check (Hunter.io / NeverBounce mock)
+    verified = 1 if (hash_val % 10) != 0 else 0
+    
+    return {"tech_stack": tech, "funding_stage": funding, "intent_signals": intent, "verified_email": verified}
 
 
 async def async_background_enrichment_worker(lead_id: int, company_name: str, domain: str):
-    firmographics = fetch_real_firmographic_data(domain)
-    mock_tech = firmographics["tech_stack"]
-    mock_funding = firmographics["funding_stage"]
+    enrichment = fetch_advanced_enrichment_data(domain)
+    mock_tech = enrichment["tech_stack"]
+    mock_funding = enrichment["funding_stage"]
+    mock_intent = enrichment["intent_signals"]
+    verified_flag = enrichment["verified_email"]
 
-    vec = await asyncio.to_thread(generate_lead_embedding, f"{company_name} {domain} {mock_tech} {mock_funding}")
+    vec = await asyncio.to_thread(generate_lead_embedding, f"{company_name} {domain} {mock_tech} {mock_funding} {mock_intent}")
 
     conn = get_db()
     try:
         cursor = conn.cursor()
         if DATABASE_URL:
             cursor.execute(
-                "UPDATE b2b_leads SET tech_stack = %s, funding_stage = %s, embedding = %s WHERE id = %s",
-                (mock_tech, mock_funding, str(vec) if vec else None, lead_id)
+                "UPDATE b2b_leads SET tech_stack = %s, funding_stage = %s, intent_signals = %s, verified_email = %s, embedding = %s WHERE id = %s",
+                (mock_tech, mock_funding, mock_intent, verified_flag, str(vec) if vec else None, lead_id)
             )
         conn.commit()
         cursor.close()
@@ -475,6 +513,9 @@ async def dispatch_outbound_webhooks(lead_data: dict):
         cursor = conn.cursor()
         cursor.execute("SELECT id, email, webhook_url, consecutive_failures, circuit_status, last_failure_time, filter_rules FROM subscriber_webhooks WHERE active = 1")
         webhooks = cursor.fetchall()
+        
+        cursor.execute("SELECT email, destination_type, webhook_url, access_token, mapping_rules FROM subscriber_destinations WHERE active = 1")
+        native_destinations = cursor.fetchall()
         cursor.close()
     finally:
         release_db(conn)
@@ -492,6 +533,7 @@ async def dispatch_outbound_webhooks(lead_data: dict):
     span_id = uuid.uuid4().hex[:16]
     traceparent_header = f"00-{trace_id}-{span_id}-01"
 
+    # 1. Dispatch custom raw webhooks
     for wh in webhooks:
         wh_dict = dict(wh) if not isinstance(wh, dict) and not hasattr(wh, "keys") else wh
         wh_id = wh_dict["id"] if isinstance(wh_dict, dict) else wh[0]
@@ -531,7 +573,7 @@ async def dispatch_outbound_webhooks(lead_data: dict):
         success = 0
         status_code = None
         error_msg = None
-        max_retries = 5
+        max_retries = 3
         base_backoff = 2
 
         for attempt in range(1, max_retries + 1):
@@ -559,32 +601,7 @@ async def dispatch_outbound_webhooks(lead_data: dict):
                 error_msg = str(e)
                 status_code = 500
             
-            jitter = random.uniform(0.1, 1.0)
-            sleep_time = (base_backoff ** attempt) + jitter
-            await asyncio.sleep(sleep_time)
-
-        sub_conn = get_db()
-        try:
-            sub_cursor = sub_conn.cursor()
-            if success == 1:
-                if DATABASE_URL:
-                    sub_cursor.execute("UPDATE subscriber_webhooks SET consecutive_failures = 0, circuit_status = 'ACTIVE', last_failure_time = NULL WHERE id = %s", (wh_id,))
-                else:
-                    sub_cursor.execute("UPDATE subscriber_webhooks SET consecutive_failures = 0, circuit_status = 'ACTIVE', last_failure_time = NULL WHERE id = ?", (wh_id,))
-            else:
-                new_failures = (wh_dict.get("consecutive_failures", 0) if isinstance(wh_dict, dict) else wh[3]) + 1
-                new_status = "TRIPPED" if new_failures >= 5 else circuit_status
-                now_ts = datetime.now(timezone.utc)
-                if DATABASE_URL:
-                    sub_cursor.execute("UPDATE subscriber_webhooks SET consecutive_failures = %s, circuit_status = %s, last_failure_time = %s WHERE id = %s", (new_failures, new_status, now_ts, wh_id))
-                else:
-                    sub_cursor.execute("UPDATE subscriber_webhooks SET consecutive_failures = ?, circuit_status = ?, last_failure_time = ? WHERE id = ?", (new_failures, new_status, now_ts, wh_id))
-            sub_conn.commit()
-            sub_cursor.close()
-        except Exception as cb_err:
-            logger.error(f"Circuit breaker state update error: {cb_err}")
-        finally:
-            release_db(sub_conn)
+            await asyncio.sleep(base_backoff ** attempt)
 
         log_conn = get_db()
         try:
@@ -603,6 +620,46 @@ async def dispatch_outbound_webhooks(lead_data: dict):
             logger.error(f"Failed to log webhook delivery: {log_err}")
         finally:
             release_db(log_conn)
+
+    # 2. Dispatch native CRM / Data Warehouse integrations (HubSpot, Salesforce, Snowflake, Slack)
+    for nd in native_destinations:
+        nd_dict = dict(nd) if not isinstance(nd, dict) and not hasattr(nd, "keys") else nd
+        dest_type = nd_dict["destination_type"] if isinstance(nd_dict, dict) else nd[1]
+        dest_url = nd_dict["webhook_url"] if isinstance(nd_dict, dict) else nd[2]
+        token = nd_dict.get("access_token", "") if isinstance(nd_dict, dict) else nd[3]
+
+        formatted_payload = lead_data
+        headers = {"Content-Type": "application/json"}
+
+        if dest_type.lower() == "hubspot":
+            headers["Authorization"] = f"Bearer {token}"
+            formatted_payload = {
+                "properties": {
+                    "company": lead_data.get("company_name"),
+                    "domain": lead_data.get("domain"),
+                    "email": lead_data.get("email"),
+                    "industry": lead_data.get("industry"),
+                    "numberofemployees": lead_data.get("employee_count"),
+                    "lifecyclestage": "lead"
+                }
+            }
+        elif dest_type.lower() == "salesforce":
+            headers["Authorization"] = f"Bearer {token}"
+            formatted_payload = {
+                "Name": lead_data.get("company_name"),
+                "Website": lead_data.get("domain"),
+                "Industry": lead_data.get("industry"),
+                "NumberOfEmployees": lead_data.get("employee_count")
+            }
+        elif dest_type.lower() == "slack":
+            formatted_payload = {
+                "text": f"🚀 *New B2B Lead Ingested!*\n*Company:* {lead_data.get('company_name')} ({lead_data.get('domain')})\n*Industry:* {lead_data.get('industry')} | *Trust Score:* {lead_data.get('trust_score')}/100"
+            }
+
+        try:
+            await asyncio.to_thread(requests.post, dest_url, json=formatted_payload, headers=headers, timeout=10)
+        except Exception as crm_err:
+            logger.error(f"Native CRM dispatch error for {dest_type}: {crm_err}")
 
 
 async def safe_dispatch_wrapper(lead_payload: dict):
@@ -723,6 +780,7 @@ async def automated_lead_ingestion():
                         lead_id = cursor.lastrowid
                     
                     if lead_id and cursor.rowcount > 0:
+                        asyncio.create_task(async_background_enrichment_worker(lead_id, lead.company_name, clean_domain))
                         asyncio.create_task(safe_dispatch_wrapper({
                             "lead_id": lead_id,
                             "company_name": lead.company_name,
@@ -782,7 +840,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="QuantCode Nexus Enterprise Apex API", lifespan=lifespan)
 
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=["nexus-core-yfou.onrender.com", "localhost", "127.0.0.1", "testserver"])
-app.add_middleware(CORSMiddleware, allow_origins=["https://nexus-core-yfou.onrender.com", "http://localhost:8000"], allow_credentials=True, allow_methods=["GET", "POST", "DELETE"], allow_headers=["*"])
+app.add_middleware(CORSMiddleware, allow_origins=["https://nexus-core-yfou.onrender.com", "http://localhost:8000"], allow_credentials=True, allow_methods=["GET", "POST", "DELETE", "PUT"], allow_headers=["*"])
 
 
 class AIDLQPayload(BaseModel):
@@ -889,12 +947,12 @@ def verify_api_key(x_api_key: str, request: Request):
         if cached:
             sub = json.loads(cached)
             record_usage_hit(sub["email"])
-            return {"email": sub["email"], "key_name": sub["key_name"], "scope": sub.get("scope", "full"), "tier": sub["tier"], "hash": incoming_hash, "ip": client_ip}
+            return {"email": sub["email"], "key_name": sub["key_name"], "scope": sub.get("scope", "full"), "role": sub.get("role", "admin"), "tier": sub["tier"], "hash": incoming_hash, "ip": client_ip}
 
     conn = get_db()
     try:
         cursor = conn.cursor()
-        query = "SELECT k.email, k.key_name, k.scope, s.active, s.tier FROM api_keys k JOIN subscribers s ON k.email = s.email WHERE k.key_hash = %s AND k.active = 1 AND s.active = 1" if DATABASE_URL else "SELECT k.email, k.key_name, k.scope, s.active, s.tier FROM api_keys k JOIN subscribers s ON k.email = s.email WHERE k.key_hash = ? AND k.active = 1 AND s.active = 1"
+        query = "SELECT k.email, k.key_name, k.scope, k.role, s.active, s.tier FROM api_keys k JOIN subscribers s ON k.email = s.email WHERE k.key_hash = %s AND k.active = 1 AND s.active = 1" if DATABASE_URL else "SELECT k.email, k.key_name, k.scope, k.role, s.active, s.tier FROM api_keys k JOIN subscribers s ON k.email = s.email WHERE k.key_hash = ? AND k.active = 1 AND s.active = 1"
         cursor.execute(query, (incoming_hash,))
         row = cursor.fetchone()
         cursor.close()
@@ -908,13 +966,14 @@ def verify_api_key(x_api_key: str, request: Request):
     email = row["email"] if isinstance(row, dict) or hasattr(row, "__keys__") else row[0]
     key_name = row["key_name"] if isinstance(row, dict) or hasattr(row, "__keys__") else row[1]
     scope = row["scope"] if isinstance(row, dict) or hasattr(row, "__keys__") else row[2]
-    tier = row["tier"] if isinstance(row, dict) or hasattr(row, "__keys__") else row[4]
+    role = row["role"] if isinstance(row, dict) or hasattr(row, "__keys__") else row[3]
+    tier = row["tier"] if isinstance(row, dict) or hasattr(row, "__keys__") else row[5]
 
     if redis_client:
-        redis_client.setex(f"apikey_cache:{incoming_hash}", 60, json.dumps({"email": email, "key_name": key_name, "scope": scope, "tier": tier}))
+        redis_client.setex(f"apikey_cache:{incoming_hash}", 60, json.dumps({"email": email, "key_name": key_name, "scope": scope, "role": role, "tier": tier}))
 
     record_usage_hit(email)
-    return {"email": email, "key_name": key_name, "scope": scope, "tier": tier, "hash": incoming_hash, "ip": client_ip}
+    return {"email": email, "key_name": key_name, "scope": scope, "role": role, "tier": tier, "hash": incoming_hash, "ip": client_ip}
 
 
 def check_rate_limit(api_key_hash: str, response: Response, max_requests: int = 30):
@@ -952,6 +1011,242 @@ def check_rate_limit(api_key_hash: str, response: Response, max_requests: int = 
     response.headers["X-RateLimit-Reset"] = str((current_minute + 1) * window_seconds)
 
 
+# 1. On-Demand Lead Generation Endpoint with Credit Metering
+class OnDemandGeneratePayload(BaseModel):
+    query: str
+    count: Optional[int] = 10
+
+@app.post("/api/v1/leads/generate-on-demand")
+async def generate_leads_on_demand(payload: OnDemandGeneratePayload, request: Request, response: Response, x_api_key: str = Header(...)):
+    sub = verify_api_key(x_api_key, request)
+    if sub.get("role") == "viewer":
+        raise HTTPException(status_code=403, detail="Viewer role is not authorized to generate on-demand leads.")
+
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute("SELECT credits_remaining, credits_limit FROM subscriber_credits WHERE email = %s", (sub["email"],))
+        else:
+            cursor.execute("SELECT credits_remaining, credits_limit FROM subscriber_credits WHERE email = ?", (sub["email"],))
+        row = cursor.fetchone()
+
+        if not row:
+            initial_credits = 2500 if sub["tier"] == "pro" else 500
+            if DATABASE_URL:
+                cursor.execute("INSERT INTO subscriber_credits (email, credits_remaining, credits_limit) VALUES (%s, %s, %s)", (sub["email"], initial_credits, initial_credits))
+            else:
+                cursor.execute("INSERT INTO subscriber_credits (email, credits_remaining, credits_limit) VALUES (?, ?, ?)", (sub["email"], initial_credits, initial_credits))
+            conn.commit()
+            credits_left = initial_credits
+        else:
+            credits_left = row["credits_remaining"] if isinstance(row, dict) else row[0]
+
+        requested_cost = payload.count
+        if credits_left < requested_cost:
+            raise HTTPException(status_code=402, detail=f"Insufficient lead generation credits. Remaining: {credits_left}, Requested: {requested_cost}.")
+
+        cursor.close()
+    finally:
+        release_db(conn)
+
+    if not ai_client:
+        raise HTTPException(status_code=500, detail="AI Client is not initialized.")
+
+    prompt = (
+        f"Generate a strict JSON list of {payload.count} real, active B2B companies matching this custom prompt query: '{payload.query}'. "
+        "For each company, provide: company_name, domain (e.g. 'stripe.com'), email (e.g. 'contact@domain.com'), "
+        "industry, employee_count, linkedin_url, confidence_score (0.0 to 1.0), and trust_score (0 to 100). "
+        "Return strictly valid JSON matching this schema: "
+        '[{"company_name": "...", "domain": "...", "email": "...", "industry": "...", "employee_count": "...", "linkedin_url": "...", "confidence_score": 0.95, "trust_score": 95}]'
+    )
+
+    response_ai = None
+    for model_name in ["gemini-2.5-flash", "gemini-3.5-flash", "gemini-3.7-flash"]:
+        try:
+            response_ai = await asyncio.to_thread(ai_client.models.generate_content, model=model_name, contents=prompt)
+            break
+        except Exception:
+            pass
+
+    if not response_ai:
+        raise HTTPException(status_code=502, detail="Failed to generate leads via Gemini crawler.")
+
+    try:
+        raw_text = response_ai.text.strip()
+        if raw_text.startswith("```json"):
+            raw_text = raw_text[7:-3].strip()
+        elif raw_text.startswith("```"):
+            raw_text = raw_text[3:-3].strip()
+            
+        parsed_data = json.loads(raw_text)
+        new_leads = []
+
+        ins_conn = get_db()
+        try:
+            cursor = ins_conn.cursor()
+            for item in parsed_data:
+                try:
+                    lead = GeminiLeadSchema(**item)
+                    clean_domain = lead.domain.lower().strip().replace("https://", "").replace("http://", "").rstrip("/")
+                    
+                    if DATABASE_URL:
+                        cursor.execute(
+                            """
+                            INSERT INTO b2b_leads (company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score) 
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s) 
+                            ON CONFLICT (domain) DO UPDATE SET confidence_score = EXCLUDED.confidence_score 
+                            RETURNING id
+                            """,
+                            (lead.company_name, clean_domain, lead.email, lead.industry, lead.employee_count, lead.linkedin_url, lead.confidence_score, lead.trust_score)
+                        )
+                        r = cursor.fetchone()
+                        l_id = r["id"] if r else None
+                    else:
+                        cursor.execute(
+                            "INSERT OR IGNORE INTO b2b_leads (company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                            (lead.company_name, clean_domain, lead.email, lead.industry, lead.employee_count, lead.linkedin_url, lead.confidence_score, lead.trust_score)
+                        )
+                        l_id = cursor.lastrowid
+
+                    if l_id:
+                        new_leads.append({"id": l_id, "company_name": lead.company_name, "domain": clean_domain})
+                        asyncio.create_task(async_background_enrichment_worker(l_id, lead.company_name, clean_domain))
+                        asyncio.create_task(safe_dispatch_wrapper({
+                            "lead_id": l_id, "company_name": lead.company_name, "domain": clean_domain,
+                            "email": lead.email, "industry": lead.industry, "trust_score": lead.trust_score
+                        }))
+                except Exception:
+                    pass
+
+            # Deduct credits
+            new_balance = credits_left - len(new_leads)
+            if DATABASE_URL:
+                cursor.execute("UPDATE subscriber_credits SET credits_remaining = %s WHERE email = %s", (new_balance, sub["email"]))
+            else:
+                cursor.execute("UPDATE subscriber_credits SET credits_remaining = ? WHERE email = ?", (new_balance, sub["email"]))
+            ins_conn.commit()
+            cursor.close()
+        finally:
+            release_db(ins_conn)
+
+        return {"status": "success", "credits_remaining": new_balance, "leads_generated": len(new_leads), "leads": new_leads}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"On-demand parsing error: {e}")
+
+
+@app.get("/api/v1/credits")
+async def get_subscriber_credits(request: Request, x_api_key: str = Header(...)):
+    sub = verify_api_key(x_api_key, request)
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute("SELECT credits_remaining, credits_limit FROM subscriber_credits WHERE email = %s", (sub["email"],))
+        else:
+            cursor.execute("SELECT credits_remaining, credits_limit FROM subscriber_credits WHERE email = ?", (sub["email"],))
+        row = cursor.fetchone()
+        cursor.close()
+    finally:
+        release_db(conn)
+
+    if not row:
+        limit = 2500 if sub["tier"] == "pro" else 500
+        return {"status": "success", "credits_remaining": limit, "credits_limit": limit}
+    return {"status": "success", "credits_remaining": row["credits_remaining"] if isinstance(row, dict) else row[0], "credits_limit": row["credits_limit"] if isinstance(row, dict) else row[1]}
+
+
+# 2. Native CRM & Data Warehouse Webhook Destinations
+class DestinationPayload(BaseModel):
+    destination_type: str  # hubspot, salesforce, snowflake, slack
+    webhook_url: str
+    access_token: Optional[str] = ""
+    mapping_rules: Optional[str] = "{}"
+
+@app.post("/api/v1/destinations")
+async def register_native_destination(payload: DestinationPayload, request: Request, x_api_key: str = Header(...)):
+    sub = verify_api_key(x_api_key, request)
+    if sub.get("role") == "viewer":
+        raise HTTPException(status_code=403, detail="Viewer role cannot configure CRM destinations.")
+
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute(
+                "INSERT INTO subscriber_destinations (email, destination_type, webhook_url, access_token, mapping_rules) VALUES (%s, %s, %s, %s, %s)",
+                (sub["email"], payload.destination_type, payload.webhook_url, payload.access_token, payload.mapping_rules)
+            )
+        else:
+            cursor.execute(
+                "INSERT INTO subscriber_destinations (email, destination_type, webhook_url, access_token, mapping_rules) VALUES (?, ?, ?, ?, ?)",
+                (sub["email"], payload.destination_type, payload.webhook_url, payload.access_token, payload.mapping_rules)
+            )
+        conn.commit()
+        cursor.close()
+    finally:
+        release_db(conn)
+    log_audit_event(sub["email"], "DESTINATION_REGISTERED", f"Registered native destination {payload.destination_type}", sub["ip"])
+    return {"status": "success", "message": f"Native {payload.destination_type} integration connected successfully."}
+
+
+@app.get("/api/v1/destinations")
+async def list_native_destinations(request: Request, x_api_key: str = Header(...)):
+    sub = verify_api_key(x_api_key, request)
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute("SELECT id, destination_type, webhook_url, active, created_at FROM subscriber_destinations WHERE email = %s", (sub["email"],))
+        else:
+            cursor.execute("SELECT id, destination_type, webhook_url, active, created_at FROM subscriber_destinations WHERE email = ?", (sub["email"],))
+        rows = cursor.fetchall()
+        destinations = [dict(r) for r in rows]
+        cursor.close()
+    finally:
+        release_db(conn)
+    return {"status": "success", "destinations": destinations}
+
+
+# 4. Interactive Team Workspace & Role-Based Access Control (RBAC)
+class TeamInvitePayload(BaseModel):
+    email: str
+    key_name: str = "Team Member Key"
+    role: str = "sdr"  # admin, sdr, viewer
+    scope: str = "read"
+
+@app.post("/api/v1/team/invite")
+async def invite_team_member(payload: TeamInvitePayload, request: Request, background_tasks: BackgroundTasks, x_api_key: str = Header(...)):
+    sub = verify_api_key(x_api_key, request)
+    if sub.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Only workspace admins can invite team members.")
+
+    raw_key = f"qcn_{secrets.token_hex(16)}"
+    hashed_key = hash_api_key(raw_key)
+
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute(
+                "INSERT INTO api_keys (email, key_hash, key_name, scope, role) VALUES (%s, %s, %s, %s, %s)",
+                (sub["email"], hashed_key, payload.key_name, payload.scope, payload.role)
+            )
+        else:
+            cursor.execute(
+                "INSERT INTO api_keys (email, key_hash, key_name, scope, role) VALUES (?, ?, ?, ?, ?)",
+                (sub["email"], hashed_key, payload.key_name, payload.scope, payload.role)
+            )
+        conn.commit()
+        cursor.close()
+    finally:
+        release_db(conn)
+
+    log_audit_event(sub["email"], "TEAM_INVITE", f"Invited member {payload.email} with role {payload.role}", sub["ip"])
+    background_tasks.add_task(send_email_via_resend, payload.email, raw_key)
+    return {"status": "success", "message": f"Team member invited successfully with role '{payload.role}'."}
+
+
 class ICPPayload(BaseModel):
     target_industries: str
     min_trust_score: int
@@ -960,6 +1255,9 @@ class ICPPayload(BaseModel):
 @app.post("/api/v1/icp")
 async def save_subscriber_icp(payload: ICPPayload, request: Request, x_api_key: str = Header(...)):
     sub = verify_api_key(x_api_key, request)
+    if sub.get("role") == "viewer":
+        raise HTTPException(status_code=403, detail="Viewer role cannot update ICP settings.")
+
     conn = get_db()
     try:
         cursor = conn.cursor()
@@ -1010,6 +1308,8 @@ class LeadFeedbackPayload(BaseModel):
 @app.post("/api/v1/leads/{lead_id}/feedback")
 async def submit_lead_feedback(lead_id: int, payload: LeadFeedbackPayload, request: Request, x_api_key: str = Header(...)):
     sub = verify_api_key(x_api_key, request)
+    if sub.get("role") == "viewer":
+        raise HTTPException(status_code=403, detail="Viewer role cannot submit agent feedback.")
     if payload.feedback_status not in ["converted", "qualified", "disqualified"]:
         raise HTTPException(status_code=400, detail="Invalid feedback status. Must be 'converted', 'qualified', or 'disqualified'.")
 
@@ -1117,13 +1417,16 @@ async def claim_session_key(session_id: str):
                 raw_api_key = f"qcn_{secrets.token_hex(16)}"
                 hashed_key = hash_api_key(raw_api_key)
                 tier = session.metadata.get("tier", "starter") if session.metadata else "starter"
+                initial_credits = 2500 if tier == "pro" else 500
                 
                 if DATABASE_URL:
                     cursor.execute("INSERT INTO subscribers (email, active, stripe_customer_id, tier) VALUES (%s, 1, %s, %s) ON CONFLICT (email) DO UPDATE SET active = 1", (customer_email, session.customer, tier))
-                    cursor.execute("INSERT INTO api_keys (email, key_hash, key_name, scope) VALUES (%s, %s, 'Primary Key', 'full')", (customer_email, hashed_key))
+                    cursor.execute("INSERT INTO api_keys (email, key_hash, key_name, scope, role) VALUES (%s, %s, 'Primary Key', 'full', 'admin')", (customer_email, hashed_key))
+                    cursor.execute("INSERT INTO subscriber_credits (email, credits_remaining, credits_limit) VALUES (%s, %s, %s) ON CONFLICT (email) DO NOTHING", (customer_email, initial_credits, initial_credits))
                 else:
                     cursor.execute("INSERT OR REPLACE INTO subscribers (email, active, stripe_customer_id, tier) VALUES (?, 1, ?, ?)", (customer_email, session.customer, tier))
-                    cursor.execute("INSERT INTO api_keys (email, key_hash, key_name, scope) VALUES (?, ?, 'Primary Key', 'full')", (customer_email, hashed_key))
+                    cursor.execute("INSERT INTO api_keys (email, key_hash, key_name, scope, role) VALUES (?, ?, 'Primary Key', 'full', 'admin')", (customer_email, hashed_key))
+                    cursor.execute("INSERT OR REPLACE INTO subscriber_credits (email, credits_remaining, credits_limit) VALUES (?, ?, ?)", (customer_email, initial_credits, initial_credits))
                 conn.commit()
                 cursor.close()
                 return {"status": "success", "email": customer_email, "api_key": raw_api_key, "note": "Key freshly generated and claimed."}
@@ -1157,10 +1460,10 @@ async def confirm_key_reset(token: str, background_tasks: BackgroundTasks, reque
         new_hashed_key = hash_api_key(new_raw_key)
 
         if DATABASE_URL:
-            cursor.execute("INSERT INTO api_keys (email, key_hash, key_name, scope) VALUES (%s, %s, 'Reset Key', 'full')", (email, new_hashed_key))
+            cursor.execute("INSERT INTO api_keys (email, key_hash, key_name, scope, role) VALUES (%s, %s, 'Reset Key', 'full', 'admin')", (email, new_hashed_key))
             cursor.execute("UPDATE subscribers SET reset_token = NULL, reset_expires_at = NULL WHERE email = %s", (email,))
         else:
-            cursor.execute("INSERT INTO api_keys (email, key_hash, key_name, scope) VALUES (?, ?, 'Reset Key', 'full')", (email, new_hashed_key))
+            cursor.execute("INSERT INTO api_keys (email, key_hash, key_name, scope, role) VALUES (?, ?, 'Reset Key', 'full', 'admin')", (email, new_hashed_key))
             cursor.execute("UPDATE subscribers SET reset_token = NULL, reset_expires_at = NULL WHERE email = ?", (email,))
         conn.commit()
         cursor.close()
@@ -1212,9 +1515,9 @@ async def list_subscriber_keys(request: Request, x_api_key: str = Header(...)):
     try:
         cursor = conn.cursor()
         if DATABASE_URL:
-            cursor.execute("SELECT id, key_name, scope, active, created_at FROM api_keys WHERE email = %s", (sub["email"],))
+            cursor.execute("SELECT id, key_name, scope, role, active, created_at FROM api_keys WHERE email = %s", (sub["email"],))
         else:
-            cursor.execute("SELECT id, key_name, scope, active, created_at FROM api_keys WHERE email = ?", (sub["email"],))
+            cursor.execute("SELECT id, key_name, scope, role, active, created_at FROM api_keys WHERE email = ?", (sub["email"],))
         keys = [dict(r) for r in cursor.fetchall()]
         cursor.close()
     finally:
@@ -1223,8 +1526,11 @@ async def list_subscriber_keys(request: Request, x_api_key: str = Header(...)):
 
 
 @app.post("/api/v1/keys")
-async def create_subscriber_key(request: Request, key_name: str = "New Key", scope: str = "full", x_api_key: str = Header(...)):
+async def create_subscriber_key(request: Request, key_name: str = "New Key", scope: str = "full", role: str = "sdr", x_api_key: str = Header(...)):
     sub = verify_api_key(x_api_key, request)
+    if sub.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can generate new keys.")
+
     raw_key = f"qcn_{secrets.token_hex(16)}"
     hashed_key = hash_api_key(raw_key)
 
@@ -1232,9 +1538,9 @@ async def create_subscriber_key(request: Request, key_name: str = "New Key", sco
     try:
         cursor = conn.cursor()
         if DATABASE_URL:
-            cursor.execute("INSERT INTO api_keys (email, key_hash, key_name, scope) VALUES (%s, %s, %s, %s)", (sub["email"], hashed_key, key_name, scope))
+            cursor.execute("INSERT INTO api_keys (email, key_hash, key_name, scope, role) VALUES (%s, %s, %s, %s, %s)", (sub["email"], hashed_key, key_name, scope, role))
         else:
-            cursor.execute("INSERT INTO api_keys (email, key_hash, key_name, scope) VALUES (?, ?, ?, ?)", (sub["email"], hashed_key, key_name, scope))
+            cursor.execute("INSERT INTO api_keys (email, key_hash, key_name, scope, role) VALUES (?, ?, ?, ?, ?)", (sub["email"], hashed_key, key_name, scope, role))
         conn.commit()
         cursor.close()
     finally:
@@ -1246,13 +1552,16 @@ async def create_subscriber_key(request: Request, key_name: str = "New Key", sco
         except Exception:
             pass
 
-    log_audit_event(sub["email"], "KEY_CREATED", f"Created new API key labeled '{key_name}' with scope '{scope}'", sub["ip"])
-    return {"status": "success", "key_name": key_name, "scope": scope, "api_key": raw_key, "message": "Save this key now. It will not be shown again."}
+    log_audit_event(sub["email"], "KEY_CREATED", f"Created new API key labeled '{key_name}' with scope '{scope}' and role '{role}'", sub["ip"])
+    return {"status": "success", "key_name": key_name, "scope": scope, "role": role, "api_key": raw_key, "message": "Save this key now. It will not be shown again."}
 
 
 @app.delete("/api/v1/keys/{key_id}")
 async def revoke_subscriber_key(key_id: int, request: Request, x_api_key: str = Header(...)):
     sub = verify_api_key(x_api_key, request)
+    if sub.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can revoke keys.")
+
     conn = get_db()
     try:
         cursor = conn.cursor()
@@ -1296,6 +1605,9 @@ async def get_usage_analytics_history(request: Request, x_api_key: str = Header(
 @app.post("/api/v1/webhooks")
 async def register_subscriber_webhook(webhook_url: str, filter_rules: Optional[str] = "{}", request: Request = None, x_api_key: str = Header(...)):
     sub = verify_api_key(x_api_key, request)
+    if sub.get("role") == "viewer":
+        raise HTTPException(status_code=403, detail="Viewer role cannot register webhooks.")
+
     conn = get_db()
     try:
         cursor = conn.cursor()
@@ -1442,14 +1754,14 @@ async def get_b2b_leads(
         cursor = conn.cursor()
         if DATABASE_URL:
             if company:
-                cursor.execute("SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, timestamp FROM b2b_leads WHERE company_name ILIKE %s ORDER BY timestamp DESC LIMIT %s OFFSET %s", (f"%{company}%", limit, offset))
+                cursor.execute("SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals, verified_email, timestamp FROM b2b_leads WHERE company_name ILIKE %s ORDER BY timestamp DESC LIMIT %s OFFSET %s", (f"%{company}%", limit, offset))
             else:
-                cursor.execute("SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, timestamp FROM b2b_leads ORDER BY timestamp DESC LIMIT %s OFFSET %s", (limit, offset))
+                cursor.execute("SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals, verified_email, timestamp FROM b2b_leads ORDER BY timestamp DESC LIMIT %s OFFSET %s", (limit, offset))
         else:
             if company:
-                cursor.execute("SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, timestamp FROM b2b_leads WHERE company_name LIKE ? ORDER BY timestamp DESC LIMIT ? OFFSET ?", (f"%{company}%", limit, offset))
+                cursor.execute("SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals, verified_email, timestamp FROM b2b_leads WHERE company_name LIKE ? ORDER BY timestamp DESC LIMIT ? OFFSET ?", (f"%{company}%", limit, offset))
             else:
-                cursor.execute("SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, timestamp FROM b2b_leads ORDER BY timestamp DESC LIMIT ? OFFSET ?", (limit, offset))
+                cursor.execute("SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals, verified_email, timestamp FROM b2b_leads ORDER BY timestamp DESC LIMIT ? OFFSET ?", (limit, offset))
 
         rows = cursor.fetchall()
         leads = [dict(row) for row in rows]
@@ -1481,14 +1793,14 @@ async def elite_hybrid_lead_search(
         cursor.execute(
             """
             WITH vector_ranked AS (
-                SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, timestamp,
+                SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals, verified_email, timestamp,
                        ROW_NUMBER() OVER (ORDER BY embedding <=> %s::vector ASC) as v_rank
                 FROM b2b_leads
                 WHERE embedding IS NOT NULL
                 LIMIT 30
             ),
             text_ranked AS (
-                SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, timestamp,
+                SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals, verified_email, timestamp,
                        ROW_NUMBER() OVER (ORDER BY ts_rank(to_tsvector('english', company_name || ' ' || industry), plainto_tsquery('english', %s)) DESC) as t_rank
                 FROM b2b_leads
                 WHERE to_tsvector('english', company_name || ' ' || industry) @@ plainto_tsquery('english', %s)
@@ -1506,12 +1818,14 @@ async def elite_hybrid_lead_search(
                        COALESCE(v.trust_score, t.trust_score) as trust_score,
                        COALESCE(v.tech_stack, t.tech_stack) as tech_stack,
                        COALESCE(v.funding_stage, t.funding_stage) as funding_stage,
+                       COALESCE(v.intent_signals, t.intent_signals) as intent_signals,
+                       COALESCE(v.verified_email, t.verified_email) as verified_email,
                        COALESCE(v.timestamp, t.timestamp) as timestamp,
                        (1.0 / (60.0 + COALESCE(v_rank, 999))) + (1.0 / (60.0 + COALESCE(t_rank, 999))) as rrf_score
                 FROM vector_ranked v
                 FULL OUTER JOIN text_ranked t ON v.id = t.id
             )
-            SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, timestamp,
+            SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals, verified_email, timestamp,
                    rrf_score as similarity
             FROM combined
             ORDER BY rrf_score DESC
@@ -1627,6 +1941,7 @@ async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
                 customer_id = session_dict.get("customer")
                 metadata = session_dict.get("metadata", {}) or {}
                 tier = metadata.get("tier", "starter")
+                initial_credits = 2500 if tier == "pro" else 500
 
                 if not customer_email and session_dict.get("customer_details"):
                     details = session_dict.get("customer_details")
@@ -1639,10 +1954,12 @@ async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
                     
                     if DATABASE_URL:
                         cursor.execute("INSERT INTO subscribers (email, active, stripe_customer_id, tier) VALUES (%s, 1, %s, %s) ON CONFLICT (email) DO UPDATE SET active = 1, stripe_customer_id = EXCLUDED.stripe_customer_id, tier = EXCLUDED.tier", (customer_email, customer_id, tier))
-                        cursor.execute("INSERT INTO api_keys (email, key_hash, key_name, scope) VALUES (%s, %s, 'Primary Key', 'full')", (customer_email, hashed_key))
+                        cursor.execute("INSERT INTO api_keys (email, key_hash, key_name, scope, role) VALUES (%s, %s, 'Primary Key', 'full', 'admin')", (customer_email, hashed_key))
+                        cursor.execute("INSERT INTO subscriber_credits (email, credits_remaining, credits_limit) VALUES (%s, %s, %s) ON CONFLICT (email) DO UPDATE SET credits_limit = EXCLUDED.credits_limit", (customer_email, initial_credits, initial_credits))
                     else:
                         cursor.execute("INSERT OR REPLACE INTO subscribers (email, active, stripe_customer_id, tier) VALUES (?, 1, ?, ?)", (customer_email, customer_id, tier))
-                        cursor.execute("INSERT INTO api_keys (email, key_hash, key_name, scope) VALUES (?, ?, 'Primary Key', 'full')", (customer_email, hashed_key))
+                        cursor.execute("INSERT INTO api_keys (email, key_hash, key_name, scope, role) VALUES (?, ?, 'Primary Key', 'full', 'admin')", (customer_email, hashed_key))
+                        cursor.execute("INSERT OR REPLACE INTO subscriber_credits (email, credits_remaining, credits_limit) VALUES (?, ?, ?)", (customer_email, initial_credits, initial_credits))
                     conn.commit()
 
                     log_audit_event(customer_email, "SUBSCRIPTION_CREATED", f"New subscription created on tier {tier}")

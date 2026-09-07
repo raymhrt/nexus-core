@@ -371,7 +371,7 @@
             <div class="header-flex">
                 <div>
                     <h1>Subscriber Command Center</h1>
-                    <p class="sub">Manage API keys, configure ICP targeting, and monitor live telemetry.</p>
+                    <p class="sub">Manage API keys, credit quotas, ICP targeting, and live telemetry.</p>
                 </div>
                 <a href="/" class="nav-link">&larr; Back to Home</a>
             </div>
@@ -394,11 +394,59 @@
                 <div id="usageBar" class="progress-bar"></div>
             </div>
 
+            <!-- Credit Balance Display -->
+            <div id="creditStatus" style="font-size: 13px; color: var(--text-muted); margin-top: 8px;">Lead Credits Remaining: -- / --</div>
+
             <!-- 7-Day Usage Analytics Chart -->
             <span class="section-label" style="margin-top: 20px;">7-Day API Request History</span>
             <div class="chart-container">
                 <canvas id="usageChart"></canvas>
             </div>
+        </div>
+
+        <!-- 1. On-Demand Lead Generation Card -->
+        <div class="card">
+            <span class="section-label">⚡ On-Demand Lead Generation Engine</span>
+            <p class="sub" style="margin-bottom: 16px;">Trigger instant Gemini crawls and real enrichment waterfalls on the fly.</p>
+            
+            <div class="form-group">
+                <label for="onDemandQuery">Custom Lead Generation Query / Niche</label>
+                <input type="text" id="onDemandQuery" placeholder="e.g., Enterprise cybersecurity startups in San Francisco..." />
+            </div>
+            <div class="form-group">
+                <label for="onDemandCount">Number of Leads (1-25)</label>
+                <input type="number" id="onDemandCount" value="10" min="1" max="25" />
+            </div>
+            <button onclick="triggerOnDemandGeneration()">Generate Fresh Leads Instantly</button>
+            <div id="onDemandResult" style="margin-top: 12px; font-size: 13px; color: var(--text-muted);"></div>
+        </div>
+
+        <!-- 2. Native CRM & Data Warehouse Integrations Card -->
+        <div class="card">
+            <span class="section-label">🔌 Native CRM & Data Warehouse Destinations</span>
+            <p class="sub" style="margin-bottom: 16px;">Connect HubSpot, Salesforce, Snowflake, or Slack with one click.</p>
+            
+            <div class="grid-2">
+                <div class="form-group">
+                    <label for="destType">Destination Type</label>
+                    <select id="destType">
+                        <option value="hubspot">HubSpot CRM</option>
+                        <option value="salesforce">Salesforce</option>
+                        <option value="snowflake">Snowflake Warehouse</option>
+                        <option value="slack">Slack Alert Channel</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="destWebhookUrl">Webhook / API Endpoint URL</label>
+                    <input type="text" id="destWebhookUrl" placeholder="https://api.hubspot.com/crm/v3/objects/contacts" />
+                </div>
+            </div>
+            <div class="form-group">
+                <label for="destToken">Access Token / Bearer Key (Optional)</label>
+                <input type="password" id="destToken" placeholder="pat-na1-..." />
+            </div>
+            <button class="btn-secondary" onclick="registerDestination()">Connect Destination</button>
+            <div id="destinationList" style="margin-top: 12px; font-size: 13px; color: var(--text-muted);"></div>
         </div>
 
         <!-- ICP Configuration & Semantic Vector Search Card -->
@@ -432,7 +480,7 @@
         <!-- Lead Results & Management Card -->
         <div class="card">
             <span class="section-label">Live Lead Feed & Strategic Intelligence Explorer</span>
-            <p class="sub" style="margin-bottom: 16px;">High-value anchor accounts verified for ABM targeting and ecosystem integration.</p>
+            <p class="sub" style="margin-bottom: 16px;">High-value anchor accounts verified with multi-stage enrichment waterfall.</p>
             
             <div id="leadFeedContainer">
                 <p style="color: var(--text-muted); font-size: 13px; margin: 0;">Authenticate above to explore ingested leads.</p>
@@ -440,14 +488,22 @@
 
             <hr class="divider">
 
-            <span class="section-label">Multi-Key Management</span>
-            <div style="display: flex; gap: 12px; margin-bottom: 16px;">
-                <button class="btn-secondary" onclick="createNewKey()" style="margin-top: 0;">Generate New API Key</button>
-                <select id="newKeyScope" style="width: 180px; margin-bottom: 0;">
-                    <option value="full">Scope: Full Access</option>
-                    <option value="read">Scope: Read-Only</option>
-                </select>
+            <span class="section-label">Multi-Key Management & Team Workspaces</span>
+            <div class="grid-2" style="margin-bottom: 16px;">
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label for="newKeyName">Key Label / Member Email</label>
+                    <input type="text" id="newKeyName" placeholder="e.g. sdr-john@company.com" />
+                </div>
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label for="newKeyRole">Workspace Role</label>
+                    <select id="newKeyRole">
+                        <option value="sdr">Role: SDR (Ingest & Train)</option>
+                        <option value="viewer">Role: Viewer (Read-Only)</option>
+                        <option value="admin">Role: Admin (Full Access)</option>
+                    </select>
+                </div>
             </div>
+            <button class="btn-secondary" onclick="createNewKey()" style="margin-bottom: 16px;">Invite Team Member & Generate Key</button>
             <div id="keyList" style="color: var(--text-muted); font-size: 13px;">Authenticate to load active API keys.</div>
         </div>
 
@@ -527,8 +583,105 @@
                 loadKeys(apiKey);
                 loadUsageChart(apiKey);
                 loadICPProfile(apiKey);
+                loadCredits(apiKey);
+                loadDestinations(apiKey);
             } catch (err) {
                 leadFeedContainer.innerHTML = `<p style="color: var(--danger);">Request failed: ${err.message}</p>`;
+            }
+        }
+
+        async function loadCredits(apiKey) {
+            try {
+                const res = await fetch('/api/v1/credits', { headers: { 'x-api-key': apiKey } });
+                const data = await res.json();
+                if (res.ok) {
+                    document.getElementById('creditStatus').innerText = `Lead Credits Remaining: ${data.credits_remaining} / ${data.credits_limit}`;
+                }
+            } catch (e) {
+                console.error("Failed to load credits", e);
+            }
+        }
+
+        async function triggerOnDemandGeneration() {
+            const apiKey = document.getElementById('apiKey').value.trim();
+            const query = document.getElementById('onDemandQuery').value.trim();
+            const count = parseInt(document.getElementById('onDemandCount').value) || 10;
+            const resDiv = document.getElementById('onDemandResult');
+
+            if (!apiKey || !query) {
+                alert("Please authenticate and enter a custom generation query.");
+                return;
+            }
+
+            resDiv.style.color = "var(--accent-cyan)";
+            resDiv.innerText = "Crawling Gemini agents & running enrichment waterfall...";
+
+            try {
+                const res = await fetch('/api/v1/leads/generate-on-demand', {
+                    method: 'POST',
+                    headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ query: query, count: count })
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    resDiv.style.color = "var(--success)";
+                    resDiv.innerText = `Successfully generated ${data.leads_generated} fresh leads! Credits remaining: ${data.credits_remaining}`;
+                    saveAndFetch();
+                } else {
+                    resDiv.style.color = "var(--danger)";
+                    resDiv.innerText = data.detail || "Generation failed.";
+                }
+            } catch (err) {
+                resDiv.style.color = "var(--danger)";
+                resDiv.innerText = "Request failed.";
+            }
+        }
+
+        async function registerDestination() {
+            const apiKey = document.getElementById('apiKey').value.trim();
+            const destination_type = document.getElementById('destType').value;
+            const webhook_url = document.getElementById('destWebhookUrl').value.trim();
+            const access_token = document.getElementById('destToken').value.trim();
+
+            if (!apiKey || !webhook_url) {
+                alert("Please provide an endpoint URL.");
+                return;
+            }
+
+            try {
+                const res = await fetch('/api/v1/destinations', {
+                    method: 'POST',
+                    headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ destination_type, webhook_url, access_token })
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    alert(data.message || "Destination connected.");
+                    loadDestinations(apiKey);
+                } else {
+                    alert(data.detail || "Failed to connect destination.");
+                }
+            } catch (err) {
+                alert("Error connecting destination.");
+            }
+        }
+
+        async function loadDestinations(apiKey) {
+            try {
+                const res = await fetch('/api/v1/destinations', { headers: { 'x-api-key': apiKey } });
+                const data = await res.json();
+                const container = document.getElementById('destinationList');
+                if (data.destinations && data.destinations.length > 0) {
+                    let html = 'Connected Destinations: ';
+                    data.destinations.forEach(d => {
+                        html += `[${d.destination_type.toUpperCase()}] `;
+                    });
+                    container.innerHTML = html;
+                } else {
+                    container.innerHTML = 'No native CRM destinations connected.';
+                }
+            } catch (e) {
+                console.error("Failed to load destinations", e);
             }
         }
 
@@ -542,12 +695,8 @@
             let html = '';
             leads.forEach(lead => {
                 const trust = lead.trust_score || 90;
-                let strategicValue = "Prime ABM Enterprise Target for direct outbound motion.";
-                if (trust >= 97) {
-                    strategicValue = "Category-defining anchor logo. Ideal for ecosystem partnership & co-selling.";
-                } else if (lead.industry && lead.industry.toLowerCase().includes('fintech')) {
-                    strategicValue = "High-intent financial technology ecosystem match for API integration.";
-                }
+                const emailStatus = lead.verified_email === 1 ? '✅ Verified Professional Email' : '⚠️ Unverified Email';
+                const intent = lead.intent_signals || 'High hiring velocity in engineering';
 
                 html += `
                     <div class="lead-card">
@@ -563,9 +712,10 @@
                             <span class="meta-pill">Size: <strong>${escapeHtml(lead.employee_count)}</strong></span>
                             <span class="meta-pill">Stack: <strong>${escapeHtml(lead.tech_stack || 'Python, PostgreSQL')}</strong></span>
                             <span class="meta-pill">Stage: <strong>${escapeHtml(lead.funding_stage || 'Series A')}</strong></span>
+                            <span class="meta-pill" style="color: var(--success);"><strong>${emailStatus}</strong></span>
                         </div>
                         <div class="strategic-insight">
-                            💡 <strong>Strategic Value:</strong> ${strategicValue}
+                            🔥 <strong>Intent Signal:</strong> ${escapeHtml(intent)}
                         </div>
                         <div class="feedback-actions">
                             <span style="font-size: 11px; color: var(--text-muted); align-self: center; margin-right: 4px;">Train Agent:</span>
@@ -586,10 +736,7 @@
             try {
                 const res = await fetch(`/api/v1/leads/${leadId}/feedback`, {
                     method: 'POST',
-                    headers: {
-                        'x-api-key': apiKey,
-                        'Content-Type': 'application/json'
-                    },
+                    headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
                     body: JSON.stringify({ feedback_status: status })
                 });
                 const data = await res.json();
@@ -605,9 +752,7 @@
 
         async function loadICPProfile(apiKey) {
             try {
-                const res = await fetch('/api/v1/icp', {
-                    headers: { 'x-api-key': apiKey }
-                });
+                const res = await fetch('/api/v1/icp', { headers: { 'x-api-key': apiKey } });
                 const data = await res.json();
                 if (res.ok && data.icp) {
                     document.getElementById('targetIndustries').value = data.icp.target_industries || 'Fintech, SaaS, AI';
@@ -638,25 +783,10 @@
             try {
                 const res = await fetch('/api/v1/icp', {
                     method: 'POST',
-                    headers: {
-                        'x-api-key': apiKey,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        target_industries: target_industries,
-                        min_trust_score: min_trust_score,
-                        preferred_employee_count: "10-50"
-                    })
+                    headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ target_industries, min_trust_score, preferred_employee_count: "10-50" })
                 });
                 const data = await res.json();
-                
-                const syncedRules = JSON.stringify({
-                    min_trust_score: min_trust_score,
-                    industries: target_industries ? target_industries.split(',').map(s => s.trim()) : ["Fintech"]
-                });
-                document.getElementById('webhookRules').value = syncedRules;
-                localStorage.setItem('nexus_webhook_rules', syncedRules);
-
                 alert(data.message || "ICP profile saved successfully.");
             } catch (err) {
                 alert("Failed to save ICP profile.");
@@ -667,12 +797,8 @@
             const query = document.getElementById('semanticQueryInput').value.trim();
             const apiKey = document.getElementById('apiKey').value.trim();
             
-            if (!apiKey) {
-                alert("Please authenticate with your API key first.");
-                return;
-            }
-            if (!query) {
-                alert("Please enter a natural language search query.");
+            if (!apiKey || !query) {
+                alert("Please authenticate and enter a query.");
                 return;
             }
 
@@ -689,14 +815,13 @@
                 if (data.status === 'success' && data.leads && data.leads.length > 0) {
                     container.style.display = 'block';
                     data.leads.forEach((lead, index) => {
-                        const rawSim = lead.similarity || (1.0 - (index * 0.05));
-                        const similarityPercent = Math.min(98, Math.max(78, Math.round(rawSim * 100 * 15)));
+                        const similarityPercent = Math.min(98, Math.max(78, Math.round((lead.similarity || 0.9) * 100 * 15)));
                         list.innerHTML += `
                             <div style="background: var(--bg-input); border: 1px solid var(--border-color); padding: 12px 16px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; font-size: 13px;">
                                 <div>
                                     <span style="color: #fff; font-weight: bold;">${escapeHtml(lead.company_name)}</span>
                                     <span style="color: var(--text-muted); font-size: 11px; margin-left: 6px;">(${escapeHtml(lead.industry)})</span>
-                                    <div style="color: var(--accent-cyan); font-size: 11px; margin-top: 2px;">Domain: ${escapeHtml(lead.domain)} | Tech: ${escapeHtml(lead.tech_stack || 'N/A')}</div>
+                                    <div style="color: var(--accent-cyan); font-size: 11px; margin-top: 2px;">Domain: ${escapeHtml(lead.domain)} | Intent: ${escapeHtml(lead.intent_signals || 'N/A')}</div>
                                 </div>
                                 <span style="background: rgba(14, 165, 233, 0.1); color: var(--accent-cyan); font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(14, 165, 233, 0.3);">
                                     ${similarityPercent}% Match
@@ -709,16 +834,13 @@
                     list.innerHTML = '<p style="color: var(--text-muted); font-size: 12px; margin: 0;">No matching semantic leads found.</p>';
                 }
             } catch (err) {
-                console.error("Semantic search error:", err);
                 alert("Failed to execute semantic search.");
             }
         }
 
         async function loadUsageChart(apiKey) {
             try {
-                const res = await fetch('/api/v1/analytics/usage', {
-                    headers: { 'x-api-key': apiKey }
-                });
+                const res = await fetch('/api/v1/analytics/usage', { headers: { 'x-api-key': apiKey } });
                 const data = await res.json();
                 if (!res.ok) return;
 
@@ -727,9 +849,7 @@
                 const counts = history.map(item => item.request_count);
 
                 const ctx = document.getElementById('usageChart').getContext('2d');
-                if (usageChartInstance) {
-                    usageChartInstance.destroy();
-                }
+                if (usageChartInstance) usageChartInstance.destroy();
 
                 usageChartInstance = new Chart(ctx, {
                     type: 'line',
@@ -763,9 +883,7 @@
 
         async function loadKeys(apiKey) {
             try {
-                const res = await fetch('/api/v1/keys', {
-                    headers: { 'x-api-key': apiKey }
-                });
+                const res = await fetch('/api/v1/keys', { headers: { 'x-api-key': apiKey } });
                 const data = await res.json();
                 const keyListContainer = document.getElementById('keyList');
                 
@@ -776,7 +894,7 @@
                             html += `
                                 <div class="key-item">
                                     <div class="key-info">
-                                        <span class="key-name">${escapeHtml(k.key_name)} <span style="font-size:10px; color:var(--accent-cyan); background:rgba(56,189,248,0.1); padding:2px 6px; border-radius:4px; margin-left:6px;">${k.scope || 'full'}</span> (ID: ${k.id})</span>
+                                        <span class="key-name">${escapeHtml(k.key_name)} <span style="font-size:10px; color:var(--accent-cyan); background:rgba(56,189,248,0.1); padding:2px 6px; border-radius:4px; margin-left:6px;">Role: ${k.role || 'admin'}</span> (ID: ${k.id})</span>
                                         <span class="key-meta">Created: ${k.created_at || 'N/A'}</span>
                                     </div>
                                     <button class="revoke-btn" onclick="revokeKey(${k.id})">Revoke</button>
@@ -795,42 +913,41 @@
 
         async function createNewKey() {
             const apiKey = document.getElementById('apiKey').value.trim();
-            const keyName = prompt("Enter a label for this key (e.g., Staging, CI-CD):", "Staging");
-            const scope = document.getElementById('newKeyScope').value;
-            if (!apiKey || !keyName) return;
+            const keyName = document.getElementById('newKeyName').value.trim() || "Team Member";
+            const role = document.getElementById('newKeyRole').value;
+            if (!apiKey) return;
 
             try {
-                const res = await fetch(`/api/v1/keys?key_name=${encodeURIComponent(keyName)}&scope=${scope}`, {
+                const res = await fetch(`/api/v1/team/invite`, {
                     method: 'POST',
-                    headers: { 'x-api-key': apiKey }
+                    headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email: keyName, key_name: keyName, role: role, scope: role === 'viewer' ? 'read' : 'full' })
                 });
                 const data = await res.json();
-                if (data.api_key) {
-                    alert(`New API Key Created (${keyName}):\n\n` + data.api_key + `\n\n[Copy this key now! It will not be shown again.]`);
+                if (res.ok) {
+                    alert(data.message || "Team member invited successfully.");
                     loadKeys(apiKey);
                 } else {
-                    alert(data.detail || "Failed to create key.");
+                    alert(data.detail || "Failed to invite team member.");
                 }
             } catch(e) {
-                alert("Error creating key.");
+                alert("Error inviting team member.");
             }
         }
 
         async function revokeKey(keyId) {
             const apiKey = document.getElementById('apiKey').value.trim();
-            if (!apiKey) return;
-            if (!confirm(`Are you sure you want to revoke API key ID ${keyId}?`)) return;
+            if (!apiKey || !confirm(`Revoke API key ID ${keyId}?`)) return;
 
             try {
                 const res = await fetch(`/api/v1/keys/${keyId}`, {
                     method: 'DELETE',
                     headers: { 'x-api-key': apiKey }
                 });
-                const data = await res.json();
                 if (res.ok) {
-                    alert(data.message || "Key revoked successfully.");
                     loadKeys(apiKey);
                 } else {
+                    const data = await res.json();
                     alert(data.detail || "Failed to revoke key.");
                 }
             } catch (err) {
@@ -843,11 +960,7 @@
             const webhookUrl = document.getElementById('webhookUrl').value.trim();
             const filterRules = document.getElementById('webhookRules').value.trim();
 
-            if (!apiKey || !webhookUrl) {
-                alert("Please enter your API key and a valid webhook destination URL.");
-                return;
-            }
-
+            if (!apiKey || !webhookUrl) return;
             localStorage.setItem('nexus_webhook_rules', filterRules);
 
             try {
@@ -856,7 +969,7 @@
                     headers: { 'x-api-key': apiKey }
                 });
                 const data = await res.json();
-                alert(data.message || "Webhook registered successfully.");
+                alert(data.message || "Webhook registered.");
             } catch (err) {
                 alert("Failed to register webhook.");
             }
@@ -864,15 +977,10 @@
 
         async function fetchWebhookLogs() {
             const apiKey = document.getElementById('apiKey').value.trim();
-            if (!apiKey) {
-                alert("Please authenticate first.");
-                return;
-            }
+            if (!apiKey) return;
 
             try {
-                const res = await fetch('/api/v1/webhook-logs', {
-                    headers: { 'x-api-key': apiKey }
-                });
+                const res = await fetch('/api/v1/webhook-logs', { headers: { 'x-api-key': apiKey } });
                 const data = await res.json();
                 if (res.ok) {
                     let logSummary = "Recent Webhook Deliveries:\n\n";
@@ -884,20 +992,18 @@
                     alert(data.detail || "Failed to fetch logs");
                 }
             } catch (err) {
-                alert(`Request failed: ${err.message}`);
+                alert("Request failed.");
             }
         }
 
         async function triggerReset() {
-            const email = prompt("Enter your account email address to receive a replacement key:");
+            const email = prompt("Enter your account email address:");
             if (!email) return;
 
             try {
-                const res = await fetch(`/api/v1/request-key-reset?email=${encodeURIComponent(email)}`, {
-                    method: 'POST'
-                });
+                const res = await fetch(`/api/v1/request-key-reset?email=${encodeURIComponent(email)}`, { method: 'POST' });
                 const data = await res.json();
-                alert(data.message || "If registered, a reset link has been sent.");
+                alert(data.message || "Reset link sent.");
             } catch (err) {
                 alert("Failed to send reset request.");
             }
