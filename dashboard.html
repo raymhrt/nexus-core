@@ -60,6 +60,19 @@
                 <canvas id="usageChart"></canvas>
             </div>
 
+            <!-- Semantic AI ICP Search Widget -->
+            <div style="margin-top: 25px; border-top: 1px solid #334155; padding-top: 20px;">
+                <label style="font-size: 12px; color: #94a3b8; font-weight: 600; text-transform: uppercase; margin-bottom: 10px; display: block;">✨ Semantic ICP Vector Search</label>
+                <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                    <input type="text" id="semanticQueryInput" placeholder="e.g., Cloud monitoring tools or AI infrastructure..." style="margin-bottom: 0;" />
+                    <button onclick="runSemanticSearch()" style="width: auto; padding: 0 20px;">Search AI</button>
+                </div>
+                <div id="semanticResultsContainer" style="display: none;" class="space-y-3">
+                    <label style="font-size: 11px; color: #38bdf8; font-weight: 600; text-transform: uppercase; margin-bottom: 8px; display: block;">Matching Vector Leads</label>
+                    <div id="semanticResultsList" style="display: flex; flex-direction: column; gap: 8px;"></div>
+                </div>
+            </div>
+
             <label style="font-size: 12px; color: #94a3b8; font-weight: 600; text-transform: uppercase; margin-top: 20px; display: block;">Lead Results</label>
             <pre id="results">Enter your key above and click Fetch Leads & Usage.</pre>
         </div>
@@ -128,6 +141,56 @@
                 loadUsageChart(apiKey);
             } catch (err) {
                 resultsPre.innerText = `Request failed: ${err.message}`;
+            }
+        }
+
+        async function runSemanticSearch() {
+            const query = document.getElementById('semanticQueryInput').value.trim();
+            const apiKey = document.getElementById('apiKey').value.trim();
+            
+            if (!apiKey) {
+                alert("Please enter or fetch your API key first.");
+                return;
+            }
+            if (!query) {
+                alert("Please enter a natural language search query.");
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/v1/leads/semantic-search?query=${encodeURIComponent(query)}&limit=5`, {
+                    headers: { 'x-api-key': apiKey }
+                });
+                const data = await response.json();
+
+                const container = document.getElementById('semanticResultsContainer');
+                const list = document.getElementById('semanticResultsList');
+                list.innerHTML = '';
+
+                if (data.status === 'success' && data.leads && data.leads.length > 0) {
+                    container.style.display = 'block';
+                    data.leads.forEach(lead => {
+                        const similarityPercent = Math.round((lead.similarity || 0) * 100);
+                        list.innerHTML += `
+                            <div style="background: #0f172a; border: 1px solid #334155; padding: 10px 15px; border-radius: 6px; display: flex; justify-content: space-between; align-items: center; font-size: 13px;">
+                                <div>
+                                    <span style="color: #fff; font-weight: bold;">${escapeHtml(lead.company_name)}</span>
+                                    <span style="color: #94a3b8; font-size: 11px; margin-left: 6px;">(${escapeHtml(lead.industry)})</span>
+                                    <div style="color: #38bdf8; font-size: 11px; margin-top: 2px;">Domain: ${escapeHtml(lead.domain)} | Email: ${escapeHtml(lead.email)}</div>
+                                </div>
+                                <span style="background: #0369a1; color: #bae6fd; font-size: 11px; font-weight: 600; padding: 4px 8px; border-radius: 4px; border: 1px solid #0ea5e9;">
+                                    ${similarityPercent}% Match
+                                </span>
+                            </div>
+                        `;
+                    });
+                } else {
+                    container.style.display = 'block';
+                    list.innerHTML = '<p style="color: #94a3b8; font-size: 12px; margin: 0;">No matching semantic leads found.</p>';
+                }
+            } catch (err) {
+                console.error("Semantic search error:", err);
+                alert("Failed to execute semantic search.");
             }
         }
 
