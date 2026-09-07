@@ -9,4 +9,4 @@ python-dotenv
 apscheduler
 httpx
 pytest
-google-genai 
+google-genai

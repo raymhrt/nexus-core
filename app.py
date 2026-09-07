@@ -51,7 +51,12 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-ai_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
+ai_client = None
+if GEMINI_API_KEY:
+    try:
+        ai_client = genai.Client(api_key=GEMINI_API_KEY)
+    except Exception as e:
+        logger.warning(f"GenAI Client initialization failed: {e}")
 
 RESEND_API_KEY = os.getenv("RESEND_API_KEY")
 SENDER_EMAIL = os.getenv("SENDER_EMAIL", "onboarding@resend.dev")
@@ -1254,7 +1259,6 @@ async def semantic_lead_search(
     conn = get_db()
     try:
         cursor = conn.cursor()
-        # Using cosine distance operator <=> in pgvector
         cursor.execute(
             """
             SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, timestamp,
