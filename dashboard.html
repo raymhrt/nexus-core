@@ -353,7 +353,13 @@
             <hr class="divider">
 
             <span class="section-label">Multi-Key Management</span>
-            <button class="btn-secondary" onclick="createNewKey()" style="margin-bottom: 16px;">Generate New API Key</button>
+            <div style="display: flex; gap: 12px; margin-bottom: 16px;">
+                <button class="btn-secondary" onclick="createNewKey()" style="margin-top: 0;">Generate New API Key</button>
+                <select id="newKeyScope" style="width: 180px; margin-bottom: 0;">
+                    <option value="full">Scope: Full Access</option>
+                    <option value="read">Scope: Read-Only</option>
+                </select>
+            </div>
             <div id="keyList" style="color: var(--text-muted); font-size: 13px;">Authenticate to load active API keys.</div>
         </div>
 
@@ -445,10 +451,9 @@
                 });
                 const data = await res.json();
                 if (res.ok && data.icp) {
-                    document.getElementById('targetIndustries').value = data.icp.target_industries || '';
+                    document.getElementById('targetIndustries').value = data.icp.target_industries || 'Fintech, SaaS, AI';
                     document.getElementById('minTrustScore').value = data.icp.min_trust_score || 85;
                     
-                    // Automatically sync filter rules input with saved ICP profile if desired
                     const syncedRules = JSON.stringify({
                         min_trust_score: data.icp.min_trust_score || 85,
                         industries: data.icp.target_industries ? data.icp.target_industries.split(',').map(s => s.trim()) : ["Fintech"]
@@ -486,7 +491,6 @@
                 });
                 const data = await res.json();
                 
-                // Automatically update webhook rules input to match saved ICP
                 const syncedRules = JSON.stringify({
                     min_trust_score: min_trust_score,
                     industries: target_industries ? target_industries.split(',').map(s => s.trim()) : ["Fintech"]
@@ -612,7 +616,7 @@
                             html += `
                                 <div class="key-item">
                                     <div class="key-info">
-                                        <span class="key-name">${escapeHtml(k.key_name)} (ID: ${k.id})</span>
+                                        <span class="key-name">${escapeHtml(k.key_name)} <span style="font-size:10px; color:var(--accent-cyan); background:rgba(56,189,248,0.1); padding:2px 6px; border-radius:4px; margin-left:6px;">${k.scope || 'full'}</span> (ID: ${k.id})</span>
                                         <span class="key-meta">Created: ${k.created_at || 'N/A'}</span>
                                     </div>
                                     <button class="revoke-btn" onclick="revokeKey(${k.id})">Revoke</button>
@@ -632,17 +636,18 @@
         async function createNewKey() {
             const apiKey = document.getElementById('apiKey').value.trim();
             const keyName = prompt("Enter a label for this key (e.g., Staging, CI-CD):", "Staging");
+            const scope = document.getElementById('newKeyScope').value;
             if (!apiKey || !keyName) return;
 
             try {
-                const res = await fetch(`/api/v1/keys?key_name=${encodeURIComponent(keyName)}`, {
+                const res = await fetch(`/api/v1/keys?key_name=${encodeURIComponent(keyName)}&scope=${scope}`, {
                     method: 'POST',
                     headers: { 'x-api-key': apiKey }
                 });
                 const data = await res.json();
                 if (data.api_key) {
                     document.getElementById('results').innerText = 
-                        `⚠️ NEW API KEY CREATED (${keyName}):\n\n` + 
+                        `⚠️ NEW API KEY CREATED (${keyName} - Scope: ${scope}):\n\n` + 
                         data.api_key + 
                         `\n\n[Copy this key now! It will not be shown again.]`;
                     loadKeys(apiKey);
