@@ -18,7 +18,8 @@ ai_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 FALLBACK_MODELS = [
     "gemini-3.7-flash",
     "gemini-3.5-flash",
-    "gemini-3.5-flash-lite"
+    "gemini-3.5-flash-lite",
+    "gemini-2.5-flash"
 ]
 
 class IncomingLead(BaseModel):
@@ -29,6 +30,7 @@ class IncomingLead(BaseModel):
     employee_count: Optional[str] = "10-50"
     linkedin_url: Optional[str] = ""
     confidence_score: float = Field(default=0.9, ge=0.0, le=1.0)
+    trust_score: int = Field(default=95, ge=0, le=100)
 
 def send_to_dlq(raw_text: str, error_msg: str):
     try:
@@ -46,9 +48,9 @@ def run_ai_lead_agent():
         "Generate a JSON list of 3 real, active B2B technology, SaaS, or AI companies. "
         "For each company, provide verified data points: "
         "company_name, domain (e.g. 'datadog.com'), contact email format (e.g. contact@domain.com), industry, "
-        "employee_count (e.g. '51-200'), linkedin_url, and a confidence_score float between 0.0 and 1.0 reflecting data accuracy. "
+        "employee_count (e.g. '51-200'), linkedin_url, confidence_score (float between 0.0 and 1.0), and trust_score (integer between 0 and 100). "
         "Return strictly valid JSON matching this schema: "
-        '[{"company_name": "...", "domain": "...", "email": "...", "industry": "...", "employee_count": "...", "linkedin_url": "...", "confidence_score": 0.95}]'
+        '[{"company_name": "...", "domain": "...", "email": "...", "industry": "...", "employee_count": "...", "linkedin_url": "...", "confidence_score": 0.95, "trust_score": 95}]'
     )
 
     response = None
@@ -85,7 +87,7 @@ def run_ai_lead_agent():
 
     try:
         parsed_data = json.loads(raw_text)
-        validated_leads = [IncomingLead(**item).dict() for item in parsed_data]
+        validated_leads = [IncomingLead(**item).model_dump() for item in parsed_data]
     except (json.JSONDecodeError, ValidationError) as err:
         error_str = str(err)
         print(f"AI Output Validation Error: {error_str}")
