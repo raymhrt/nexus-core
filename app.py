@@ -747,7 +747,7 @@ async def automated_lead_ingestion():
             '[{"company_name": "...", "domain": "...", "email": "...", "industry": "...", "employee_count": "...", "linkedin_url": "...", "confidence_score": 0.95, "trust_score": 95}]'
         )
         
-        candidate_models = ["gemini-2.5-flash", "gemini-3.5-flash", "gemini-3.7-flash"]
+        candidate_models = ["gemini-3.8-flash", "gemini-3.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
         response = None
         for model_name in candidate_models:
             try:
@@ -1116,7 +1116,6 @@ async def verify_magic_link(token: str):
     finally:
         release_db(conn)
 
-    # Redirect to dashboard with success or token query param
     return FileResponse("dashboard.html")
 
 
@@ -1154,11 +1153,17 @@ async def draft_ai_cold_email(lead_id: int, request: Request, x_api_key: str = H
         "Return ONLY the email subject line and body in clean text format."
     )
 
-    try:
-        response = await asyncio.to_thread(ai_client.models.generate_content, model="gemini-2.5-flash", contents=prompt)
-        draft_content = response.text.strip()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to generate email via Gemini: {e}")
+    draft_content = None
+    for model_name in ["gemini-3.8-flash", "gemini-3.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]:
+        try:
+            response = await asyncio.to_thread(ai_client.models.generate_content, model=model_name, contents=prompt)
+            draft_content = response.text.strip()
+            break
+        except Exception:
+            pass
+
+    if not draft_content:
+        raise HTTPException(status_code=500, detail="Failed to generate email via Gemini across all model versions.")
 
     return {"status": "success", "lead_id": lead_id, "company_name": lead['company_name'], "drafted_email": draft_content}
 
@@ -1213,7 +1218,7 @@ async def generate_leads_on_demand(payload: OnDemandGeneratePayload, request: Re
     )
 
     response_ai = None
-    for model_name in ["gemini-2.5-flash", "gemini-3.5-flash", "gemini-3.7-flash"]:
+    for model_name in ["gemini-3.8-flash", "gemini-3.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]:
         try:
             response_ai = await asyncio.to_thread(ai_client.models.generate_content, model=model_name, contents=prompt)
             break
@@ -1221,7 +1226,7 @@ async def generate_leads_on_demand(payload: OnDemandGeneratePayload, request: Re
             pass
 
     if not response_ai:
-        raise HTTPException(status_code=502, detail="Failed to generate leads via Gemini crawler.")
+        raise HTTPException(status_code=502, detail="Failed to generate leads via Gemini crawler across all model versions.")
 
     try:
         raw_text = response_ai.text.strip()
