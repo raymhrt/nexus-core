@@ -454,17 +454,24 @@ def record_usage_hit(email: str):
 
 def generate_lead_embedding(text_content: str):
     if not ai_client:
-        logger.error("AI Client is None - check GEMINI_API_KEY environment variable.")
+        logger.error("AI Client is None - check GEMINI_API_KEY.")
         return None
     try:
         response = ai_client.models.embed_content(
-            model="gemini-embedding-001",
+            model="text-embedding-004",
             contents=text_content
         )
         return response.embedding.values
     except Exception as e:
-        logger.error(f"CRITICAL Embedding generation error: {e}")
-        return None
+        try:
+            response = ai_client.models.embed_content(
+                model="gemini-embedding-001",
+                contents=text_content
+            )
+            return response.embedding.values
+        except Exception as e2:
+            logger.error(f"CRITICAL Embedding generation error: {e} | Fallback error: {e2}")
+            return None
 
 
 def dispatch_outbound_webhooks(lead_data: dict):
