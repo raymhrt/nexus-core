@@ -787,7 +787,7 @@ async def backfill_embeddings(admin_key: str = Header(None, alias="admin-key")):
     if not ADMIN_SECRET_KEY or admin_key != ADMIN_SECRET_KEY:
         raise HTTPException(status_code=403, detail="Unauthorized admin key.")
     
-    if not DATABASE_URL:
+    if DATABASE_URL is None:
         raise HTTPException(status_code=400, detail="Backfill requires PostgreSQL with pgvector.")
 
     conn = get_db()
@@ -1248,16 +1248,17 @@ async def semantic_lead_search(
     check_rate_limit(sub["hash"], response=response, max_requests=(100 if sub["tier"] == "pro" else 20))
 
     query_embedding = generate_lead_embedding(query)
-    if not query_embedding or not DATABASE_URL:
+    if not query_embedding or DATABASE_URL is None:
         raise HTTPException(status_code=400, detail="Semantic vector search requires PostgreSQL with pgvector and valid AI credentials.")
 
     conn = get_db()
     try:
         cursor = conn.cursor()
+        # Using cosine distance operator <=> in pgvector
         cursor.execute(
             """
             SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, timestamp,
-                   1 - (embedding <=> %s::vector) as similarity
+                   1.0 - (embedding <=> %s::vector) as similarity
             FROM b2b_leads
             WHERE embedding IS NOT NULL
             ORDER BY embedding <=> %s::vector ASC
