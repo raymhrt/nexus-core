@@ -1412,7 +1412,7 @@ async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
                     background_tasks.add_task(send_telegram_alert, f"🚀 *New Subscription ({tier.upper()})!*\nCustomer: `{customer_email}`")
                     background_tasks.add_task(send_email_via_resend, customer_email, raw_api_key)
             except Exception as err:
-500                logger.error(f"Webhook processing error: {err}")
+                logger.error(f"Webhook processing error: {err}")
 
         elif event_type in ["customer.subscription.deleted", "invoice.payment_failed"]:
             try:
