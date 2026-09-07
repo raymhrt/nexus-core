@@ -11,7 +11,6 @@ import logging
 import stripe
 import requests
 import redis
-import structlog
 import sentry_sdk
 from sentry_sdk.integrations.fastapi import FastApiIntegration
 from fastapi import FastAPI, Header, HTTPException, Request, Query, Response, BackgroundTasks
@@ -29,15 +28,12 @@ from google import genai
 
 load_dotenv()
 
-# Setup Elite Structured JSON Logging
-structlog.configure(
-    processors=[
-        structlog.processors.TimeStamper(fmt="iso"),
-        structlog.processors.add_log_level,
-        structlog.processors.JSONRenderer()
-    ]
+# Setup Structured Logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 )
-logger = structlog.get_logger("nexus-enterprise-apex")
+logger = logging.getLogger("nexus-enterprise-apex")
 
 SENTRY_DSN = os.getenv("SENTRY_DSN")
 if SENTRY_DSN:
@@ -60,7 +56,7 @@ if GEMINI_API_KEY:
     try:
         ai_client = genai.Client(api_key=GEMINI_API_KEY)
     except Exception as e:
-        logger.warning("genai_client_init_failed", error=str(e))
+        logger.warning(f"GenAI Client initialization failed: {e}")
 
 RESEND_API_KEY = os.getenv("RESEND_API_KEY")
 SENDER_EMAIL = os.getenv("SENDER_EMAIL", "onboarding@resend.dev")
@@ -74,7 +70,7 @@ if REDIS_URL:
         redis_client = redis.from_url(REDIS_URL, decode_responses=True)
         redis_client.ping()
     except Exception as e:
-        logger.warning("redis_connection_failed", error=str(e))
+        logger.warning(f"Redis connection failed: {e}")
         redis_client = None
 
 db_pool = None
@@ -83,7 +79,7 @@ if DATABASE_URL:
         db_url = DATABASE_URL.replace("postgres://", "postgresql://", 1)
         db_pool = pool.ThreadedConnectionPool(minconn=2, maxconn=25, dsn=db_url)
     except Exception as e:
-        logger.warning("db_pool_init_failed", error=str(e))
+        logger.warning(f"Database connection pool initialization failed: {e}")
 
 
 def get_db():
@@ -136,7 +132,7 @@ def log_audit_event(email: str, action: str, details: str, ip_address: str = "12
         conn.commit()
         cursor.close()
     except Exception as e:
-        logger.error("audit_log_error", error=str(e))
+        logger.error(f"Audit log error: {e}")
     finally:
         release_db(conn)
 
@@ -148,7 +144,7 @@ def send_telegram_alert(message: str):
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
         requests.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "Markdown"}, timeout=5)
     except Exception as e:
-        logger.error("telegram_alert_failed", error=str(e))
+        logger.error(f"Telegram alert failed: {e}")
 
 
 def send_email_via_resend(to_email: str, api_key: str):
@@ -166,7 +162,7 @@ def send_email_via_resend(to_email: str, api_key: str):
     try:
         requests.post(url, json=payload, headers=headers, timeout=10)
     except Exception as e:
-        logger.error("resend_email_error", error=str(e))
+        logger.error(f"Resend error: {e}")
 
 
 def send_password_reset_email(to_email: str, reset_url: str):
@@ -184,7 +180,7 @@ def send_password_reset_email(to_email: str, reset_url: str):
     try:
         requests.post(url, json=payload, headers=headers, timeout=10)
     except Exception as e:
-        logger.error("resend_reset_error", error=str(e))
+        logger.error(f"Resend reset error: {e}")
 
 
 def init_db():
@@ -453,14 +449,14 @@ def record_usage_hit(email: str):
         conn.commit()
         cursor.close()
     except Exception as e:
-        logger.error("usage_analytics_error", error=str(e))
+        logger.error(f"Usage analytics record error: {e}")
     finally:
         release_db(conn)
 
 
 def generate_lead_embedding(text_content: str):
     if not ai_client:
-        logger.error("ai_client_missing")
+        logger.error("AI Client is None - check GEMINI_API_KEY.")
         return None
     try:
         response = ai_client.models.embed_content(
@@ -474,7 +470,7 @@ def generate_lead_embedding(text_content: str):
             return response.embeddings[0].values
         return None
     except Exception as e:
-        logger.error("embedding_generation_error", error=str(e))
+        logger.error(f"CRITICAL Embedding generation error: {e}")
         return None
 
 
@@ -484,7 +480,7 @@ def dispatch_outbound_webhooks(lead_data: dict):
             redis_client.xadd("nexus_webhook_stream", {"lead": json.dumps(lead_data)})
             return
         except Exception as ex:
-            logger.warning("redis_stream_fallback", error=str(ex))
+            logger.warning(f"Redis Stream enqueue failed, falling back to direct dispatch: {ex}")
 
     conn = get_db()
     try:
@@ -556,7 +552,7 @@ def dispatch_outbound_webhooks(lead_data: dict):
             log_conn.commit()
             log_cursor.close()
         except Exception as log_err:
-            logger.error("webhook_log_fail", error=str(log_err))
+            logger.error(f"Failed to log webhook delivery: {log_err}")
         finally:
             release_db(log_conn)
 
@@ -634,7 +630,7 @@ async def automated_lead_ingestion():
         finally:
             release_db(conn)
     except Exception as e:
-        logger.error("automated_ingestion_error", error=str(e))
+        logger.error(f"Automated ingestion error: {e}")
 
 
 scheduler = AsyncIOScheduler()
@@ -645,7 +641,7 @@ if os.getenv("ENABLE_MOCK_LEEDS", "false").lower() == "true":
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     if not ADMIN_SECRET_KEY:
-        logger.warning("admin_secret_key_missing")
+        logger.warning("CRITICAL WARNING: ADMIN_SECRET_KEY environment variable is not configured!")
     scheduler.start()
     yield
     scheduler.shutdown()
@@ -694,7 +690,6 @@ async def health_check():
 
 @app.get("/metrics")
 async def prometheus_metrics():
-    """Prometheus APM Metrics Endpoint"""
     conn = get_db()
     try:
         cursor = conn.cursor()
@@ -780,7 +775,7 @@ def check_rate_limit(api_key_hash: str, response: Response, max_requests: int = 
                 raise HTTPException(status_code=429, detail=f"Rate limit exceeded. Maximum {max_requests} requests per minute allowed.")
             return
         except redis.RedisError as e:
-            logger.warning("redis_rate_limit_error", error=str(e))
+            logger.warning(f"Redis rate limit error: {e}")
 
     response.headers["X-RateLimit-Limit"] = str(max_requests)
     response.headers["X-RateLimit-Remaining"] = str(max_requests)
@@ -1305,7 +1300,6 @@ async def elite_hybrid_lead_search(
     conn = get_db()
     try:
         cursor = conn.cursor()
-        # Elite Hybrid Retrieval combining Dense Vector Similarity and Full-Text Keyword Matching via Reciprocal Rank Fusion (RRF)
         cursor.execute(
             """
             WITH vector_ranked AS (
@@ -1481,7 +1475,7 @@ async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
                     background_tasks.add_task(send_telegram_alert, f"🚀 *New Enterprise Subscription ({tier.upper()})!*\nCustomer: `{customer_email}`")
                     background_tasks.add_task(send_email_via_resend, customer_email, raw_api_key)
             except Exception as err:
-                logger.error("webhook_processing_error", error=str(err))
+                logger.error(f"Webhook processing error: {err}")
 
         elif event_type in ["customer.subscription.deleted", "invoice.payment_failed"]:
             try:
@@ -1493,7 +1487,7 @@ async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
                         cursor.execute("UPDATE subscribers SET active = 0 WHERE stripe_customer_id = ?", (customer_id,))
                     conn.commit()
             except Exception as err:
-                logger.error("revocation_error", error=str(err))
+                logger.error(f"Revocation error: {err}")
 
         cursor.close()
     finally:
