@@ -11,10 +11,11 @@ import logging
 import stripe
 import requests
 import redis
+import structlog
 import sentry_sdk
 from sentry_sdk.integrations.fastapi import FastApiIntegration
 from fastapi import FastAPI, Header, HTTPException, Request, Query, Response, BackgroundTasks
-from fastapi.responses import FileResponse, JSONResponse, HTMLResponse
+from fastapi.responses import FileResponse, JSONResponse, Response as FastAPIResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from pydantic import BaseModel, Field
@@ -28,12 +29,15 @@ from google import genai
 
 load_dotenv()
 
-# Setup Structured Logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+# Setup Elite Structured JSON Logging
+structlog.configure(
+    processors=[
+        structlog.processors.TimeStamper(fmt="iso"),
+        structlog.processors.add_log_level,
+        structlog.processors.JSONRenderer()
+    ]
 )
-logger = logging.getLogger("nexus-apex-ultimate")
+logger = structlog.get_logger("nexus-enterprise-apex")
 
 SENTRY_DSN = os.getenv("SENTRY_DSN")
 if SENTRY_DSN:
@@ -56,7 +60,7 @@ if GEMINI_API_KEY:
     try:
         ai_client = genai.Client(api_key=GEMINI_API_KEY)
     except Exception as e:
-        logger.warning(f"GenAI Client initialization failed: {e}")
+        logger.warning("genai_client_init_failed", error=str(e))
 
 RESEND_API_KEY = os.getenv("RESEND_API_KEY")
 SENDER_EMAIL = os.getenv("SENDER_EMAIL", "onboarding@resend.dev")
@@ -70,16 +74,16 @@ if REDIS_URL:
         redis_client = redis.from_url(REDIS_URL, decode_responses=True)
         redis_client.ping()
     except Exception as e:
-        logger.warning(f"Redis connection failed: {e}")
+        logger.warning("redis_connection_failed", error=str(e))
         redis_client = None
 
 db_pool = None
 if DATABASE_URL:
     try:
         db_url = DATABASE_URL.replace("postgres://", "postgresql://", 1)
-        db_pool = pool.ThreadedConnectionPool(minconn=2, maxconn=20, dsn=db_url)
+        db_pool = pool.ThreadedConnectionPool(minconn=2, maxconn=25, dsn=db_url)
     except Exception as e:
-        logger.warning(f"Database connection pool initialization failed: {e}")
+        logger.warning("db_pool_init_failed", error=str(e))
 
 
 def get_db():
@@ -132,7 +136,7 @@ def log_audit_event(email: str, action: str, details: str, ip_address: str = "12
         conn.commit()
         cursor.close()
     except Exception as e:
-        logger.error(f"Audit log error: {e}")
+        logger.error("audit_log_error", error=str(e))
     finally:
         release_db(conn)
 
@@ -144,7 +148,7 @@ def send_telegram_alert(message: str):
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
         requests.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "Markdown"}, timeout=5)
     except Exception as e:
-        logger.error(f"Telegram alert failed: {e}")
+        logger.error("telegram_alert_failed", error=str(e))
 
 
 def send_email_via_resend(to_email: str, api_key: str):
@@ -153,16 +157,16 @@ def send_email_via_resend(to_email: str, api_key: str):
     url = "https://api.resend.com/emails"
     headers = {"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"}
     html_content = f"""
-        <h2>Welcome to QuantCode Nexus Ultimate!</h2>
-        <p>Your B2B lead API key has been generated and activated.</p>
+        <h2>Welcome to QuantCode Nexus Enterprise Apex!</h2>
+        <p>Your elite B2B lead API key has been generated and activated.</p>
         <p><strong>Your API Key:</strong> <code>{api_key}</code></p>
         <p><a href="https://nexus-core-yfou.onrender.com/dashboard" style="background: #38bdf8; color: #0f172a; padding: 12px 20px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold;">Open Dashboard</a></p>
     """
-    payload = {"from": f"QuantCode Nexus <{SENDER_EMAIL}>", "to": [to_email], "subject": "Your QuantCode Nexus API Key 🚀", "html": html_content}
+    payload = {"from": f"QuantCode Nexus <{SENDER_EMAIL}>", "to": [to_email], "subject": "Your Enterprise API Key 🚀", "html": html_content}
     try:
         requests.post(url, json=payload, headers=headers, timeout=10)
     except Exception as e:
-        logger.error(f"Resend error: {e}")
+        logger.error("resend_email_error", error=str(e))
 
 
 def send_password_reset_email(to_email: str, reset_url: str):
@@ -180,7 +184,7 @@ def send_password_reset_email(to_email: str, reset_url: str):
     try:
         requests.post(url, json=payload, headers=headers, timeout=10)
     except Exception as e:
-        logger.error(f"Resend reset error: {e}")
+        logger.error("resend_reset_error", error=str(e))
 
 
 def init_db():
@@ -189,6 +193,7 @@ def init_db():
     
     if DATABASE_URL:
         cursor.execute("CREATE EXTENSION IF NOT EXISTS vector;")
+        cursor.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm;")
         cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS subscribers (
@@ -238,6 +243,7 @@ def init_db():
         cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS trust_score INT DEFAULT 95;")
         cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS embedding vector(768);")
         cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_b2b_leads_domain_unique ON b2b_leads (domain);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS b2b_leads_hnsw_idx ON b2b_leads USING hnsw (embedding vector_cosine_ops);")
 
         cursor.execute(
             """
@@ -447,14 +453,14 @@ def record_usage_hit(email: str):
         conn.commit()
         cursor.close()
     except Exception as e:
-        logger.error(f"Usage analytics record error: {e}")
+        logger.error("usage_analytics_error", error=str(e))
     finally:
         release_db(conn)
 
 
 def generate_lead_embedding(text_content: str):
     if not ai_client:
-        logger.error("AI Client is None - check GEMINI_API_KEY.")
+        logger.error("ai_client_missing")
         return None
     try:
         response = ai_client.models.embed_content(
@@ -468,18 +474,17 @@ def generate_lead_embedding(text_content: str):
             return response.embeddings[0].values
         return None
     except Exception as e:
-        logger.error(f"CRITICAL Embedding generation error: {e}")
+        logger.error("embedding_generation_error", error=str(e))
         return None
 
 
 def dispatch_outbound_webhooks(lead_data: dict):
-    """Event-Driven Redis Streams Webhook Dispatcher"""
     if redis_client:
         try:
             redis_client.xadd("nexus_webhook_stream", {"lead": json.dumps(lead_data)})
             return
         except Exception as ex:
-            logger.warning(f"Redis Stream enqueue failed, falling back to direct dispatch: {ex}")
+            logger.warning("redis_stream_fallback", error=str(ex))
 
     conn = get_db()
     try:
@@ -551,7 +556,7 @@ def dispatch_outbound_webhooks(lead_data: dict):
             log_conn.commit()
             log_cursor.close()
         except Exception as log_err:
-            logger.error(f"Failed to log webhook delivery: {log_err}")
+            logger.error("webhook_log_fail", error=str(log_err))
         finally:
             release_db(log_conn)
 
@@ -629,7 +634,7 @@ async def automated_lead_ingestion():
         finally:
             release_db(conn)
     except Exception as e:
-        logger.error(f"Automated ingestion error: {e}")
+        logger.error("automated_ingestion_error", error=str(e))
 
 
 scheduler = AsyncIOScheduler()
@@ -640,13 +645,13 @@ if os.getenv("ENABLE_MOCK_LEEDS", "false").lower() == "true":
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     if not ADMIN_SECRET_KEY:
-        logger.warning("CRITICAL WARNING: ADMIN_SECRET_KEY environment variable is not configured!")
+        logger.warning("admin_secret_key_missing")
     scheduler.start()
     yield
     scheduler.shutdown()
 
 
-app = FastAPI(title="QuantCode Nexus Ultimate Apex API", lifespan=lifespan)
+app = FastAPI(title="QuantCode Nexus Enterprise Apex API", lifespan=lifespan)
 
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=["nexus-core-yfou.onrender.com", "localhost", "127.0.0.1", "testserver"])
 app.add_middleware(CORSMiddleware, allow_origins=["https://nexus-core-yfou.onrender.com", "http://localhost:8000"], allow_credentials=True, allow_methods=["GET", "POST", "DELETE"], allow_headers=["*"])
@@ -684,7 +689,31 @@ async def privacy_page():
 
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy", "architecture": "ultimate-apex-vector-streams", "timestamp": datetime.now(timezone.utc).isoformat()}
+    return {"status": "healthy", "architecture": "enterprise-apex-hybrid-vector", "timestamp": datetime.now(timezone.utc).isoformat()}
+
+
+@app.get("/metrics")
+async def prometheus_metrics():
+    """Prometheus APM Metrics Endpoint"""
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM b2b_leads;")
+        lead_count = cursor.fetchone()["count"] if DATABASE_URL else cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM subscribers WHERE active = 1;")
+        sub_count = cursor.fetchone()["count"] if DATABASE_URL else cursor.fetchone()[0]
+        cursor.close()
+    finally:
+        release_db(conn)
+
+    metrics_output = f"""# HELP nexus_leads_total Total active B2B leads stored
+# TYPE nexus_leads_total gauge
+nexus_leads_total {lead_count}
+# HELP nexus_subscribers_active Total active subscribers
+# TYPE nexus_subscribers_active gauge
+nexus_subscribers_active {sub_count}
+"""
+    return FastAPIResponse(content=metrics_output, media_type="text/plain")
 
 
 def verify_api_key(x_api_key: str, request: Request):
@@ -751,7 +780,7 @@ def check_rate_limit(api_key_hash: str, response: Response, max_requests: int = 
                 raise HTTPException(status_code=429, detail=f"Rate limit exceeded. Maximum {max_requests} requests per minute allowed.")
             return
         except redis.RedisError as e:
-            logger.warning(f"Redis rate limit error: {e}")
+            logger.warning("redis_rate_limit_error", error=str(e))
 
     response.headers["X-RateLimit-Limit"] = str(max_requests)
     response.headers["X-RateLimit-Remaining"] = str(max_requests)
@@ -1157,9 +1186,20 @@ async def get_ai_dlq_logs(admin_key: str = Header(None, alias="admin-key")):
 
 
 @app.post("/api/v1/admin/upload-leads")
-async def admin_upload_leads(payload: BatchLeadUpload, background_tasks: BackgroundTasks, admin_key: str = Header(None, alias="admin-key")):
+async def admin_upload_leads(
+    payload: BatchLeadUpload, 
+    background_tasks: BackgroundTasks, 
+    admin_key: str = Header(None, alias="admin-key"),
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key")
+):
     if not ADMIN_SECRET_KEY or admin_key != ADMIN_SECRET_KEY:
         raise HTTPException(status_code=403, detail="Unauthorized admin key.")
+    
+    if idempotency_key and redis_client:
+        idem_cache_key = f"idempotency:{idempotency_key}"
+        if redis_client.get(idem_cache_key):
+            return {"status": "success", "message": "Duplicate request caught via idempotency key.", "imported_count": 0}
+        redis_client.setex(idem_cache_key, 3600, "processed")
     
     conn = get_db()
     try:
@@ -1248,7 +1288,7 @@ async def get_b2b_leads(
 
 
 @app.get("/api/v1/leads/semantic-search")
-async def semantic_lead_search(
+async def elite_hybrid_lead_search(
     request: Request,
     response: Response,
     query: str,
@@ -1260,21 +1300,50 @@ async def semantic_lead_search(
 
     query_embedding = generate_lead_embedding(query)
     if not query_embedding or DATABASE_URL is None:
-        raise HTTPException(status_code=400, detail="Semantic vector search requires PostgreSQL with pgvector and valid AI credentials.")
+        raise HTTPException(status_code=400, detail="Hybrid search requires PostgreSQL with pgvector and valid AI credentials.")
 
     conn = get_db()
     try:
         cursor = conn.cursor()
+        # Elite Hybrid Retrieval combining Dense Vector Similarity and Full-Text Keyword Matching via Reciprocal Rank Fusion (RRF)
         cursor.execute(
             """
+            WITH vector_ranked AS (
+                SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, timestamp,
+                       ROW_NUMBER() OVER (ORDER BY embedding <=> %s::vector ASC) as v_rank
+                FROM b2b_leads
+                WHERE embedding IS NOT NULL
+                LIMIT 30
+            ),
+            text_ranked AS (
+                SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, timestamp,
+                       ROW_NUMBER() OVER (ORDER BY ts_rank(to_tsvector('english', company_name || ' ' || industry), plainto_tsquery('english', %s)) DESC) as t_rank
+                FROM b2b_leads
+                WHERE to_tsvector('english', company_name || ' ' || industry) @@ plainto_tsquery('english', %s)
+                LIMIT 30
+            ),
+            combined AS (
+                SELECT COALESCE(v.id, t.id) as id,
+                       COALESCE(v.company_name, t.company_name) as company_name,
+                       COALESCE(v.domain, t.domain) as domain,
+                       COALESCE(v.email, t.email) as email,
+                       COALESCE(v.industry, t.industry) as industry,
+                       COALESCE(v.employee_count, t.employee_count) as employee_count,
+                       COALESCE(v.linkedin_url, t.linkedin_url) as linkedin_url,
+                       COALESCE(v.confidence_score, t.confidence_score) as confidence_score,
+                       COALESCE(v.trust_score, t.trust_score) as trust_score,
+                       COALESCE(v.timestamp, t.timestamp) as timestamp,
+                       (1.0 / (60.0 + COALESCE(v_rank, 999))) + (1.0 / (60.0 + COALESCE(t_rank, 999))) as rrf_score
+                FROM vector_ranked v
+                FULL OUTER JOIN text_ranked t ON v.id = t.id
+            )
             SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, timestamp,
-                   1.0 - (embedding <=> %s::vector) as similarity
-            FROM b2b_leads
-            WHERE embedding IS NOT NULL
-            ORDER BY embedding <=> %s::vector ASC
+                   rrf_score as similarity
+            FROM combined
+            ORDER BY rrf_score DESC
             LIMIT %s
             """,
-            (str(query_embedding), str(query_embedding), limit)
+            (str(query_embedding), query, query, limit)
         )
         rows = cursor.fetchall()
         leads = [dict(row) for row in rows]
@@ -1288,7 +1357,7 @@ async def semantic_lead_search(
 @app.post("/create-checkout-session")
 async def create_checkout_session(email: str, tier: str = "starter"):
     amount = 9900 if tier == "pro" else 2900
-    plan_name = "QuantCode Nexus Pro B2B Leads" if tier == "pro" else "QuantCode Nexus Starter B2B Leads"
+    plan_name = "QuantCode Nexus Enterprise Pro B2B Leads" if tier == "pro" else "QuantCode Nexus Starter B2B Leads"
     try:
         checkout_session = stripe.checkout.Session.create(
             customer_email=email,
@@ -1409,10 +1478,10 @@ async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
                     conn.commit()
 
                     log_audit_event(customer_email, "SUBSCRIPTION_CREATED", f"New subscription created on tier {tier}")
-                    background_tasks.add_task(send_telegram_alert, f"🚀 *New Subscription ({tier.upper()})!*\nCustomer: `{customer_email}`")
+                    background_tasks.add_task(send_telegram_alert, f"🚀 *New Enterprise Subscription ({tier.upper()})!*\nCustomer: `{customer_email}`")
                     background_tasks.add_task(send_email_via_resend, customer_email, raw_api_key)
             except Exception as err:
-                logger.error(f"Webhook processing error: {err}")
+                logger.error("webhook_processing_error", error=str(err))
 
         elif event_type in ["customer.subscription.deleted", "invoice.payment_failed"]:
             try:
@@ -1424,7 +1493,7 @@ async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
                         cursor.execute("UPDATE subscribers SET active = 0 WHERE stripe_customer_id = ?", (customer_id,))
                     conn.commit()
             except Exception as err:
-                logger.error(f"Revocation error: {err}")
+                logger.error("revocation_error", error=str(err))
 
         cursor.close()
     finally:
