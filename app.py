@@ -8,6 +8,7 @@ import time
 import json
 import uuid
 import logging
+import random
 import stripe
 import requests
 import redis
@@ -266,10 +267,17 @@ def init_db():
                 email TEXT REFERENCES subscribers(email),
                 webhook_url TEXT NOT NULL,
                 active INT DEFAULT 1,
+                consecutive_failures INT DEFAULT 0,
+                last_failure_time TIMESTAMP,
+                circuit_status TEXT DEFAULT 'ACTIVE',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """
         )
+        cursor.execute("ALTER TABLE subscriber_webhooks ADD COLUMN IF NOT EXISTS consecutive_failures INT DEFAULT 0;")
+        cursor.execute("ALTER TABLE subscriber_webhooks ADD COLUMN IF NOT EXISTS last_failure_time TIMESTAMP;")
+        cursor.execute("ALTER TABLE subscriber_webhooks ADD COLUMN IF NOT EXISTS circuit_status TEXT DEFAULT 'ACTIVE';")
+
         cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS webhook_logs (
@@ -405,6 +413,9 @@ def init_db():
                 email TEXT,
                 webhook_url TEXT NOT NULL,
                 active INTEGER DEFAULT 1,
+                consecutive_failures INTEGER DEFAULT 0,
+                last_failure_time DATETIME,
+                circuit_status TEXT DEFAULT 'ACTIVE',
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         """
@@ -485,7 +496,7 @@ def dispatch_outbound_webhooks(lead_data: dict):
     conn = get_db()
     try:
         cursor = conn.cursor()
-        cursor.execute("SELECT id, webhook_url FROM subscriber_webhooks WHERE active = 1")
+        cursor.execute("SELECT id, webhook_url, consecutive_failures, circuit_status, last_failure_time FROM subscriber_webhooks WHERE active = 1")
         webhooks = cursor.fetchall()
         cursor.close()
     finally:
@@ -500,44 +511,100 @@ def dispatch_outbound_webhooks(lead_data: dict):
     }
 
     for wh in webhooks:
-        url = wh["webhook_url"] if isinstance(wh, dict) or hasattr(wh, "__keys__") else wh[1]
-        circuit_key = f"circuit_breaker:{hashlib.md5(url.encode()).hexdigest()}"
+        wh_dict = dict(wh) if not isinstance(wh, dict) and not hasattr(wh, "keys") else wh
+        wh_id = wh_dict["id"] if isinstance(wh_dict, dict) else wh[0]
+        url = wh_dict["webhook_url"] if isinstance(wh_dict, dict) else wh[1]
+        circuit_status = wh_dict.get("circuit_status", "ACTIVE") if isinstance(wh_dict, dict) else wh[3]
+        last_failure = wh_dict.get("last_failure_time") if isinstance(wh_dict, dict) else wh[4]
 
-        if redis_client:
-            failures = redis_client.get(circuit_key)
-            if failures and int(failures) >= 5:
+        # Circuit Breaker state management (Tripped -> Half-Open cooling check after 15 mins)
+        if circuit_status == "TRIPPED":
+            if last_failure:
+                if isinstance(last_failure, str):
+                    last_failure_dt = datetime.fromisoformat(last_failure.replace('Z', '+00:00'))
+                else:
+                    last_failure_dt = last_failure
+                if last_failure_dt.tzinfo is None:
+                    last_failure_dt = last_failure_dt.replace(tzinfo=timezone.utc)
+                
+                if datetime.now(timezone.utc) - last_failure_dt > timedelta(minutes=15):
+                    circuit_status = "HALF_OPEN"
+                else:
+                    continue
+            else:
                 continue
 
         success = 0
         status_code = None
         error_msg = None
         
-        for attempt in range(1, 4):
+        # Exponential backoff parameters with randomized jitter
+        max_retries = 5
+        base_backoff = 2
+
+        for attempt in range(1, max_retries + 1):
             payload_json = json.dumps({**base_payload, "attempt": attempt})
             signature = generate_hmac_signature(payload_json)
-            headers = {"Content-Type": "application/json", "X-Nexus-Signature": signature}
+            headers = {"Content-Type": "application/json", "X-Nexus-Signature": signature, "X-Nexus-Event-Id": event_id}
 
             try:
-                response = requests.post(url, data=payload_json, headers=headers, timeout=5)
+                response = requests.post(url, data=payload_json, headers=headers, timeout=10)
                 status_code = response.status_code
                 if 200 <= response.status_code < 300:
                     success = 1
                     error_msg = None
-                    if redis_client:
-                        redis_client.delete(circuit_key)
                     break
                 else:
                     error_msg = f"HTTP Error Status: {response.status_code}"
+                    if response.status_code < 500 and response.status_code != 429:
+                        # Client errors (except 429 rate limit) should not be retried infinitely
+                        break
             except Exception as e:
                 error_msg = str(e)
                 status_code = 500
             
-            time.sleep(2 * attempt)
+            # Compute exponential backoff with random jitter
+            jitter = random.uniform(0.1, 1.0)
+            sleep_time = (base_backoff ** attempt) + jitter
+            time.sleep(sleep_time)
 
-        if success == 0 and redis_client:
-            redis_client.incr(circuit_key)
-            redis_client.expire(circuit_key, 600)
+        # Update Endpoint Circuit Breaker metrics in database
+        sub_conn = get_db()
+        try:
+            sub_cursor = sub_conn.cursor()
+            if success == 1:
+                if DATABASE_URL:
+                    sub_cursor.execute(
+                        "UPDATE subscriber_webhooks SET consecutive_failures = 0, circuit_status = 'ACTIVE', last_failure_time = NULL WHERE id = %s",
+                        (wh_id,)
+                    )
+                else:
+                    sub_cursor.execute(
+                        "UPDATE subscriber_webhooks SET consecutive_failures = 0, circuit_status = 'ACTIVE', last_failure_time = NULL WHERE id = ?",
+                        (wh_id,)
+                    )
+            else:
+                new_failures = (wh_dict.get("consecutive_failures", 0) if isinstance(wh_dict, dict) else wh[2]) + 1
+                new_status = "TRIPPED" if new_failures >= 5 else circuit_status
+                now_ts = datetime.now(timezone.utc)
+                if DATABASE_URL:
+                    sub_cursor.execute(
+                        "UPDATE subscriber_webhooks SET consecutive_failures = %s, circuit_status = %s, last_failure_time = %s WHERE id = %s",
+                        (new_failures, new_status, now_ts, wh_id)
+                    )
+                else:
+                    sub_cursor.execute(
+                        "UPDATE subscriber_webhooks SET consecutive_failures = ?, circuit_status = ?, last_failure_time = ? WHERE id = ?",
+                        (new_failures, new_status, now_ts, wh_id)
+                    )
+            sub_conn.commit()
+            sub_cursor.close()
+        except Exception as cb_err:
+            logger.error(f"Circuit breaker state update error: {cb_err}")
+        finally:
+            release_db(sub_conn)
 
+        # Log webhook delivery attempt
         log_conn = get_db()
         try:
             log_cursor = log_conn.cursor()
@@ -790,12 +857,18 @@ async def cleanup_webhooks(admin_key: str):
     conn = get_db()
     try:
         cursor = conn.cursor()
-        cursor.execute("DELETE FROM subscriber_webhooks WHERE webhook_url LIKE '%your-unique-url%';")
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=7)
+        if DATABASE_URL:
+            cursor.execute("DELETE FROM webhook_logs WHERE timestamp < %s;", (cutoff_date,))
+            cursor.execute("DELETE FROM subscriber_webhooks WHERE webhook_url LIKE '%your-unique-url%';")
+        else:
+            cursor.execute("DELETE FROM webhook_logs WHERE timestamp < ?;", (cutoff_date,))
+            cursor.execute("DELETE FROM subscriber_webhooks WHERE webhook_url LIKE '%your-unique-url%';")
         conn.commit()
         cursor.close()
     finally:
         release_db(conn)
-    return {"status": "success", "message": "Placeholder webhooks cleaned up."}
+    return {"status": "success", "message": "Automated 7-day TTL log retention and placeholder webhook cleanup executed successfully."}
 
 
 @app.get("/api/v1/admin/clear-leads")
@@ -1076,15 +1149,21 @@ async def register_subscriber_webhook(webhook_url: str, request: Request, x_api_
     try:
         cursor = conn.cursor()
         if DATABASE_URL:
-            cursor.execute("INSERT INTO subscriber_webhooks (email, webhook_url) VALUES (%s, %s)", (sub["email"], webhook_url))
+            cursor.execute(
+                "INSERT INTO subscriber_webhooks (email, webhook_url, circuit_status, consecutive_failures) VALUES (%s, %s, 'ACTIVE', 0) ON CONFLICT DO NOTHING",
+                (sub["email"], webhook_url)
+            )
         else:
-            cursor.execute("INSERT INTO subscriber_webhooks (email, webhook_url) VALUES (?, ?)", (sub["email"], webhook_url))
+            cursor.execute(
+                "INSERT INTO subscriber_webhooks (email, webhook_url, circuit_status, consecutive_failures) VALUES (?, ?, 'ACTIVE', 0)",
+                (sub["email"], webhook_url)
+            )
         conn.commit()
         cursor.close()
     finally:
         release_db(conn)
-    log_audit_event(sub["email"], "WEBHOOK_REGISTERED", f"Registered destination URL: {webhook_url}", sub["ip"])
-    return {"status": "success", "message": "Webhook URL registered successfully."}
+    log_audit_event(sub["email"], "WEBHOOK_REGISTERED", f"Registered destination URL and reset circuit breaker: {webhook_url}", sub["ip"])
+    return {"status": "success", "message": "Webhook URL registered and circuit reset successfully."}
 
 
 @app.get("/api/v1/webhook-logs")
