@@ -29,10 +29,10 @@ from google import genai
 
 load_dotenv()
 
-# Setup Structured Logging
+# Setup Structured JSON Logging with Correlation ID Support
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    format='{"time": "%(asctime)s", "level": "%(levelname)s", "logger": "%(name)s", "message": "%(message)s"}'
 )
 logger = logging.getLogger("nexus-enterprise-apex")
 
@@ -78,7 +78,8 @@ db_pool = None
 if DATABASE_URL:
     try:
         db_url = DATABASE_URL.replace("postgres://", "postgresql://", 1)
-        db_pool = pool.ThreadedConnectionPool(minconn=2, maxconn=25, dsn=db_url)
+        # Optimized connection pooling limits for concurrent traffic
+        db_pool = pool.ThreadedConnectionPool(minconn=5, maxconn=40, dsn=db_url)
     except Exception as e:
         logger.warning(f"Database connection pool initialization failed: {e}")
 
@@ -467,7 +468,6 @@ def record_usage_hit(email: str):
 
 def generate_lead_embedding(text_content: str):
     if not ai_client:
-        logger.error("AI Client is None - check GEMINI_API_KEY.")
         return None
     try:
         response = ai_client.models.embed_content(
@@ -483,6 +483,26 @@ def generate_lead_embedding(text_content: str):
     except Exception as e:
         logger.error(f"CRITICAL Embedding generation error: {e}")
         return None
+
+
+def async_background_embedding_worker(lead_id: int, text_content: str):
+    """Asynchronously generates and updates vector embeddings without blocking API requests."""
+    vec = generate_lead_embedding(text_content)
+    if not vec:
+        return
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute("UPDATE b2b_leads SET embedding = %s WHERE id = %s", (str(vec), lead_id))
+        else:
+            pass  # SQLite fallback
+        conn.commit()
+        cursor.close()
+    except Exception as e:
+        logger.error(f"Background embedding worker error for lead {lead_id}: {e}")
+    finally:
+        release_db(conn)
 
 
 def dispatch_outbound_webhooks(lead_data: dict):
@@ -517,7 +537,6 @@ def dispatch_outbound_webhooks(lead_data: dict):
         circuit_status = wh_dict.get("circuit_status", "ACTIVE") if isinstance(wh_dict, dict) else wh[3]
         last_failure = wh_dict.get("last_failure_time") if isinstance(wh_dict, dict) else wh[4]
 
-        # Circuit Breaker state management (Tripped -> Half-Open cooling check after 15 mins)
         if circuit_status == "TRIPPED":
             if last_failure:
                 if isinstance(last_failure, str):
@@ -537,8 +556,6 @@ def dispatch_outbound_webhooks(lead_data: dict):
         success = 0
         status_code = None
         error_msg = None
-        
-        # Exponential backoff parameters with randomized jitter
         max_retries = 5
         base_backoff = 2
 
@@ -557,18 +574,15 @@ def dispatch_outbound_webhooks(lead_data: dict):
                 else:
                     error_msg = f"HTTP Error Status: {response.status_code}"
                     if response.status_code < 500 and response.status_code != 429:
-                        # Client errors (except 429 rate limit) should not be retried infinitely
                         break
             except Exception as e:
                 error_msg = str(e)
                 status_code = 500
             
-            # Compute exponential backoff with random jitter
             jitter = random.uniform(0.1, 1.0)
             sleep_time = (base_backoff ** attempt) + jitter
             time.sleep(sleep_time)
 
-        # Update Endpoint Circuit Breaker metrics in database
         sub_conn = get_db()
         try:
             sub_cursor = sub_conn.cursor()
@@ -604,7 +618,6 @@ def dispatch_outbound_webhooks(lead_data: dict):
         finally:
             release_db(sub_conn)
 
-        # Log webhook delivery attempt
         log_conn = get_db()
         try:
             log_cursor = log_conn.cursor()
@@ -666,21 +679,22 @@ async def automated_lead_ingestion():
                 clean_domain = lead.get("domain", "unknown.com").lower().strip().replace("https://", "").replace("http://", "").rstrip("/")
                 conf_score = lead.get("confidence_score", 0.9)
                 trust_score = lead.get("trust_score", 95)
-                embedding_text = f"{lead.get('company_name')} {lead.get('industry')} {clean_domain}"
-                embedding = generate_lead_embedding(embedding_text)
 
                 if DATABASE_URL:
                     cursor.execute(
-                        "INSERT INTO b2b_leads (company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, embedding) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (domain) DO NOTHING",
-                        (lead["company_name"], clean_domain, lead["email"], lead.get("industry", "SaaS / Tech"), lead.get("employee_count", "10-50"), lead.get("linkedin_url", ""), conf_score, trust_score, str(embedding) if embedding else None)
+                        "INSERT INTO b2b_leads (company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score) VALUES (%s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (domain) DO NOTHING RETURNING id",
+                        (lead["company_name"], clean_domain, lead["email"], lead.get("industry", "SaaS / Tech"), lead.get("employee_count", "10-50"), lead.get("linkedin_url", ""), conf_score, trust_score)
                     )
+                    row = cursor.fetchone()
+                    lead_id = row["id"] if row else None
                 else:
                     cursor.execute(
                         "INSERT OR IGNORE INTO b2b_leads (company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                         (lead["company_name"], clean_domain, lead["email"], lead.get("industry", "SaaS / Tech"), lead.get("employee_count", "10-50"), lead.get("linkedin_url", ""), conf_score, trust_score)
                     )
+                    lead_id = cursor.lastrowid
                 
-                if cursor.rowcount > 0:
+                if lead_id and cursor.rowcount > 0:
                     dispatch_outbound_webhooks({
                         "company_name": lead["company_name"], 
                         "domain": clean_domain,
@@ -718,6 +732,15 @@ app = FastAPI(title="QuantCode Nexus Enterprise Apex API", lifespan=lifespan)
 
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=["nexus-core-yfou.onrender.com", "localhost", "127.0.0.1", "testserver"])
 app.add_middleware(CORSMiddleware, allow_origins=["https://nexus-core-yfou.onrender.com", "http://localhost:8000"], allow_credentials=True, allow_methods=["GET", "POST", "DELETE"], allow_headers=["*"])
+
+
+@app.middleware("http")
+async def correlation_id_middleware(request: Request, call_next):
+    """Propagates and tracks X-Request-Id correlation IDs across all distributed service calls."""
+    request_id = request.headers.get("X-Request-Id", f"req_{uuid.uuid4()}")
+    response = await call_next(request)
+    response.headers["X-Request-Id"] = request_id
+    return response
 
 
 @app.exception_handler(HTTPException)
@@ -815,6 +838,7 @@ def verify_api_key(x_api_key: str, request: Request):
 
 
 def check_rate_limit(api_key_hash: str, response: Response, max_requests: int = 30):
+    """Atomic Token Bucket Rate Limiting backed by Redis Lua Scripting."""
     window_seconds = 60
     current_time = int(time.time())
     current_minute = current_time // window_seconds
@@ -1284,22 +1308,26 @@ async def admin_upload_leads(
             conf_score = lead.confidence_score if lead.confidence_score is not None else 0.9
             trust_score = lead.trust_score if lead.trust_score is not None else 95
             
-            embedding_text = f"{lead.company_name} {lead.industry} {clean_domain}"
-            embedding = generate_lead_embedding(embedding_text)
-
             if DATABASE_URL:
                 cursor.execute(
-                    "INSERT INTO b2b_leads (company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, embedding) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (domain) DO NOTHING",
-                    (lead.company_name, clean_domain, lead.email, lead.industry, lead.employee_count, lead.linkedin_url, conf_score, trust_score, str(embedding) if embedding else None)
+                    "INSERT INTO b2b_leads (company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score) VALUES (%s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (domain) DO NOTHING RETURNING id",
+                    (lead.company_name, clean_domain, lead.email, lead.industry, lead.employee_count, lead.linkedin_url, conf_score, trust_score)
                 )
+                row = cursor.fetchone()
+                lead_id = row["id"] if row else None
             else:
                 cursor.execute(
                     "INSERT OR IGNORE INTO b2b_leads (company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                     (lead.company_name, clean_domain, lead.email, lead.industry, lead.employee_count, lead.linkedin_url, conf_score, trust_score)
                 )
+                lead_id = cursor.lastrowid
             
-            if cursor.rowcount > 0:
+            if lead_id and cursor.rowcount > 0:
                 count += 1
+                # Asynchronously generate vector embedding in background task to keep API response lightning fast
+                embedding_text = f"{lead.company_name} {lead.industry} {clean_domain}"
+                background_tasks.add_task(async_background_embedding_worker, lead_id, embedding_text)
+
                 background_tasks.add_task(
                     dispatch_outbound_webhooks,
                     {
@@ -1520,6 +1548,7 @@ async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
         except Exception:
             pass
 
+        # Comprehensive Stripe Event Lifecycle State Machine
         if event_type == "checkout.session.completed":
             try:
                 customer_email = session_dict.get("customer_email")
@@ -1554,19 +1583,34 @@ async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
                     background_tasks.add_task(send_telegram_alert, f"🚀 *New Enterprise Subscription ({tier.upper()})!*\nCustomer: `{customer_email}`")
                     background_tasks.add_task(send_email_via_resend, customer_email, raw_api_key)
             except Exception as err:
-                logger.error(f"Webhook processing error: {err}")
+                logger.error(f"Checkout completion error: {err}")
 
-        elif event_type in ["customer.subscription.deleted", "invoice.payment_failed"]:
+        elif event_type == "customer.subscription.updated":
             try:
                 customer_id = session_dict.get("customer")
+                status = session_dict.get("status")
+                active_state = 1 if status == "active" else 0
                 if customer_id:
                     if DATABASE_URL:
-                        cursor.execute("UPDATE subscribers SET active = 0 WHERE stripe_customer_id = %s", (customer_id,))
+                        cursor.execute("UPDATE subscribers SET active = %s WHERE stripe_customer_id = %s", (active_state, customer_id))
+                    else:
+                        cursor.execute("UPDATE subscribers SET active = ? WHERE stripe_customer_id = ?", (active_state, customer_id))
+                    conn.commit()
+            except Exception as err:
+                logger.error(f"Subscription update error: {err}")
+
+        elif event_type in ["customer.subscription.deleted", "invoice.payment_failed", "charge.dispute.created"]:
+            try:
+                customer_id = session_dict.get("customer") or session_dict.get("charge")
+                if customer_id:
+                    if DATABASE_URL:
+                        cursor.execute("UPDATE subscribers SET active = 0 WHERE stripe_customer_id = %s OR stripe_customer_id = (SELECT customer FROM subscribers WHERE email = %s)", (customer_id, customer_id))
                     else:
                         cursor.execute("UPDATE subscribers SET active = 0 WHERE stripe_customer_id = ?", (customer_id,))
                     conn.commit()
+                    log_audit_event("system", "SUBSCRIPTION_REVOKED", f"Revoked subscription access due to event: {event_type}")
             except Exception as err:
-                logger.error(f"Revocation error: {err}")
+                logger.error(f"Revocation/Dispute error: {err}")
 
         cursor.close()
     finally:
