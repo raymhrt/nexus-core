@@ -83,6 +83,9 @@ if DATABASE_URL:
     except Exception as e:
         logger.warning(f"Database connection pool initialization failed: {e}")
 
+# Concurrency Semaphore to throttle background coroutines & protect thread pools
+webhook_semaphore = asyncio.Semaphore(10)
+
 
 def get_db():
     if db_pool:
@@ -400,12 +403,10 @@ def generate_lead_embedding(text_content: str):
 
 
 def fetch_real_firmographic_data(domain: str) -> dict:
-    """Programmatically queries real DNS / SSL / public metadata footprints instead of random mocking."""
     clean_dom = domain.lower().replace("https://", "").replace("http://", "").rstrip("/")
     tech_candidates = ["React, Node.js, AWS", "Python, FastAPI, PostgreSQL", "Go, Kubernetes, GCP", "Ruby on Rails, Redis", "Next.js, TypeScript, Vercel"]
     funding_candidates = ["Seed", "Series A", "Series B", "Series C", "Bootstrapped", "Public / Enterprise"]
     
-    # Deterministic hash mapping based on domain string to maintain consistency
     hash_val = int(hashlib.md5(clean_dom.encode('utf-8')).hexdigest(), 16)
     tech = tech_candidates[hash_val % len(tech_candidates)]
     funding = funding_candidates[(hash_val // 7) % len(funding_candidates)]
@@ -413,12 +414,12 @@ def fetch_real_firmographic_data(domain: str) -> dict:
     return {"tech_stack": tech, "funding_stage": funding}
 
 
-def async_background_enrichment_worker(lead_id: int, company_name: str, domain: str):
+async def async_background_enrichment_worker(lead_id: int, company_name: str, domain: str):
     firmographics = fetch_real_firmographic_data(domain)
     mock_tech = firmographics["tech_stack"]
     mock_funding = firmographics["funding_stage"]
 
-    vec = generate_lead_embedding(f"{company_name} {domain} {mock_tech} {mock_funding}")
+    vec = await asyncio.to_thread(generate_lead_embedding, f"{company_name} {domain} {mock_tech} {mock_funding}")
 
     conn = get_db()
     try:
@@ -437,7 +438,6 @@ def async_background_enrichment_worker(lead_id: int, company_name: str, domain: 
 
 
 async def webhook_canary_healing_worker():
-    """Background canary health check routine flushing tripped webhooks back to ACTIVE once endpoints recover."""
     conn = get_db()
     try:
         cursor = conn.cursor()
@@ -453,9 +453,8 @@ async def webhook_canary_healing_worker():
         url = h_dict["webhook_url"] if isinstance(h_dict, dict) else hook[1]
 
         try:
-            res = requests.get(url, timeout=5)
+            res = await asyncio.to_thread(requests.get, url, timeout=5)
             if res.status_code < 500:
-                # Endpoint recovered! Reset circuit breaker to ACTIVE
                 up_conn = get_db()
                 up_cursor = up_conn.cursor()
                 if DATABASE_URL:
@@ -546,7 +545,7 @@ async def dispatch_outbound_webhooks(lead_data: dict):
             }
 
             try:
-                response = requests.post(url, data=payload_json, headers=headers, timeout=10)
+                response = await asyncio.to_thread(requests.post, url, data=payload_json, headers=headers, timeout=10)
                 status_code = response.status_code
                 if 200 <= response.status_code < 300:
                     success = 1
@@ -606,6 +605,11 @@ async def dispatch_outbound_webhooks(lead_data: dict):
             release_db(log_conn)
 
 
+async def safe_dispatch_wrapper(lead_payload: dict):
+    async with webhook_semaphore:
+        await dispatch_outbound_webhooks(lead_payload)
+
+
 class GeminiLeadSchema(BaseModel):
     company_name: str
     domain: str
@@ -618,14 +622,12 @@ class GeminiLeadSchema(BaseModel):
 
 
 async def automated_lead_ingestion():
-    """Self-Optimizing Agentic Ingestion Loop incorporating vector centroid alignment from converted feedback and dynamic prompt reinforcement."""
     if not ai_client:
         return
 
     conn = get_db()
     try:
         cursor = conn.cursor()
-        # Fetch historical converted lead profiles for vector centroid alignment
         cursor.execute("""
             SELECT l.company_name, l.industry, l.tech_stack, f.feedback_status 
             FROM lead_feedback f 
@@ -668,7 +670,7 @@ async def automated_lead_ingestion():
         response = None
         for model_name in candidate_models:
             try:
-                response = ai_client.models.generate_content(model=model_name, contents=prompt)
+                response = await asyncio.to_thread(ai_client.models.generate_content, model=model_name, contents=prompt)
                 break
             except Exception:
                 pass
@@ -701,7 +703,14 @@ async def automated_lead_ingestion():
 
                     if DATABASE_URL:
                         cursor.execute(
-                            "INSERT INTO b2b_leads (company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score) VALUES (%s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (domain) DO NOTHING RETURNING id",
+                            """
+                            INSERT INTO b2b_leads (company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score) 
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s) 
+                            ON CONFLICT (domain) DO UPDATE SET 
+                                confidence_score = EXCLUDED.confidence_score,
+                                trust_score = EXCLUDED.trust_score
+                            RETURNING id
+                            """,
                             (lead.company_name, clean_domain, lead.email, lead.industry, lead.employee_count, lead.linkedin_url, conf_score, trust_score)
                         )
                         row = cursor.fetchone()
@@ -714,7 +723,7 @@ async def automated_lead_ingestion():
                         lead_id = cursor.lastrowid
                     
                     if lead_id and cursor.rowcount > 0:
-                        asyncio.create_task(dispatch_outbound_webhooks({
+                        asyncio.create_task(safe_dispatch_wrapper({
                             "lead_id": lead_id,
                             "company_name": lead.company_name,
                             "domain": clean_domain,
@@ -735,7 +744,6 @@ async def automated_lead_ingestion():
 
 
 async def gdpr_compliance_cleanup():
-    """Automated GDPR/CCPA compliance retention routine clearing audit logs and inactive records past 30 days."""
     conn = get_db()
     try:
         cursor = conn.cursor()
@@ -1077,7 +1085,7 @@ async def backfill_embeddings(admin_key: str = Header(None, alias="admin-key")):
         for row in rows:
             r = dict(row)
             text_content = f"{r['company_name']} {r['industry']} {r['domain']}"
-            vec = generate_lead_embedding(text_content)
+            vec = await asyncio.to_thread(generate_lead_embedding, text_content)
             if vec:
                 cursor.execute("UPDATE b2b_leads SET embedding = %s WHERE id = %s", (str(vec), r['id']))
                 count += 1
@@ -1368,7 +1376,14 @@ async def admin_upload_leads(
             
             if DATABASE_URL:
                 cursor.execute(
-                    "INSERT INTO b2b_leads (company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score) VALUES (%s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (domain) DO NOTHING RETURNING id",
+                    """
+                    INSERT INTO b2b_leads (company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score) 
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s) 
+                    ON CONFLICT (domain) DO UPDATE SET 
+                        confidence_score = EXCLUDED.confidence_score,
+                        trust_score = EXCLUDED.trust_score
+                    RETURNING id
+                    """,
                     (lead.company_name, clean_domain, lead.email, lead.industry, lead.employee_count, lead.linkedin_url, conf_score, trust_score)
                 )
                 row = cursor.fetchone()
@@ -1384,7 +1399,7 @@ async def admin_upload_leads(
                 count += 1
                 background_tasks.add_task(async_background_enrichment_worker, lead_id, lead.company_name, clean_domain)
                 asyncio.create_task(
-                    dispatch_outbound_webhooks(
+                    safe_dispatch_wrapper(
                         {
                             "lead_id": lead_id,
                             "company_name": lead.company_name,
@@ -1456,7 +1471,7 @@ async def elite_hybrid_lead_search(
     sub = verify_api_key(x_api_key, request)
     check_rate_limit(sub["hash"], response=response, max_requests=(100 if sub["tier"] == "pro" else 20))
 
-    query_embedding = generate_lead_embedding(query)
+    query_embedding = await asyncio.to_thread(generate_lead_embedding, query)
     if not query_embedding or DATABASE_URL is None:
         raise HTTPException(status_code=400, detail="Hybrid search requires PostgreSQL with pgvector and valid AI credentials.")
 
@@ -1482,7 +1497,7 @@ async def elite_hybrid_lead_search(
             combined AS (
                 SELECT COALESCE(v.id, t.id) as id,
                        COALESCE(v.company_name, t.company_name) as company_name,
-                       COALES_E(v.domain, t.domain) as domain,
+                       COALESCE(v.domain, t.domain) as domain,
                        COALESCE(v.email, t.email) as email,
                        COALESCE(v.industry, t.industry) as industry,
                        COALESCE(v.employee_count, t.employee_count) as employee_count,

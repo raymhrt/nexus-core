@@ -169,12 +169,12 @@
         .lead-card {
             background: var(--bg-input);
             border: 1px solid var(--border-color);
-            padding: 16px 20px;
+            padding: 18px 22px;
             border-radius: 12px;
-            margin-bottom: 12px;
+            margin-bottom: 14px;
             display: flex;
             flex-direction: column;
-            gap: 8px;
+            gap: 10px;
             transition: border-color 0.2s;
         }
 
@@ -197,55 +197,69 @@
             gap: 8px;
         }
 
-        .badge-abm {
+        .badge-trust {
             background: rgba(34, 197, 94, 0.1);
             color: var(--success);
             border: 1px solid rgba(34, 197, 94, 0.3);
             font-size: 10px;
-            padding: 2px 8px;
-            border-radius: 4px;
+            padding: 3px 8px;
+            border-radius: 6px;
             text-transform: uppercase;
             font-weight: 700;
         }
 
-        .lead-meta {
+        .pill-container {
             display: flex;
-            gap: 16px;
-            font-size: 12px;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 2px;
+        }
+
+        .meta-pill {
+            background: rgba(30, 41, 59, 0.7);
+            border: 1px solid var(--border-color);
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 11px;
             color: var(--text-muted);
         }
 
+        .meta-pill strong {
+            color: #cbd5e1;
+        }
+
         .strategic-insight {
-            background: rgba(56, 189, 248, 0.05);
+            background: rgba(56, 189, 248, 0.06);
             border-left: 3px solid var(--accent-cyan);
             padding: 8px 12px;
             font-size: 12px;
             color: #cbd5e1;
             border-radius: 0 6px 6px 0;
-            margin-top: 4px;
+            margin-top: 2px;
         }
 
         .feedback-actions {
             display: flex;
             gap: 8px;
-            margin-top: 6px;
+            margin-top: 4px;
         }
 
         .feedback-btn {
             background: #1e293b;
             color: var(--text-muted);
             border: 1px solid var(--border-color);
-            padding: 4px 10px;
-            border-radius: 4px;
+            padding: 5px 12px;
+            border-radius: 6px;
             font-size: 11px;
             cursor: pointer;
             width: auto;
             font-weight: 600;
+            transition: background 0.2s, color 0.2s;
         }
 
         .feedback-btn:hover {
-            background: #334155;
-            color: #fff;
+            background: var(--accent-cyan);
+            color: var(--bg-main);
         }
 
         .progress-bar-container {
@@ -528,9 +542,9 @@
             let html = '';
             leads.forEach(lead => {
                 const trust = lead.trust_score || 90;
-                let strategicValue = "Prime ABM Enterprise Target for direct outreach.";
+                let strategicValue = "Prime ABM Enterprise Target for direct outbound motion.";
                 if (trust >= 97) {
-                    strategicValue = "Category-defining anchor logo. Ideal for ecosystem partnership & co-selling motions.";
+                    strategicValue = "Category-defining anchor logo. Ideal for ecosystem partnership & co-selling.";
                 } else if (lead.industry && lead.industry.toLowerCase().includes('fintech')) {
                     strategicValue = "High-intent financial technology ecosystem match for API integration.";
                 }
@@ -540,14 +554,15 @@
                         <div class="lead-header">
                             <span class="lead-title">
                                 ${escapeHtml(lead.company_name)} 
-                                <span class="badge-abm">Trust: ${trust}/100</span>
+                                <span class="badge-trust">Trust: ${trust}/100</span>
                             </span>
-                            <span style="color: var(--accent-cyan); font-size: 12px;">${escapeHtml(lead.domain)}</span>
+                            <span style="color: var(--accent-cyan); font-size: 12px; font-weight: 600;">${escapeHtml(lead.domain)}</span>
                         </div>
-                        <div class="lead-meta">
-                            <span>Industry: <strong>${escapeHtml(lead.industry)}</strong></span>
-                            <span>Scale: <strong>${escapeHtml(lead.employee_count)} employees</strong></span>
-                            <span>Tech: <strong>${escapeHtml(lead.tech_stack || 'Python, PostgreSQL')}</strong></span>
+                        <div class="pill-container">
+                            <span class="meta-pill">Industry: <strong>${escapeHtml(lead.industry)}</strong></span>
+                            <span class="meta-pill">Size: <strong>${escapeHtml(lead.employee_count)}</strong></span>
+                            <span class="meta-pill">Stack: <strong>${escapeHtml(lead.tech_stack || 'Python, PostgreSQL')}</strong></span>
+                            <span class="meta-pill">Stage: <strong>${escapeHtml(lead.funding_stage || 'Series A')}</strong></span>
                         </div>
                         <div class="strategic-insight">
                             💡 <strong>Strategic Value:</strong> ${strategicValue}
@@ -579,7 +594,7 @@
                 });
                 const data = await res.json();
                 if (res.ok) {
-                    alert(`Feedback '${status}' recorded! The self-optimizing agent will factor this into future crawls.`);
+                    alert(`Feedback '${status}' recorded! The self-optimizing agent will factor this into vector centroid alignment.`);
                 } else {
                     alert(data.detail || "Failed to submit feedback.");
                 }
