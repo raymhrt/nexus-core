@@ -454,6 +454,7 @@ def record_usage_hit(email: str):
 
 def generate_lead_embedding(text_content: str):
     if not ai_client:
+        logger.error("AI Client is None - check GEMINI_API_KEY environment variable.")
         return None
     try:
         response = ai_client.models.embed_content(
@@ -462,7 +463,7 @@ def generate_lead_embedding(text_content: str):
         )
         return response.embedding.values
     except Exception as e:
-        logger.warning(f"Embedding generation error: {e}")
+        logger.error(f"CRITICAL Embedding generation error: {e}")
         return None
 
 
@@ -1344,6 +1345,7 @@ async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
     try:
         event = stripe.Webhook.construct_event(payload, sig_header, ENDPOINT_SECRET)
     except Exception as e:
+    
         raise HTTPException(status_code=400, detail=str(e))
 
     event_id = event.id
