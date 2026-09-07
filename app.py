@@ -747,7 +747,7 @@ async def automated_lead_ingestion():
             '[{"company_name": "...", "domain": "...", "email": "...", "industry": "...", "employee_count": "...", "linkedin_url": "...", "confidence_score": 0.95, "trust_score": 95}]'
         )
         
-        candidate_models = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-3.5-flash", "gemini-3.8-flash"]
+        candidate_models = ["models/gemini-2.0-flash", "models/gemini-1.5-flash"]
         response = None
         for model_name in candidate_models:
             try:
@@ -1154,7 +1154,7 @@ async def draft_ai_cold_email(lead_id: int, request: Request, x_api_key: str = H
     )
 
     draft_content = None
-    for model_name in ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-3.5-flash", "gemini-3.8-flash"]:
+    for model_name in ["models/gemini-2.0-flash", "models/gemini-1.5-flash"]:
         try:
             response = await asyncio.to_thread(ai_client.models.generate_content, model=model_name, contents=prompt)
             draft_content = response.text.strip()
@@ -1218,7 +1218,7 @@ async def generate_leads_on_demand(payload: OnDemandGeneratePayload, request: Re
     )
 
     response_ai = None
-    for model_name in ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-3.5-flash", "gemini-3.8-flash"]:
+    for model_name in ["models/gemini-2.0-flash", "models/gemini-1.5-flash"]:
         try:
             response_ai = await asyncio.to_thread(ai_client.models.generate_content, model=model_name, contents=prompt)
             break
