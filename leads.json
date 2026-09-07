@@ -1,0 +1,32 @@
+{
+  "leads": [
+    {
+      "company_name": "Datadog",
+      "domain": "datadoghq.com",
+      "email": "info@datadoghq.com",
+      "industry": "Cloud Monitoring & Analytics",
+      "employee_count": "5001-10000"
+    },
+    {
+      "company_name": "Gong",
+      "domain": "gong.io",
+      "email": "info@gong.io",
+      "industry": "Revenue Intelligence",
+      "employee_count": "1001-5000"
+    },
+    {
+      "company_name": "Scale AI",
+      "domain": "scale.com",
+      "email": "support@scale.com",
+      "industry": "Artificial Intelligence",
+      "employee_count": "501-1000"
+    },
+    {
+      "company_name": "QuantScale AI",
+      "domain": "quantscale.ai",
+      "email": "founder@quantscale.ai",
+      "industry": "AI Infra",
+      "employee_count": "20-50"
+    }
+  ]
+}

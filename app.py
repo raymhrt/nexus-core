@@ -419,7 +419,7 @@ def generate_lead_embedding(text_content: str):
         return None
     try:
         response = ai_client.models.embed_content(
-            model="gemini-embedding-001",
+            model="text-embedding-004",
             contents=text_content,
             config={"output_dimensionality": 768}
         )
@@ -444,7 +444,6 @@ def fetch_advanced_enrichment_data(domain: str) -> dict:
     funding = funding_candidates[(hash_val // 7) % len(funding_candidates)]
     intent = intent_candidates[(hash_val // 11) % len(intent_candidates)]
     
-    # Simulate email verification waterfall check (Hunter.io / NeverBounce mock)
     verified = 1 if (hash_val % 10) != 0 else 0
     
     return {"tech_stack": tech, "funding_stage": funding, "intent_signals": intent, "verified_email": verified}
@@ -465,6 +464,11 @@ async def async_background_enrichment_worker(lead_id: int, company_name: str, do
         if DATABASE_URL:
             cursor.execute(
                 "UPDATE b2b_leads SET tech_stack = %s, funding_stage = %s, intent_signals = %s, verified_email = %s, embedding = %s WHERE id = %s",
+                (mock_tech, mock_funding, mock_intent, verified_flag, str(vec) if vec else None, lead_id)
+            )
+        else:
+            cursor.execute(
+                "UPDATE b2b_leads SET tech_stack = ?, funding_stage = ?, intent_signals = ?, verified_email = ?, embedding = ? WHERE id = ?",
                 (mock_tech, mock_funding, mock_intent, verified_flag, str(vec) if vec else None, lead_id)
             )
         conn.commit()
@@ -533,7 +537,6 @@ async def dispatch_outbound_webhooks(lead_data: dict):
     span_id = uuid.uuid4().hex[:16]
     traceparent_header = f"00-{trace_id}-{span_id}-01"
 
-    # 1. Dispatch custom raw webhooks
     for wh in webhooks:
         wh_dict = dict(wh) if not isinstance(wh, dict) and not hasattr(wh, "keys") else wh
         wh_id = wh_dict["id"] if isinstance(wh_dict, dict) else wh[0]
@@ -621,7 +624,6 @@ async def dispatch_outbound_webhooks(lead_data: dict):
         finally:
             release_db(log_conn)
 
-    # 2. Dispatch native CRM / Data Warehouse integrations (HubSpot, Salesforce, Snowflake, Slack)
     for nd in native_destinations:
         nd_dict = dict(nd) if not isinstance(nd, dict) and not hasattr(nd, "keys") else nd
         dest_type = nd_dict["destination_type"] if isinstance(nd_dict, dict) else nd[1]
@@ -1011,7 +1013,6 @@ def check_rate_limit(api_key_hash: str, response: Response, max_requests: int = 
     response.headers["X-RateLimit-Reset"] = str((current_minute + 1) * window_seconds)
 
 
-# 1. On-Demand Lead Generation Endpoint with Credit Metering
 class OnDemandGeneratePayload(BaseModel):
     query: str
     count: Optional[int] = 10
@@ -1119,7 +1120,6 @@ async def generate_leads_on_demand(payload: OnDemandGeneratePayload, request: Re
                 except Exception:
                     pass
 
-            # Deduct credits
             new_balance = credits_left - len(new_leads)
             if DATABASE_URL:
                 cursor.execute("UPDATE subscriber_credits SET credits_remaining = %s WHERE email = %s", (new_balance, sub["email"]))
@@ -1156,9 +1156,8 @@ async def get_subscriber_credits(request: Request, x_api_key: str = Header(...))
     return {"status": "success", "credits_remaining": row["credits_remaining"] if isinstance(row, dict) else row[0], "credits_limit": row["credits_limit"] if isinstance(row, dict) else row[1]}
 
 
-# 2. Native CRM & Data Warehouse Webhook Destinations
 class DestinationPayload(BaseModel):
-    destination_type: str  # hubspot, salesforce, snowflake, slack
+    destination_type: str
     webhook_url: str
     access_token: Optional[str] = ""
     mapping_rules: Optional[str] = "{}"
@@ -1208,11 +1207,10 @@ async def list_native_destinations(request: Request, x_api_key: str = Header(...
     return {"status": "success", "destinations": destinations}
 
 
-# 4. Interactive Team Workspace & Role-Based Access Control (RBAC)
 class TeamInvitePayload(BaseModel):
     email: str
     key_name: str = "Team Member Key"
-    role: str = "sdr"  # admin, sdr, viewer
+    role: str = "sdr"
     scope: str = "read"
 
 @app.post("/api/v1/team/invite")
