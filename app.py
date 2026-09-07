@@ -116,6 +116,7 @@ def call_gemini_rest(prompt: str) -> str:
         logger.error("GEMINI_API_KEY environment variable is missing or empty.")
         raise Exception("GEMINI_API_KEY not configured")
     
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.7-flash:generateContent?key={GEMINI_API_KEY}"
     headers = {"Content-Type": "application/json"}
     payload = {
         "contents": [{
@@ -123,20 +124,17 @@ def call_gemini_rest(prompt: str) -> str:
         }]
     }
     
-    # Try current production models with 404 fallbacks
-    for model in ["gemini-3.6-flash", "gemini-2.0-flash", "gemini-flash"]:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={GEMINI_API_KEY}"
-        try:
-            res = requests.post(url, json=payload, headers=headers, timeout=15)
-            if res.status_code == 200:
-                data = res.json()
-                return data["candidates"][0]["content"]["parts"][0]["text"]
-            else:
-                logger.warning(f"Model {model} failed with status {res.status_code}: {res.text}")
-        except Exception as err:
-            logger.warning(f"Model {model} exception: {err}")
-
-    raise Exception("All Gemini REST API model fallbacks returned 404 or failed.")
+    try:
+        res = requests.post(url, json=payload, headers=headers, timeout=30)
+        if res.status_code == 200:
+            data = res.json()
+            return data["candidates"][0]["content"]["parts"][0]["text"]
+        else:
+            logger.error(f"Gemini API error status {res.status_code}: {res.text}")
+            raise Exception(f"Gemini API returned status {res.status_code}")
+    except Exception as err:
+        logger.error(f"Gemini API exception: {err}")
+        raise
 
 
 def log_audit_event(email: str, action: str, details: str, ip_address: str = "127.0.0.1"):
