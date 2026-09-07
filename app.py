@@ -211,11 +211,13 @@ def init_db():
                 email TEXT REFERENCES subscribers(email),
                 key_hash TEXT UNIQUE,
                 key_name TEXT DEFAULT 'Default',
+                scope TEXT DEFAULT 'full',
                 active INT DEFAULT 1,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """
         )
+        cursor.execute("ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS scope TEXT DEFAULT 'full';")
         cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS b2b_leads (
@@ -346,7 +348,7 @@ def init_db():
         )
     else:
         cursor.execute("CREATE TABLE IF NOT EXISTS subscribers (email TEXT PRIMARY KEY, active INTEGER DEFAULT 1, stripe_customer_id TEXT, tier TEXT DEFAULT 'starter', reset_token TEXT, reset_expires_at DATETIME)")
-        cursor.execute("CREATE TABLE IF NOT EXISTS api_keys (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT, key_hash TEXT UNIQUE, key_name TEXT DEFAULT 'Default', active INTEGER DEFAULT 1, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
+        cursor.execute("CREATE TABLE IF NOT EXISTS api_keys (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT, key_hash TEXT UNIQUE, key_name TEXT DEFAULT 'Default', scope TEXT DEFAULT 'full', active INTEGER DEFAULT 1, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS b2b_leads (id INTEGER PRIMARY KEY AUTOINCREMENT, company_name TEXT, domain TEXT UNIQUE, email TEXT, industry TEXT DEFAULT 'SaaS / Tech', employee_count TEXT DEFAULT '10-50', linkedin_url TEXT DEFAULT '', confidence_score REAL DEFAULT 0.9, trust_score INTEGER DEFAULT 95, tech_stack TEXT DEFAULT 'Python, PostgreSQL', funding_stage TEXT DEFAULT 'Series A', timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS subscriber_icps (email TEXT PRIMARY KEY, target_industries TEXT, min_trust_score INTEGER, preferred_employee_count TEXT, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS lead_feedback (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT, lead_id INTEGER, feedback_status TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)")
@@ -816,12 +818,12 @@ def verify_api_key(x_api_key: str, request: Request):
         if cached:
             sub = json.loads(cached)
             record_usage_hit(sub["email"])
-            return {"email": sub["email"], "key_name": sub["key_name"], "tier": sub["tier"], "hash": incoming_hash, "ip": client_ip}
+            return {"email": sub["email"], "key_name": sub["key_name"], "scope": sub.get("scope", "full"), "tier": sub["tier"], "hash": incoming_hash, "ip": client_ip}
 
     conn = get_db()
     try:
         cursor = conn.cursor()
-        query = "SELECT k.email, k.key_name, s.active, s.tier FROM api_keys k JOIN subscribers s ON k.email = s.email WHERE k.key_hash = %s AND k.active = 1 AND s.active = 1" if DATABASE_URL else "SELECT k.email, k.key_name, s.active, s.tier FROM api_keys k JOIN subscribers s ON k.email = s.email WHERE k.key_hash = ? AND k.active = 1 AND s.active = 1"
+        query = "SELECT k.email, k.key_name, k.scope, s.active, s.tier FROM api_keys k JOIN subscribers s ON k.email = s.email WHERE k.key_hash = %s AND k.active = 1 AND s.active = 1" if DATABASE_URL else "SELECT k.email, k.key_name, k.scope, s.active, s.tier FROM api_keys k JOIN subscribers s ON k.email = s.email WHERE k.key_hash = ? AND k.active = 1 AND s.active = 1"
         cursor.execute(query, (incoming_hash,))
         row = cursor.fetchone()
         cursor.close()
@@ -834,13 +836,14 @@ def verify_api_key(x_api_key: str, request: Request):
     
     email = row["email"] if isinstance(row, dict) or hasattr(row, "__keys__") else row[0]
     key_name = row["key_name"] if isinstance(row, dict) or hasattr(row, "__keys__") else row[1]
-    tier = row["tier"] if isinstance(row, dict) or hasattr(row, "__keys__") else row[3]
+    scope = row["scope"] if isinstance(row, dict) or hasattr(row, "__keys__") else row[2]
+    tier = row["tier"] if isinstance(row, dict) or hasattr(row, "__keys__") else row[4]
 
     if redis_client:
-        redis_client.setex(f"apikey_cache:{incoming_hash}", 60, json.dumps({"email": email, "key_name": key_name, "tier": tier}))
+        redis_client.setex(f"apikey_cache:{incoming_hash}", 60, json.dumps({"email": email, "key_name": key_name, "scope": scope, "tier": tier}))
 
     record_usage_hit(email)
-    return {"email": email, "key_name": key_name, "tier": tier, "hash": incoming_hash, "ip": client_ip}
+    return {"email": email, "key_name": key_name, "scope": scope, "tier": tier, "hash": incoming_hash, "ip": client_ip}
 
 
 def check_rate_limit(api_key_hash: str, response: Response, max_requests: int = 30):
@@ -1046,10 +1049,10 @@ async def claim_session_key(session_id: str):
                 
                 if DATABASE_URL:
                     cursor.execute("INSERT INTO subscribers (email, active, stripe_customer_id, tier) VALUES (%s, 1, %s, %s) ON CONFLICT (email) DO UPDATE SET active = 1", (customer_email, session.customer, tier))
-                    cursor.execute("INSERT INTO api_keys (email, key_hash, key_name) VALUES (%s, %s, 'Primary Key')", (customer_email, hashed_key))
+                    cursor.execute("INSERT INTO api_keys (email, key_hash, key_name, scope) VALUES (%s, %s, 'Primary Key', 'full')", (customer_email, hashed_key))
                 else:
                     cursor.execute("INSERT OR REPLACE INTO subscribers (email, active, stripe_customer_id, tier) VALUES (?, 1, ?, ?)", (customer_email, session.customer, tier))
-                    cursor.execute("INSERT INTO api_keys (email, key_hash, key_name) VALUES (?, ?, 'Primary Key')", (customer_email, hashed_key))
+                    cursor.execute("INSERT INTO api_keys (email, key_hash, key_name, scope) VALUES (?, ?, 'Primary Key', 'full')", (customer_email, hashed_key))
                 conn.commit()
                 cursor.close()
                 return {"status": "success", "email": customer_email, "api_key": raw_api_key, "note": "Key freshly generated and claimed."}
@@ -1083,10 +1086,10 @@ async def confirm_key_reset(token: str, background_tasks: BackgroundTasks, reque
         new_hashed_key = hash_api_key(new_raw_key)
 
         if DATABASE_URL:
-            cursor.execute("INSERT INTO api_keys (email, key_hash, key_name) VALUES (%s, %s, 'Reset Key')", (email, new_hashed_key))
+            cursor.execute("INSERT INTO api_keys (email, key_hash, key_name, scope) VALUES (%s, %s, 'Reset Key', 'full')", (email, new_hashed_key))
             cursor.execute("UPDATE subscribers SET reset_token = NULL, reset_expires_at = NULL WHERE email = %s", (email,))
         else:
-            cursor.execute("INSERT INTO api_keys (email, key_hash, key_name) VALUES (?, ?, 'Reset Key')", (email, new_hashed_key))
+            cursor.execute("INSERT INTO api_keys (email, key_hash, key_name, scope) VALUES (?, ?, 'Reset Key', 'full')", (email, new_hashed_key))
             cursor.execute("UPDATE subscribers SET reset_token = NULL, reset_expires_at = NULL WHERE email = ?", (email,))
         conn.commit()
         cursor.close()
@@ -1138,9 +1141,9 @@ async def list_subscriber_keys(request: Request, x_api_key: str = Header(...)):
     try:
         cursor = conn.cursor()
         if DATABASE_URL:
-            cursor.execute("SELECT id, key_name, active, created_at FROM api_keys WHERE email = %s", (sub["email"],))
+            cursor.execute("SELECT id, key_name, scope, active, created_at FROM api_keys WHERE email = %s", (sub["email"],))
         else:
-            cursor.execute("SELECT id, key_name, active, created_at FROM api_keys WHERE email = ?", (sub["email"],))
+            cursor.execute("SELECT id, key_name, scope, active, created_at FROM api_keys WHERE email = ?", (sub["email"],))
         keys = [dict(r) for r in cursor.fetchall()]
         cursor.close()
     finally:
@@ -1149,7 +1152,7 @@ async def list_subscriber_keys(request: Request, x_api_key: str = Header(...)):
 
 
 @app.post("/api/v1/keys")
-async def create_subscriber_key(request: Request, key_name: str = "New Key", x_api_key: str = Header(...)):
+async def create_subscriber_key(request: Request, key_name: str = "New Key", scope: str = "full", x_api_key: str = Header(...)):
     sub = verify_api_key(x_api_key, request)
     raw_key = f"qcn_{secrets.token_hex(16)}"
     hashed_key = hash_api_key(raw_key)
@@ -1158,9 +1161,9 @@ async def create_subscriber_key(request: Request, key_name: str = "New Key", x_a
     try:
         cursor = conn.cursor()
         if DATABASE_URL:
-            cursor.execute("INSERT INTO api_keys (email, key_hash, key_name) VALUES (%s, %s, %s)", (sub["email"], hashed_key, key_name))
+            cursor.execute("INSERT INTO api_keys (email, key_hash, key_name, scope) VALUES (%s, %s, %s, %s)", (sub["email"], hashed_key, key_name, scope))
         else:
-            cursor.execute("INSERT INTO api_keys (email, key_hash, key_name) VALUES (?, ?, ?)", (sub["email"], hashed_key, key_name))
+            cursor.execute("INSERT INTO api_keys (email, key_hash, key_name, scope) VALUES (?, ?, ?, ?)", (sub["email"], hashed_key, key_name, scope))
         conn.commit()
         cursor.close()
     finally:
@@ -1172,8 +1175,8 @@ async def create_subscriber_key(request: Request, key_name: str = "New Key", x_a
         except Exception:
             pass
 
-    log_audit_event(sub["email"], "KEY_CREATED", f"Created new API key labeled '{key_name}'", sub["ip"])
-    return {"status": "success", "key_name": key_name, "api_key": raw_key, "message": "Save this key now. It will not be shown again."}
+    log_audit_event(sub["email"], "KEY_CREATED", f"Created new API key labeled '{key_name}' with scope '{scope}'", sub["ip"])
+    return {"status": "success", "key_name": key_name, "scope": scope, "api_key": raw_key, "message": "Save this key now. It will not be shown again."}
 
 
 @app.delete("/api/v1/keys/{key_id}")
@@ -1558,10 +1561,10 @@ async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
                     
                     if DATABASE_URL:
                         cursor.execute("INSERT INTO subscribers (email, active, stripe_customer_id, tier) VALUES (%s, 1, %s, %s) ON CONFLICT (email) DO UPDATE SET active = 1, stripe_customer_id = EXCLUDED.stripe_customer_id, tier = EXCLUDED.tier", (customer_email, customer_id, tier))
-                        cursor.execute("INSERT INTO api_keys (email, key_hash, key_name) VALUES (%s, %s, 'Primary Key')", (customer_email, hashed_key))
+                        cursor.execute("INSERT INTO api_keys (email, key_hash, key_name, scope) VALUES (%s, %s, 'Primary Key', 'full')", (customer_email, hashed_key))
                     else:
                         cursor.execute("INSERT OR REPLACE INTO subscribers (email, active, stripe_customer_id, tier) VALUES (?, 1, ?, ?)", (customer_email, customer_id, tier))
-                        cursor.execute("INSERT INTO api_keys (email, key_hash, key_name) VALUES (?, ?, 'Primary Key')", (customer_email, hashed_key))
+                        cursor.execute("INSERT INTO api_keys (email, key_hash, key_name, scope) VALUES (?, ?, 'Primary Key', 'full')", (customer_email, hashed_key))
                     conn.commit()
 
                     log_audit_event(customer_email, "SUBSCRIPTION_CREATED", f"New subscription created on tier {tier}")
