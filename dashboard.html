@@ -3,91 +3,379 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>QuantCode Nexus | Subscriber Dashboard</title>
+    <title>QuantCode Nexus | Elite Subscriber Command Center</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #f8fafc; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
-        .card { background: #1e293b; padding: 40px; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); width: 100%; max-width: 650px; box-sizing: border-box; }
-        h1 { margin-bottom: 5px; font-size: 24px; color: #38bdf8; text-align: center; }
-        p.sub { color: #94a3b8; font-size: 14px; margin-bottom: 25px; text-align: center; }
-        input { width: 100%; padding: 12px; margin-bottom: 15px; border-radius: 6px; border: 1px solid #334155; background: #0f172a; color: #fff; box-sizing: border-box; font-size: 14px; }
-        button { background: #38bdf8; color: #0f172a; border: none; padding: 12px; width: 100%; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 15px; transition: background 0.2s; }
-        button:hover { background: #7dd3fc; }
-        pre { background: #0f172a; border: 1px solid #334155; padding: 15px; border-radius: 6px; overflow-x: auto; color: #38bdf8; font-size: 12px; margin-top: 5px; }
-        .form-group { text-align: left; margin-bottom: 15px; }
-        .form-group label { display: block; font-size: 12px; color: #94a3b8; margin-bottom: 5px; font-weight: 600; text-transform: uppercase; }
-        .nav-link { margin-bottom: 20px; display: block; font-size: 14px; color: #38bdf8; text-decoration: none; }
-        .reset-link { margin-top: 15px; text-align: center; font-size: 13px; }
-        .reset-link a { color: #94a3b8; text-decoration: underline; cursor: pointer; }
-        .reset-link a:hover { color: #38bdf8; }
-        .progress-bar-container { background: #334155; border-radius: 6px; height: 10px; width: 100%; overflow: hidden; margin-bottom: 15px; }
-        .progress-bar { background: #38bdf8; height: 100%; width: 0%; transition: width 0.3s ease; }
-        #status { font-weight: 600; margin-bottom: 10px; color: #38bdf8; font-size: 14px; }
-        .key-item { display: flex; justify-content: space-between; align-items: center; background: #0f172a; border: 1px solid #334155; padding: 10px 15px; border-radius: 6px; margin-bottom: 10px; font-size: 13px; }
-        .key-info { display: flex; flex-direction: column; }
-        .key-name { font-weight: bold; color: #f8fafc; }
-        .key-meta { color: #94a3b8; font-size: 11px; margin-top: 2px; }
-        .revoke-btn { background: #ef4444; color: #fff; border: none; padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer; width: auto; font-weight: 600; }
-        .revoke-btn:hover { background: #f87171; }
-        .chart-container { position: relative; margin-top: 20px; height: 220px; width: 100%; }
+        :root {
+            --bg-main: #0a0f1d;
+            --bg-card: #131d31;
+            --bg-input: #0f172a;
+            --border-color: #1e293b;
+            --border-glow: rgba(56, 189, 248, 0.2);
+            --accent-cyan: #38bdf8;
+            --accent-cyan-hover: #7dd3fc;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --danger: #ef4444;
+            --danger-hover: #f87171;
+            --success: #22c55e;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: var(--bg-main);
+            color: var(--text-main);
+            margin: 0;
+            padding: 40px 20px;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            min-height: 100vh;
+        }
+
+        .dashboard-wrapper {
+            width: 100%;
+            max-width: 900px;
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            padding: 32px;
+            border-radius: 16px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .card::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; height: 2px;
+            background: linear-gradient(90deg, transparent, var(--accent-cyan), transparent);
+        }
+
+        .header-flex {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+        }
+
+        h1 {
+            margin: 0 0 4px 0;
+            font-size: 26px;
+            color: var(--accent-cyan);
+            letter-spacing: -0.5px;
+        }
+
+        p.sub {
+            color: var(--text-muted);
+            font-size: 14px;
+            margin: 0;
+        }
+
+        .nav-link {
+            font-size: 13px;
+            color: var(--text-muted);
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            transition: color 0.2s;
+        }
+
+        .nav-link:hover {
+            color: var(--accent-cyan);
+        }
+
+        .grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        @media (max-width: 768px) {
+            .grid-2 { grid-template-columns: 1fr; }
+        }
+
+        .form-group {
+            text-align: left;
+            margin-bottom: 16px;
+        }
+
+        .form-group label, .section-label {
+            display: block;
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-bottom: 6px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        input, select {
+            width: 100%;
+            padding: 12px 16px;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            background: var(--bg-input);
+            color: var(--text-main);
+            box-sizing: border-box;
+            font-size: 14px;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        input:focus, select:focus {
+            outline: none;
+            border-color: var(--accent-cyan);
+            box-shadow: 0 0 0 3px var(--border-glow);
+        }
+
+        button {
+            background: var(--accent-cyan);
+            color: var(--bg-main);
+            border: none;
+            padding: 12px 20px;
+            width: 100%;
+            border-radius: 8px;
+            font-weight: 700;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.2s, transform 0.1s;
+        }
+
+        button:hover {
+            background: var(--accent-cyan-hover);
+        }
+
+        button:active {
+            transform: scale(0.98);
+        }
+
+        .btn-secondary {
+            background: #1e293b;
+            color: var(--accent-cyan);
+            border: 1px solid var(--border-color);
+        }
+
+        .btn-secondary:hover {
+            background: #334155;
+        }
+
+        pre {
+            background: var(--bg-input);
+            border: 1px solid var(--border-color);
+            padding: 16px;
+            border-radius: 8px;
+            overflow-x: auto;
+            color: var(--accent-cyan);
+            font-size: 12px;
+            margin-top: 8px;
+            max-height: 250px;
+        }
+
+        .progress-bar-container {
+            background: var(--bg-input);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            height: 10px;
+            width: 100%;
+            overflow: hidden;
+            margin-bottom: 12px;
+        }
+
+        .progress-bar {
+            background: linear-gradient(90deg, #0ea5e9, var(--accent-cyan));
+            height: 100%;
+            width: 0%;
+            transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        #status {
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: var(--accent-cyan);
+            font-size: 13px;
+        }
+
+        .key-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: var(--bg-input);
+            border: 1px solid var(--border-color);
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-bottom: 8px;
+            font-size: 13px;
+        }
+
+        .key-info {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .key-name {
+            font-weight: bold;
+            color: var(--text-main);
+        }
+
+        .key-meta {
+            color: var(--text-muted);
+            font-size: 11px;
+            margin-top: 2px;
+        }
+
+        .revoke-btn {
+            background: rgba(239, 68, 68, 0.1);
+            color: var(--danger);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            cursor: pointer;
+            width: auto;
+            font-weight: 600;
+            transition: background 0.2s;
+        }
+
+        .revoke-btn:hover {
+            background: var(--danger);
+            color: #fff;
+        }
+
+        .chart-container {
+            position: relative;
+            margin-top: 12px;
+            height: 220px;
+            width: 100%;
+        }
+
+        .divider {
+            margin: 24px 0;
+            border: none;
+            border-top: 1px solid var(--border-color);
+        }
+
+        .reset-link {
+            text-align: right;
+            font-size: 12px;
+            margin-top: -8px;
+            margin-bottom: 16px;
+        }
+
+        .reset-link a {
+            color: var(--text-muted);
+            text-decoration: none;
+            cursor: pointer;
+        }
+
+        .reset-link a:hover {
+            color: var(--accent-cyan);
+            text-decoration: underline;
+        }
     </style>
 </head>
 <body>
-    <div class="card">
-        <a href="/" class="nav-link">&larr; Back to Home</a>
-        <h1>Subscriber Dashboard</h1>
-        <p class="sub">Manage keys, track usage quotas, and monitor historical analytics.</p>
 
-        <div class="form-group">
-            <label for="apiKey">Your Active API Key</label>
-            <input type="password" id="apiKey" placeholder="qcn_..." />
-        </div>
-        <button onclick="saveAndFetch()">Fetch Leads & Usage</button>
+    <div class="dashboard-wrapper">
+        <div class="card">
+            <div class="header-flex">
+                <div>
+                    <h1>Subscriber Command Center</h1>
+                    <p class="sub">Manage API keys, configure ICP targeting, and monitor live telemetry.</p>
+                </div>
+                <a href="/" class="nav-link">&larr; Back to Home</a>
+            </div>
 
-        <div class="reset-link">
-            <a onclick="triggerReset()">Lost your API key? Request a reset link</a>
-        </div>
+            <!-- API Key Authentication -->
+            <div class="form-group">
+                <label for="apiKey">Active API Key Credentials</label>
+                <input type="password" id="apiKey" placeholder="qcn_..." />
+            </div>
+            <div class="reset-link">
+                <a onclick="triggerReset()">Lost your API key? Request secure reset link</a>
+            </div>
+            <button onclick="saveAndFetch()">Authenticate & Load Telemetry</button>
 
-        <div style="margin-top: 25px;">
-            <div id="status"></div>
+            <hr class="divider">
+
+            <!-- Rate Limiting & Usage Tracking -->
+            <div id="status">Authenticate above to load quotas.</div>
             <div class="progress-bar-container">
                 <div id="usageBar" class="progress-bar"></div>
             </div>
-            
-            <!-- Historical Usage Chart -->
-            <label style="font-size: 12px; color: #94a3b8; font-weight: 600; text-transform: uppercase; margin-top: 20px; display: block;">7-Day API Request History</label>
+
+            <!-- 7-Day Usage Analytics Chart -->
+            <span class="section-label" style="margin-top: 20px;">7-Day API Request History</span>
             <div class="chart-container">
                 <canvas id="usageChart"></canvas>
             </div>
+        </div>
 
-            <!-- Semantic AI ICP Search Widget -->
-            <div style="margin-top: 25px; border-top: 1px solid #334155; padding-top: 20px;">
-                <label style="font-size: 12px; color: #94a3b8; font-weight: 600; text-transform: uppercase; margin-bottom: 10px; display: block;">✨ Semantic ICP Vector Search</label>
-                <div style="display: flex; gap: 10px; margin-bottom: 15px;">
-                    <input type="text" id="semanticQueryInput" placeholder="e.g., Cloud monitoring tools or AI infrastructure..." style="margin-bottom: 0;" />
-                    <button onclick="runSemanticSearch()" style="width: auto; padding: 0 20px;">Search AI</button>
+        <!-- ICP Configuration & Semantic Vector Search Card -->
+        <div class="card">
+            <span class="section-label">🎯 Target ICP Profile Settings</span>
+            <p class="sub" style="margin-bottom: 16px;">Configure your custom Ideal Customer Profile parameters for tailored lead filtering.</p>
+            
+            <div class="grid-2">
+                <div class="form-group">
+                    <label for="targetIndustries">Target Industries</label>
+                    <input type="text" id="targetIndustries" placeholder="e.g., Fintech, AI, SaaS" />
                 </div>
-                <div id="semanticResultsContainer" style="display: none;" class="space-y-3">
-                    <label style="font-size: 11px; color: #38bdf8; font-weight: 600; text-transform: uppercase; margin-bottom: 8px; display: block;">Matching Vector Leads</label>
-                    <div id="semanticResultsList" style="display: flex; flex-direction: column; gap: 8px;"></div>
+                <div class="form-group">
+                    <label for="minTrustScore">Minimum Trust Score (0-100)</label>
+                    <input type="number" id="minTrustScore" value="85" min="0" max="100" />
                 </div>
             </div>
+            <button class="btn-secondary" onclick="saveICPProfile()" style="margin-bottom: 24px;">Save ICP Profile Configuration</button>
 
-            <label style="font-size: 12px; color: #94a3b8; font-weight: 600; text-transform: uppercase; margin-top: 20px; display: block;">Lead Results</label>
-            <pre id="results">Enter your key above and click Fetch Leads & Usage.</pre>
+            <span class="section-label">✨ Semantic Vector Search</span>
+            <div style="display: flex; gap: 10px; margin-bottom: 16px;">
+                <input type="text" id="semanticQueryInput" placeholder="Describe your ideal company (e.g., cloud security platforms)..." style="margin-bottom: 0;" />
+                <button onclick="runSemanticSearch()" style="width: auto; padding: 0 24px;">Search AI</button>
+            </div>
+            <div id="semanticResultsContainer" style="display: none;">
+                <span class="section-label" style="color: var(--accent-cyan); margin-bottom: 8px;">Matching Vector Leads</span>
+                <div id="semanticResultsList" style="display: flex; flex-direction: column; gap: 8px;"></div>
+            </div>
         </div>
 
-        <div style="margin-top: 30px; border-top: 1px solid #334155; padding-top: 20px;">
-            <label style="font-size: 12px; color: #94a3b8; font-weight: 600; text-transform: uppercase; margin-bottom: 10px; display: block;">Multi-Key Management</label>
-            <button onclick="createNewKey()" style="background: #334155; color: #38bdf8; margin-bottom: 15px;">Generate New API Key</button>
-            <div id="keyList" style="color: #94a3b8; font-size: 13px;">Click Fetch Leads to load your active keys.</div>
+        <!-- Lead Results & Management Card -->
+        <div class="card">
+            <span class="section-label">Live Lead Feed & Explorer</span>
+            <pre id="results">Authenticate above to explore ingested leads.</pre>
+
+            <hr class="divider">
+
+            <span class="section-label">Multi-Key Management</span>
+            <button class="btn-secondary" onclick="createNewKey()" style="margin-bottom: 16px;">Generate New API Key</button>
+            <div id="keyList" style="color: var(--text-muted); font-size: 13px;">Authenticate to load active API keys.</div>
         </div>
 
-        <div style="margin-top: 30px; border-top: 1px solid #334155; padding-top: 20px;">
-            <label style="font-size: 12px; color: #94a3b8; font-weight: 600; text-transform: uppercase; margin-bottom: 10px; display: block;">Outbound Webhook Dispatcher</label>
-            <input type="text" id="webhookUrl" placeholder="https://your-server.com/webhook-receiver" />
-            <button onclick="registerWebhook()" style="background: #334155; color: #38bdf8; margin-bottom: 15px;">Register Webhook URL</button>
-            <button onclick="fetchWebhookLogs()" style="background: #334155; color: #38bdf8;">View Recent Webhook Delivery Logs</button>
+        <!-- Webhook Dispatcher Card -->
+        <div class="card">
+            <span class="section-label">Outbound Webhook Dispatcher & Filters</span>
+            <p class="sub" style="margin-bottom: 16px;">Configure your endpoint receiver and JSON filter rules.</p>
+            
+            <div class="form-group">
+                <label for="webhookUrl">Destination URL</label>
+                <input type="text" id="webhookUrl" placeholder="https://your-server.com/webhook-receiver" />
+            </div>
+            
+            <div class="form-group">
+                <label for="webhookRules">Filter Rules (JSON)</label>
+                <input type="text" id="webhookRules" value='{"min_trust_score": 85, "industries": ["Fintech"]}' />
+            </div>
+
+            <div class="grid-2" style="gap: 12px;">
+                <button class="btn-secondary" onclick="registerWebhook()">Register Webhook & Rules</button>
+                <button class="btn-secondary" onclick="fetchWebhookLogs()">View Recent Delivery Logs</button>
+            </div>
         </div>
     </div>
 
@@ -98,6 +386,7 @@
             const savedKey = localStorage.getItem('nexus_api_key');
             if (savedKey) {
                 document.getElementById('apiKey').value = savedKey;
+                saveAndFetch();
             }
         };
 
@@ -113,8 +402,8 @@
             }
 
             localStorage.setItem('nexus_api_key', apiKey);
-            resultsPre.innerText = "Loading data...";
-            statusDiv.innerText = "";
+            resultsPre.innerText = "Loading telemetry data...";
+            statusDiv.innerText = "Syncing with cluster...";
 
             try {
                 const response = await fetch('/api/v1/leads?limit=10', {
@@ -128,7 +417,7 @@
                 const percentage = Math.min(100, Math.max(0, (used / limit) * 100));
 
                 usageBar.style.width = percentage + '%';
-                statusDiv.innerText = `Rate Limit: ${remaining}/${limit} requests remaining this minute.`;
+                statusDiv.innerText = `Rate Limit Quota: ${remaining} / ${limit} requests remaining this minute.`;
 
                 const data = await response.json();
                 if (!response.ok) {
@@ -139,8 +428,54 @@
                 resultsPre.innerText = JSON.stringify(data, null, 2);
                 loadKeys(apiKey);
                 loadUsageChart(apiKey);
+                loadICPProfile(apiKey);
             } catch (err) {
                 resultsPre.innerText = `Request failed: ${err.message}`;
+            }
+        }
+
+        async function loadICPProfile(apiKey) {
+            try {
+                const res = await fetch('/api/v1/icp', {
+                    headers: { 'x-api-key': apiKey }
+                });
+                const data = await res.json();
+                if (res.ok && data.icp) {
+                    document.getElementById('targetIndustries').value = data.icp.target_industries || '';
+                    document.getElementById('minTrustScore').value = data.icp.min_trust_score || 85;
+                }
+            } catch (e) {
+                console.error("Failed to load ICP profile", e);
+            }
+        }
+
+        async function saveICPProfile() {
+            const apiKey = document.getElementById('apiKey').value.trim();
+            const target_industries = document.getElementById('targetIndustries').value.trim();
+            const min_trust_score = parseInt(document.getElementById('minTrustScore').value) || 85;
+
+            if (!apiKey) {
+                alert("Please authenticate with your API key first.");
+                return;
+            }
+
+            try {
+                const res = await fetch('/api/v1/icp', {
+                    method: 'POST',
+                    headers: {
+                        'x-api-key': apiKey,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        target_industries: target_industries,
+                        min_trust_score: min_trust_score,
+                        preferred_employee_count: "10-50"
+                    })
+                });
+                const data = await res.json();
+                alert(data.message || "ICP profile saved successfully.");
+            } catch (err) {
+                alert("Failed to save ICP profile.");
             }
         }
 
@@ -149,7 +484,7 @@
             const apiKey = document.getElementById('apiKey').value.trim();
             
             if (!apiKey) {
-                alert("Please enter or fetch your API key first.");
+                alert("Please authenticate with your API key first.");
                 return;
             }
             if (!query) {
@@ -172,13 +507,13 @@
                     data.leads.forEach(lead => {
                         const similarityPercent = Math.round((lead.similarity || 0) * 100);
                         list.innerHTML += `
-                            <div style="background: #0f172a; border: 1px solid #334155; padding: 10px 15px; border-radius: 6px; display: flex; justify-content: space-between; align-items: center; font-size: 13px;">
+                            <div style="background: var(--bg-input); border: 1px solid var(--border-color); padding: 12px 16px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; font-size: 13px;">
                                 <div>
                                     <span style="color: #fff; font-weight: bold;">${escapeHtml(lead.company_name)}</span>
-                                    <span style="color: #94a3b8; font-size: 11px; margin-left: 6px;">(${escapeHtml(lead.industry)})</span>
-                                    <div style="color: #38bdf8; font-size: 11px; margin-top: 2px;">Domain: ${escapeHtml(lead.domain)} | Email: ${escapeHtml(lead.email)}</div>
+                                    <span style="color: var(--text-muted); font-size: 11px; margin-left: 6px;">(${escapeHtml(lead.industry)})</span>
+                                    <div style="color: var(--accent-cyan); font-size: 11px; margin-top: 2px;">Domain: ${escapeHtml(lead.domain)} | Tech: ${escapeHtml(lead.tech_stack || 'N/A')}</div>
                                 </div>
-                                <span style="background: #0369a1; color: #bae6fd; font-size: 11px; font-weight: 600; padding: 4px 8px; border-radius: 4px; border: 1px solid #0ea5e9;">
+                                <span style="background: rgba(14, 165, 233, 0.1); color: var(--accent-cyan); font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(14, 165, 233, 0.3);">
                                     ${similarityPercent}% Match
                                 </span>
                             </div>
@@ -186,7 +521,7 @@
                     });
                 } else {
                     container.style.display = 'block';
-                    list.innerHTML = '<p style="color: #94a3b8; font-size: 12px; margin: 0;">No matching semantic leads found.</p>';
+                    list.innerHTML = '<p style="color: var(--text-muted); font-size: 12px; margin: 0;">No matching semantic leads found.</p>';
                 }
             } catch (err) {
                 console.error("Semantic search error:", err);
@@ -219,10 +554,11 @@
                             label: 'API Requests',
                             data: counts,
                             borderColor: '#38bdf8',
-                            backgroundColor: 'rgba(56, 189, 248, 0.1)',
-                            borderWidth: 2,
+                            backgroundColor: 'rgba(56, 189, 248, 0.08)',
+                            borderWidth: 2.5,
                             fill: true,
-                            tension: 0.3
+                            tension: 0.35,
+                            pointBackgroundColor: '#38bdf8'
                         }]
                     },
                     options: {
@@ -230,8 +566,8 @@
                         maintainAspectRatio: false,
                         plugins: { legend: { display: false } },
                         scales: {
-                            x: { grid: { color: '#334155' }, ticks: { color: '#94a3b8' } },
-                            y: { grid: { color: '#334155' }, ticks: { color: '#94a3b8', beginAtZero: true } }
+                            x: { grid: { color: '#1e293b' }, ticks: { color: '#94a3b8' } },
+                            y: { grid: { color: '#1e293b' }, ticks: { color: '#94a3b8', beginAtZero: true } }
                         }
                     }
                 });
@@ -300,7 +636,6 @@
         async function revokeKey(keyId) {
             const apiKey = document.getElementById('apiKey').value.trim();
             if (!apiKey) return;
-
             if (!confirm(`Are you sure you want to revoke API key ID ${keyId}?`)) return;
 
             try {
@@ -323,13 +658,15 @@
         async function registerWebhook() {
             const apiKey = document.getElementById('apiKey').value.trim();
             const webhookUrl = document.getElementById('webhookUrl').value.trim();
+            const filterRules = document.getElementById('webhookRules').value.trim();
+
             if (!apiKey || !webhookUrl) {
                 alert("Please enter your API key and a valid webhook destination URL.");
                 return;
             }
 
             try {
-                const res = await fetch(`/api/v1/webhooks?webhook_url=${encodeURIComponent(webhookUrl)}`, {
+                const res = await fetch(`/api/v1/webhooks?webhook_url=${encodeURIComponent(webhookUrl)}&filter_rules=${encodeURIComponent(filterRules)}`, {
                     method: 'POST',
                     headers: { 'x-api-key': apiKey }
                 });
@@ -344,7 +681,7 @@
             const apiKey = document.getElementById('apiKey').value.trim();
             const resultsPre = document.getElementById('results');
             if (!apiKey) {
-                alert("Please enter your API key first.");
+                alert("Please authenticate first.");
                 return;
             }
 
