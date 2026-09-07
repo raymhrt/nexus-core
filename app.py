@@ -26,7 +26,6 @@ from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 from psycopg2 import pool
 from psycopg2.extras import RealDictCursor
-from google import genai
 
 load_dotenv()
 
@@ -52,13 +51,6 @@ ADMIN_SECRET_KEY = os.getenv("ADMIN_SECRET_KEY")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-
-ai_client = None
-if GEMINI_API_KEY:
-    try:
-        ai_client = genai.Client(api_key=GEMINI_API_KEY)
-    except Exception as e:
-        logger.warning(f"GenAI Client initialization failed: {e}")
 
 RESEND_API_KEY = os.getenv("RESEND_API_KEY")
 SENDER_EMAIL = os.getenv("SENDER_EMAIL", "onboarding@resend.dev")
@@ -117,6 +109,37 @@ def generate_hmac_signature(payload_json: str) -> str:
         payload_json.encode("utf-8"),
         hashlib.sha256
     ).hexdigest()
+
+
+def call_gemini_rest(prompt: str) -> str:
+    if not GEMINI_API_KEY:
+        raise Exception("GEMINI_API_KEY not configured")
+    
+    headers = {"Content-Type": "application/json"}
+    payload = {
+        "contents": [{
+            "parts": [{"text": prompt}]
+        }]
+    }
+    
+    # Try gemini-2.0-flash first
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
+    try:
+        res = requests.post(url, json=payload, headers=headers, timeout=15)
+        if res.status_code == 200:
+            data = res.json()
+            return data["candidates"][0]["content"]["parts"][0]["text"]
+    except Exception:
+        pass
+
+    # Fallback to gemini-1.5-flash
+    url_fallback = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+    res_fb = requests.post(url_fallback, json=payload, headers=headers, timeout=15)
+    if res_fb.status_code == 200:
+        data = res_fb.json()
+        return data["candidates"][0]["content"]["parts"][0]["text"]
+    
+    raise Exception(f"Gemini REST API error: {res_fb.status_code} - {res_fb.text}")
 
 
 def log_audit_event(email: str, action: str, details: str, ip_address: str = "127.0.0.1"):
@@ -437,18 +460,20 @@ def record_usage_hit(email: str):
 
 
 def generate_lead_embedding(text_content: str):
-    if not ai_client:
+    if not GEMINI_API_KEY:
         return None
     try:
-        response = ai_client.models.embed_content(
-            model="text-embedding-004",
-            contents=text_content,
-            config={"output_dimensionality": 768}
-        )
-        if hasattr(response, 'embedding') and response.embedding:
-            return response.embedding.values
-        if hasattr(response, 'embeddings') and response.embeddings:
-            return response.embeddings[0].values
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key={GEMINI_API_KEY}"
+        payload = {
+            "model": "models/text-embedding-004",
+            "content": {"parts": [{"text": text_content}]},
+            "output_dimensionality": 768
+        }
+        res = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=10)
+        if res.status_code == 200:
+            data = res.json()
+            if "embedding" in data and "values" in data["embedding"]:
+                return data["embedding"]["values"]
         return None
     except Exception as e:
         logger.error(f"CRITICAL Embedding generation error: {e}")
@@ -703,7 +728,7 @@ class GeminiLeadSchema(BaseModel):
 
 
 async def automated_lead_ingestion():
-    if not ai_client:
+    if not GEMINI_API_KEY:
         return
 
     conn = get_db()
@@ -747,20 +772,8 @@ async def automated_lead_ingestion():
             '[{"company_name": "...", "domain": "...", "email": "...", "industry": "...", "employee_count": "...", "linkedin_url": "...", "confidence_score": 0.95, "trust_score": 95}]'
         )
         
-        candidate_models = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-flash"]
-        response = None
-        for model_name in candidate_models:
-            try:
-                response = await asyncio.to_thread(ai_client.models.generate_content, model=model_name, contents=prompt)
-                break
-            except Exception:
-                pass
-
-        if not response:
-            continue
-
         try:
-            raw_text = response.text.strip()
+            raw_text = await asyncio.to_thread(call_gemini_rest, prompt)
             if raw_text.startswith("```json"):
                 raw_text = raw_text[7:-3].strip()
             elif raw_text.startswith("```"):
@@ -1126,8 +1139,8 @@ class DraftEmailPayload(BaseModel):
 @app.post("/api/v1/leads/{lead_id}/draft-email")
 async def draft_ai_cold_email(lead_id: int, request: Request, x_api_key: str = Header(...)):
     sub = verify_api_key(x_api_key, request)
-    if not ai_client:
-        raise HTTPException(status_code=500, detail="AI Client not initialized.")
+    if not GEMINI_API_KEY:
+        raise HTTPException(status_code=500, detail="Gemini API key not initialized.")
 
     conn = get_db()
     try:
@@ -1153,19 +1166,12 @@ async def draft_ai_cold_email(lead_id: int, request: Request, x_api_key: str = H
         "Return ONLY the email subject line and body in clean text format."
     )
 
-    draft_content = None
-    for model_name in ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-flash"]:
-        try:
-            response = await asyncio.to_thread(ai_client.models.generate_content, model=model_name, contents=prompt)
-            draft_content = response.text.strip()
-            break
-        except Exception:
-            pass
+    try:
+        draft_content = await asyncio.to_thread(call_gemini_rest, prompt)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to generate email via Gemini REST: {e}")
 
-    if not draft_content:
-        raise HTTPException(status_code=500, detail="Failed to generate email via Gemini across all model versions.")
-
-    return {"status": "success", "lead_id": lead_id, "company_name": lead['company_name'], "drafted_email": draft_content}
+    return {"status": "success", "lead_id": lead_id, "company_name": lead['company_name'], "drafted_email": draft_content.strip()}
 
 
 class OnDemandGeneratePayload(BaseModel):
@@ -1206,8 +1212,8 @@ async def generate_leads_on_demand(payload: OnDemandGeneratePayload, request: Re
     finally:
         release_db(conn)
 
-    if not ai_client:
-        raise HTTPException(status_code=500, detail="AI Client is not initialized.")
+    if not GEMINI_API_KEY:
+        raise HTTPException(status_code=500, detail="Gemini API key is not initialized.")
 
     prompt = (
         f"Generate a strict JSON list of {payload.count} real, active B2B companies matching this custom prompt query: '{payload.query}'. "
@@ -1217,19 +1223,9 @@ async def generate_leads_on_demand(payload: OnDemandGeneratePayload, request: Re
         '[{"company_name": "...", "domain": "...", "email": "...", "industry": "...", "employee_count": "...", "linkedin_url": "...", "confidence_score": 0.95, "trust_score": 95}]'
     )
 
-    response_ai = None
-    for model_name in ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-flash"]:
-        try:
-            response_ai = await asyncio.to_thread(ai_client.models.generate_content, model=model_name, contents=prompt)
-            break
-        except Exception:
-            pass
-
-    if not response_ai:
-        raise HTTPException(status_code=502, detail="Failed to generate leads via Gemini crawler across all model versions.")
-
     try:
-        raw_text = response_ai.text.strip()
+        raw_response_text = await asyncio.to_thread(call_gemini_rest, prompt)
+        raw_text = raw_response_text.strip()
         if raw_text.startswith("```json"):
             raw_text = raw_text[7:-3].strip()
         elif raw_text.startswith("```"):
