@@ -458,8 +458,9 @@ def generate_lead_embedding(text_content: str):
         return None
     try:
         response = ai_client.models.embed_content(
-            model="text-embedding-004",
-            contents=text_content
+            model="gemini-embedding-001",
+            contents=text_content,
+            config={"output_dimensionality": 768}
         )
         if hasattr(response, 'embedding') and response.embedding:
             return response.embedding.values
@@ -467,19 +468,8 @@ def generate_lead_embedding(text_content: str):
             return response.embeddings[0].values
         return None
     except Exception as e:
-        try:
-            response = ai_client.models.embed_content(
-                model="gemini-embedding-001",
-                contents=text_content
-            )
-            if hasattr(response, 'embedding') and response.embedding:
-                return response.embedding.values
-            if hasattr(response, 'embeddings') and response.embeddings:
-                return response.embeddings[0].values
-            return None
-        except Exception as e2:
-            logger.error(f"CRITICAL Embedding generation error: {e} | Fallback error: {e2}")
-            return None
+        logger.error(f"CRITICAL Embedding generation error: {e}")
+        return None
 
 
 def dispatch_outbound_webhooks(lead_data: dict):
@@ -1422,7 +1412,7 @@ async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
                     background_tasks.add_task(send_telegram_alert, f"🚀 *New Subscription ({tier.upper()})!*\nCustomer: `{customer_email}`")
                     background_tasks.add_task(send_email_via_resend, customer_email, raw_api_key)
             except Exception as err:
-                logger.error(f"Webhook processing error: {err}")
+500                logger.error(f"Webhook processing error: {err}")
 
         elif event_type in ["customer.subscription.deleted", "invoice.payment_failed"]:
             try:
