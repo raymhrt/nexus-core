@@ -384,6 +384,10 @@
 
         window.onload = function() {
             const savedKey = localStorage.getItem('nexus_api_key');
+            const savedRules = localStorage.getItem('nexus_webhook_rules');
+            if (savedRules) {
+                document.getElementById('webhookRules').value = savedRules;
+            }
             if (savedKey) {
                 document.getElementById('apiKey').value = savedKey;
                 saveAndFetch();
@@ -443,6 +447,14 @@
                 if (res.ok && data.icp) {
                     document.getElementById('targetIndustries').value = data.icp.target_industries || '';
                     document.getElementById('minTrustScore').value = data.icp.min_trust_score || 85;
+                    
+                    // Automatically sync filter rules input with saved ICP profile if desired
+                    const syncedRules = JSON.stringify({
+                        min_trust_score: data.icp.min_trust_score || 85,
+                        industries: data.icp.target_industries ? data.icp.target_industries.split(',').map(s => s.trim()) : ["Fintech"]
+                    });
+                    document.getElementById('webhookRules').value = syncedRules;
+                    localStorage.setItem('nexus_webhook_rules', syncedRules);
                 }
             } catch (e) {
                 console.error("Failed to load ICP profile", e);
@@ -473,6 +485,15 @@
                     })
                 });
                 const data = await res.json();
+                
+                // Automatically update webhook rules input to match saved ICP
+                const syncedRules = JSON.stringify({
+                    min_trust_score: min_trust_score,
+                    industries: target_industries ? target_industries.split(',').map(s => s.trim()) : ["Fintech"]
+                });
+                document.getElementById('webhookRules').value = syncedRules;
+                localStorage.setItem('nexus_webhook_rules', syncedRules);
+
                 alert(data.message || "ICP profile saved successfully.");
             } catch (err) {
                 alert("Failed to save ICP profile.");
@@ -664,6 +685,8 @@
                 alert("Please enter your API key and a valid webhook destination URL.");
                 return;
             }
+
+            localStorage.setItem('nexus_webhook_rules', filterRules);
 
             try {
                 const res = await fetch(`/api/v1/webhooks?webhook_url=${encodeURIComponent(webhookUrl)}&filter_rules=${encodeURIComponent(filterRules)}`, {
