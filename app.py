@@ -256,7 +256,7 @@ def init_db():
                 id SERIAL PRIMARY KEY,
                 email TEXT,
                 lead_id INT,
-                feedback_status TEXT, -- converted, qualified, disqualified
+                feedback_status TEXT,
                 timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """
@@ -344,7 +344,6 @@ def init_db():
         """
         )
     else:
-        # SQLite fallback tables
         cursor.execute("CREATE TABLE IF NOT EXISTS subscribers (email TEXT PRIMARY KEY, active INTEGER DEFAULT 1, stripe_customer_id TEXT, tier TEXT DEFAULT 'starter', reset_token TEXT, reset_expires_at DATETIME)")
         cursor.execute("CREATE TABLE IF NOT EXISTS api_keys (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT, key_hash TEXT UNIQUE, key_name TEXT DEFAULT 'Default', active INTEGER DEFAULT 1, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS b2b_leads (id INTEGER PRIMARY KEY AUTOINCREMENT, company_name TEXT, domain TEXT UNIQUE, email TEXT, industry TEXT DEFAULT 'SaaS / Tech', employee_count TEXT DEFAULT '10-50', linkedin_url TEXT DEFAULT '', confidence_score REAL DEFAULT 0.9, trust_score INTEGER DEFAULT 95, tech_stack TEXT DEFAULT 'Python, PostgreSQL', funding_stage TEXT DEFAULT 'Series A', timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)")
@@ -397,7 +396,6 @@ def generate_lead_embedding(text_content: str):
 
 
 def async_background_enrichment_worker(lead_id: int, company_name: str, domain: str):
-    """Waterfall enrichment worker fetching tech stack, funding stage, and vector embeddings asynchronously."""
     tech_stacks = ["React, Node.js, AWS", "Python, FastAPI, PostgreSQL", "Go, Kubernetes, GCP", "Ruby on Rails, Redis"]
     funding_stages = ["Seed", "Series A", "Series B", "Series C", "Bootstrapped"]
     
@@ -443,13 +441,11 @@ def dispatch_outbound_webhooks(lead_data: dict):
     for wh in webhooks:
         wh_dict = dict(wh) if not isinstance(wh, dict) and not hasattr(wh, "keys") else wh
         wh_id = wh_dict["id"] if isinstance(wh_dict, dict) else wh[0]
-        sub_email = wh_dict["email"] if isinstance(wh_dict, dict) else wh[1]
         url = wh_dict["webhook_url"] if isinstance(wh_dict, dict) else wh[2]
         circuit_status = wh_dict.get("circuit_status", "ACTIVE") if isinstance(wh_dict, dict) else wh[4]
         last_failure = wh_dict.get("last_failure_time") if isinstance(wh_dict, dict) else wh[5]
         raw_rules = wh_dict.get("filter_rules", "{}") if isinstance(wh_dict, dict) else wh[6]
 
-        # Granular Webhook Filtering Evaluation
         try:
             rules = json.loads(raw_rules) if raw_rules else {}
             min_trust = rules.get("min_trust_score", 0)
@@ -551,81 +547,98 @@ def dispatch_outbound_webhooks(lead_data: dict):
 
 
 async def automated_lead_ingestion():
+    """Dynamic, subscriber-aware agentic ingestion loop tailoring leads to configured ICP profiles."""
     if not ai_client:
         return
 
-    prompt = (
-        "Generate a JSON list of 3 real, active B2B technology, SaaS, or AI companies. "
-        "For each company, provide: "
-        "company_name, domain (e.g. 'datadog.com'), email format (e.g. contact@domain.com), industry, "
-        "employee_count (e.g. '51-200'), linkedin_url, confidence_score (0.0 to 1.0), and trust_score (0 to 100). "
-        "Return strictly valid JSON matching this schema: "
-        '[{"company_name": "...", "domain": "...", "email": "...", "industry": "...", "employee_count": "...", "linkedin_url": "...", "confidence_score": 0.95, "trust_score": 98}]'
-    )
-    
-    candidate_models = ["gemini-3.7-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite"]
-    response = None
-    
-    for model_name in candidate_models:
-        try:
-            response = ai_client.models.generate_content(model=model_name, contents=prompt)
-            break
-        except Exception:
-            pass
-
-    if not response:
-        return
-
+    conn = get_db()
     try:
-        raw_text = response.text.strip()
-        if raw_text.startswith("```json"):
-            raw_text = raw_text[7:-3].strip()
-        elif raw_text.startswith("```"):
-            raw_text = raw_text[3:-3].strip()
-            
-        leads = json.loads(raw_text)
-        
-        conn = get_db()
-        try:
-            cursor = conn.cursor()
-            for lead in leads:
-                clean_domain = lead.get("domain", "unknown.com").lower().strip().replace("https://", "").replace("http://", "").rstrip("/")
-                conf_score = lead.get("confidence_score", 0.9)
-                trust_score = lead.get("trust_score", 95)
+        cursor = conn.cursor()
+        cursor.execute("SELECT DISTINCT target_industries, min_trust_score, preferred_employee_count FROM subscriber_icps")
+        icps = cursor.fetchall()
+        cursor.close()
+    finally:
+        release_db(conn)
 
-                if DATABASE_URL:
-                    cursor.execute(
-                        "INSERT INTO b2b_leads (company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score) VALUES (%s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (domain) DO NOTHING RETURNING id",
-                        (lead["company_name"], clean_domain, lead["email"], lead.get("industry", "SaaS / Tech"), lead.get("employee_count", "10-50"), lead.get("linkedin_url", ""), conf_score, trust_score)
-                    )
-                    row = cursor.fetchone()
-                    lead_id = row["id"] if row else None
-                else:
-                    cursor.execute(
-                        "INSERT OR IGNORE INTO b2b_leads (company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                        (lead["company_name"], clean_domain, lead["email"], lead.get("industry", "SaaS / Tech"), lead.get("employee_count", "10-50"), lead.get("linkedin_url", ""), conf_score, trust_score)
-                    )
-                    lead_id = cursor.lastrowid
+    target_niches = [dict(i) for i in icps] if icps else [{"target_industries": "SaaS / Tech / Fintech / AI", "min_trust_score": 85, "preferred_employee_count": "10-50"}]
+
+    for icp in target_niches:
+        industries = icp.get("target_industries", "SaaS / Tech")
+        min_trust = icp.get("min_trust_score", 85)
+        employee_size = icp.get("preferred_employee_count", "10-50")
+
+        prompt = (
+            f"Generate a JSON list of 3 real, active B2B companies specifically matching these criteria: "
+            f"Industries/Niche: {industries}, Minimum Trust/Confidence Level: {min_trust}+ out of 100, "
+            f"Employee Size: {employee_size}. "
+            "For each company, provide: company_name, domain (e.g. 'stripe.com'), email (e.g. 'contact@domain.com'), "
+            "industry, employee_count, linkedin_url, confidence_score (0.0 to 1.0), and trust_score (0 to 100). "
+            "Return strictly valid JSON matching this schema: "
+            '[{"company_name": "...", "domain": "...", "email": "...", "industry": "...", "employee_count": "...", "linkedin_url": "...", "confidence_score": 0.95, "trust_score": 95}]'
+        )
+        
+        candidate_models = ["gemini-2.5-flash", "gemini-3.5-flash", "gemini-3.7-flash"]
+        response = None
+        for model_name in candidate_models:
+            try:
+                response = ai_client.models.generate_content(model=model_name, contents=prompt)
+                break
+            except Exception:
+                pass
+
+        if not response:
+            continue
+
+        try:
+            raw_text = response.text.strip()
+            if raw_text.startswith("```json"):
+                raw_text = raw_text[7:-3].strip()
+            elif raw_text.startswith("```"):
+                raw_text = raw_text[3:-3].strip()
                 
-                if lead_id and cursor.rowcount > 0:
-                    background_tasks_worker_trigger = async_background_enrichment_worker(lead_id, lead["company_name"], clean_domain)
-                    dispatch_outbound_webhooks({
-                        "company_name": lead["company_name"], 
-                        "domain": clean_domain,
-                        "email": lead["email"], 
-                        "industry": lead.get("industry", "SaaS / Tech"),
-                        "employee_count": lead.get("employee_count", "10-50"),
-                        "linkedin_url": lead.get("linkedin_url", ""),
-                        "confidence_score": conf_score,
-                        "trust_score": trust_score,
-                        "timestamp": datetime.now(timezone.utc).isoformat()
-                    })
-            conn.commit()
-            cursor.close()
-        finally:
-            release_db(conn)
-    except Exception as e:
-        logger.error(f"Automated ingestion error: {e}")
+            leads = json.loads(raw_text)
+            
+            insert_conn = get_db()
+            try:
+                cursor = insert_conn.cursor()
+                for lead in leads:
+                    clean_domain = lead.get("domain", "unknown.com").lower().strip().replace("https://", "").replace("http://", "").rstrip("/")
+                    conf_score = lead.get("confidence_score", 0.9)
+                    trust_score = lead.get("trust_score", 95)
+
+                    if DATABASE_URL:
+                        cursor.execute(
+                            "INSERT INTO b2b_leads (company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score) VALUES (%s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (domain) DO NOTHING RETURNING id",
+                            (lead["company_name"], clean_domain, lead["email"], lead.get("industry", industries), lead.get("employee_count", employee_size), lead.get("linkedin_url", ""), conf_score, trust_score)
+                        )
+                        row = cursor.fetchone()
+                        lead_id = row["id"] if row else None
+                    else:
+                        cursor.execute(
+                            "INSERT OR IGNORE INTO b2b_leads (company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                            (lead["company_name"], clean_domain, lead["email"], lead.get("industry", industries), lead.get("employee_count", employee_size), lead.get("linkedin_url", ""), conf_score, trust_score)
+                        )
+                        lead_id = cursor.lastrowid
+                    
+                    if lead_id and cursor.rowcount > 0:
+                        dispatch_outbound_webhooks({
+                            "lead_id": lead_id,
+                            "company_name": lead["company_name"],
+                            "domain": clean_domain,
+                            "email": lead["email"],
+                            "industry": lead.get("industry", industries),
+                            "employee_count": lead.get("employee_count", employee_size),
+                            "linkedin_url": lead.get("linkedin_url", ""),
+                            "confidence_score": conf_score,
+                            "trust_score": trust_score,
+                            "timestamp": datetime.now(timezone.utc).isoformat()
+                        })
+                insert_conn.commit()
+                cursor.close()
+            finally:
+                release_db(insert_conn)
+        except Exception as e:
+            logger.error(f"Agentic ICP ingestion error for niche {industries}: {e}")
 
 
 scheduler = AsyncIOScheduler()
@@ -785,10 +798,6 @@ def check_rate_limit(api_key_hash: str, response: Response, max_requests: int = 
     response.headers["X-RateLimit-Reset"] = str((current_minute + 1) * window_seconds)
 
 
-# ==========================================
-# NEW ENDPOINTS: SUBSCRIBER ICPs & FEEDBACK
-# ==========================================
-
 class ICPPayload(BaseModel):
     target_industries: str
     min_trust_score: int
@@ -842,7 +851,7 @@ async def get_subscriber_icp(request: Request, x_api_key: str = Header(...)):
 
 
 class LeadFeedbackPayload(BaseModel):
-    feedback_status: str  # converted, qualified, disqualified
+    feedback_status: str
 
 @app.post("/api/v1/leads/{lead_id}/feedback")
 async def submit_lead_feedback(lead_id: int, payload: LeadFeedbackPayload, request: Request, x_api_key: str = Header(...)):
