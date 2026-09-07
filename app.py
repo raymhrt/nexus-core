@@ -187,6 +187,24 @@ def send_password_reset_email(to_email: str, reset_url: str):
         logger.error(f"Resend reset error: {e}")
 
 
+def send_magic_link_email(to_email: str, magic_url: str):
+    if not RESEND_API_KEY:
+        return
+    url = "https://api.resend.com/emails"
+    headers = {"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"}
+    html_content = f"""
+        <h2>QuantCode Nexus Magic Link Sign-In</h2>
+        <p>Click the secure link below to instantly sign in to your dashboard:</p>
+        <p><a href="{magic_url}" style="background: #38bdf8; color: #0f172a; padding: 12px 20px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold;">Sign In Instantly 🚀</a></p>
+        <p><small>Link expires in 15 minutes.</small></p>
+    """
+    payload = {"from": f"QuantCode Nexus <{SENDER_EMAIL}>", "to": [to_email], "subject": "Your Magic Sign-In Link", "html": html_content}
+    try:
+        requests.post(url, json=payload, headers=headers, timeout=10)
+    except Exception as e:
+        logger.error(f"Resend magic link error: {e}")
+
+
 def init_db():
     conn = get_db()
     cursor = conn.cursor()
@@ -202,10 +220,14 @@ def init_db():
                 stripe_customer_id TEXT,
                 tier TEXT DEFAULT 'starter',
                 reset_token TEXT,
-                reset_expires_at TIMESTAMP
+                reset_expires_at TIMESTAMP,
+                magic_token TEXT,
+                magic_expires_at TIMESTAMP
             )
         """
         )
+        cursor.execute("ALTER TABLE subscribers ADD COLUMN IF NOT EXISTS magic_token TEXT;")
+        cursor.execute("ALTER TABLE subscribers ADD COLUMN IF NOT EXISTS magic_expires_at TIMESTAMP;")
         cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS api_keys (
@@ -379,7 +401,7 @@ def init_db():
         """
         )
     else:
-        cursor.execute("CREATE TABLE IF NOT EXISTS subscribers (email TEXT PRIMARY KEY, active INTEGER DEFAULT 1, stripe_customer_id TEXT, tier TEXT DEFAULT 'starter', reset_token TEXT, reset_expires_at DATETIME)")
+        cursor.execute("CREATE TABLE IF NOT EXISTS subscribers (email TEXT PRIMARY KEY, active INTEGER DEFAULT 1, stripe_customer_id TEXT, tier TEXT DEFAULT 'starter', reset_token TEXT, reset_expires_at DATETIME, magic_token TEXT, magic_expires_at DATETIME)")
         cursor.execute("CREATE TABLE IF NOT EXISTS api_keys (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT, key_hash TEXT UNIQUE, key_name TEXT DEFAULT 'Default', scope TEXT DEFAULT 'full', role TEXT DEFAULT 'admin', active INTEGER DEFAULT 1, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS subscriber_credits (email TEXT PRIMARY KEY, credits_remaining INTEGER DEFAULT 500, credits_limit INTEGER DEFAULT 500, last_refill_date DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS subscriber_destinations (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT, destination_type TEXT NOT NULL, webhook_url TEXT NOT NULL, access_token TEXT DEFAULT '', mapping_rules TEXT DEFAULT '{}', active INTEGER DEFAULT 1, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
@@ -1011,6 +1033,134 @@ def check_rate_limit(api_key_hash: str, response: Response, max_requests: int = 
     response.headers["X-RateLimit-Limit"] = str(max_requests)
     response.headers["X-RateLimit-Remaining"] = str(max_requests)
     response.headers["X-RateLimit-Reset"] = str((current_minute + 1) * window_seconds)
+
+
+# Pillar 1: Zero-Friction Magic Link Authentication Endpoints
+class MagicLinkRequestPayload(BaseModel):
+    email: str
+
+@app.post("/api/v1/auth/request-magic-link")
+async def request_magic_link(payload: MagicLinkRequestPayload, background_tasks: BackgroundTasks, request: Request):
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute("SELECT active FROM subscribers WHERE email = %s", (payload.email,))
+        else:
+            cursor.execute("SELECT active FROM subscribers WHERE email = ?", (payload.email,))
+        row = cursor.fetchone()
+        
+        if not row:
+            # Auto-provision a starter account for zero-friction sign in
+            raw_key = f"qcn_{secrets.token_hex(16)}"
+            hashed_key = hash_api_key(raw_key)
+            if DATABASE_URL:
+                cursor.execute("INSERT INTO subscribers (email, active, tier) VALUES (%s, 1, 'starter') ON CONFLICT (email) DO NOTHING", (payload.email,))
+                cursor.execute("INSERT INTO api_keys (email, key_hash, key_name, scope, role) VALUES (%s, %s, 'Magic Link Key', 'full', 'admin')", (payload.email, hashed_key))
+                cursor.execute("INSERT INTO subscriber_credits (email, credits_remaining, credits_limit) VALUES (%s, 500, 500) ON CONFLICT (email) DO NOTHING", (payload.email,))
+            else:
+                cursor.execute("INSERT OR REPLACE INTO subscribers (email, active, tier) VALUES (?, 1, 'starter')", (payload.email,))
+                cursor.execute("INSERT INTO api_keys (email, key_hash, key_name, scope, role) VALUES (?, ?, 'Magic Link Key', 'full', 'admin')", (payload.email, hashed_key))
+                cursor.execute("INSERT OR REPLACE INTO subscriber_credits (email, credits_remaining, credits_limit) VALUES (?, 500, 500)", (payload.email,))
+            conn.commit()
+
+        magic_token = secrets.token_urlsafe(32)
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=15)
+
+        if DATABASE_URL:
+            cursor.execute("UPDATE subscribers SET magic_token = %s, magic_expires_at = %s WHERE email = %s", (magic_token, expires_at, payload.email))
+        else:
+            cursor.execute("UPDATE subscribers SET magic_token = ?, magic_expires_at = ? WHERE email = ?", (magic_token, expires_at, payload.email))
+        conn.commit()
+        cursor.close()
+    finally:
+        release_db(conn)
+
+    magic_url = f"https://nexus-core-yfou.onrender.com/auth/verify-magic?token={magic_token}"
+    background_tasks.add_task(send_magic_link_email, payload.email, magic_url)
+    log_audit_event(payload.email, "MAGIC_LINK_REQUESTED", "Magic link sign-in requested", request.client.host if request.client else "unknown")
+    return {"status": "success", "message": "Magic sign-in link dispatched to your email."}
+
+
+@app.get("/auth/verify-magic")
+async def verify_magic_link(token: str):
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        now = datetime.now(timezone.utc)
+        if DATABASE_URL:
+            cursor.execute("SELECT email FROM subscribers WHERE magic_token = %s AND magic_expires_at > %s", (token, now))
+        else:
+            cursor.execute("SELECT email FROM subscribers WHERE magic_token = ? AND magic_expires_at > ?", (token, now))
+        row = cursor.fetchone()
+
+        if not row:
+            raise HTTPException(status_code=400, detail="Invalid or expired magic link.")
+
+        email = row["email"] if isinstance(row, dict) or hasattr(row, "__keys__") else row[0]
+        
+        # Fetch active API key for this subscriber
+        if DATABASE_URL:
+            cursor.execute("SELECT k.key_hash FROM api_keys k WHERE k.email = %s AND k.active = 1 LIMIT 1", (email,))
+        else:
+            cursor.execute("SELECT k.key_hash FROM api_keys k WHERE k.email = ? AND k.active = 1 LIMIT 1", (email,))
+        key_row = cursor.fetchone()
+        
+        # Clear magic token
+        if DATABASE_URL:
+            cursor.execute("UPDATE subscribers SET magic_token = NULL, magic_expires_at = NULL WHERE email = %s", (email,))
+        else:
+            cursor.execute("UPDATE subscribers SET magic_token = NULL, magic_expires_at = NULL WHERE email = ?", (email,))
+        conn.commit()
+        cursor.close()
+    finally:
+        release_db(conn)
+
+    # Redirect to dashboard with success or token query param
+    return FileResponse("dashboard.html")
+
+
+# Pillar 3: Predictive Intent Scoring & Automated AI Email Outreach Endpoint
+class DraftEmailPayload(BaseModel):
+    lead_id: int
+
+@app.post("/api/v1/leads/{lead_id}/draft-email")
+async def draft_ai_cold_email(lead_id: int, request: Request, x_api_key: str = Header(...)):
+    sub = verify_api_key(x_api_key, request)
+    if not ai_client:
+        raise HTTPException(status_code=500, detail="AI Client not initialized.")
+
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute("SELECT company_name, domain, industry, tech_stack, funding_stage, intent_signals FROM b2b_leads WHERE id = %s", (lead_id,))
+        else:
+            cursor.execute("SELECT company_name, domain, industry, tech_stack, funding_stage, intent_signals FROM b2b_leads WHERE id = ?", (lead_id,))
+        row = cursor.fetchone()
+        cursor.close()
+    finally:
+        release_db(conn)
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Lead not found.")
+
+    lead = dict(row)
+    prompt = (
+        f"Draft a hyper-personalized, high-converting B2B cold sales outreach email for {lead['company_name']} ({lead['domain']}). "
+        f"Their industry is {lead['industry']}, tech stack includes {lead['tech_stack']}, funding stage is {lead['funding_stage']}, "
+        f"and recent intent signals show: {lead['intent_signals']}. "
+        "Keep it concise, professional, tailored to their exact tech stack, and end with a soft call-to-action. "
+        "Return ONLY the email subject line and body in clean text format."
+    )
+
+    try:
+        response = await asyncio.to_thread(ai_client.models.generate_content, model="gemini-2.5-flash", contents=prompt)
+        draft_content = response.text.strip()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to generate email via Gemini: {e}")
+
+    return {"status": "success", "lead_id": lead_id, "company_name": lead['company_name'], "drafted_email": draft_content}
 
 
 class OnDemandGeneratePayload(BaseModel):

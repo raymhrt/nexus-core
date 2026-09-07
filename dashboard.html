@@ -8,10 +8,10 @@
     <style>
         :root {
             --bg-main: #0a0f1d;
-            --bg-card: #131d31;
+            --bg-card: rgba(19, 29, 49, 0.75);
             --bg-input: #0f172a;
-            --border-color: #1e293b;
-            --border-glow: rgba(56, 189, 248, 0.2);
+            --border-color: rgba(56, 189, 248, 0.15);
+            --border-glow: rgba(56, 189, 248, 0.3);
             --accent-cyan: #38bdf8;
             --accent-cyan-hover: #7dd3fc;
             --text-main: #f8fafc;
@@ -31,6 +31,7 @@
             justify-content: center;
             align-items: flex-start;
             min-height: 100vh;
+            background-image: radial-gradient(circle at 50% 0%, rgba(56, 189, 248, 0.08) 0%, transparent 60%);
         }
 
         .dashboard-wrapper {
@@ -43,12 +44,18 @@
 
         .card {
             background: var(--bg-card);
+            backdrop-filter: blur(16px);
             border: 1px solid var(--border-color);
             padding: 32px;
             border-radius: 16px;
             box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
             position: relative;
             overflow: hidden;
+            transition: border-color 0.2s;
+        }
+
+        .card:hover {
+            border-color: rgba(56, 189, 248, 0.3);
         }
 
         .card::before {
@@ -117,7 +124,7 @@
             letter-spacing: 0.5px;
         }
 
-        input, select {
+        input, select, textarea {
             width: 100%;
             padding: 12px 16px;
             border-radius: 8px;
@@ -129,7 +136,7 @@
             transition: border-color 0.2s, box-shadow 0.2s;
         }
 
-        input:focus, select:focus {
+        input:focus, select:focus, textarea:focus {
             outline: none;
             border-color: var(--accent-cyan);
             box-shadow: 0 0 0 3px var(--border-glow);
@@ -164,6 +171,54 @@
 
         .btn-secondary:hover {
             background: #334155;
+        }
+
+        /* Toast Notifications */
+        #toastContainer {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .toast {
+            background: #1e293b;
+            border: 1px solid var(--accent-cyan);
+            color: #fff;
+            padding: 12px 20px;
+            border-radius: 8px;
+            font-size: 13px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+            animation: slideIn 0.3s ease, fadeOut 0.3s ease 2.7s forwards;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        @keyframes slideIn {
+            from { transform: translateY(100px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+        @keyframes fadeOut {
+            to { opacity: 0; transform: translateY(-10px); }
+        }
+
+        /* Skeleton Loaders */
+        .skeleton {
+            background: linear-gradient(90deg, #1e293b 25%, #334155 50%, #1e293b 75%);
+            background-size: 200% 100%;
+            animation: loading 1.5s infinite;
+            border-radius: 6px;
+            height: 16px;
+            margin-bottom: 8px;
+        }
+
+        @keyframes loading {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
         }
 
         .lead-card {
@@ -242,6 +297,7 @@
             display: flex;
             gap: 8px;
             margin-top: 4px;
+            flex-wrap: wrap;
         }
 
         .feedback-btn {
@@ -362,16 +418,60 @@
             color: var(--accent-cyan);
             text-decoration: underline;
         }
+
+        /* Tab Navigation for Sandbox */
+        .tab-nav {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 12px;
+        }
+
+        .tab-btn {
+            background: transparent;
+            color: var(--text-muted);
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-weight: 600;
+            cursor: pointer;
+            width: auto;
+            font-size: 13px;
+            transition: color 0.2s, background 0.2s;
+        }
+
+        .tab-btn.active {
+            background: rgba(56, 189, 248, 0.1);
+            color: var(--accent-cyan);
+            border: 1px solid var(--border-glow);
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        pre code {
+            font-family: monospace;
+            font-size: 12px;
+            color: var(--accent-cyan);
+        }
     </style>
 </head>
 <body>
+
+    <div id="toastContainer"></div>
 
     <div class="dashboard-wrapper">
         <div class="card">
             <div class="header-flex">
                 <div>
                     <h1>Subscriber Command Center</h1>
-                    <p class="sub">Manage API keys, credit quotas, ICP targeting, and live telemetry.</p>
+                    <p class="sub">Manage API keys, magic link sign-in, ICP targeting, and live telemetry.</p>
                 </div>
                 <div style="display: flex; gap: 12px; align-items: center;">
                     <button class="btn-secondary" onclick="openBillingPortal()" style="width: auto; padding: 8px 16px; font-size: 12px;">Manage Subscription</button>
@@ -379,34 +479,91 @@
                 </div>
             </div>
 
-            <!-- API Key Authentication -->
-            <div class="form-group">
-                <label for="apiKey">Active API Key Credentials</label>
-                <input type="password" id="apiKey" placeholder="qcn_..." />
-            </div>
-            <div class="reset-link">
-                <a onclick="triggerReset()">Lost your API key? Request secure reset link</a>
-            </div>
-            <button onclick="saveAndFetch()">Authenticate & Load Telemetry</button>
-
-            <hr class="divider">
-
-            <!-- Rate Limiting & Usage Tracking -->
-            <div id="status">Authenticate above to load quotas.</div>
-            <div class="progress-bar-container">
-                <div id="usageBar" class="progress-bar"></div>
+            <!-- Tab Navigation -->
+            <div class="tab-nav">
+                <button class="tab-btn active" onclick="switchTab('overview')">Command Center</button>
+                <button class="tab-btn" onclick="switchTab('sandbox')">⚡ Interactive API Sandbox</button>
             </div>
 
-            <!-- Credit Balance & Tier Display -->
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px;">
-                <div id="creditStatus" style="font-size: 13px; color: var(--text-muted);">Lead Credits Remaining: -- / --</div>
-                <div id="tierStatus" style="font-size: 12px; font-weight: 700; color: var(--accent-cyan); text-transform: uppercase;">Tier: --</div>
+            <!-- TAB 1: OVERVIEW & COMMAND CENTER -->
+            <div id="tabOverview" class="tab-content active">
+                <!-- Zero-Friction Magic Link Auth Section -->
+                <div style="background: rgba(56, 189, 248, 0.04); border: 1px dashed var(--border-glow); padding: 16px; border-radius: 10px; margin-bottom: 20px;">
+                    <span class="section-label" style="color: var(--accent-cyan);">🔐 Zero-Friction Magic Link Sign-In</span>
+                    <p class="sub" style="margin-bottom: 10px;">Don't have your API key handy? Request an instant passwordless sign-in link.</p>
+                    <div style="display: flex; gap: 10px;">
+                        <input type="email" id="magicEmail" placeholder="your-email@company.com" style="margin-bottom: 0;" />
+                        <button onclick="requestMagicLink()" style="width: auto; padding: 0 20px;">Send Magic Link</button>
+                    </div>
+                </div>
+
+                <!-- API Key Authentication -->
+                <div class="form-group">
+                    <label for="apiKey">Active API Key Credentials</label>
+                    <input type="password" id="apiKey" placeholder="qcn_..." />
+                </div>
+                <div class="reset-link">
+                    <a onclick="triggerReset()">Lost your API key? Request secure reset link</a>
+                </div>
+                <button onclick="saveAndFetch()">Authenticate & Load Telemetry</button>
+
+                <hr class="divider">
+
+                <!-- Rate Limiting & Usage Tracking -->
+                <div id="status">Authenticate above to load quotas.</div>
+                <div class="progress-bar-container">
+                    <div id="usageBar" class="progress-bar"></div>
+                </div>
+
+                <!-- Credit Balance & Tier Display -->
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px;">
+                    <div id="creditStatus" style="font-size: 13px; color: var(--text-muted);">Lead Credits Remaining: -- / --</div>
+                    <div id="tierStatus" style="font-size: 12px; font-weight: 700; color: var(--accent-cyan); text-transform: uppercase;">Tier: --</div>
+                </div>
+
+                <!-- 7-Day Usage Analytics Chart -->
+                <span class="section-label" style="margin-top: 20px;">7-Day API Request History</span>
+                <div class="chart-container">
+                    <canvas id="usageChart"></canvas>
+                </div>
             </div>
 
-            <!-- 7-Day Usage Analytics Chart -->
-            <span class="section-label" style="margin-top: 20px;">7-Day API Request History</span>
-            <div class="chart-container">
-                <canvas id="usageChart"></canvas>
+            <!-- TAB 2: INTERACTIVE API SANDBOX (Pillar 2) -->
+            <div id="tabSandbox" class="tab-content">
+                <span class="section-label">⚡ Live API Testing & Snippet Generator</span>
+                <p class="sub" style="margin-bottom: 16px;">Test your API key live in the browser, adjust parameters, and copy production-ready code snippets.</p>
+                
+                <div class="grid-2">
+                    <div class="form-group">
+                        <label for="sandboxEndpoint">API Endpoint</label>
+                        <select id="sandboxEndpoint">
+                            <option value="/api/v1/leads">GET /api/v1/leads (List Leads)</option>
+                            <option value="/api/v1/credits">GET /api/v1/credits (Check Quota)</option>
+                            <option value="/api/v1/icp">GET /api/v1/icp (Get ICP Settings)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="sandboxLimit">Query Limit</label>
+                        <input type="number" id="sandboxLimit" value="5" min="1" max="50" />
+                    </div>
+                </div>
+                <button onclick="runSandboxRequest()" style="margin-bottom: 16px;">Execute Live Request</button>
+
+                <div class="grid-2">
+                    <div>
+                        <span class="section-label">Generated cURL Snippet</span>
+                        <pre style="background: var(--bg-input); padding: 12px; border-radius: 8px; border: 1px solid var(--border-color); overflow-x: auto;"><code id="curlSnippet">curl -X GET "https://nexus-core-yfou.onrender.com/api/v1/leads?limit=5" -H "x-api-key: YOUR_API_KEY"</code></pre>
+                    </div>
+                    <div>
+                        <span class="section-label">Generated Python Snippet</span>
+                        <pre style="background: var(--bg-input); padding: 12px; border-radius: 8px; border: 1px solid var(--border-color); overflow-x: auto;"><code id="pythonSnippet">import requests
+res = requests.get("https://nexus-core-yfou.onrender.com/api/v1/leads?limit=5", headers={"x-api-key": "YOUR_API_KEY"})
+print(res.json())</code></pre>
+                    </div>
+                </div>
+
+                <span class="section-label" style="margin-top: 16px;">Live Response Stream</span>
+                <pre style="background: var(--bg-input); padding: 16px; border-radius: 8px; border: 1px solid var(--border-color); max-height: 300px; overflow-y: auto;"><code id="sandboxResponseOutput">// Execute request above to view live JSON response...</code></pre>
             </div>
         </div>
 
@@ -489,7 +646,8 @@
             <p class="sub" style="margin-bottom: 16px;">High-value anchor accounts verified with multi-stage enrichment waterfall.</p>
             
             <div id="leadFeedContainer">
-                <p style="color: var(--text-muted); font-size: 13px; margin: 0;">Authenticate above to explore ingested leads.</p>
+                <div class="skeleton" style="width: 100%; height: 80px;"></div>
+                <div class="skeleton" style="width: 100%; height: 80px;"></div>
             </div>
 
             <hr class="divider">
@@ -535,6 +693,18 @@
         </div>
     </div>
 
+    <!-- AI Email Outreach Modal (Pillar 3) -->
+    <div id="emailModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 10000; justify-content: center; align-items: center;">
+        <div style="background: var(--bg-card); border: 1px solid var(--accent-cyan); padding: 24px; border-radius: 12px; width: 90%; max-width: 600px; position: relative;">
+            <span class="section-label" style="color: var(--accent-cyan); margin-bottom: 12px;">✨ AI Personalized Cold Email Draft</span>
+            <pre style="background: var(--bg-input); padding: 16px; border-radius: 8px; border: 1px solid var(--border-color); white-space: pre-wrap; font-family: monospace; font-size: 13px; max-height: 350px; overflow-y: auto;" id="emailModalContent">Generating email via Gemini...</pre>
+            <div style="display: flex; gap: 10px; margin-top: 16px;">
+                <button onclick="copyDraftEmail()">Copy to Clipboard</button>
+                <button class="btn-secondary" onclick="closeEmailModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         let usageChartInstance = null;
 
@@ -550,6 +720,115 @@
             }
         };
 
+        function showToast(message) {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            toast.className = 'toast';
+            toast.innerHTML = `✅ <span>${message}</span>`;
+            container.appendChild(toast);
+            setTimeout(() => toast.remove(), 3000);
+        }
+
+        function switchTab(tabName) {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            if (tabName === 'overview') {
+                document.querySelectorAll('.tab-btn')[0].classList.add('active');
+                document.getElementById('tabOverview').classList.add('active');
+            } else {
+                document.querySelectorAll('.tab-btn')[1].classList.add('active');
+                document.getElementById('tabSandbox').classList.add('active');
+            }
+        }
+
+        async function requestMagicLink() {
+            const email = document.getElementById('magicEmail').value.trim();
+            if (!email) {
+                alert("Please enter your email address.");
+                return;
+            }
+            try {
+                const res = await fetch('/api/v1/auth/request-magic-link', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email })
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    showToast(data.message || "Magic link sent to email!");
+                } else {
+                    alert(data.detail || "Failed to send magic link.");
+                }
+            } catch (err) {
+                alert("Request failed.");
+            }
+        }
+
+        async function runSandboxRequest() {
+            const apiKey = document.getElementById('apiKey').value.trim();
+            const endpoint = document.getElementById('sandboxEndpoint').value;
+            const limit = document.getElementById('sandboxLimit').value;
+            const output = document.getElementById('sandboxResponseOutput');
+
+            if (!apiKey) {
+                alert("Please enter your API key in the Command Center tab first.");
+                return;
+            }
+
+            const fullUrl = `https://nexus-core-yfou.onrender.com${endpoint}?limit=${limit}`;
+            document.getElementById('curlSnippet').innerText = `curl -X GET "${fullUrl}" \\\n  -H "x-api-key: ${apiKey}"`;
+            document.getElementById('pythonSnippet').innerText = `import requests\nres = requests.get("${fullUrl}", headers={"x-api-key": "${apiKey}"})\nprint(res.json())`;
+
+            output.innerText = "Executing request...";
+            try {
+                const res = await fetch(`${endpoint}?limit=${limit}`, {
+                    headers: { 'x-api-key': apiKey }
+                });
+                const data = await res.json();
+                output.innerText = JSON.stringify(data, null, 2);
+            } catch (err) {
+                output.innerText = `Error: ${err.message}`;
+            }
+        }
+
+        async function draftAIEmail(leadId) {
+            const apiKey = document.getElementById('apiKey').value.trim();
+            if (!apiKey) {
+                alert("Please authenticate first.");
+                return;
+            }
+
+            const modal = document.getElementById('emailModal');
+            const content = document.getElementById('emailModalContent');
+            modal.style.display = 'flex';
+            content.innerText = "Generating personalized cold email via Gemini agent...";
+
+            try {
+                const res = await fetch(`/api/v1/leads/${leadId}/draft-email`, {
+                    method: 'POST',
+                    headers: { 'x-api-key': apiKey }
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    content.innerText = data.drafted_email;
+                } else {
+                    content.innerText = `Error: ${data.detail || "Failed to generate email."}`;
+                }
+            } catch (err) {
+                content.innerText = `Request failed: ${err.message}`;
+            }
+        }
+
+        function closeEmailModal() {
+            document.getElementById('emailModal').style.display = 'none';
+        }
+
+        function copyDraftEmail() {
+            const text = document.getElementById('emailModalContent').innerText;
+            navigator.clipboard.writeText(text);
+            showToast("Cold email copied to clipboard!");
+        }
+
         async function saveAndFetch() {
             const apiKey = document.getElementById('apiKey').value.trim();
             const leadFeedContainer = document.getElementById('leadFeedContainer');
@@ -562,7 +841,7 @@
             }
 
             localStorage.setItem('nexus_api_key', apiKey);
-            leadFeedContainer.innerHTML = '<p style="color: var(--text-muted);">Loading strategic lead intelligence...</p>';
+            leadFeedContainer.innerHTML = '<div class="skeleton" style="width: 100%; height: 80px;"></div><div class="skeleton" style="width: 100%; height: 80px;"></div>';
             statusDiv.innerText = "Syncing with cluster...";
 
             try {
@@ -595,6 +874,7 @@
                 loadICPProfile(apiKey);
                 loadCredits(apiKey);
                 loadDestinations(apiKey);
+                showToast("Successfully authenticated & telemetry loaded!");
             } catch (err) {
                 leadFeedContainer.innerHTML = `<p style="color: var(--danger);">Request failed: ${err.message}</p>`;
             }
@@ -658,6 +938,7 @@
                 if (res.ok) {
                     resDiv.style.color = "var(--success)";
                     resDiv.innerText = `Successfully generated ${data.leads_generated} fresh leads! Credits remaining: ${data.credits_remaining}`;
+                    showToast("Fresh leads generated successfully!");
                     saveAndFetch();
                 } else {
                     resDiv.style.color = "var(--danger)";
@@ -688,7 +969,7 @@
                 });
                 const data = await res.json();
                 if (res.ok) {
-                    alert(data.message || "Destination connected.");
+                    showToast(data.message || "Destination connected.");
                     loadDestinations(apiKey);
                 } else {
                     alert(data.detail || "Failed to connect destination.");
@@ -750,7 +1031,7 @@
                             🔥 <strong>Intent Signal:</strong> ${escapeHtml(intent)}
                         </div>
                         <div class="feedback-actions">
-                            <span style="font-size: 11px; color: var(--text-muted); align-self: center; margin-right: 4px;">Train Agent:</span>
+                            <button class="feedback-btn" style="background: rgba(56,189,248,0.1); color: var(--accent-cyan);" onclick="draftAIEmail(${lead.id})">✨ Draft AI Email</button>
                             <button class="feedback-btn" onclick="submitFeedback(${lead.id}, 'converted')">🚀 Mark Converted</button>
                             <button class="feedback-btn" onclick="submitFeedback(${lead.id}, 'qualified')">⭐ Qualified</button>
                             <button class="feedback-btn" onclick="submitFeedback(${lead.id}, 'disqualified')">❌ Disqualified</button>
@@ -773,7 +1054,7 @@
                 });
                 const data = await res.json();
                 if (res.ok) {
-                    alert(`Feedback '${status}' recorded! The self-optimizing agent will factor this into vector centroid alignment.`);
+                    showToast(`Feedback '${status}' recorded successfully!`);
                 } else {
                     alert(data.detail || "Failed to submit feedback.");
                 }
@@ -819,7 +1100,7 @@
                     body: JSON.stringify({ target_industries, min_trust_score, preferred_employee_count: "10-50" })
                 });
                 const data = await res.json();
-                alert(data.message || "ICP profile saved successfully.");
+                showToast(data.message || "ICP profile saved successfully.");
             } catch (err) {
                 alert("Failed to save ICP profile.");
             }
@@ -957,7 +1238,7 @@
                 });
                 const data = await res.json();
                 if (res.ok) {
-                    alert(data.message || "Team member invited successfully.");
+                    showToast(data.message || "Team member invited successfully.");
                     loadKeys(apiKey);
                 } else {
                     alert(data.detail || "Failed to invite team member.");
@@ -977,6 +1258,7 @@
                     headers: { 'x-api-key': apiKey }
                 });
                 if (res.ok) {
+                    showToast("API key revoked.");
                     loadKeys(apiKey);
                 } else {
                     const data = await res.json();
@@ -1001,7 +1283,7 @@
                     headers: { 'x-api-key': apiKey }
                 });
                 const data = await res.json();
-                alert(data.message || "Webhook registered.");
+                showToast(data.message || "Webhook registered.");
             } catch (err) {
                 alert("Failed to register webhook.");
             }
@@ -1035,7 +1317,7 @@
             try {
                 const res = await fetch(`/api/v1/request-key-reset?email=${encodeURIComponent(email)}`, { method: 'POST' });
                 const data = await res.json();
-                alert(data.message || "Reset link sent.");
+                showToast(data.message || "Reset link sent.");
             } catch (err) {
                 alert("Failed to send reset request.");
             }
