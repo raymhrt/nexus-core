@@ -458,7 +458,7 @@ def generate_lead_embedding(text_content: str):
         return None
     try:
         response = ai_client.models.embed_content(
-            model="text-embedding-004",
+            model="gemini-embedding-001",
             contents=text_content
         )
         return response.embedding.values
@@ -1345,7 +1345,6 @@ async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
     try:
         event = stripe.Webhook.construct_event(payload, sig_header, ENDPOINT_SECRET)
     except Exception as e:
-    
         raise HTTPException(status_code=400, detail=str(e))
 
     event_id = event.id
