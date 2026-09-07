@@ -4,6 +4,7 @@ import secrets
 import sqlite3
 import hashlib
 import hmac
+import time
 import asyncio
 import json
 import uuid
@@ -349,6 +350,7 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS b2b_leads (id INTEGER PRIMARY KEY AUTOINCREMENT, company_name TEXT, domain TEXT UNIQUE, email TEXT, industry TEXT DEFAULT 'SaaS / Tech', employee_count TEXT DEFAULT '10-50', linkedin_url TEXT DEFAULT '', confidence_score REAL DEFAULT 0.9, trust_score INTEGER DEFAULT 95, tech_stack TEXT DEFAULT 'Python, PostgreSQL', funding_stage TEXT DEFAULT 'Series A', timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS subscriber_icps (email TEXT PRIMARY KEY, target_industries TEXT, min_trust_score INTEGER, preferred_employee_count TEXT, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS lead_feedback (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT, lead_id INTEGER, feedback_status TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)")
+        cursor.execute("CREATE TABLE IF NOT EXISTS ai_error_dlq (id INTEGER PRIMARY KEY AUTOINCREMENT, raw_payload TEXT, error_message TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS subscriber_webhooks (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT, webhook_url TEXT NOT NULL, active INTEGER DEFAULT 1, consecutive_failures INTEGER DEFAULT 0, last_failure_time DATETIME, circuit_status TEXT DEFAULT 'ACTIVE', filter_rules TEXT DEFAULT '{}', created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS webhook_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT, webhook_url TEXT NOT NULL, payload TEXT, status_code INT, success INTEGER DEFAULT 0, error_message TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS audit_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT, action TEXT NOT NULL, details TEXT, ip_address TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)")
@@ -438,7 +440,8 @@ async def dispatch_outbound_webhooks(lead_data: dict):
         "data": lead_data
     }
 
-    trace_id = sentry_sdk.get_current_span().get_trace_context().get("trace_id") if sentry_sdk.get_current_span() else uuid.uuid4().hex
+    current_span = sentry_sdk.get_current_span()
+    trace_id = current_span.get_trace_context().get("trace_id") if current_span and hasattr(current_span, "get_trace_context") else uuid.uuid4().hex
     span_id = uuid.uuid4().hex[:16]
     traceparent_header = f"00-{trace_id}-{span_id}-01"
 
@@ -686,6 +689,35 @@ async def gdpr_compliance_cleanup():
         logger.error(f"GDPR compliance cleanup error: {e}")
     finally:
         release_db(conn)
+
+
+class AIDLQPayload(BaseModel):
+    raw_payload: str
+    error_message: str
+
+@app.post("/api/v1/admin/ai-dlq")
+async def receive_ai_dlq(payload: AIDLQPayload, admin_key: str = Header(None, alias="admin-key")):
+    if not ADMIN_SECRET_KEY or admin_key != ADMIN_SECRET_KEY:
+        raise HTTPException(status_code=403, detail="Unauthorized")
+    
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute(
+                "INSERT INTO ai_error_dlq (raw_payload, error_message) VALUES (%s, %s)",
+                (payload.raw_payload, payload.error_message)
+            )
+        else:
+            cursor.execute(
+                "INSERT INTO ai_error_dlq (raw_payload, error_message) VALUES (?, ?)",
+                (payload.raw_payload, payload.error_message)
+            )
+        conn.commit()
+        cursor.close()
+    finally:
+        release_db(conn)
+    return {"status": "success", "message": "Logged to AI DLQ successfully."}
 
 
 scheduler = AsyncIOScheduler()
@@ -1285,20 +1317,21 @@ async def admin_upload_leads(
             if lead_id and cursor.rowcount > 0:
                 count += 1
                 background_tasks.add_task(async_background_enrichment_worker, lead_id, lead.company_name, clean_domain)
-                background_tasks.add_task(
-                    dispatch_outbound_webhooks,
-                    {
-                        "lead_id": lead_id,
-                        "company_name": lead.company_name,
-                        "domain": clean_domain,
-                        "email": lead.email,
-                        "industry": lead.industry,
-                        "employee_count": lead.employee_count,
-                        "linkedin_url": lead.linkedin_url,
-                        "confidence_score": conf_score,
-                        "trust_score": trust_score,
-                        "timestamp": datetime.now(timezone.utc).isoformat()
-                    }
+                asyncio.create_task(
+                    dispatch_outbound_webhooks(
+                        {
+                            "lead_id": lead_id,
+                            "company_name": lead.company_name,
+                            "domain": clean_domain,
+                            "email": lead.email,
+                            "industry": lead.industry,
+                            "employee_count": lead.employee_count,
+                            "linkedin_url": lead.linkedin_url,
+                            "confidence_score": conf_score,
+                            "trust_score": trust_score,
+                            "timestamp": datetime.now(timezone.utc).isoformat()
+                        }
+                    )
                 )
         conn.commit()
         cursor.close()
