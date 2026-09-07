@@ -124,7 +124,7 @@ def call_gemini_rest(prompt: str) -> str:
     }
     
     # Try current production models with 404 fallbacks
-    for model in ["gemini-2.0-flash", "gemini-flash"]:
+    for model in ["gemini-3.6-flash", "gemini-2.0-flash", "gemini-flash"]:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={GEMINI_API_KEY}"
         try:
             res = requests.post(url, json=payload, headers=headers, timeout=15)
