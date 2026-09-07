@@ -461,14 +461,14 @@ def generate_lead_embedding(text_content: str):
             model="text-embedding-004",
             contents=text_content
         )
-        return response.embedding.values
+        return response.embeddings[0].values
     except Exception as e:
         try:
             response = ai_client.models.embed_content(
                 model="gemini-embedding-001",
                 contents=text_content
             )
-            return response.embedding.values
+            return response.embeddings[0].values
         except Exception as e2:
             logger.error(f"CRITICAL Embedding generation error: {e} | Fallback error: {e2}")
             return None
