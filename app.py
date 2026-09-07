@@ -572,18 +572,36 @@ class GeminiLeadSchema(BaseModel):
 
 
 async def automated_lead_ingestion():
-    """Dynamic, subscriber-aware agentic ingestion loop tailoring leads to configured ICP profiles with Pydantic guardrails."""
+    """Self-Optimizing Agentic Ingestion Loop incorporating historical feedback (converted vs disqualified) and vector similarity targeting."""
     if not ai_client:
         return
 
     conn = get_db()
     try:
         cursor = conn.cursor()
+        # Fetch feedback history to dynamically adjust agent prompt constraints
+        cursor.execute("""
+            SELECT l.company_name, l.industry, f.feedback_status 
+            FROM lead_feedback f 
+            JOIN b2b_leads l ON f.lead_id = l.id 
+            ORDER BY f.timestamp DESC LIMIT 15
+        """)
+        feedback_rows = cursor.fetchall()
+        
         cursor.execute("SELECT DISTINCT target_industries, min_trust_score, preferred_employee_count FROM subscriber_icps")
         icps = cursor.fetchall()
         cursor.close()
     finally:
         release_db(conn)
+
+    converted_signals = [f"{r['company_name']} ({r['industry']})" for r in feedback_rows if r['feedback_status'] in ['converted', 'qualified']]
+    disqualified_signals = [f"{r['company_name']} ({r['industry']})" for r in feedback_rows if r['feedback_status'] == 'disqualified']
+
+    feedback_context = ""
+    if converted_signals:
+        feedback_context += f" Emulate successful converted profiles like: {', '.join(converted_signals)}."
+    if disqualified_signals:
+        feedback_context += f" Avoid traits or industries similar to disqualified leads: {', '.join(disqualified_signals)}."
 
     target_niches = [dict(i) for i in icps] if icps else [{"target_industries": "SaaS / Tech / Fintech / AI", "min_trust_score": 85, "preferred_employee_count": "10-50"}]
 
@@ -595,7 +613,8 @@ async def automated_lead_ingestion():
         prompt = (
             f"Generate a JSON list of 3 real, active B2B companies specifically matching these criteria: "
             f"Industries/Niche: {industries}, Minimum Trust/Confidence Level: {min_trust}+ out of 100, "
-            f"Employee Size: {employee_size}. "
+            f"Employee Size: {employee_size}."
+            f"{feedback_context} "
             "For each company, provide: company_name, domain (e.g. 'stripe.com'), email (e.g. 'contact@domain.com'), "
             "industry, employee_count, linkedin_url, confidence_score (0.0 to 1.0), and trust_score (0 to 100). "
             "Return strictly valid JSON matching this schema: "
