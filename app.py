@@ -691,6 +691,27 @@ async def gdpr_compliance_cleanup():
         release_db(conn)
 
 
+scheduler = AsyncIOScheduler()
+scheduler.add_job(gdpr_compliance_cleanup, "interval", hours=24)
+if os.getenv("ENABLE_MOCK_LEEDS", "false").lower() == "true":
+    scheduler.add_job(automated_lead_ingestion, "interval", hours=1)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    if not ADMIN_SECRET_KEY:
+        logger.warning("CRITICAL WARNING: ADMIN_SECRET_KEY environment variable is not configured!")
+    scheduler.start()
+    yield
+    scheduler.shutdown()
+
+
+app = FastAPI(title="QuantCode Nexus Enterprise Apex API", lifespan=lifespan)
+
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=["nexus-core-yfou.onrender.com", "localhost", "127.0.0.1", "testserver"])
+app.add_middleware(CORSMiddleware, allow_origins=["https://nexus-core-yfou.onrender.com", "http://localhost:8000"], allow_credentials=True, allow_methods=["GET", "POST", "DELETE"], allow_headers=["*"])
+
+
 class AIDLQPayload(BaseModel):
     raw_payload: str
     error_message: str
@@ -718,27 +739,6 @@ async def receive_ai_dlq(payload: AIDLQPayload, admin_key: str = Header(None, al
     finally:
         release_db(conn)
     return {"status": "success", "message": "Logged to AI DLQ successfully."}
-
-
-scheduler = AsyncIOScheduler()
-scheduler.add_job(gdpr_compliance_cleanup, "interval", hours=24)
-if os.getenv("ENABLE_MOCK_LEEDS", "false").lower() == "true":
-    scheduler.add_job(automated_lead_ingestion, "interval", hours=1)
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    if not ADMIN_SECRET_KEY:
-        logger.warning("CRITICAL WARNING: ADMIN_SECRET_KEY environment variable is not configured!")
-    scheduler.start()
-    yield
-    scheduler.shutdown()
-
-
-app = FastAPI(title="QuantCode Nexus Enterprise Apex API", lifespan=lifespan)
-
-app.add_middleware(TrustedHostMiddleware, allowed_hosts=["nexus-core-yfou.onrender.com", "localhost", "127.0.0.1", "testserver"])
-app.add_middleware(CORSMiddleware, allow_origins=["https://nexus-core-yfou.onrender.com", "http://localhost:8000"], allow_credentials=True, allow_methods=["GET", "POST", "DELETE"], allow_headers=["*"])
 
 
 @app.middleware("http")
