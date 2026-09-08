@@ -1988,10 +1988,10 @@ async def elite_hybrid_lead_search(
             """
             WITH vector_ranked AS (
                 SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals, verified_email, timestamp,
-                       (1.0 - (embedding <=> %s::vector)) as cos_sim,
+                       (1.0 - (embedding <=> %s::vector)) as raw_sim,
                        ROW_NUMBER() OVER (ORDER BY embedding <=> %s::vector ASC) as v_rank
                 FROM b2b_leads
-                WHERE embedding IS NOT NULL AND (embedding <=> %s::vector) < 0.75
+                WHERE embedding IS NOT NULL AND (embedding <=> %s::vector) < 0.55
                 LIMIT 30
             ),
             text_ranked AS (
@@ -2016,16 +2016,16 @@ async def elite_hybrid_lead_search(
                        COALESCE(v.intent_signals, t.intent_signals) as intent_signals,
                        COALESCE(v.verified_email, t.verified_email) as verified_email,
                        COALESCE(v.timestamp, t.timestamp) as timestamp,
-                       COALESCE(v.cos_sim, 0.5) as cos_sim,
+                       COALESCE(v.raw_sim, 0.4) as raw_sim,
                        (1.0 / (60.0 + COALESCE(v_rank, 999))) + (1.0 / (60.0 + COALESCE(t_rank, 999))) as rrf_score
                 FROM vector_ranked v
                 FULL OUTER JOIN text_ranked t ON v.id = t.id
             )
             SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals, verified_email, timestamp,
-                   cos_sim as similarity
+                   ROUND(CAST((CASE WHEN raw_sim > 0.45 THEN 0.65 + ((raw_sim - 0.45) / 0.55) * 0.34 ELSE raw_sim * 1.2 END) * 100 AS numeric), 0) as similarity
             FROM combined
-            WHERE cos_sim >= 0.25
-            ORDER BY rrf_score DESC, cos_sim DESC
+            WHERE raw_sim >= 0.45
+            ORDER BY rrf_score DESC, raw_sim DESC
             LIMIT %s
             """,
             (str(query_embedding), str(query_embedding), str(query_embedding), query, query, limit)
