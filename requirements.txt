@@ -10,3 +10,4 @@ apscheduler
 httpx
 pytest
 google-genai
+email-validator
