@@ -478,20 +478,19 @@ print(res.json())</code></pre>
                     headers: { 'x-api-key': apiKey }
                 });
                 const data = await res.json();
-                if (res.ok) {
-                    const info = data.deep_intelligence;
+                if (res.ok && data.report) {
+                    const info = data.report.deep_intelligence;
                     content.innerHTML = `
-                        <strong class="text-accent text-sm">Company:</strong> ${info.company_name} (${info.domain})<br>
-                        <strong class="text-accent text-sm mt-2 block">Estimated ARR:</strong> ${info.estimated_arr}<br>
-                        <strong class="text-accent text-sm mt-2 block">Key Competitors:</strong> ${info.competitors.join(', ')}<br>
-                        <strong class="text-accent text-sm mt-2 block">Key Pain Points:</strong>
-                        <ul class="list-disc pl-4 mt-1 space-y-1">
-                            ${info.key_pain_points.map(p => `<li>${p}</li>`).join('')}
-                        </ul>
-                        <strong class="text-accent text-sm mt-2 block">Recommended SDR Hook:</strong> ${info.recommended_hook}
+                        <strong class="text-accent text-sm">Company:</strong> ${escapeHtml(data.report.company_name)} (${escapeHtml(data.report.domain)})<br>
+                        <strong class="text-accent text-sm mt-2 block">Tech Stack:</strong> ${escapeHtml(info.tech_stack)}<br>
+                        <strong class="text-accent text-sm mt-2 block">Funding Stage:</strong> ${escapeHtml(info.funding_stage)}<br>
+                        <strong class="text-accent text-sm mt-2 block">Trust Score:</strong> ${info.trust_score}/100<br>
+                        <strong class="text-accent text-sm mt-2 block">Intent Signals:</strong> ${escapeHtml(info.intent_signals)}<br>
+                        <strong class="text-accent text-sm mt-2 block">Threat Risk Assessment:</strong> ${escapeHtml(info.threat_risk_assessment)}<br>
+                        <strong class="text-accent text-sm mt-2 block">Recommended Outreach Angle:</strong> ${escapeHtml(info.recommended_outreach_angle)}
                     `;
                 } else {
-                    content.innerText = "Failed to run deep intelligence scan.";
+                    content.innerText = data.detail || "Failed to run deep intelligence scan.";
                 }
             } catch (err) {
                 content.innerText = "Request failed.";
