@@ -470,11 +470,17 @@ print(res.json())</code></pre>
             }
 
             try {
-                console.log("3. About to execute fetch for ID:", leadId);
-                const res = await fetch(`/api/v1/leads/${leadId}/sync-crm`, {
+                console.log("3. About to execute absolute fetch for ID:", leadId);
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
+
+                const res = await fetch(`https://nexus-core-yfou.onrender.com/api/v1/leads/${leadId}/sync-crm`, {
                     method: 'POST',
-                    headers: { 'x-api-key': apiKey }
+                    headers: { 'x-api-key': apiKey },
+                    signal: controller.signal
                 });
+                clearTimeout(timeoutId);
+
                 console.log("4. Fetch completed with status:", res.status);
                 
                 let data = {};
