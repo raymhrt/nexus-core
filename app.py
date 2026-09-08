@@ -474,10 +474,12 @@ def generate_lead_embedding(text_content: str):
         logger.error("GEMINI_API_KEY missing during embedding generation.")
         return None
     try:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key={GEMINI_API_KEY}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key={GEMINI_API_KEY}"
         payload = {
-            "model": "models/text-embedding-004",
-            "content": {"parts": [{"text": text_content}]},
+            "model": "models/gemini-embedding-001",
+            "content": {
+                "parts": [{"text": text_content}]
+            },
             "output_dimensionality": 768
         }
         res = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=10)
@@ -485,6 +487,8 @@ def generate_lead_embedding(text_content: str):
             data = res.json()
             if "embedding" in data and "values" in data["embedding"]:
                 return data["embedding"]["values"]
+            elif "embedding" in data and "embedding" in data["embedding"]:
+                return data["embedding"]["embedding"]["values"]
         else:
             logger.error(f"Embedding API error status {res.status_code}: {res.text}")
         return None
