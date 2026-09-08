@@ -1991,7 +1991,11 @@ async def elite_hybrid_lead_search(
                        (1.0 - (embedding <=> %s::vector)) as raw_sim,
                        ROW_NUMBER() OVER (ORDER BY embedding <=> %s::vector ASC) as v_rank
                 FROM b2b_leads
-                WHERE embedding IS NOT NULL AND (embedding <=> %s::vector) < 0.55
+                WHERE embedding IS NOT NULL 
+                  AND (embedding <=> %s::vector) < 0.55
+                  AND industry NOT ILIKE '%%SaaS%%'
+                  AND industry NOT ILIKE '%%Fintech%%'
+                  AND industry NOT ILIKE '%%CRM%%'
                 LIMIT 30
             ),
             text_ranked AS (
@@ -1999,6 +2003,9 @@ async def elite_hybrid_lead_search(
                        ROW_NUMBER() OVER (ORDER BY ts_rank(to_tsvector('english', company_name || ' ' || industry || ' ' || tech_stack), plainto_tsquery('english', %s)) DESC) as t_rank
                 FROM b2b_leads
                 WHERE to_tsvector('english', company_name || ' ' || industry || ' ' || tech_stack) @@ plainto_tsquery('english', %s)
+                  AND industry NOT ILIKE '%%SaaS%%'
+                  AND industry NOT ILIKE '%%Fintech%%'
+                  AND industry NOT ILIKE '%%CRM%%'
                 LIMIT 30
             ),
             combined AS (
