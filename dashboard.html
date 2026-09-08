@@ -462,6 +462,7 @@ print(res.json())</code></pre>
         async function syncLeadToCRM(leadId) {
             console.log("1. syncLeadToCRM triggered for Lead ID:", leadId);
             const apiKey = document.getElementById('apiKey').value.trim();
+            console.log("2. API Key retrieved. Length:", apiKey ? apiKey.length : 0);
             
             if (!apiKey) { 
                 alert("Please enter your API key in the authentication bar at the top first!"); 
@@ -469,10 +470,12 @@ print(res.json())</code></pre>
             }
 
             try {
+                console.log("3. About to execute fetch for ID:", leadId);
                 const res = await fetch(`/api/v1/leads/${leadId}/sync-crm`, {
                     method: 'POST',
                     headers: { 'x-api-key': apiKey }
                 });
+                console.log("4. Fetch completed with status:", res.status);
                 
                 let data = {};
                 const contentType = res.headers.get("content-type");
@@ -488,8 +491,8 @@ print(res.json())</code></pre>
                     alert(data.detail || "Failed to sync lead."); 
                 }
             } catch (err) { 
-                console.error("Network/Fetch error:", err);
-                alert("Sync request failed."); 
+                console.error("5. Network/Fetch error caught:", err);
+                alert("Sync request failed: " + err.message); 
             }
         }
 
