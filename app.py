@@ -115,7 +115,7 @@ def call_gemini_rest(prompt: str, max_retries: int = 3) -> str:
         logger.error("GEMINI_API_KEY environment variable is missing or empty.")
         raise Exception("GEMINI_API_KEY not configured")
     
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.7-flash:generateContent?key={GEMINI_API_KEY}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
     headers = {"Content-Type": "application/json"}
     payload = {
         "contents": [{
@@ -1461,6 +1461,12 @@ async def get_subscriber_icp(request: Request, x_api_key: str = Header(...)):
     finally:
         release_db(conn)
     
+    if DATABASE_URL and row and hasattr(row, 'keys'):
+        icp_dict = dict(row)
+        if icp_dict.get("updated_at") and isinstance(icp_dict["updated_at"], datetime):
+            icp_dict["updated_at"] = icp_dict["updated_at"].isoformat()
+        return {"status": "success", "icp": icp_dict}
+
     if not row:
         return {"status": "success", "icp": {"target_industries": "SaaS / Tech", "min_trust_score": 80, "preferred_employee_count": "10-50"}}
     return {"status": "success", "icp": dict(row)}
@@ -1682,7 +1688,14 @@ async def list_subscriber_keys(request: Request, x_api_key: str = Header(...)):
             cursor.execute("SELECT id, key_name, scope, role, active, created_at FROM api_keys WHERE email = %s", (sub["email"],))
         else:
             cursor.execute("SELECT id, key_name, scope, role, active, created_at FROM api_keys WHERE email = ?", (sub["email"],))
-        keys = [dict(r) for r in cursor.fetchall()]
+        
+        rows = cursor.fetchall()
+        keys = []
+        for r in rows:
+            r_dict = dict(r)
+            if r_dict.get("created_at") and isinstance(r_dict["created_at"], datetime):
+                r_dict["created_at"] = r_dict["created_at"].isoformat()
+            keys.append(r_dict)
         cursor.close()
     finally:
         release_db(conn)
@@ -1804,7 +1817,12 @@ async def get_webhook_logs(request: Request, x_api_key: str = Header(...)):
         else:
             cursor.execute("SELECT DISTINCT l.id, l.event_id, l.webhook_url, l.status_code, l.success, l.error_message, l.timestamp FROM webhook_logs l JOIN subscriber_webhooks w ON l.webhook_url = w.webhook_url WHERE w.email = ? ORDER BY l.timestamp DESC LIMIT 20", (sub["email"],))
         rows = cursor.fetchall()
-        logs = [dict(r) for r in rows]
+        logs = []
+        for r in rows:
+            r_dict = dict(r)
+            if r_dict.get("timestamp") and isinstance(r_dict["timestamp"], datetime):
+                r_dict["timestamp"] = r_dict["timestamp"].isoformat()
+            logs.append(r_dict)
         cursor.close()
     finally:
         release_db(conn)
@@ -1928,7 +1946,12 @@ async def get_b2b_leads(
                 cursor.execute("SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals, verified_email, timestamp FROM b2b_leads ORDER BY timestamp DESC LIMIT ? OFFSET ?", (limit, offset))
 
         rows = cursor.fetchall()
-        leads = [dict(row) for row in rows]
+        leads = []
+        for row in rows:
+            r_dict = dict(row)
+            if r_dict.get("timestamp") and isinstance(r_dict["timestamp"], datetime):
+                r_dict["timestamp"] = r_dict["timestamp"].isoformat()
+            leads.append(r_dict)
         cursor.close()
     finally:
         release_db(conn)
@@ -1998,7 +2021,12 @@ async def elite_hybrid_lead_search(
             (str(query_embedding), query, query, limit)
         )
         rows = cursor.fetchall()
-        leads = [dict(row) for row in rows]
+        leads = []
+        for row in rows:
+            r_dict = dict(row)
+            if r_dict.get("timestamp") and isinstance(r_dict["timestamp"], datetime):
+                r_dict["timestamp"] = r_dict["timestamp"].isoformat()
+            leads.append(r_dict)
         cursor.close()
     finally:
         release_db(conn)

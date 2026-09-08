@@ -51,8 +51,8 @@
 
             <!-- Tabs Navigation -->
             <div class="flex gap-2 border-b border-sky-500/20 pb-3">
-                <button onclick="switchTab('overview')" class="tab-btn active px-4 py-2 rounded-lg text-xs font-bold transition bg-sky-500/10 text-accent border border-sky-500/30">Command Center</button>
-                <button onclick="switchTab('sandbox')" class="tab-btn px-4 py-2 rounded-lg text-xs font-bold transition text-slate-400 hover:text-slate-200">⚡ Interactive API Sandbox</button>
+                <button id="btnTabOverview" onclick="switchTab('overview', this)" class="tab-btn px-4 py-2 rounded-lg text-xs font-bold transition bg-sky-500/10 text-accent border border-sky-500/30">Command Center</button>
+                <button id="btnTabSandbox" onclick="switchTab('sandbox', this)" class="tab-btn px-4 py-2 rounded-lg text-xs font-bold transition text-slate-400 hover:text-slate-200">⚡ Interactive API Sandbox</button>
             </div>
 
             <!-- Tab 1: Overview & Authentication -->
@@ -310,20 +310,21 @@ print(res.json())</code></pre>
             setTimeout(() => toast.remove(), 3000);
         }
 
-        function switchTab(tabName) {
+        function switchTab(tabName, btnElement) {
             document.querySelectorAll('.tab-btn').forEach(b => {
-                b.classList.remove('active', 'bg-sky-500/10', 'text-accent', 'border', 'border-sky-500/30');
+                b.classList.remove('bg-sky-500/15', 'text-accent', 'border', 'border-sky-500/40');
                 b.classList.add('text-slate-400');
             });
             document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
             
+            if (btnElement) {
+                btnElement.classList.add('bg-sky-500/15', 'text-accent', 'border', 'border-sky-500/40');
+                btnElement.classList.remove('text-slate-400');
+            }
+
             if (tabName === 'overview') {
-                event.target.classList.add('active', 'bg-sky-500/10', 'text-accent', 'border', 'border-sky-500/30');
-                event.target.classList.remove('text-slate-400');
                 document.getElementById('tabOverview').classList.remove('hidden');
             } else {
-                event.target.classList.add('active', 'bg-sky-500/10', 'text-accent', 'border', 'border-sky-500/30');
-                event.target.classList.remove('text-slate-400');
                 document.getElementById('tabSandbox').classList.remove('hidden');
             }
         }
