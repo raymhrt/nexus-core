@@ -355,10 +355,10 @@ print(res.json())</code></pre>
             }
         };
 
-        // Global Event Delegation for dynamically rendered CRM sync buttons
+        // Bulletproof Event Delegation for CRM Sync
         document.addEventListener('click', function(event) {
-            const btn = event.target.closest('.btn-sync-crm');
-            if (btn) {
+            const btn = event.target.closest('button');
+            if (btn && btn.textContent.includes('Sync to CRM')) {
                 const leadId = btn.getAttribute('data-id');
                 if (leadId) {
                     syncLeadToCRM(leadId);
@@ -736,7 +736,7 @@ print(res.json())</code></pre>
                         </div>
                         <div class="flex flex-wrap gap-2 mt-1">
                             <button class="bg-sky-500/10 hover:bg-sky-500/20 text-accent border border-sky-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition" onclick="draftAIEmail(${lead.id})">✨ Draft AI Email</button>
-                            <button class="btn-sync-crm bg-sky-500/10 hover:bg-sky-500/20 text-accent border border-sky-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition" data-id="${lead.id}">🔗 Sync to CRM</button>
+                            <button class="bg-sky-500/10 hover:bg-sky-500/20 text-accent border border-sky-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition" data-id="${lead.id}">🔗 Sync to CRM</button>
                             <button class="bg-sky-500/10 hover:bg-sky-500/20 text-accent border border-sky-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition" onclick="triggerDeepScan(${lead.id})">🔍 Deep Intelligence Scan</button>
                             <button class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 px-3 py-1.5 rounded-lg text-xs font-semibold transition" onclick="submitFeedback(${lead.id}, 'converted')">🚀 Converted</button>
                             <button class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 px-3 py-1.5 rounded-lg text-xs font-semibold transition" onclick="submitFeedback(${lead.id}, 'disqualified')">❌ Disqualified</button>
