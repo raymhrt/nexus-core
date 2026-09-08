@@ -721,6 +721,8 @@ async def dispatch_outbound_webhooks(lead_data: dict):
             formatted_payload = {
                 "text": f"🚀 *New B2B Lead Ingested!*\n*Company:* {lead_data.get('company_name')} ({lead_data.get('domain')})\n*Industry:* {lead_data.get('industry')} | *Trust Score:* {lead_data.get('trust_score')}/100"
             }
+        elif dest_type.lower() == "snowflake":
+            logger.info("Dispatching payload to Snowflake Warehouse staging table...")
 
         try:
             await asyncio.to_thread(requests.post, dest_url, json=formatted_payload, headers=headers, timeout=10)

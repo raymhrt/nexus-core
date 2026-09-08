@@ -33,13 +33,13 @@
     <div class="w-full max-w-5xl flex flex-col gap-6">
 
         <!-- Top Header Card -->
-        <div class="bg-cardbg/80 backdrop-blur-xl border border-sky-500/20 p-8 rounded-2xl shadow-2xl relative overflow-hidden">
+        <div class="bg-cardbg/85 backdrop-blur-xl border border-sky-500/20 p-8 rounded-2xl shadow-2xl relative overflow-hidden">
             <div class="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-accent to-transparent"></div>
             
             <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
                 <div>
                     <h1 class="text-2xl md:text-3xl font-black text-accent tracking-tight">Subscriber Command Center</h1>
-                    <p class="text-sm text-slate-400 mt-1">Manage API keys, magic link sign-in, ICP targeting, and live telemetry.</p>
+                    <p class="text-sm text-slate-400 mt-1">Manage API keys, magic link sign-in, ICP targeting, warehouse destinations, and live telemetry.</p>
                 </div>
                 <div class="flex items-center gap-3">
                     <button onclick="openBillingPortal()" class="bg-slate-800 hover:bg-slate-700 text-accent border border-sky-500/30 px-4 py-2 rounded-lg text-xs font-semibold transition">
@@ -142,7 +142,7 @@ print(res.json())</code></pre>
         </div>
 
         <!-- On-Demand Lead Generation Card -->
-        <div class="bg-cardbg/80 backdrop-blur-xl border border-sky-500/20 p-8 rounded-2xl shadow-2xl">
+        <div class="bg-cardbg/85 backdrop-blur-xl border border-sky-500/20 p-8 rounded-2xl shadow-2xl">
             <span class="block text-xs font-bold uppercase tracking-wider text-accent mb-1">⚡ On-Demand Lead Generation Engine</span>
             <p class="text-xs text-slate-400 mb-4">Trigger instant Gemini crawls and real enrichment waterfalls on the fly.</p>
             
@@ -161,17 +161,17 @@ print(res.json())</code></pre>
         </div>
 
         <!-- CRM & Destinations Card -->
-        <div class="bg-cardbg/80 backdrop-blur-xl border border-sky-500/20 p-8 rounded-2xl shadow-2xl">
+        <div class="bg-cardbg/85 backdrop-blur-xl border border-sky-500/20 p-8 rounded-2xl shadow-2xl">
             <span class="block text-xs font-bold uppercase tracking-wider text-accent mb-1">🔌 Native CRM & Data Warehouse Destinations</span>
             <p class="text-xs text-slate-400 mb-4">Connect HubSpot, Salesforce, Snowflake, or Slack with one click.</p>
             
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                 <div>
-                    <label class="block text-xs font-bold uppercase text-slate-400 mb-2">Destination Type</label>
+                    <label class="block text-xs font-bold uppercase text-slate-400 mb-2">Outbound Warehouse Destination</label>
                     <select id="destType" class="bg-inputbg border border-slate-700 rounded-lg p-2.5 text-xs w-full">
                         <option value="hubspot">HubSpot CRM</option>
                         <option value="salesforce">Salesforce</option>
-                        <option value="snowflake">Snowflake Warehouse</option>
+                        <option value="snowflake" selected>Snowflake Warehouse</option>
                         <option value="slack">Slack Alert Channel</option>
                     </select>
                 </div>
@@ -189,7 +189,7 @@ print(res.json())</code></pre>
         </div>
 
         <!-- ICP Profile Settings Card -->
-        <div class="bg-cardbg/80 backdrop-blur-xl border border-sky-500/20 p-8 rounded-2xl shadow-2xl">
+        <div class="bg-cardbg/85 backdrop-blur-xl border border-sky-500/20 p-8 rounded-2xl shadow-2xl">
             <span class="block text-xs font-bold uppercase tracking-wider text-accent mb-1">🎯 Target ICP Profile Settings</span>
             <p class="text-xs text-slate-400 mb-4">Configure your custom Ideal Customer Profile parameters for tailored lead filtering.</p>
             
@@ -217,7 +217,7 @@ print(res.json())</code></pre>
         </div>
 
         <!-- Live Lead Feed & Team Workspace Management -->
-        <div class="bg-cardbg/80 backdrop-blur-xl border border-sky-500/20 p-8 rounded-2xl shadow-2xl space-y-6">
+        <div class="bg-cardbg/85 backdrop-blur-xl border border-sky-500/20 p-8 rounded-2xl shadow-2xl space-y-6">
             <div>
                 <span class="block text-xs font-bold uppercase tracking-wider text-accent mb-1">Live Lead Feed & Strategic Intelligence Explorer</span>
                 <p class="text-xs text-slate-400 mb-4">High-value anchor accounts verified with multi-stage enrichment waterfall.</p>
@@ -251,7 +251,7 @@ print(res.json())</code></pre>
         </div>
 
         <!-- Outbound Webhook Dispatcher Card -->
-        <div class="bg-cardbg/80 backdrop-blur-xl border border-sky-500/20 p-8 rounded-2xl shadow-2xl">
+        <div class="bg-cardbg/85 backdrop-blur-xl border border-sky-500/20 p-8 rounded-2xl shadow-2xl">
             <span class="block text-xs font-bold uppercase tracking-wider text-accent mb-1">Outbound Webhook Dispatcher & Filters</span>
             <p class="text-xs text-slate-400 mb-4">Configure your endpoint receiver and JSON filter rules.</p>
             
