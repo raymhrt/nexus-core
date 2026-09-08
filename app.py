@@ -1160,6 +1160,38 @@ async def verify_magic_link(token: str):
     return {"status": "success", "message": "Authentication verified via magic link token."}
 
 
+@app.post("/api/v1/leads/{lead_id}/sync-crm")
+async def sync_lead_crm(lead_id: int, request: Request, auth: dict = Depends(verify_api_key)):
+    if auth.get("role") == "viewer":
+        raise HTTPException(status_code=403, detail="Viewer role is not authorized to sync leads to CRM destinations.")
+
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute("SELECT company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals FROM b2b_leads WHERE id = %s", (lead_id,))
+        else:
+            cursor.execute("SELECT company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals FROM b2b_leads WHERE id = ?", (lead_id,))
+        row = cursor.fetchone()
+        cursor.close()
+    finally:
+        release_db(conn)
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Lead not found.")
+
+    lead_data = dict(row)
+    lead_data["lead_id"] = lead_id
+    
+    await safe_dispatch_wrapper(lead_data)
+    log_audit_event(auth["email"], "LEAD_SYNC_CRM", f"Manually triggered CRM sync for lead ID {lead_id} ({lead_data.get('company_name')})", auth["ip"])
+
+    return {
+        "status": "success",
+        "message": f"Lead {lead_data.get('company_name')} (ID: {lead_id}) successfully synchronized to active CRM destinations!"
+    }
+
+
 @app.post("/api/v1/leads/{lead_id}/draft-email")
 async def draft_ai_cold_email(lead_id: int, request: Request, auth: dict = Depends(verify_api_key)):
     conn = get_db()
