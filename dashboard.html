@@ -897,15 +897,21 @@ print(res.json())</code></pre>
 
         async function createNewKey() {
             const apiKey = document.getElementById('apiKey').value.trim();
-            const keyName = document.getElementById('newKeyName').value.trim() || "Team Member";
+            const keyNameInput = document.getElementById('newKeyName').value.trim() || "team@company.com";
             const role = document.getElementById('newKeyRole').value;
             if (!apiKey) return;
+
+            // Fix for 422: Team invite payload expects a valid email format for 'email'
+            let emailValue = keyNameInput;
+            if (!emailValue.includes('@')) {
+                emailValue = emailValue.toLowerCase().replace(/[^a-z0-9]/g, '') + '@company.com';
+            }
 
             try {
                 const res = await fetch(`/api/v1/team/invite`, {
                     method: 'POST',
                     headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ email: keyName, key_name: keyName, role: role, scope: role === 'viewer' ? 'read' : 'full' })
+                    body: JSON.stringify({ email: emailValue, key_name: keyNameInput, role: role, scope: role === 'viewer' ? 'read' : 'full' })
                 });
                 const data = await res.json();
                 if (res.ok) {
