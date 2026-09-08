@@ -110,7 +110,7 @@ def generate_hmac_signature(payload_json: str) -> str:
     ).hexdigest()
 
 
-def call_gemini_rest(prompt: str) -> str:
+def call_gemini_rest(prompt: str, max_retries: int = 3) -> str:
     if not GEMINI_API_KEY:
         logger.error("GEMINI_API_KEY environment variable is missing or empty.")
         raise Exception("GEMINI_API_KEY not configured")
@@ -123,17 +123,33 @@ def call_gemini_rest(prompt: str) -> str:
         }]
     }
     
-    try:
-        res = requests.post(url, json=payload, headers=headers, timeout=30)
-        if res.status_code == 200:
-            data = res.json()
-            return data["candidates"][0]["content"]["parts"][0]["text"]
-        else:
-            logger.error(f"Gemini API error status {res.status_code}: {res.text}")
-            raise Exception(f"Gemini API returned status {res.status_code}")
-    except Exception as err:
-        logger.error(f"Gemini API exception: {err}")
-        raise
+    backoff_factor = 2
+    for attempt in range(1, max_retries + 1):
+        try:
+            res = requests.post(url, json=payload, headers=headers, timeout=30)
+            if res.status_code == 200:
+                data = res.json()
+                return data["candidates"][0]["content"]["parts"][0]["text"]
+            elif res.status_code in [503, 429, 502, 504]:
+                logger.warning(f"Gemini API returned transient status {res.status_code} on attempt {attempt}/{max_retries}. Retrying...")
+                if attempt == max_retries:
+                    raise Exception(f"Gemini API returned status {res.status_code} after {max_retries} attempts: {res.text}")
+            else:
+                logger.error(f"Gemini API error status {res.status_code}: {res.text}")
+                raise Exception(f"Gemini API returned status {res.status_code}")
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as net_err:
+            logger.warning(f"Gemini network connection error on attempt {attempt}/{max_retries}: {net_err}")
+            if attempt == max_retries:
+                raise
+        except Exception as err:
+            if attempt == max_retries:
+                raise
+            logger.warning(f"Gemini retryable exception on attempt {attempt}: {err}")
+
+        sleep_time = (backoff_factor ** attempt) + random.uniform(0.1, 1.0)
+        time.sleep(sleep_time)
+        
+    raise Exception("Gemini API failed after maximum retries.")
 
 
 def log_audit_event(email: str, action: str, details: str, ip_address: str = "127.0.0.1"):
