@@ -1996,6 +1996,8 @@ async def elite_hybrid_lead_search(
                   AND industry NOT ILIKE '%%SaaS%%'
                   AND industry NOT ILIKE '%%Fintech%%'
                   AND industry NOT ILIKE '%%CRM%%'
+                  AND industry NOT ILIKE '%%Software%%'
+                  AND industry NOT ILIKE '%%Productivity%%'
                 LIMIT 30
             ),
             text_ranked AS (
@@ -2006,6 +2008,8 @@ async def elite_hybrid_lead_search(
                   AND industry NOT ILIKE '%%SaaS%%'
                   AND industry NOT ILIKE '%%Fintech%%'
                   AND industry NOT ILIKE '%%CRM%%'
+                  AND industry NOT ILIKE '%%Software%%'
+                  AND industry NOT ILIKE '%%Productivity%%'
                 LIMIT 30
             ),
             combined AS (
