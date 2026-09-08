@@ -469,9 +469,14 @@ print(res.json())</code></pre>
                     headers: { 'x-api-key': apiKey }
                 });
                 const data = await res.json();
-                if (res.ok) { showToast(data.message || "Lead synced to CRM successfully!"); }
-                else { alert(data.detail || "Failed to sync lead."); }
-            } catch (err) { alert("Sync request failed."); }
+                if (res.ok) { 
+                    showToast(data.message || "Lead synced to CRM successfully!"); 
+                } else { 
+                    alert(data.detail || "Failed to sync lead."); 
+                }
+            } catch (err) { 
+                alert("Sync request failed."); 
+            }
         }
 
         async function triggerDeepScan(leadId) {
