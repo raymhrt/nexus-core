@@ -115,7 +115,7 @@ def call_gemini_rest(prompt: str, max_retries: int = 3) -> str:
         logger.error("GEMINI_API_KEY environment variable is missing or empty.")
         raise Exception("GEMINI_API_KEY not configured")
     
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key={GEMINI_API_KEY}"
     headers = {"Content-Type": "application/json"}
     payload = {
         "contents": [{
