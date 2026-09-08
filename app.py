@@ -1586,7 +1586,7 @@ async def claim_session_key(session_id: str):
                 if DATABASE_URL:
                     cursor.execute("INSERT INTO subscribers (email, active, stripe_customer_id, tier) VALUES (%s, 1, %s, %s) ON CONFLICT (email) DO UPDATE SET active = 1", (customer_email, session.customer, tier))
                     cursor.execute("INSERT INTO api_keys (email, key_hash, key_name, scope, role) VALUES (%s, %s, 'Primary Key', 'full', 'admin')", (customer_email, hashed_key))
-                    cursor.execute("INSERT INTO subscriber_credits (email, credits_remaining, credits_limit) VALUES (%s, %s, %s) ON CONFLICT (email) DO NOTHING", (customer_email, initial_credits, initial_credits))
+                    cursor.execute("INSERT INTO subscriber_credits (email, credits_remaining, credits_limit) VALUES (%s, %s, %s) ON CONFLICT (email) DO UPDATE SET credits_limit = EXCLUDED.credits_limit", (customer_email, initial_credits, initial_credits))
                 else:
                     cursor.execute("INSERT OR REPLACE INTO subscribers (email, active, stripe_customer_id, tier) VALUES (?, 1, ?, ?)", (customer_email, session.customer, tier))
                     cursor.execute("INSERT INTO api_keys (email, key_hash, key_name, scope, role) VALUES (?, ?, 'Primary Key', 'full', 'admin')", (customer_email, hashed_key))

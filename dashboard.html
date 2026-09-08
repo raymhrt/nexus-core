@@ -1,693 +1,291 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>QuantCode Nexus | Elite Subscriber Command Center</title>
+    <title>QuantCode Nexus Enterprise Apex | Subscriber Command Center</title>
+    <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <style>
-        :root {
-            --bg-main: #0a0f1d;
-            --bg-card: rgba(19, 29, 49, 0.75);
-            --bg-input: #0f172a;
-            --border-color: rgba(56, 189, 248, 0.15);
-            --border-glow: rgba(56, 189, 248, 0.3);
-            --accent-cyan: #38bdf8;
-            --accent-cyan-hover: #7dd3fc;
-            --text-main: #f8fafc;
-            --text-muted: #94a3b8;
-            --danger: #ef4444;
-            --success: #22c55e;
-            --warning: #f59e0b;
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        darkbg: '#0a0f1d',
+                        cardbg: '#131d31',
+                        inputbg: '#0f172a',
+                        accent: '#38bdf8',
+                        accentHover: '#7dd3fc',
+                        success: '#22c55e',
+                        danger: '#ef4444',
+                        warning: '#f59e0b'
+                    }
+                }
+            }
         }
-
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            background: var(--bg-main);
-            color: var(--text-main);
-            margin: 0;
-            padding: 40px 20px;
-            display: flex;
-            justify-content: center;
-            align-items: flex-start;
-            min-height: 100vh;
-            background-image: radial-gradient(circle at 50% 0%, rgba(56, 189, 248, 0.08) 0%, transparent 60%);
-        }
-
-        .dashboard-wrapper {
-            width: 100%;
-            max-width: 960px;
-            display: flex;
-            flex-direction: column;
-            gap: 24px;
-        }
-
-        .card {
-            background: var(--bg-card);
-            backdrop-filter: blur(16px);
-            border: 1px solid var(--border-color);
-            padding: 32px;
-            border-radius: 16px;
-            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
-            position: relative;
-            overflow: hidden;
-            transition: border-color 0.2s;
-        }
-
-        .card:hover {
-            border-color: rgba(56, 189, 248, 0.3);
-        }
-
-        .card::before {
-            content: '';
-            position: absolute;
-            top: 0; left: 0; right: 0; height: 2px;
-            background: linear-gradient(90deg, transparent, var(--accent-cyan), transparent);
-        }
-
-        .header-flex {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 24px;
-        }
-
-        h1 {
-            margin: 0 0 4px 0;
-            font-size: 26px;
-            color: var(--accent-cyan);
-            letter-spacing: -0.5px;
-        }
-
-        p.sub {
-            color: var(--text-muted);
-            font-size: 14px;
-            margin: 0;
-        }
-
-        .nav-link {
-            font-size: 13px;
-            color: var(--text-muted);
-            text-decoration: none;
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            transition: color 0.2s;
-        }
-
-        .nav-link:hover {
-            color: var(--accent-cyan);
-        }
-
-        .grid-2 {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 20px;
-        }
-
-        @media (max-width: 768px) {
-            .grid-2 { grid-template-columns: 1fr; }
-        }
-
-        .form-group {
-            text-align: left;
-            margin-bottom: 16px;
-        }
-
-        .form-group label, .section-label {
-            display: block;
-            font-size: 11px;
-            color: var(--text-muted);
-            margin-bottom: 6px;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-
-        input, select, textarea {
-            width: 100%;
-            padding: 12px 16px;
-            border-radius: 8px;
-            border: 1px solid var(--border-color);
-            background: var(--bg-input);
-            color: var(--text-main);
-            box-sizing: border-box;
-            font-size: 14px;
-            transition: border-color 0.2s, box-shadow 0.2s;
-        }
-
-        input:focus, select:focus, textarea:focus {
-            outline: none;
-            border-color: var(--accent-cyan);
-            box-shadow: 0 0 0 3px var(--border-glow);
-        }
-
-        button {
-            background: var(--accent-cyan);
-            color: var(--bg-main);
-            border: none;
-            padding: 12px 20px;
-            width: 100%;
-            border-radius: 8px;
-            font-weight: 700;
-            cursor: pointer;
-            font-size: 14px;
-            transition: background 0.2s, transform 0.1s;
-        }
-
-        button:hover {
-            background: var(--accent-cyan-hover);
-        }
-
-        button:active {
-            transform: scale(0.98);
-        }
-
-        .btn-secondary {
-            background: #1e293b;
-            color: var(--accent-cyan);
-            border: 1px solid var(--border-color);
-        }
-
-        .btn-secondary:hover {
-            background: #334155;
-        }
-
-        #toastContainer {
-            position: fixed;
-            bottom: 24px;
-            right: 24px;
-            z-index: 9999;
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-        }
-
-        .toast {
-            background: #1e293b;
-            border: 1px solid var(--accent-cyan);
-            color: #fff;
-            padding: 12px 20px;
-            border-radius: 8px;
-            font-size: 13px;
-            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
-            animation: slideIn 0.3s ease, fadeOut 0.3s ease 2.7s forwards;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        @keyframes slideIn {
-            from { transform: translateY(100px); opacity: 0; }
-            to { transform: translateY(0); opacity: 1; }
-        }
-        @keyframes fadeOut {
-            to { opacity: 0; transform: translateY(-10px); }
-        }
-
-        .skeleton {
-            background: linear-gradient(90deg, #1e293b 25%, #334155 50%, #1e293b 75%);
-            background-size: 200% 100%;
-            animation: loading 1.5s infinite;
-            border-radius: 6px;
-            height: 16px;
-            margin-bottom: 8px;
-        }
-
-        @keyframes loading {
-            0% { background-position: 200% 0; }
-            100% { background-position: -200% 0; }
-        }
-
-        .lead-card {
-            background: var(--bg-input);
-            border: 1px solid var(--border-color);
-            padding: 18px 22px;
-            border-radius: 12px;
-            margin-bottom: 14px;
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-            transition: border-color 0.2s;
-        }
-
-        .lead-card:hover {
-            border-color: var(--accent-cyan);
-        }
-
-        .lead-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .lead-title {
-            font-weight: bold;
-            font-size: 16px;
-            color: #fff;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .badge-trust {
-            background: rgba(34, 197, 94, 0.1);
-            color: var(--success);
-            border: 1px solid rgba(34, 197, 94, 0.3);
-            font-size: 10px;
-            padding: 3px 8px;
-            border-radius: 6px;
-            text-transform: uppercase;
-            font-weight: 700;
-        }
-
-        .pill-container {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-            margin-top: 2px;
-        }
-
-        .meta-pill {
-            background: rgba(30, 41, 59, 0.7);
-            border: 1px solid var(--border-color);
-            padding: 4px 10px;
-            border-radius: 6px;
-            font-size: 11px;
-            color: var(--text-muted);
-        }
-
-        .meta-pill strong {
-            color: #cbd5e1;
-        }
-
-        .strategic-insight {
-            background: rgba(56, 189, 248, 0.06);
-            border-left: 3px solid var(--accent-cyan);
-            padding: 8px 12px;
-            font-size: 12px;
-            color: #cbd5e1;
-            border-radius: 0 6px 6px 0;
-            margin-top: 2px;
-        }
-
-        .feedback-actions {
-            display: flex;
-            gap: 8px;
-            margin-top: 4px;
-            flex-wrap: wrap;
-        }
-
-        .feedback-btn {
-            background: #1e293b;
-            color: var(--text-muted);
-            border: 1px solid var(--border-color);
-            padding: 5px 12px;
-            border-radius: 6px;
-            font-size: 11px;
-            cursor: pointer;
-            width: auto;
-            font-weight: 600;
-            transition: background 0.2s, color 0.2s;
-        }
-
-        .feedback-btn:hover {
-            background: var(--accent-cyan);
-            color: var(--bg-main);
-        }
-
-        .progress-bar-container {
-            background: var(--bg-input);
-            border: 1px solid var(--border-color);
-            border-radius: 6px;
-            height: 10px;
-            width: 100%;
-            overflow: hidden;
-            margin-bottom: 12px;
-        }
-
-        .progress-bar {
-            background: linear-gradient(90deg, #0ea5e9, var(--accent-cyan));
-            height: 100%;
-            width: 0%;
-            transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-
-        #status {
-            font-weight: 600;
-            margin-bottom: 8px;
-            color: var(--accent-cyan);
-            font-size: 13px;
-        }
-
-        .key-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            background: var(--bg-input);
-            border: 1px solid var(--border-color);
-            padding: 12px 16px;
-            border-radius: 8px;
-            margin-bottom: 8px;
-            font-size: 13px;
-        }
-
-        .key-info {
-            display: flex;
-            flex-direction: column;
-        }
-
-        .key-name {
-            font-weight: bold;
-            color: var(--text-main);
-        }
-
-        .key-meta {
-            color: var(--text-muted);
-            font-size: 11px;
-            margin-top: 2px;
-        }
-
-        .revoke-btn {
-            background: rgba(239, 68, 68, 0.1);
-            color: var(--danger);
-            border: 1px solid rgba(239, 68, 68, 0.3);
-            padding: 6px 12px;
-            border-radius: 6px;
-            font-size: 12px;
-            cursor: pointer;
-            width: auto;
-            font-weight: 600;
-            transition: background 0.2s;
-        }
-
-        .revoke-btn:hover {
-            background: var(--danger);
-            color: #fff;
-        }
-
-        .chart-container {
-            position: relative;
-            margin-top: 12px;
-            height: 220px;
-            width: 100%;
-        }
-
-        .divider {
-            margin: 24px 0;
-            border: none;
-            border-top: 1px solid var(--border-color);
-        }
-
-        .reset-link {
-            text-align: right;
-            font-size: 12px;
-            margin-top: -8px;
-            margin-bottom: 16px;
-        }
-
-        .reset-link a {
-            color: var(--text-muted);
-            text-decoration: none;
-            cursor: pointer;
-        }
-
-        .reset-link a:hover {
-            color: var(--accent-cyan);
-            text-decoration: underline;
-        }
-
-        .tab-nav {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 20px;
-            border-bottom: 1px solid var(--border-color);
-            padding-bottom: 12px;
-        }
-
-        .tab-btn {
-            background: transparent;
-            color: var(--text-muted);
-            border: none;
-            padding: 8px 16px;
-            border-radius: 6px;
-            font-weight: 600;
-            cursor: pointer;
-            width: auto;
-            font-size: 13px;
-            transition: color 0.2s, background 0.2s;
-        }
-
-        .tab-btn.active {
-            background: rgba(56, 189, 248, 0.1);
-            color: var(--accent-cyan);
-            border: 1px solid var(--border-glow);
-        }
-
-        .tab-content {
-            display: none;
-        }
-
-        .tab-content.active {
-            display: block;
-        }
-
-        pre code {
-            font-family: monospace;
-            font-size: 12px;
-            color: var(--accent-cyan);
-        }
-    </style>
+    </script>
 </head>
-<body>
+<body class="bg-darkbg text-slate-100 min-h-screen font-sans p-6 md:p-10 flex flex-col items-center">
 
-    <div id="toastContainer"></div>
+    <div id="toastContainer" class="fixed bottom-6 right-6 z-50 flex flex-col gap-3"></div>
 
-    <div class="dashboard-wrapper">
-        <div class="card">
-            <div class="header-flex">
+    <div class="w-full max-w-5xl flex flex-col gap-6">
+
+        <!-- Top Header Card -->
+        <div class="bg-cardbg/80 backdrop-blur-xl border border-sky-500/20 p-8 rounded-2xl shadow-2xl relative overflow-hidden">
+            <div class="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-accent to-transparent"></div>
+            
+            <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
                 <div>
-                    <h1>Subscriber Command Center</h1>
-                    <p class="sub">Manage API keys, magic link sign-in, ICP targeting, and live telemetry.</p>
+                    <h1 class="text-2xl md:text-3xl font-black text-accent tracking-tight">Subscriber Command Center</h1>
+                    <p class="text-sm text-slate-400 mt-1">Manage API keys, magic link sign-in, ICP targeting, and live telemetry.</p>
                 </div>
-                <div style="display: flex; gap: 12px; align-items: center;">
-                    <button class="btn-secondary" onclick="openBillingPortal()" style="width: auto; padding: 8px 16px; font-size: 12px;">Manage Subscription</button>
-                    <a href="/" class="nav-link">&larr; Back to Home</a>
-                </div>
-            </div>
-
-            <div class="tab-nav">
-                <button class="tab-btn active" onclick="switchTab('overview')">Command Center</button>
-                <button class="tab-btn" onclick="switchTab('sandbox')">⚡ Interactive API Sandbox</button>
-            </div>
-
-            <div id="tabOverview" class="tab-content active">
-                <div style="background: rgba(56, 189, 248, 0.04); border: 1px dashed var(--border-glow); padding: 16px; border-radius: 10px; margin-bottom: 20px;">
-                    <span class="section-label" style="color: var(--accent-cyan);">🔐 Zero-Friction Magic Link Sign-In</span>
-                    <p class="sub" style="margin-bottom: 10px;">Don't have your API key handy? Request an instant passwordless sign-in link.</p>
-                    <div style="display: flex; gap: 10px;">
-                        <input type="email" id="magicEmail" placeholder="your-email@company.com" style="margin-bottom: 0;" />
-                        <button onclick="requestMagicLink()" style="width: auto; padding: 0 20px;">Send Magic Link</button>
-                    </div>
-                </div>
-
-                <div class="form-group">
-                    <label for="apiKey">Active API Key Credentials</label>
-                    <input type="password" id="apiKey" placeholder="qcn_..." />
-                </div>
-                <div class="reset-link">
-                    <a onclick="triggerReset()">Lost your API key? Request secure reset link</a>
-                </div>
-                <button onclick="saveAndFetch()">Authenticate & Load Telemetry</button>
-
-                <hr class="divider">
-
-                <div id="status">Authenticate above to load quotas.</div>
-                <div class="progress-bar-container">
-                    <div id="usageBar" class="progress-bar"></div>
-                </div>
-
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px;">
-                    <div id="creditStatus" style="font-size: 13px; color: var(--text-muted);">Lead Credits Remaining: -- / --</div>
-                    <div id="tierStatus" style="font-size: 12px; font-weight: 700; color: var(--accent-cyan); text-transform: uppercase;">Tier: --</div>
-                </div>
-
-                <span class="section-label" style="margin-top: 20px;">7-Day API Request History</span>
-                <div class="chart-container">
-                    <canvas id="usageChart"></canvas>
+                <div class="flex items-center gap-3">
+                    <button onclick="openBillingPortal()" class="bg-slate-800 hover:bg-slate-700 text-accent border border-sky-500/30 px-4 py-2 rounded-lg text-xs font-semibold transition">
+                        Manage Subscription
+                    </button>
+                    <a href="/" class="text-xs text-slate-400 hover:text-accent transition">&larr; Home</a>
                 </div>
             </div>
 
-            <div id="tabSandbox" class="tab-content">
-                <span class="section-label">⚡ Live API Testing & Snippet Generator</span>
-                <p class="sub" style="margin-bottom: 16px;">Test your API key live in the browser, adjust parameters, and copy production-ready code snippets.</p>
-                
-                <div class="grid-2">
-                    <div class="form-group">
-                        <label for="sandboxEndpoint">API Endpoint</label>
-                        <select id="sandboxEndpoint">
-                            <option value="/api/v1/leads">GET /api/v1/leads (List Leads)</option>
-                            <option value="/api/v1/credits">GET /api/v1/credits (Check Quota)</option>
-                            <option value="/api/v1/icp">GET /api/v1/icp (Get ICP Settings)</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label for="sandboxLimit">Query Limit</label>
-                        <input type="number" id="sandboxLimit" value="5" min="1" max="50" />
+            <!-- Tabs Navigation -->
+            <div class="flex gap-2 border-b border-sky-500/20 pb-3">
+                <button onclick="switchTab('overview')" class="tab-btn active px-4 py-2 rounded-lg text-xs font-bold transition bg-sky-500/10 text-accent border border-sky-500/30">Command Center</button>
+                <button onclick="switchTab('sandbox')" class="tab-btn px-4 py-2 rounded-lg text-xs font-bold transition text-slate-400 hover:text-slate-200">⚡ Interactive API Sandbox</button>
+            </div>
+
+            <!-- Tab 1: Overview & Authentication -->
+            <div id="tabOverview" class="tab-content active mt-6 space-y-6">
+                <!-- Magic Link Box -->
+                <div class="bg-sky-500/5 border border-dashed border-sky-500/30 p-4 rounded-xl">
+                    <span class="text-xs font-bold uppercase tracking-wider text-accent block mb-1">🔐 Zero-Friction Magic Link Sign-In</span>
+                    <p class="text-xs text-slate-400 mb-3">Don't have your API key handy? Request an instant passwordless sign-in link.</p>
+                    <div class="flex gap-2">
+                        <input type="email" id="magicEmail" placeholder="your-email@company.com" class="bg-inputbg border border-slate-700 rounded-lg px-3 py-2 text-xs flex-grow focus:outline-none focus:border-accent">
+                        <button onclick="requestMagicLink()" class="bg-accent hover:bg-accentHover text-slate-950 font-bold px-4 py-2 rounded-lg text-xs transition">Send Magic Link</button>
                     </div>
                 </div>
-                <button onclick="runSandboxRequest()" style="margin-bottom: 16px;">Execute Live Request</button>
 
-                <div class="grid-2">
-                    <div>
-                        <span class="section-label">Generated cURL Snippet</span>
-                        <pre style="background: var(--bg-input); padding: 12px; border-radius: 8px; border: 1px solid var(--border-color); overflow-x: auto;"><code id="curlSnippet">curl -X GET "https://nexus-core-yfou.onrender.com/api/v1/leads?limit=5" -H "x-api-key: YOUR_API_KEY"</code></pre>
+                <!-- API Key Input -->
+                <div>
+                    <label class="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">Active API Key Credentials</label>
+                    <input type="password" id="apiKey" placeholder="qcn_..." class="w-full bg-inputbg border border-slate-700 rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-accent">
+                </div>
+                <div class="text-right -mt-4">
+                    <a onclick="triggerReset()" class="text-xs text-slate-400 hover:text-accent cursor-pointer underline">Lost your API key? Request secure reset link</a>
+                </div>
+                <button onclick="saveAndFetch()" class="w-full bg-accent hover:bg-accentHover text-slate-950 font-bold py-3 rounded-lg text-sm transition shadow-lg shadow-sky-500/10">Authenticate & Load Telemetry</button>
+
+                <hr class="border-slate-800">
+
+                <!-- Usage Quota & Telemetry -->
+                <div>
+                    <div id="status" class="text-xs font-semibold text-accent mb-2">Authenticate above to load quotas.</div>
+                    <div class="bg-inputbg border border-slate-800 rounded-lg h-2.5 overflow-hidden mb-3">
+                        <div id="usageBar" class="bg-gradient-to-r from-sky-500 to-accent h-full w-0 transition-all duration-500"></div>
                     </div>
-                    <div>
-                        <span class="section-label">Generated Python Snippet</span>
-                        <pre style="background: var(--bg-input); padding: 12px; border-radius: 8px; border: 1px solid var(--border-color); overflow-x: auto;"><code id="pythonSnippet">import requests
+                    <div class="flex justify-between items-center text-xs text-slate-400">
+                        <div id="creditStatus">Lead Credits Remaining: -- / --</div>
+                        <div id="tierStatus" class="font-bold text-accent uppercase">Tier: --</div>
+                    </div>
+                </div>
+
+                <!-- 7-Day Chart -->
+                <div>
+                    <span class="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">7-Day API Request History</span>
+                    <div class="h-56 relative">
+                        <canvas id="usageChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab 2: Interactive API Sandbox -->
+            <div id="tabSandbox" class="tab-content hidden mt-6 space-y-6">
+                <div>
+                    <span class="block text-xs font-bold uppercase tracking-wider text-accent mb-1">⚡ Live API Testing & Snippet Generator</span>
+                    <p class="text-xs text-slate-400 mb-4">Test your API key live in the browser, adjust parameters, and copy production-ready code snippets.</p>
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                        <div>
+                            <label class="block text-xs font-bold uppercase text-slate-400 mb-2">API Endpoint</label>
+                            <select id="sandboxEndpoint" class="bg-inputbg border border-slate-700 rounded-lg p-2.5 text-xs w-full">
+                                <option value="/api/v1/leads">GET /api/v1/leads (List Leads)</option>
+                                <option value="/api/v1/credits">GET /api/v1/credits (Check Quota)</option>
+                                <option value="/api/v1/icp">GET /api/v1/icp (Get ICP Settings)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold uppercase text-slate-400 mb-2">Query Limit</label>
+                            <input type="number" id="sandboxLimit" value="5" min="1" max="50" class="bg-inputbg border border-slate-700 rounded-lg p-2.5 text-xs w-full">
+                        </div>
+                    </div>
+                    <button onclick="runSandboxRequest()" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-bold py-2.5 px-4 rounded-lg transition mb-4">Execute Live Request</button>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                        <div>
+                            <span class="block text-xs font-bold uppercase text-slate-400 mb-1">Generated cURL Snippet</span>
+                            <pre class="bg-inputbg p-3 rounded-lg border border-slate-800 overflow-x-auto text-xs text-accent font-mono"><code id="curlSnippet">curl -X GET "https://nexus-core-yfou.onrender.com/api/v1/leads?limit=5" -H "x-api-key: YOUR_API_KEY"</code></pre>
+                        </div>
+                        <div>
+                            <span class="block text-xs font-bold uppercase text-slate-400 mb-1">Generated Python Snippet</span>
+                            <pre class="bg-inputbg p-3 rounded-lg border border-slate-800 overflow-x-auto text-xs text-accent font-mono"><code id="pythonSnippet">import requests
 res = requests.get("https://nexus-core-yfou.onrender.com/api/v1/leads?limit=5", headers={"x-api-key": "YOUR_API_KEY"})
 print(res.json())</code></pre>
+                        </div>
                     </div>
+
+                    <span class="block text-xs font-bold uppercase text-slate-400 mb-1">Live Response Stream</span>
+                    <pre class="bg-inputbg p-4 rounded-lg border border-slate-800 max-h-60 overflow-y-auto text-xs text-accent font-mono"><code id="sandboxResponseOutput">// Execute request above to view live JSON response...</code></pre>
                 </div>
-
-                <span class="section-label" style="margin-top: 16px;">Live Response Stream</span>
-                <pre style="background: var(--bg-input); padding: 16px; border-radius: 8px; border: 1px solid var(--border-color); max-height: 300px; overflow-y: auto;"><code id="sandboxResponseOutput">// Execute request above to view live JSON response...</code></pre>
             </div>
         </div>
 
-        <div class="card">
-            <span class="section-label">⚡ On-Demand Lead Generation Engine</span>
-            <p class="sub" style="margin-bottom: 16px;">Trigger instant Gemini crawls and real enrichment waterfalls on the fly.</p>
+        <!-- On-Demand Lead Generation Card -->
+        <div class="bg-cardbg/80 backdrop-blur-xl border border-sky-500/20 p-8 rounded-2xl shadow-2xl">
+            <span class="block text-xs font-bold uppercase tracking-wider text-accent mb-1">⚡ On-Demand Lead Generation Engine</span>
+            <p class="text-xs text-slate-400 mb-4">Trigger instant Gemini crawls and real enrichment waterfalls on the fly.</p>
             
-            <div class="form-group">
-                <label for="onDemandQuery">Custom Lead Generation Query / Niche</label>
-                <input type="text" id="onDemandQuery" placeholder="e.g., Enterprise cybersecurity startups in San Francisco..." />
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                <div class="md:col-span-2">
+                    <label class="block text-xs font-bold uppercase text-slate-400 mb-2">Custom Lead Generation Query / Niche</label>
+                    <input type="text" id="onDemandQuery" placeholder="e.g., Enterprise cybersecurity startups in San Francisco..." class="bg-inputbg border border-slate-700 rounded-lg px-3 py-2.5 text-xs w-full focus:outline-none focus:border-accent">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold uppercase text-slate-400 mb-2">Number of Leads (1-25)</label>
+                    <input type="number" id="onDemandCount" value="10" min="1" max="25" class="bg-inputbg border border-slate-700 rounded-lg px-3 py-2.5 text-xs w-full focus:outline-none focus:border-accent">
+                </div>
             </div>
-            <div class="form-group">
-                <label for="onDemandCount">Number of Leads (1-25)</label>
-                <input type="number" id="onDemandCount" value="10" min="1" max="25" />
-            </div>
-            <button onclick="triggerOnDemandGeneration()">Generate Fresh Leads Instantly</button>
-            <div id="onDemandResult" style="margin-top: 12px; font-size: 13px; color: var(--text-muted);"></div>
+            <button onclick="triggerOnDemandGeneration()" class="bg-accent hover:bg-accentHover text-slate-950 font-bold px-6 py-2.5 rounded-lg text-xs transition">Generate Fresh Leads Instantly</button>
+            <div id="onDemandResult" class="mt-3 text-xs text-slate-400"></div>
         </div>
 
-        <div class="card">
-            <span class="section-label">🔌 Native CRM & Data Warehouse Destinations</span>
-            <p class="sub" style="margin-bottom: 16px;">Connect HubSpot, Salesforce, Snowflake, or Slack with one click.</p>
+        <!-- CRM & Destinations Card -->
+        <div class="bg-cardbg/80 backdrop-blur-xl border border-sky-500/20 p-8 rounded-2xl shadow-2xl">
+            <span class="block text-xs font-bold uppercase tracking-wider text-accent mb-1">🔌 Native CRM & Data Warehouse Destinations</span>
+            <p class="text-xs text-slate-400 mb-4">Connect HubSpot, Salesforce, Snowflake, or Slack with one click.</p>
             
-            <div class="grid-2">
-                <div class="form-group">
-                    <label for="destType">Destination Type</label>
-                    <select id="destType">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div>
+                    <label class="block text-xs font-bold uppercase text-slate-400 mb-2">Destination Type</label>
+                    <select id="destType" class="bg-inputbg border border-slate-700 rounded-lg p-2.5 text-xs w-full">
                         <option value="hubspot">HubSpot CRM</option>
                         <option value="salesforce">Salesforce</option>
                         <option value="snowflake">Snowflake Warehouse</option>
                         <option value="slack">Slack Alert Channel</option>
                     </select>
                 </div>
-                <div class="form-group">
-                    <label for="destWebhookUrl">Webhook / API Endpoint URL</label>
-                    <input type="text" id="destWebhookUrl" placeholder="https://api.hubspot.com/crm/v3/objects/contacts" />
+                <div>
+                    <label class="block text-xs font-bold uppercase text-slate-400 mb-2">Webhook / API Endpoint URL</label>
+                    <input type="text" id="destWebhookUrl" placeholder="https://api.hubspot.com/crm/v3/objects/contacts" class="bg-inputbg border border-slate-700 rounded-lg px-3 py-2.5 text-xs w-full focus:outline-none focus:border-accent">
                 </div>
             </div>
-            <div class="form-group">
-                <label for="destToken">Access Token / Bearer Key (Optional)</label>
-                <input type="password" id="destToken" placeholder="pat-na1-..." />
+            <div class="mb-4">
+                <label class="block text-xs font-bold uppercase text-slate-400 mb-2">Access Token / Bearer Key (Optional)</label>
+                <input type="password" id="destToken" placeholder="pat-na1-..." class="bg-inputbg border border-slate-700 rounded-lg px-3 py-2.5 text-xs w-full focus:outline-none focus:border-accent">
             </div>
-            <button class="btn-secondary" onclick="registerDestination()">Connect Destination</button>
-            <div id="destinationList" style="margin-top: 12px; font-size: 13px; color: var(--text-muted);"></div>
+            <button class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-accent font-bold px-5 py-2.5 rounded-lg text-xs transition" onclick="registerDestination()">Connect Destination</button>
+            <div id="destinationList" class="mt-3 text-xs text-slate-400"></div>
         </div>
 
-        <div class="card">
-            <span class="section-label">🎯 Target ICP Profile Settings</span>
-            <p class="sub" style="margin-bottom: 16px;">Configure your custom Ideal Customer Profile parameters for tailored lead filtering.</p>
+        <!-- ICP Profile Settings Card -->
+        <div class="bg-cardbg/80 backdrop-blur-xl border border-sky-500/20 p-8 rounded-2xl shadow-2xl">
+            <span class="block text-xs font-bold uppercase tracking-wider text-accent mb-1">🎯 Target ICP Profile Settings</span>
+            <p class="text-xs text-slate-400 mb-4">Configure your custom Ideal Customer Profile parameters for tailored lead filtering.</p>
             
-            <div class="grid-2">
-                <div class="form-group">
-                    <label for="targetIndustries">Target Industries</label>
-                    <input type="text" id="targetIndustries" placeholder="e.g., Fintech, AI, SaaS" />
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div>
+                    <label class="block text-xs font-bold uppercase text-slate-400 mb-2">Target Industries</label>
+                    <input type="text" id="targetIndustries" placeholder="e.g., Fintech, AI, SaaS" class="bg-inputbg border border-slate-700 rounded-lg px-3 py-2.5 text-xs w-full focus:outline-none focus:border-accent">
                 </div>
-                <div class="form-group">
-                    <label for="minTrustScore">Minimum Trust Score (0-100)</label>
-                    <input type="number" id="minTrustScore" value="85" min="0" max="100" />
+                <div>
+                    <label class="block text-xs font-bold uppercase text-slate-400 mb-2">Minimum Trust Score (0-100)</label>
+                    <input type="number" id="minTrustScore" value="85" min="0" max="100" class="bg-inputbg border border-slate-700 rounded-lg px-3 py-2.5 text-xs w-full focus:outline-none focus:border-accent">
                 </div>
             </div>
-            <button class="btn-secondary" onclick="saveICPProfile()" style="margin-bottom: 24px;">Save ICP Profile Configuration</button>
+            <button class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-accent font-bold px-5 py-2.5 rounded-lg text-xs transition mb-6" onclick="saveICPProfile()">Save ICP Profile Configuration</button>
 
-            <span class="section-label">✨ Semantic Vector Search</span>
-            <div style="display: flex; gap: 10px; margin-bottom: 16px;">
-                <input type="text" id="semanticQueryInput" placeholder="Describe your ideal company (e.g., cloud security platforms)..." style="margin-bottom: 0;" />
-                <button onclick="runSemanticSearch()" style="width: auto; padding: 0 24px;">Search AI</button>
+            <span class="block text-xs font-bold uppercase tracking-wider text-accent mb-2">✨ Semantic Vector Search</span>
+            <div class="flex gap-2 mb-4">
+                <input type="text" id="semanticQueryInput" placeholder="Describe your ideal company (e.g., cloud security platforms)..." class="bg-inputbg border border-slate-700 rounded-lg px-3 py-2.5 text-xs flex-grow focus:outline-none focus:border-accent">
+                <button onclick="runSemanticSearch()" class="bg-accent hover:bg-accentHover text-slate-950 font-bold px-5 py-2.5 rounded-lg text-xs transition">Search AI</button>
             </div>
-            <div id="semanticResultsContainer" style="display: none;">
-                <span class="section-label" style="color: var(--accent-cyan); margin-bottom: 8px;">Matching Vector Leads</span>
-                <div id="semanticResultsList" style="display: flex; flex-direction: column; gap: 8px;"></div>
+            <div id="semanticResultsContainer" class="hidden">
+                <span class="block text-xs font-bold text-accent mb-2">Matching Vector Leads</span>
+                <div id="semanticResultsList" class="flex flex-col gap-2"></div>
             </div>
         </div>
 
-        <div class="card">
-            <span class="section-label">Live Lead Feed & Strategic Intelligence Explorer</span>
-            <p class="sub" style="margin-bottom: 16px;">High-value anchor accounts verified with multi-stage enrichment waterfall.</p>
-            
-            <div id="leadFeedContainer">
-                <div class="skeleton" style="width: 100%; height: 80px;"></div>
-                <div class="skeleton" style="width: 100%; height: 80px;"></div>
-            </div>
-
-            <hr class="divider">
-
-            <span class="section-label">Multi-Key Management & Team Workspaces</span>
-            <div class="grid-2" style="margin-bottom: 16px;">
-                <div class="form-group" style="margin-bottom: 0;">
-                    <label for="newKeyName">Key Label / Member Email</label>
-                    <input type="text" id="newKeyName" placeholder="e.g. sdr-john@company.com" />
-                </div>
-                <div class="form-group" style="margin-bottom: 0;">
-                    <label for="newKeyRole">Workspace Role</label>
-                    <select id="newKeyRole">
-                        <option value="sdr">Role: SDR (Ingest & Train)</option>
-                        <option value="viewer">Role: Viewer (Read-Only)</option>
-                        <option value="admin">Role: Admin (Full Access)</option>
-                    </select>
+        <!-- Live Lead Feed & Team Workspace Management -->
+        <div class="bg-cardbg/80 backdrop-blur-xl border border-sky-500/20 p-8 rounded-2xl shadow-2xl space-y-6">
+            <div>
+                <span class="block text-xs font-bold uppercase tracking-wider text-accent mb-1">Live Lead Feed & Strategic Intelligence Explorer</span>
+                <p class="text-xs text-slate-400 mb-4">High-value anchor accounts verified with multi-stage enrichment waterfall.</p>
+                <div id="leadFeedContainer" class="space-y-3">
+                    <div class="bg-slate-900 border border-slate-800 p-4 rounded-xl animate-pulse h-20"></div>
+                    <div class="bg-slate-900 border border-slate-800 p-4 rounded-xl animate-pulse h-20"></div>
                 </div>
             </div>
-            <button class="btn-secondary" onclick="createNewKey()" style="margin-bottom: 16px;">Invite Team Member & Generate Key</button>
-            <div id="keyList" style="color: var(--text-muted); font-size: 13px;">Authenticate to load active API keys.</div>
+
+            <hr class="border-slate-800">
+
+            <div>
+                <span class="block text-xs font-bold uppercase tracking-wider text-accent mb-3">Multi-Key Management & Team Workspaces</span>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label class="block text-xs font-bold uppercase text-slate-400 mb-2">Key Label / Member Email</label>
+                        <input type="text" id="newKeyName" placeholder="e.g. sdr-john@company.com" class="bg-inputbg border border-slate-700 rounded-lg px-3 py-2.5 text-xs w-full focus:outline-none focus:border-accent">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold uppercase text-slate-400 mb-2">Workspace Role</label>
+                        <select id="newKeyRole" class="bg-inputbg border border-slate-700 rounded-lg p-2.5 text-xs w-full">
+                            <option value="sdr">Role: SDR (Ingest & Train)</option>
+                            <option value="viewer">Role: Viewer (Read-Only)</option>
+                            <option value="admin">Role: Admin (Full Access)</option>
+                        </select>
+                    </div>
+                </div>
+                <button class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-accent font-bold px-5 py-2.5 rounded-lg text-xs transition mb-4" onclick="createNewKey()">Invite Team Member & Generate Key</button>
+                <div id="keyList" class="text-xs text-slate-400">Authenticate to load active API keys.</div>
+            </div>
         </div>
 
-        <div class="card">
-            <span class="section-label">Outbound Webhook Dispatcher & Filters</span>
-            <p class="sub" style="margin-bottom: 16px;">Configure your endpoint receiver and JSON filter rules.</p>
+        <!-- Outbound Webhook Dispatcher Card -->
+        <div class="bg-cardbg/80 backdrop-blur-xl border border-sky-500/20 p-8 rounded-2xl shadow-2xl">
+            <span class="block text-xs font-bold uppercase tracking-wider text-accent mb-1">Outbound Webhook Dispatcher & Filters</span>
+            <p class="text-xs text-slate-400 mb-4">Configure your endpoint receiver and JSON filter rules.</p>
             
-            <div class="form-group">
-                <label for="webhookUrl">Destination URL</label>
-                <input type="text" id="webhookUrl" placeholder="https://your-server.com/webhook-receiver" />
+            <div class="space-y-4 mb-4">
+                <div>
+                    <label class="block text-xs font-bold uppercase text-slate-400 mb-2">Destination URL</label>
+                    <input type="text" id="webhookUrl" placeholder="https://your-server.com/webhook-receiver" class="bg-inputbg border border-slate-700 rounded-lg px-3 py-2.5 text-xs w-full focus:outline-none focus:border-accent">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold uppercase text-slate-400 mb-2">Filter Rules (JSON)</label>
+                    <input type="text" id="webhookRules" value='{"min_trust_score": 85, "industries": ["Fintech"]}' class="bg-inputbg border border-slate-700 rounded-lg px-3 py-2.5 text-xs w-full focus:outline-none focus:border-accent font-mono">
+                </div>
             </div>
-            
-            <div class="form-group">
-                <label for="webhookRules">Filter Rules (JSON)</label>
-                <input type="text" id="webhookRules" value='{"min_trust_score": 85, "industries": ["Fintech"]}' />
+            <div class="flex gap-3">
+                <button class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-accent font-bold px-4 py-2.5 rounded-lg text-xs transition" onclick="registerWebhook()">Register Webhook & Rules</button>
+                <button class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-accent font-bold px-4 py-2.5 rounded-lg text-xs transition" onclick="fetchWebhookLogs()">View Recent Delivery Logs</button>
             </div>
+        </div>
 
-            <div class="grid-2" style="gap: 12px;">
-                <button class="btn-secondary" onclick="registerWebhook()">Register Webhook & Rules</button>
-                <button class="btn-secondary" onclick="fetchWebhookLogs()">View Recent Delivery Logs</button>
+    </div>
+
+    <!-- AI Email Draft Modal -->
+    <div id="emailModal" class="hidden fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex justify-center items-center p-4">
+        <div class="bg-cardbg border border-sky-500/40 p-6 rounded-2xl max-w-xl w-full shadow-2xl">
+            <span class="text-xs font-bold uppercase tracking-wider text-accent block mb-3">✨ AI Personalized Cold Email Draft</span>
+            <pre class="bg-inputbg p-4 rounded-xl border border-slate-800 text-xs text-accent font-mono whitespace-pre-wrap max-h-80 overflow-y-auto mb-4" id="emailModalContent">Generating email via Gemini...</pre>
+            <div class="flex gap-3">
+                <button onclick="copyDraftEmail()" class="bg-accent hover:bg-accentHover text-slate-950 font-bold px-4 py-2 rounded-lg text-xs transition">Copy to Clipboard</button>
+                <button class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 font-bold px-4 py-2 rounded-lg text-xs transition" onclick="closeEmailModal()">Close</button>
             </div>
         </div>
     </div>
 
-    <div id="emailModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 10000; justify-content: center; align-items: center;">
-        <div style="background: var(--bg-card); border: 1px solid var(--accent-cyan); padding: 24px; border-radius: 12px; width: 90%; max-width: 600px; position: relative;">
-            <span class="section-label" style="color: var(--accent-cyan); margin-bottom: 12px;">✨ AI Personalized Cold Email Draft</span>
-            <pre style="background: var(--bg-input); padding: 16px; border-radius: 8px; border: 1px solid var(--border-color); white-space: pre-wrap; font-family: monospace; font-size: 13px; max-height: 350px; overflow-y: auto;" id="emailModalContent">Generating email via Gemini...</pre>
-            <div style="display: flex; gap: 10px; margin-top: 16px;">
-                <button onclick="copyDraftEmail()">Copy to Clipboard</button>
-                <button class="btn-secondary" onclick="closeEmailModal()">Close</button>
-            </div>
-        </div>
-    </div>
-
+    <!-- Frontend Controller Script -->
     <script>
         let usageChartInstance = null;
 
@@ -706,30 +304,33 @@ print(res.json())</code></pre>
         function showToast(message) {
             const container = document.getElementById('toastContainer');
             const toast = document.createElement('div');
-            toast.className = 'toast';
+            toast.className = 'bg-cardbg border border-sky-500 text-slate-100 px-4 py-3 rounded-xl text-xs font-semibold shadow-2xl flex items-center gap-2 animate-bounce';
             toast.innerHTML = `✅ <span>${message}</span>`;
             container.appendChild(toast);
             setTimeout(() => toast.remove(), 3000);
         }
 
         function switchTab(tabName) {
-            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(b => {
+                b.classList.remove('active', 'bg-sky-500/10', 'text-accent', 'border', 'border-sky-500/30');
+                b.classList.add('text-slate-400');
+            });
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
+            
             if (tabName === 'overview') {
-                document.querySelectorAll('.tab-btn')[0].classList.add('active');
-                document.getElementById('tabOverview').classList.add('active');
+                event.target.classList.add('active', 'bg-sky-500/10', 'text-accent', 'border', 'border-sky-500/30');
+                event.target.classList.remove('text-slate-400');
+                document.getElementById('tabOverview').classList.remove('hidden');
             } else {
-                document.querySelectorAll('.tab-btn')[1].classList.add('active');
-                document.getElementById('tabSandbox').classList.add('active');
+                event.target.classList.add('active', 'bg-sky-500/10', 'text-accent', 'border', 'border-sky-500/30');
+                event.target.classList.remove('text-slate-400');
+                document.getElementById('tabSandbox').classList.remove('hidden');
             }
         }
 
         async function requestMagicLink() {
             const email = document.getElementById('magicEmail').value.trim();
-            if (!email) {
-                alert("Please enter your email address.");
-                return;
-            }
+            if (!email) { alert("Please enter your email address."); return; }
             try {
                 const res = await fetch('/api/v1/auth/request-magic-link', {
                     method: 'POST',
@@ -737,14 +338,9 @@ print(res.json())</code></pre>
                     body: JSON.stringify({ email })
                 });
                 const data = await res.json();
-                if (res.ok) {
-                    showToast(data.message || "Magic link sent to email!");
-                } else {
-                    alert(data.detail || "Failed to send magic link.");
-                }
-            } catch (err) {
-                alert("Request failed.");
-            }
+                if (res.ok) { showToast(data.message || "Magic link sent to email!"); }
+                else { alert(data.detail || "Failed to send magic link."); }
+            } catch (err) { alert("Request failed."); }
         }
 
         async function runSandboxRequest() {
@@ -753,10 +349,7 @@ print(res.json())</code></pre>
             const limit = document.getElementById('sandboxLimit').value;
             const output = document.getElementById('sandboxResponseOutput');
 
-            if (!apiKey) {
-                alert("Please enter your API key in the Command Center tab first.");
-                return;
-            }
+            if (!apiKey) { alert("Please enter your API key in the Command Center tab first."); return; }
 
             const fullUrl = `https://nexus-core-yfou.onrender.com${endpoint}?limit=${limit}`;
             document.getElementById('curlSnippet').innerText = `curl -X GET "${fullUrl}" \\\n  -H "x-api-key: ${apiKey}"`;
@@ -776,14 +369,11 @@ print(res.json())</code></pre>
 
         async function draftAIEmail(leadId) {
             const apiKey = document.getElementById('apiKey').value.trim();
-            if (!apiKey) {
-                alert("Please authenticate first.");
-                return;
-            }
+            if (!apiKey) { alert("Please authenticate first."); return; }
 
             const modal = document.getElementById('emailModal');
             const content = document.getElementById('emailModalContent');
-            modal.style.display = 'flex';
+            modal.classList.remove('hidden');
             content.innerText = "Generating personalized cold email via Gemini agent...";
 
             try {
@@ -792,23 +382,16 @@ print(res.json())</code></pre>
                     headers: { 'x-api-key': apiKey }
                 });
                 const data = await res.json();
-                if (res.ok) {
-                    content.innerText = data.drafted_email;
-                } else {
-                    content.innerText = `Error: ${data.detail || "Failed to generate email."}`;
-                }
+                if (res.ok) { content.innerText = data.drafted_email; }
+                else { content.innerText = `Error: ${data.detail || "Failed to generate email."}`; }
             } catch (err) {
                 content.innerText = `Request failed: ${err.message}`;
             }
         }
 
-        function closeEmailModal() {
-            document.getElementById('emailModal').style.display = 'none';
-        }
-
+        function closeEmailModal() { document.getElementById('emailModal').classList.add('hidden'); }
         function copyDraftEmail() {
-            const text = document.getElementById('emailModalContent').innerText;
-            navigator.clipboard.writeText(text);
+            navigator.clipboard.writeText(document.getElementById('emailModalContent').innerText);
             showToast("Cold email copied to clipboard!");
         }
 
@@ -818,13 +401,10 @@ print(res.json())</code></pre>
             const statusDiv = document.getElementById('status');
             const usageBar = document.getElementById('usageBar');
 
-            if (!apiKey) {
-                alert("Please enter a valid API key.");
-                return;
-            }
+            if (!apiKey) { alert("Please enter a valid API key."); return; }
 
             localStorage.setItem('nexus_api_key', apiKey);
-            leadFeedContainer.innerHTML = '<div class="skeleton" style="width: 100%; height: 80px;"></div><div class="skeleton" style="width: 100%; height: 80px;"></div>';
+            leadFeedContainer.innerHTML = '<div class="bg-slate-900 border border-slate-800 p-4 rounded-xl animate-pulse h-20"></div><div class="bg-slate-900 border border-slate-800 p-4 rounded-xl animate-pulse h-20"></div>';
             statusDiv.innerText = "Syncing with cluster...";
 
             try {
@@ -843,7 +423,7 @@ print(res.json())</code></pre>
 
                 const data = await response.json();
                 if (!response.ok) {
-                    leadFeedContainer.innerHTML = `<pre style="color: var(--danger);">Error (${response.status}):\n` + JSON.stringify(data, null, 2) + `</pre>`;
+                    leadFeedContainer.innerHTML = `<pre class="text-rose-400">Error (${response.status}):\n` + JSON.stringify(data, null, 2) + `</pre>`;
                     return;
                 }
 
@@ -859,30 +439,22 @@ print(res.json())</code></pre>
                 loadDestinations(apiKey);
                 showToast("Successfully authenticated & telemetry loaded!");
             } catch (err) {
-                leadFeedContainer.innerHTML = `<p style="color: var(--danger);">Request failed: ${err.message}</p>`;
+                leadFeedContainer.innerHTML = `<p class="text-rose-400">Request failed: ${err.message}</p>`;
             }
         }
 
         async function openBillingPortal() {
             const apiKey = document.getElementById('apiKey').value.trim();
-            if (!apiKey) {
-                alert("Please authenticate with your API key first.");
-                return;
-            }
+            if (!apiKey) { alert("Please authenticate with your API key first."); return; }
             const email = prompt("Enter your account email address to open Stripe Billing Portal:");
             if (!email) return;
 
             try {
                 const res = await fetch(`/create-portal-session?email=${encodeURIComponent(email)}`, { method: 'POST' });
                 const data = await res.json();
-                if (res.ok && data.portal_url) {
-                    window.location.href = data.portal_url;
-                } else {
-                    alert(data.detail || "Failed to create portal session.");
-                }
-            } catch (err) {
-                alert("Request failed.");
-            }
+                if (res.ok && data.portal_url) { window.location.href = data.portal_url; }
+                else { alert(data.detail || "Failed to create portal session."); }
+            } catch (err) { alert("Request failed."); }
         }
 
         async function loadCredits(apiKey) {
@@ -892,9 +464,7 @@ print(res.json())</code></pre>
                 if (res.ok) {
                     document.getElementById('creditStatus').innerText = `Lead Credits Remaining: ${data.credits_remaining} / ${data.credits_limit}`;
                 }
-            } catch (e) {
-                console.error("Failed to load credits", e);
-            }
+            } catch (e) { console.error("Failed to load credits", e); }
         }
 
         async function triggerOnDemandGeneration() {
@@ -903,12 +473,9 @@ print(res.json())</code></pre>
             const count = parseInt(document.getElementById('onDemandCount').value) || 10;
             const resDiv = document.getElementById('onDemandResult');
 
-            if (!apiKey || !query) {
-                alert("Please authenticate and enter a custom generation query.");
-                return;
-            }
+            if (!apiKey || !query) { alert("Please authenticate and enter a custom generation query."); return; }
 
-            resDiv.style.color = "var(--accent-cyan)";
+            resDiv.className = "mt-3 text-xs text-accent font-semibold";
             resDiv.innerText = "Crawling Gemini agents & running enrichment waterfall...";
 
             try {
@@ -919,16 +486,16 @@ print(res.json())</code></pre>
                 });
                 const data = await res.json();
                 if (res.ok) {
-                    resDiv.style.color = "var(--success)";
+                    resDiv.className = "mt-3 text-xs text-emerald-400 font-semibold";
                     resDiv.innerText = `Successfully generated ${data.leads_generated} fresh leads! Credits remaining: ${data.credits_remaining}`;
                     showToast("Fresh leads generated successfully!");
                     saveAndFetch();
                 } else {
-                    resDiv.style.color = "var(--danger)";
+                    resDiv.className = "mt-3 text-xs text-rose-400 font-semibold";
                     resDiv.innerText = data.detail || "Generation failed.";
                 }
             } catch (err) {
-                resDiv.style.color = "var(--danger)";
+                resDiv.className = "mt-3 text-xs text-rose-400 font-semibold";
                 resDiv.innerText = "Request failed.";
             }
         }
@@ -939,10 +506,7 @@ print(res.json())</code></pre>
             const webhook_url = document.getElementById('destWebhookUrl').value.trim();
             const access_token = document.getElementById('destToken').value.trim();
 
-            if (!apiKey || !webhook_url) {
-                alert("Please provide an endpoint URL.");
-                return;
-            }
+            if (!apiKey || !webhook_url) { alert("Please provide an endpoint URL."); return; }
 
             try {
                 const res = await fetch('/api/v1/destinations', {
@@ -954,12 +518,8 @@ print(res.json())</code></pre>
                 if (res.ok) {
                     showToast(data.message || "Destination connected.");
                     loadDestinations(apiKey);
-                } else {
-                    alert(data.detail || "Failed to connect destination.");
-                }
-            } catch (err) {
-                alert("Error connecting destination.");
-            }
+                } else { alert(data.detail || "Failed to connect destination."); }
+            } catch (err) { alert("Error connecting destination."); }
         }
 
         async function loadDestinations(apiKey) {
@@ -969,22 +529,16 @@ print(res.json())</code></pre>
                 const container = document.getElementById('destinationList');
                 if (data.destinations && data.destinations.length > 0) {
                     let html = 'Connected Destinations: ';
-                    data.destinations.forEach(d => {
-                        html += `[${d.destination_type.toUpperCase()}] `;
-                    });
+                    data.destinations.forEach(d => { html += `[${d.destination_type.toUpperCase()}] `; });
                     container.innerHTML = html;
-                } else {
-                    container.innerHTML = 'No native CRM destinations connected.';
-                }
-            } catch (e) {
-                console.error("Failed to load destinations", e);
-            }
+                } else { container.innerHTML = 'No native CRM destinations connected.'; }
+            } catch (e) { console.error("Failed to load destinations", e); }
         }
 
         function renderLeadFeed(leads) {
             const container = document.getElementById('leadFeedContainer');
             if (!leads || leads.length === 0) {
-                container.innerHTML = '<p style="color: var(--text-muted);">No leads ingested yet.</p>';
+                container.innerHTML = '<p class="text-slate-400 text-xs">No leads ingested yet.</p>';
                 return;
             }
 
@@ -995,29 +549,29 @@ print(res.json())</code></pre>
                 const intent = lead.intent_signals || 'High hiring velocity in engineering';
 
                 html += `
-                    <div class="lead-card">
-                        <div class="lead-header">
-                            <span class="lead-title">
+                    <div class="bg-inputbg border border-slate-800 p-4 rounded-xl flex flex-col gap-3 hover:border-sky-500/40 transition">
+                        <div class="flex justify-between items-center">
+                            <span class="font-bold text-sm text-white flex items-center gap-2">
                                 ${escapeHtml(lead.company_name)} 
-                                <span class="badge-trust">Trust: ${trust}/100</span>
+                                <span class="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] px-2 py-0.5 rounded font-bold uppercase">Trust: ${trust}/100</span>
                             </span>
-                            <span style="color: var(--accent-cyan); font-size: 12px; font-weight: 600;">${escapeHtml(lead.domain)}</span>
+                            <span class="text-accent text-xs font-semibold">${escapeHtml(lead.domain)}</span>
                         </div>
-                        <div class="pill-container">
-                            <span class="meta-pill">Industry: <strong>${escapeHtml(lead.industry)}</strong></span>
-                            <span class="meta-pill">Size: <strong>${escapeHtml(lead.employee_count)}</strong></span>
-                            <span class="meta-pill">Stack: <strong>${escapeHtml(lead.tech_stack || 'Python, PostgreSQL')}</strong></span>
-                            <span class="meta-pill">Stage: <strong>${escapeHtml(lead.funding_stage || 'Series A')}</strong></span>
-                            <span class="meta-pill" style="color: var(--success);"><strong>${emailStatus}</strong></span>
+                        <div class="flex flex-wrap gap-2 text-xs">
+                            <span class="bg-slate-900 border border-slate-800 px-2.5 py-1 rounded text-slate-300">Industry: <strong class="text-white">${escapeHtml(lead.industry)}</strong></span>
+                            <span class="bg-slate-900 border border-slate-800 px-2.5 py-1 rounded text-slate-300">Size: <strong class="text-white">${escapeHtml(lead.employee_count)}</strong></span>
+                            <span class="bg-slate-900 border border-slate-800 px-2.5 py-1 rounded text-slate-300 font-mono">Stack: <strong class="text-white">${escapeHtml(lead.tech_stack || 'Python, PostgreSQL')}</strong></span>
+                            <span class="bg-slate-900 border border-slate-800 px-2.5 py-1 rounded text-slate-300">Stage: <strong class="text-white">${escapeHtml(lead.funding_stage || 'Series A')}</strong></span>
+                            <span class="bg-slate-900 border border-slate-800 px-2.5 py-1 rounded text-emerald-400 font-semibold">${emailStatus}</span>
                         </div>
-                        <div class="strategic-insight">
-                            🔥 <strong>Intent Signal:</strong> ${escapeHtml(intent)}
+                        <div class="bg-sky-500/5 border-l-2 border-accent p-2.5 rounded-r-lg text-xs text-slate-300">
+                            🔥 <strong class="text-white">Intent Signal:</strong> ${escapeHtml(intent)}
                         </div>
-                        <div class="feedback-actions">
-                            <button class="feedback-btn" style="background: rgba(56,189,248,0.1); color: var(--accent-cyan);" onclick="draftAIEmail(${lead.id})">✨ Draft AI Email</button>
-                            <button class="feedback-btn" onclick="submitFeedback(${lead.id}, 'converted')">🚀 Mark Converted</button>
-                            <button class="feedback-btn" onclick="submitFeedback(${lead.id}, 'qualified')">⭐ Qualified</button>
-                            <button class="feedback-btn" onclick="submitFeedback(${lead.id}, 'disqualified')">❌ Disqualified</button>
+                        <div class="flex flex-wrap gap-2 mt-1">
+                            <button class="bg-sky-500/10 hover:bg-sky-500/20 text-accent border border-sky-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition" onclick="draftAIEmail(${lead.id})">✨ Draft AI Email</button>
+                            <button class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 px-3 py-1.5 rounded-lg text-xs font-semibold transition" onclick="submitFeedback(${lead.id}, 'converted')">🚀 Mark Converted</button>
+                            <button class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 px-3 py-1.5 rounded-lg text-xs font-semibold transition" onclick="submitFeedback(${lead.id}, 'qualified')">⭐ Qualified</button>
+                            <button class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 px-3 py-1.5 rounded-lg text-xs font-semibold transition" onclick="submitFeedback(${lead.id}, 'disqualified')">❌ Disqualified</button>
                         </div>
                     </div>
                 `;
@@ -1036,14 +590,9 @@ print(res.json())</code></pre>
                     body: JSON.stringify({ feedback_status: status })
                 });
                 const data = await res.json();
-                if (res.ok) {
-                    showToast(`Feedback '${status}' recorded successfully!`);
-                } else {
-                    alert(data.detail || "Failed to submit feedback.");
-                }
-            } catch (err) {
-                alert("Error recording feedback.");
-            }
+                if (res.ok) { showToast(`Feedback '${status}' recorded successfully!`); }
+                else { alert(data.detail || "Failed to submit feedback."); }
+            } catch (err) { alert("Error recording feedback."); }
         }
 
         async function loadICPProfile(apiKey) {
@@ -1061,9 +610,7 @@ print(res.json())</code></pre>
                     document.getElementById('webhookRules').value = syncedRules;
                     localStorage.setItem('nexus_webhook_rules', syncedRules);
                 }
-            } catch (e) {
-                console.error("Failed to load ICP profile", e);
-            }
+            } catch (e) { console.error("Failed to load ICP profile", e); }
         }
 
         async function saveICPProfile() {
@@ -1071,10 +618,7 @@ print(res.json())</code></pre>
             const target_industries = document.getElementById('targetIndustries').value.trim();
             const min_trust_score = parseInt(document.getElementById('minTrustScore').value) || 85;
 
-            if (!apiKey) {
-                alert("Please authenticate with your API key first.");
-                return;
-            }
+            if (!apiKey) { alert("Please authenticate with your API key first."); return; }
 
             try {
                 const res = await fetch('/api/v1/icp', {
@@ -1084,19 +628,14 @@ print(res.json())</code></pre>
                 });
                 const data = await res.json();
                 showToast(data.message || "ICP profile saved successfully.");
-            } catch (err) {
-                alert("Failed to save ICP profile.");
-            }
+            } catch (err) { alert("Failed to save ICP profile."); }
         }
 
         async function runSemanticSearch() {
             const query = document.getElementById('semanticQueryInput').value.trim();
             const apiKey = document.getElementById('apiKey').value.trim();
             
-            if (!apiKey || !query) {
-                alert("Please authenticate and enter a query.");
-                return;
-            }
+            if (!apiKey || !query) { alert("Please authenticate and enter a query."); return; }
 
             try {
                 const response = await fetch(`/api/v1/leads/semantic-search?query=${encodeURIComponent(query)}&limit=5`, {
@@ -1109,29 +648,27 @@ print(res.json())</code></pre>
                 list.innerHTML = '';
 
                 if (data.status === 'success' && data.leads && data.leads.length > 0) {
-                    container.style.display = 'block';
+                    container.classList.remove('hidden');
                     data.leads.forEach((lead) => {
                         const similarityPercent = Math.min(98, Math.max(78, Math.round((lead.similarity || 0.9) * 100 * 15)));
                         list.innerHTML += `
-                            <div style="background: var(--bg-input); border: 1px solid var(--border-color); padding: 12px 16px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; font-size: 13px;">
+                            <div class="bg-inputbg border border-slate-800 p-3 rounded-lg flex justify-between items-center text-xs">
                                 <div>
-                                    <span style="color: #fff; font-weight: bold;">${escapeHtml(lead.company_name)}</span>
-                                    <span style="color: var(--text-muted); font-size: 11px; margin-left: 6px;">(${escapeHtml(lead.industry)})</span>
-                                    <div style="color: var(--accent-cyan); font-size: 11px; margin-top: 2px;">Domain: ${escapeHtml(lead.domain)} | Intent: ${escapeHtml(lead.intent_signals || 'N/A')}</div>
+                                    <span class="text-white font-bold">${escapeHtml(lead.company_name)}</span>
+                                    <span class="text-slate-400 text-[11px] ml-1.5">(${escapeHtml(lead.industry)})</span>
+                                    <div class="text-accent text-[11px] mt-0.5">Domain: ${escapeHtml(lead.domain)} | Intent: ${escapeHtml(lead.intent_signals || 'N/A')}</div>
                                 </div>
-                                <span style="background: rgba(14, 165, 233, 0.1); color: var(--accent-cyan); font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(14, 165, 233, 0.3);">
+                                <span class="bg-sky-500/10 text-accent font-bold px-2.5 py-1 rounded-md border border-sky-500/30 text-[11px]">
                                     ${similarityPercent}% Match
                                 </span>
                             </div>
                         `;
                     });
                 } else {
-                    container.style.display = 'block';
-                    list.innerHTML = '<p style="color: var(--text-muted); font-size: 12px; margin: 0;">No matching semantic leads found.</p>';
+                    container.classList.remove('hidden');
+                    list.innerHTML = '<p class="text-slate-400 text-xs">No matching semantic leads found.</p>';
                 }
-            } catch (err) {
-                alert("Failed to execute semantic search.");
-            }
+            } catch (err) { alert("Failed to execute semantic search."); }
         }
 
         async function loadUsageChart(apiKey) {
@@ -1172,9 +709,7 @@ print(res.json())</code></pre>
                         }
                     }
                 });
-            } catch (e) {
-                console.error("Failed to load usage chart", e);
-            }
+            } catch (e) { console.error("Failed to load usage chart", e); }
         }
 
         async function loadKeys(apiKey) {
@@ -1188,23 +723,19 @@ print(res.json())</code></pre>
                     data.keys.forEach(k => {
                         if (k.active === 1) {
                             html += `
-                                <div class="key-item">
-                                    <div class="key-info">
-                                        <span class="key-name">${escapeHtml(k.key_name)} <span style="font-size:10px; color:var(--accent-cyan); background:rgba(56,189,248,0.1); padding:2px 6px; border-radius:4px; margin-left:6px;">Role: ${k.role || 'admin'}</span> (ID: ${k.id})</span>
-                                        <span class="key-meta">Created: ${k.created_at || 'N/A'}</span>
+                                <div class="bg-inputbg border border-slate-800 p-3 rounded-lg flex justify-between items-center text-xs mb-2">
+                                    <div class="flex flex-col">
+                                        <span class="font-bold text-white">${escapeHtml(k.key_name)} <span class="text-[10px] text-accent bg-sky-500/10 px-1.5 py-0.5 rounded ml-1.5">Role: ${k.role || 'admin'}</span> (ID: ${k.id})</span>
+                                        <span class="text-slate-400 text-[11px] mt-0.5">Created: ${k.created_at || 'N/A'}</span>
                                     </div>
-                                    <button class="revoke-btn" onclick="revokeKey(${k.id})">Revoke</button>
+                                    <button class="bg-rose-500/10 hover:bg-rose-500 text-rose-400 hover:text-white border border-rose-500/30 px-3 py-1 rounded text-xs font-semibold transition" onclick="revokeKey(${k.id})">Revoke</button>
                                 </div>
                             `;
                         }
                     });
                     keyListContainer.innerHTML = html || 'No active keys found.';
-                } else {
-                    keyListContainer.innerHTML = 'No keys found.';
-                }
-            } catch(e) {
-                console.error("Failed to load keys", e);
-            }
+                } else { keyListContainer.innerHTML = 'No keys found.'; }
+            } catch(e) { console.error("Failed to load keys", e); }
         }
 
         async function createNewKey() {
@@ -1223,12 +754,8 @@ print(res.json())</code></pre>
                 if (res.ok) {
                     showToast(data.message || "Team member invited successfully.");
                     loadKeys(apiKey);
-                } else {
-                    alert(data.detail || "Failed to invite team member.");
-                }
-            } catch(e) {
-                alert("Error inviting team member.");
-            }
+                } else { alert(data.detail || "Failed to invite team member."); }
+            } catch(e) { alert("Error inviting team member."); }
         }
 
         async function revokeKey(keyId) {
@@ -1247,9 +774,7 @@ print(res.json())</code></pre>
                     const data = await res.json();
                     alert(data.detail || "Failed to revoke key.");
                 }
-            } catch (err) {
-                alert("Error revoking key.");
-            }
+            } catch (err) { alert("Error revoking key."); }
         }
 
         async function registerWebhook() {
@@ -1267,9 +792,7 @@ print(res.json())</code></pre>
                 });
                 const data = await res.json();
                 showToast(data.message || "Webhook registered.");
-            } catch (err) {
-                alert("Failed to register webhook.");
-            }
+            } catch (err) { alert("Failed to register webhook."); }
         }
 
         async function fetchWebhookLogs() {
@@ -1285,12 +808,8 @@ print(res.json())</code></pre>
                         logSummary += `[${l.timestamp}] URL: ${l.webhook_url} | Status: ${l.status_code} | Success: ${l.success}\n`;
                     });
                     alert(logSummary);
-                } else {
-                    alert(data.detail || "Failed to fetch logs");
-                }
-            } catch (err) {
-                alert("Request failed.");
-            }
+                } else { alert(data.detail || "Failed to fetch logs"); }
+            } catch (err) { alert("Request failed."); }
         }
 
         async function triggerReset() {
@@ -1301,9 +820,7 @@ print(res.json())</code></pre>
                 const res = await fetch(`/api/v1/request-key-reset?email=${encodeURIComponent(email)}`, { method: 'POST' });
                 const data = await res.json();
                 showToast(data.message || "Reset link sent.");
-            } catch (err) {
-                alert("Failed to send reset request.");
-            }
+            } catch (err) { alert("Failed to send reset request."); }
         }
 
         function escapeHtml(str) {
