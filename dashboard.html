@@ -651,7 +651,7 @@ print(res.json())</code></pre>
                 if (data.status === 'success' && data.leads && data.leads.length > 0) {
                     container.classList.remove('hidden');
                     data.leads.forEach((lead) => {
-                        const similarityPercent = Math.min(98, Math.max(78, Math.round((lead.similarity || 0.9) * 100 * 15)));
+                        const similarityPercent = lead.similarity !== undefined ? lead.similarity : Math.round((lead.raw_sim || 0.5) * 100);
                         list.innerHTML += `
                             <div class="bg-inputbg border border-slate-800 p-3 rounded-lg flex justify-between items-center text-xs">
                                 <div>
