@@ -103,6 +103,36 @@
                     </div>
                 </div>
 
+                <!-- Advanced Filtering & CSV Export Control Bar -->
+                <div class="bg-inputbg border border-slate-800 p-5 rounded-xl flex flex-col md:flex-row justify-between items-center gap-4">
+                    <div class="flex flex-wrap items-center gap-3 w-full md:w-auto">
+                        <div>
+                            <label class="block text-[10px] font-bold uppercase text-slate-400 mb-1">Min Trust</label>
+                            <input type="number" id="filterMinTrust" placeholder="e.g. 85" class="bg-darkbg border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs w-24 focus:outline-none focus:border-accent">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] font-bold uppercase text-slate-400 mb-1">Industry</label>
+                            <input type="text" id="filterIndustry" placeholder="Fintech, SaaS..." class="bg-darkbg border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs w-28 focus:outline-none focus:border-accent">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] font-bold uppercase text-slate-400 mb-1">Funding</label>
+                            <input type="text" id="filterFunding" placeholder="Series A..." class="bg-darkbg border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs w-28 focus:outline-none focus:border-accent">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] font-bold uppercase text-slate-400 mb-1">Sort By</label>
+                            <select id="filterSort" class="bg-darkbg border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs w-32">
+                                <option value="newest">Newest First</option>
+                                <option value="trust_desc">Trust (High to Low)</option>
+                                <option value="trust_asc">Trust (Low to High)</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2 w-full md:w-auto justify-end">
+                        <button onclick="saveAndFetch()" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-accent font-bold px-4 py-2 rounded-lg text-xs transition">Apply Filters</button>
+                        <button onclick="exportLeadsCSV()" class="bg-accent hover:bg-accentHover text-slate-950 font-bold px-4 py-2 rounded-lg text-xs transition">📥 Export CSV</button>
+                    </div>
+                </div>
+
                 <!-- Live Lead Feed -->
                 <div>
                     <div class="flex justify-between items-center mb-4">
@@ -297,9 +327,21 @@ print(res.json())</code></pre>
         </div>
     </div>
 
+    <!-- Deep Intelligence Scan Modal -->
+    <div id="deepScanModal" class="hidden fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex justify-center items-center p-4">
+        <div class="bg-cardbg border border-sky-500/40 p-6 rounded-2xl max-w-xl w-full shadow-2xl">
+            <span class="text-xs font-bold uppercase tracking-wider text-accent block mb-3">🔍 Deep Company Intelligence & Competitor Scan</span>
+            <div id="deepScanContent" class="bg-inputbg p-4 rounded-xl border border-slate-800 text-xs text-slate-200 font-mono space-y-2 max-h-80 overflow-y-auto mb-4">Scanning company telemetry...</div>
+            <div class="flex justify-end">
+                <button class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 font-bold px-4 py-2 rounded-lg text-xs transition" onclick="closeDeepScanModal()">Close Intelligence</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Frontend Controller Script -->
     <script>
         let usageChartInstance = null;
+        let cachedLeadsData = [];
 
         window.onload = function() {
             const savedKey = localStorage.getItem('nexus_api_key');
@@ -406,7 +448,59 @@ print(res.json())</code></pre>
             }
         }
 
+        async function syncLeadToCRM(leadId) {
+            const apiKey = document.getElementById('apiKey').value.trim();
+            if (!apiKey) { alert("Please authenticate first."); return; }
+
+            try {
+                const res = await fetch(`/api/v1/leads/${leadId}/sync-crm`, {
+                    method: 'POST',
+                    headers: { 'x-api-key': apiKey }
+                });
+                const data = await res.json();
+                if (res.ok) { showToast(data.message || "Lead synced to CRM successfully!"); }
+                else { alert(data.detail || "Failed to sync lead."); }
+            } catch (err) { alert("Sync request failed."); }
+        }
+
+        async function triggerDeepScan(leadId) {
+            const apiKey = document.getElementById('apiKey').value.trim();
+            if (!apiKey) { alert("Please authenticate first."); return; }
+
+            const modal = document.getElementById('deepScanModal');
+            const content = document.getElementById('deepScanContent');
+            modal.classList.remove('hidden');
+            content.innerText = "Executing deep Gemini telemetry crawl and competitor analysis...";
+
+            try {
+                const res = await fetch(`/api/v1/leads/${leadId}/deep-scan`, {
+                    method: 'POST',
+                    headers: { 'x-api-key': apiKey }
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    const info = data.deep_intelligence;
+                    content.innerHTML = `
+                        <strong class="text-accent text-sm">Company:</strong> ${info.company_name} (${info.domain})<br>
+                        <strong class="text-accent text-sm mt-2 block">Estimated ARR:</strong> ${info.estimated_arr}<br>
+                        <strong class="text-accent text-sm mt-2 block">Key Competitors:</strong> ${info.competitors.join(', ')}<br>
+                        <strong class="text-accent text-sm mt-2 block">Key Pain Points:</strong>
+                        <ul class="list-disc pl-4 mt-1 space-y-1">
+                            ${info.key_pain_points.map(p => `<li>${p}</li>`).join('')}
+                        </ul>
+                        <strong class="text-accent text-sm mt-2 block">Recommended SDR Hook:</strong> ${info.recommended_hook}
+                    `;
+                } else {
+                    content.innerText = "Failed to run deep intelligence scan.";
+                }
+            } catch (err) {
+                content.innerText = "Request failed.";
+            }
+        }
+
         function closeEmailModal() { document.getElementById('emailModal').classList.add('hidden'); }
+        function closeDeepScanModal() { document.getElementById('deepScanModal').classList.add('hidden'); }
+        
         function copyDraftEmail() {
             navigator.clipboard.writeText(document.getElementById('emailModalContent').innerText);
             showToast("Cold email copied to clipboard!");
@@ -424,8 +518,20 @@ print(res.json())</code></pre>
             leadFeedContainer.innerHTML = '<div class="bg-slate-900 border border-slate-800 p-4 rounded-xl animate-pulse h-20"></div><div class="bg-slate-900 border border-slate-800 p-4 rounded-xl animate-pulse h-20"></div>';
             statusDiv.innerText = "Syncing with cluster...";
 
+            // Gather filter parameters
+            const minTrust = document.getElementById('filterMinTrust').value.trim();
+            const industry = document.getElementById('filterIndustry').value.trim();
+            const funding = document.getElementById('filterFunding').value.trim();
+            const sortBy = document.getElementById('filterSort').value;
+
+            let queryParams = '?limit=20';
+            if (minTrust) queryParams += `&min_trust=${encodeURIComponent(minTrust)}`;
+            if (industry) queryParams += `&industry=${encodeURIComponent(industry)}`;
+            if (funding) queryParams += `&funding_stage=${encodeURIComponent(funding)}`;
+            if (sortBy) queryParams += `&sort_by=${encodeURIComponent(sortBy)}`;
+
             try {
-                const response = await fetch('/api/v1/leads?limit=10', {
+                const response = await fetch(`/api/v1/leads${queryParams}`, {
                     method: 'GET',
                     headers: { 'x-api-key': apiKey }
                 });
@@ -448,7 +554,8 @@ print(res.json())</code></pre>
                     document.getElementById('tierStatus').innerText = `Tier: ${data.tier.toUpperCase()}`;
                 }
 
-                renderLeadFeed(data.leads || []);
+                cachedLeadsData = data.leads || [];
+                renderLeadFeed(cachedLeadsData);
                 loadKeys(apiKey);
                 loadUsageChart(apiKey);
                 loadICPProfile(apiKey);
@@ -458,6 +565,39 @@ print(res.json())</code></pre>
             } catch (err) {
                 leadFeedContainer.innerHTML = `<p class="text-rose-400">Request failed: ${err.message}</p>`;
             }
+        }
+
+        function exportLeadsCSV() {
+            if (!cachedLeadsData || cachedLeadsData.length === 0) {
+                alert("No leads available to export. Authenticate and load leads first.");
+                return;
+            }
+
+            let csvContent = "data:text/csv;charset=utf-8,ID,Company Name,Domain,Industry,Employee Count,Tech Stack,Funding Stage,Trust Score,Verified Email,Intent Signals\n";
+            cachedLeadsData.forEach(lead => {
+                const row = [
+                    lead.id,
+                    `"${(lead.company_name || '').replace(/"/g, '""')}"`,
+                    `"${(lead.domain || '').replace(/"/g, '""')}"`,
+                    `"${(lead.industry || '').replace(/"/g, '""')}"`,
+                    `"${(lead.employee_count || '').replace(/"/g, '""')}"`,
+                    `"${(lead.tech_stack || '').replace(/"/g, '""')}"`,
+                    `"${(lead.funding_stage || '').replace(/"/g, '""')}"`,
+                    lead.trust_score,
+                    lead.verified_email,
+                    `"${(lead.intent_signals || '').replace(/"/g, '""')}"`
+                ];
+                csvContent += row.join(",") + "\n";
+            });
+
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", `nexus_leads_export_${new Date().toISOString().slice(0,10)}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            showToast("Leads successfully exported to CSV!");
         }
 
         async function openBillingPortal() {
@@ -555,7 +695,7 @@ print(res.json())</code></pre>
         function renderLeadFeed(leads) {
             const container = document.getElementById('leadFeedContainer');
             if (!leads || leads.length === 0) {
-                container.innerHTML = '<p class="text-slate-400 text-xs">No leads ingested yet.</p>';
+                container.innerHTML = '<p class="text-slate-400 text-xs">No leads ingested matching criteria.</p>';
                 return;
             }
 
@@ -586,8 +726,9 @@ print(res.json())</code></pre>
                         </div>
                         <div class="flex flex-wrap gap-2 mt-1">
                             <button class="bg-sky-500/10 hover:bg-sky-500/20 text-accent border border-sky-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition" onclick="draftAIEmail(${lead.id})">✨ Draft AI Email</button>
-                            <button class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 px-3 py-1.5 rounded-lg text-xs font-semibold transition" onclick="submitFeedback(${lead.id}, 'converted')">🚀 Mark Converted</button>
-                            <button class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 px-3 py-1.5 rounded-lg text-xs font-semibold transition" onclick="submitFeedback(${lead.id}, 'qualified')">⭐ Qualified</button>
+                            <button class="bg-sky-500/10 hover:bg-sky-500/20 text-accent border border-sky-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition" onclick="syncLeadToCRM(${lead.id})">🔗 Sync to CRM</button>
+                            <button class="bg-sky-500/10 hover:bg-sky-500/20 text-accent border border-sky-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition" onclick="triggerDeepScan(${lead.id})">🔍 Deep Intelligence Scan</button>
+                            <button class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 px-3 py-1.5 rounded-lg text-xs font-semibold transition" onclick="submitFeedback(${lead.id}, 'converted')">🚀 Converted</button>
                             <button class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 px-3 py-1.5 rounded-lg text-xs font-semibold transition" onclick="submitFeedback(${lead.id}, 'disqualified')">❌ Disqualified</button>
                         </div>
                     </div>
