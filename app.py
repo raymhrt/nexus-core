@@ -29,7 +29,6 @@ from psycopg2.extras import RealDictCursor
 
 load_dotenv()
 
-# Setup Structured JSON Logging with Correlation ID Support
 logging.basicConfig(
     level=logging.INFO,
     format='{"time": "%(asctime)s", "level": "%(levelname)s", "logger": "%(name)s", "message": "%(message)s"}'
@@ -1043,7 +1042,6 @@ def check_rate_limit(api_key_hash: str, response: Response, max_requests: int = 
     response.headers["X-RateLimit-Reset"] = str((current_minute + 1) * window_seconds)
 
 
-# Pillar 1: Zero-Friction Magic Link Authentication Endpoints
 class MagicLinkRequestPayload(BaseModel):
     email: str
 
@@ -1059,7 +1057,6 @@ async def request_magic_link(payload: MagicLinkRequestPayload, background_tasks:
         row = cursor.fetchone()
         
         if not row:
-            # Auto-provision a starter account for zero-friction sign in
             raw_key = f"qcn_{secrets.token_hex(16)}"
             hashed_key = hash_api_key(raw_key)
             if DATABASE_URL:
@@ -1107,14 +1104,11 @@ async def verify_magic_link(token: str):
 
         email = row["email"] if isinstance(row, dict) or hasattr(row, "__keys__") else row[0]
         
-        # Fetch active API key for this subscriber
         if DATABASE_URL:
             cursor.execute("SELECT k.key_hash FROM api_keys k WHERE k.email = %s AND k.active = 1 LIMIT 1", (email,))
         else:
             cursor.execute("SELECT k.key_hash FROM api_keys k WHERE k.email = ? AND k.active = 1 LIMIT 1", (email,))
-        key_row = cursor.fetchone()
         
-        # Clear magic token
         if DATABASE_URL:
             cursor.execute("UPDATE subscribers SET magic_token = NULL, magic_expires_at = NULL WHERE email = %s", (email,))
         else:
@@ -1127,7 +1121,6 @@ async def verify_magic_link(token: str):
     return FileResponse("dashboard.html")
 
 
-# Pillar 3: Predictive Intent Scoring & Automated AI Email Outreach Endpoint
 class DraftEmailPayload(BaseModel):
     lead_id: int
 

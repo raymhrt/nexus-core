@@ -173,7 +173,6 @@
             background: #334155;
         }
 
-        /* Toast Notifications */
         #toastContainer {
             position: fixed;
             bottom: 24px;
@@ -206,7 +205,6 @@
             to { opacity: 0; transform: translateY(-10px); }
         }
 
-        /* Skeleton Loaders */
         .skeleton {
             background: linear-gradient(90deg, #1e293b 25%, #334155 50%, #1e293b 75%);
             background-size: 200% 100%;
@@ -419,7 +417,6 @@
             text-decoration: underline;
         }
 
-        /* Tab Navigation for Sandbox */
         .tab-nav {
             display: flex;
             gap: 10px;
@@ -479,15 +476,12 @@
                 </div>
             </div>
 
-            <!-- Tab Navigation -->
             <div class="tab-nav">
                 <button class="tab-btn active" onclick="switchTab('overview')">Command Center</button>
                 <button class="tab-btn" onclick="switchTab('sandbox')">⚡ Interactive API Sandbox</button>
             </div>
 
-            <!-- TAB 1: OVERVIEW & COMMAND CENTER -->
             <div id="tabOverview" class="tab-content active">
-                <!-- Zero-Friction Magic Link Auth Section -->
                 <div style="background: rgba(56, 189, 248, 0.04); border: 1px dashed var(--border-glow); padding: 16px; border-radius: 10px; margin-bottom: 20px;">
                     <span class="section-label" style="color: var(--accent-cyan);">🔐 Zero-Friction Magic Link Sign-In</span>
                     <p class="sub" style="margin-bottom: 10px;">Don't have your API key handy? Request an instant passwordless sign-in link.</p>
@@ -497,7 +491,6 @@
                     </div>
                 </div>
 
-                <!-- API Key Authentication -->
                 <div class="form-group">
                     <label for="apiKey">Active API Key Credentials</label>
                     <input type="password" id="apiKey" placeholder="qcn_..." />
@@ -509,26 +502,22 @@
 
                 <hr class="divider">
 
-                <!-- Rate Limiting & Usage Tracking -->
                 <div id="status">Authenticate above to load quotas.</div>
                 <div class="progress-bar-container">
                     <div id="usageBar" class="progress-bar"></div>
                 </div>
 
-                <!-- Credit Balance & Tier Display -->
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px;">
                     <div id="creditStatus" style="font-size: 13px; color: var(--text-muted);">Lead Credits Remaining: -- / --</div>
                     <div id="tierStatus" style="font-size: 12px; font-weight: 700; color: var(--accent-cyan); text-transform: uppercase;">Tier: --</div>
                 </div>
 
-                <!-- 7-Day Usage Analytics Chart -->
                 <span class="section-label" style="margin-top: 20px;">7-Day API Request History</span>
                 <div class="chart-container">
                     <canvas id="usageChart"></canvas>
                 </div>
             </div>
 
-            <!-- TAB 2: INTERACTIVE API SANDBOX (Pillar 2) -->
             <div id="tabSandbox" class="tab-content">
                 <span class="section-label">⚡ Live API Testing & Snippet Generator</span>
                 <p class="sub" style="margin-bottom: 16px;">Test your API key live in the browser, adjust parameters, and copy production-ready code snippets.</p>
@@ -567,7 +556,6 @@ print(res.json())</code></pre>
             </div>
         </div>
 
-        <!-- 1. On-Demand Lead Generation Card -->
         <div class="card">
             <span class="section-label">⚡ On-Demand Lead Generation Engine</span>
             <p class="sub" style="margin-bottom: 16px;">Trigger instant Gemini crawls and real enrichment waterfalls on the fly.</p>
@@ -584,7 +572,6 @@ print(res.json())</code></pre>
             <div id="onDemandResult" style="margin-top: 12px; font-size: 13px; color: var(--text-muted);"></div>
         </div>
 
-        <!-- 2. Native CRM & Data Warehouse Integrations Card -->
         <div class="card">
             <span class="section-label">🔌 Native CRM & Data Warehouse Destinations</span>
             <p class="sub" style="margin-bottom: 16px;">Connect HubSpot, Salesforce, Snowflake, or Slack with one click.</p>
@@ -612,7 +599,6 @@ print(res.json())</code></pre>
             <div id="destinationList" style="margin-top: 12px; font-size: 13px; color: var(--text-muted);"></div>
         </div>
 
-        <!-- ICP Configuration & Semantic Vector Search Card -->
         <div class="card">
             <span class="section-label">🎯 Target ICP Profile Settings</span>
             <p class="sub" style="margin-bottom: 16px;">Configure your custom Ideal Customer Profile parameters for tailored lead filtering.</p>
@@ -640,7 +626,6 @@ print(res.json())</code></pre>
             </div>
         </div>
 
-        <!-- Lead Results & Management Card -->
         <div class="card">
             <span class="section-label">Live Lead Feed & Strategic Intelligence Explorer</span>
             <p class="sub" style="margin-bottom: 16px;">High-value anchor accounts verified with multi-stage enrichment waterfall.</p>
@@ -671,7 +656,6 @@ print(res.json())</code></pre>
             <div id="keyList" style="color: var(--text-muted); font-size: 13px;">Authenticate to load active API keys.</div>
         </div>
 
-        <!-- Webhook Dispatcher Card -->
         <div class="card">
             <span class="section-label">Outbound Webhook Dispatcher & Filters</span>
             <p class="sub" style="margin-bottom: 16px;">Configure your endpoint receiver and JSON filter rules.</p>
@@ -693,7 +677,6 @@ print(res.json())</code></pre>
         </div>
     </div>
 
-    <!-- AI Email Outreach Modal (Pillar 3) -->
     <div id="emailModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 10000; justify-content: center; align-items: center;">
         <div style="background: var(--bg-card); border: 1px solid var(--accent-cyan); padding: 24px; border-radius: 12px; width: 90%; max-width: 600px; position: relative;">
             <span class="section-label" style="color: var(--accent-cyan); margin-bottom: 12px;">✨ AI Personalized Cold Email Draft</span>
@@ -1127,7 +1110,7 @@ print(res.json())</code></pre>
 
                 if (data.status === 'success' && data.leads && data.leads.length > 0) {
                     container.style.display = 'block';
-                    data.leads.forEach((lead, index) => {
+                    data.leads.forEach((lead) => {
                         const similarityPercent = Math.min(98, Math.max(78, Math.round((lead.similarity || 0.9) * 100 * 15)));
                         list.innerHTML += `
                             <div style="background: var(--bg-input); border: 1px solid var(--border-color); padding: 12px 16px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; font-size: 13px;">
