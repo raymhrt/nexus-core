@@ -471,6 +471,7 @@ def record_usage_hit(email: str):
 
 def generate_lead_embedding(text_content: str):
     if not GEMINI_API_KEY:
+        logger.error("GEMINI_API_KEY missing during embedding generation.")
         return None
     try:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key={GEMINI_API_KEY}"
@@ -484,6 +485,8 @@ def generate_lead_embedding(text_content: str):
             data = res.json()
             if "embedding" in data and "values" in data["embedding"]:
                 return data["embedding"]["values"]
+        else:
+            logger.error(f"Embedding API error status {res.status_code}: {res.text}")
         return None
     except Exception as e:
         logger.error(f"CRITICAL Embedding generation error: {e}")
