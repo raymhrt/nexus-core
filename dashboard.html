@@ -460,21 +460,35 @@ print(res.json())</code></pre>
         }
 
         async function syncLeadToCRM(leadId) {
+            console.log("1. syncLeadToCRM triggered for Lead ID:", leadId);
             const apiKey = document.getElementById('apiKey').value.trim();
-            if (!apiKey) { alert("Please authenticate first."); return; }
+            
+            if (!apiKey) { 
+                alert("Please enter your API key in the authentication bar at the top first!"); 
+                return; 
+            }
 
             try {
                 const res = await fetch(`/api/v1/leads/${leadId}/sync-crm`, {
                     method: 'POST',
                     headers: { 'x-api-key': apiKey }
                 });
-                const data = await res.json();
+                
+                let data = {};
+                const contentType = res.headers.get("content-type");
+                if (contentType && contentType.includes("application/json")) {
+                    data = await res.json();
+                } else {
+                    data.message = await res.text();
+                }
+                
                 if (res.ok) { 
-                    showToast(data.message || "Lead synced to CRM successfully!"); 
+                    showToast(data.message || `Lead #${leadId} synced to CRM successfully!`); 
                 } else { 
                     alert(data.detail || "Failed to sync lead."); 
                 }
             } catch (err) { 
+                console.error("Network/Fetch error:", err);
                 alert("Sync request failed."); 
             }
         }
