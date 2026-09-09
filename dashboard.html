@@ -188,6 +188,18 @@
                     <button class="bg-accent text-slate-950 font-bold px-5 py-2.5 rounded-lg text-xs transition" onclick="saveAutonomousRules()">Save Autopilot Rules</button>
                 </div>
 
+                <!-- Telegram Notification Settings -->
+                <div class="bg-inputbg border border-slate-800 p-6 rounded-xl">
+                    <span class="block text-xs font-bold uppercase tracking-wider text-accent mb-1 flex items-center gap-2"><i class="fa-brands fa-telegram text-cyan-400"></i> Telegram Bot Notification Settings</span>
+                    <p class="text-xs text-slate-400 mb-4">Receive autonomous autopilot high-trust lead sync alerts straight to your personal Telegram chat.</p>
+                    
+                    <div class="mb-4">
+                        <label class="block text-xs font-bold uppercase text-slate-400 mb-2">Telegram Chat ID</label>
+                        <input type="text" id="telegramChatId" placeholder="e.g. 123456789" class="bg-darkbg border border-slate-700 rounded-lg px-3 py-2.5 text-xs w-full focus:outline-none focus:border-accent font-mono">
+                    </div>
+                    <button class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-accent font-bold px-5 py-2.5 rounded-lg text-xs transition" onclick="saveTelegramSettings()">Save Telegram Settings</button>
+                </div>
+
                 <!-- Target ICP Settings -->
                 <div class="bg-inputbg border border-slate-800 p-6 rounded-xl">
                     <span class="block text-xs font-bold uppercase tracking-wider text-accent mb-1 flex items-center gap-2"><i class="fa-solid fa-bullseye text-cyan-400"></i> Target ICP Profile Settings</span>
@@ -730,6 +742,33 @@ print(res.json())</code></pre>
             }
         }
 
+        async function saveTelegramSettings() {
+            const apiKey = document.getElementById('apiKey').value.trim();
+            const telegram_chat_id = document.getElementById('telegramChatId').value.trim();
+            if (!apiKey) { alert("Please authenticate first."); return; }
+
+            try {
+                const res = await fetch('/api/v1/user/telegram', {
+                    method: 'POST',
+                    headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ telegram_chat_id })
+                });
+                const data = await res.json();
+                if (res.ok) showToast(data.message || "Telegram settings saved!");
+                else alert(data.detail || "Failed to save Telegram settings.");
+            } catch (err) { alert("Request failed."); }
+        }
+
+        async function loadTelegramSettings(apiKey) {
+            try {
+                const res = await fetch('/api/v1/user/telegram', { headers: { 'x-api-key': apiKey } });
+                const data = await res.json();
+                if (res.ok && data.telegram_chat_id) {
+                    document.getElementById('telegramChatId').value = data.telegram_chat_id;
+                }
+            } catch (e) { console.error(e); }
+        }
+
         function closeEmailModal() { document.getElementById('emailModal').classList.add('hidden'); }
         function closeDeepScanModal() { document.getElementById('deepScanModal').classList.add('hidden'); }
 
@@ -793,6 +832,7 @@ print(res.json())</code></pre>
                 loadCredits(apiKey);
                 loadDestinations(apiKey);
                 loadAutonomousRules(apiKey);
+                loadTelegramSettings(apiKey);
                 showToast("Successfully authenticated & telemetry loaded!");
             } catch (err) {
                 leadFeedContainer.innerHTML = `<p class="text-rose-400">Request failed: ${err.message}</p>`;

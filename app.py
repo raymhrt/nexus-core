@@ -174,12 +174,13 @@ def log_audit_event(email: str, action: str, details: str, ip_address: str = "12
         release_db(conn)
 
 
-def send_telegram_alert(message: str):
-    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+def send_telegram_alert(message: str, chat_id: Optional[str] = None):
+    target_chat = chat_id or TELEGRAM_CHAT_ID
+    if not TELEGRAM_BOT_TOKEN or not target_chat:
         return
     try:
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-        requests.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "Markdown"}, timeout=5)
+        requests.post(url, json={"chat_id": target_chat, "text": message, "parse_mode": "Markdown"}, timeout=5)
     except Exception as e:
         logger.error(f"Telegram alert failed: {e}")
 
@@ -270,12 +271,14 @@ def init_db():
                 reset_token TEXT,
                 reset_expires_at TIMESTAMP,
                 magic_token TEXT,
-                magic_expires_at TIMESTAMP
+                magic_expires_at TIMESTAMP,
+                telegram_chat_id TEXT
             )
         """
         )
         cursor.execute("ALTER TABLE subscribers ADD COLUMN IF NOT EXISTS magic_token TEXT;")
         cursor.execute("ALTER TABLE subscribers ADD COLUMN IF NOT EXISTS magic_expires_at TIMESTAMP;")
+        cursor.execute("ALTER TABLE subscribers ADD COLUMN IF NOT EXISTS telegram_chat_id TEXT;")
         cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS api_keys (
@@ -460,7 +463,7 @@ def init_db():
         """
         )
     else:
-        cursor.execute("CREATE TABLE IF NOT EXISTS subscribers (email TEXT PRIMARY KEY, active INTEGER DEFAULT 1, stripe_customer_id TEXT, tier TEXT DEFAULT 'starter', reset_token TEXT, reset_expires_at DATETIME, magic_token TEXT, magic_expires_at DATETIME)")
+        cursor.execute("CREATE TABLE IF NOT EXISTS subscribers (email TEXT PRIMARY KEY, active INTEGER DEFAULT 1, stripe_customer_id TEXT, tier TEXT DEFAULT 'starter', reset_token TEXT, reset_expires_at DATETIME, magic_token TEXT, magic_expires_at DATETIME, telegram_chat_id TEXT)")
         cursor.execute("CREATE TABLE IF NOT EXISTS api_keys (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT, key_hash TEXT UNIQUE, key_name TEXT DEFAULT 'Default', scope TEXT DEFAULT 'full', role TEXT DEFAULT 'admin', active INTEGER DEFAULT 1, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS subscriber_credits (email TEXT PRIMARY KEY, credits_remaining INTEGER DEFAULT 500, credits_limit INTEGER DEFAULT 500, last_refill_date DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS subscriber_destinations (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT, destination_type TEXT NOT NULL, webhook_url TEXT NOT NULL, access_token TEXT DEFAULT '', mapping_rules TEXT DEFAULT '{}', active INTEGER DEFAULT 1, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
@@ -578,9 +581,9 @@ async def evaluate_autonomous_rules_for_lead(lead_id: int):
     try:
         cursor = conn.cursor()
         if DATABASE_URL:
-            cursor.execute("SELECT l.id, l.company_name, l.email, l.trust_score, r.email as user_email, r.auto_sync, r.auto_enroll FROM b2b_leads l JOIN autonomous_rules r ON l.trust_score >= r.min_trust WHERE l.id = %s AND r.active = 1", (lead_id,))
+            cursor.execute("SELECT l.id, l.company_name, l.email, l.trust_score, r.email as user_email, r.auto_sync, r.auto_enroll, s.telegram_chat_id FROM b2b_leads l JOIN autonomous_rules r ON l.trust_score >= r.min_trust LEFT JOIN subscribers s ON r.email = s.email WHERE l.id = %s AND r.active = 1", (lead_id,))
         else:
-            cursor.execute("SELECT l.id, l.company_name, l.email, l.trust_score, r.email as user_email, r.auto_sync, r.auto_enroll FROM b2b_leads l JOIN autonomous_rules r ON l.trust_score >= r.min_trust WHERE l.id = ? AND r.active = 1", (lead_id,))
+            cursor.execute("SELECT l.id, l.company_name, l.email, l.trust_score, r.email as user_email, r.auto_sync, r.auto_enroll, s.telegram_chat_id FROM b2b_leads l JOIN autonomous_rules r ON l.trust_score >= r.min_trust LEFT JOIN subscribers s ON r.email = s.email WHERE l.id = ? AND r.active = 1", (lead_id,))
         rows = cursor.fetchall()
         cursor.close()
     finally:
@@ -590,7 +593,10 @@ async def evaluate_autonomous_rules_for_lead(lead_id: int):
         r = dict(row)
         if r["auto_sync"] == 1:
             logger.info(f"Autonomous Autopilot: Syncing lead {r['company_name']} to CRM for user {r['user_email']}")
-            send_telegram_alert(f"🤖 *Autonomous Autopilot Triggered!*\nSynced High-Trust Lead: `{r['company_name']}` (Trust: {r['trust_score']}/100)")
+            user_chat_id = r.get("telegram_chat_id")
+            alert_msg = f"🤖 *Autonomous Autopilot Triggered!*\nSynced High-Trust Lead: `{r['company_name']}` (Trust: {r['trust_score']}/100)"
+            # Send alert to the specific user's Telegram chat if registered, else fallback to admin chat
+            send_telegram_alert(alert_msg, chat_id=user_chat_id)
         if r["auto_enroll"] == 1:
             logger.info(f"Autonomous Autopilot: Enrolled lead {r['company_name']} into outbound sequence.")
 
@@ -1219,6 +1225,43 @@ async def verify_magic_link(token: str):
     if os.path.exists("dashboard.html"):
         return FileResponse("dashboard.html")
     return {"status": "success", "message": "Authentication verified via magic link token."}
+
+
+class TelegramSettingsPayload(BaseModel):
+    telegram_chat_id: str
+
+@app.post("/api/v1/user/telegram")
+async def save_user_telegram_settings(payload: TelegramSettingsPayload, request: Request, auth: dict = Depends(verify_api_key)):
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute("UPDATE subscribers SET telegram_chat_id = %s WHERE email = %s", (payload.telegram_chat_id, auth["email"]))
+        else:
+            cursor.execute("UPDATE subscribers SET telegram_chat_id = ? WHERE email = ?", (payload.telegram_chat_id, auth["email"]))
+        conn.commit()
+        cursor.close()
+    finally:
+        release_db(conn)
+    log_audit_event(auth["email"], "TELEGRAM_CONFIGURED", "Updated user Telegram chat ID settings", auth["ip"])
+    return {"status": "success", "message": "Telegram chat ID saved successfully! You will now receive autonomous alerts here."}
+
+
+@app.get("/api/v1/user/telegram")
+async def get_user_telegram_settings(request: Request, auth: dict = Depends(verify_api_key)):
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute("SELECT telegram_chat_id FROM subscribers WHERE email = %s", (auth["email"],))
+        else:
+            cursor.execute("SELECT telegram_chat_id FROM subscribers WHERE email = ?", (auth["email"],))
+        row = cursor.fetchone()
+        cursor.close()
+    finally:
+        release_db(conn)
+    chat_id = row["telegram_chat_id"] if row and row.get("telegram_chat_id") else ""
+    return {"status": "success", "telegram_chat_id": chat_id}
 
 
 class SendEmailPayload(BaseModel):
@@ -2671,6 +2714,7 @@ async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
                     conn.commit()
 
                     log_audit_event(customer_email, "SUBSCRIPTION_CREATED", f"New subscription created on tier {tier}")
+                    # Sends a notification to YOU (the master admin chat) when a new user subscribes
                     background_tasks.add_task(send_telegram_alert, f"🚀 *New Enterprise Subscription ({tier.upper()})!*\nCustomer: `{customer_email}`")
                     background_tasks.add_task(send_email_via_resend, customer_email, raw_api_key)
             except Exception as err:
