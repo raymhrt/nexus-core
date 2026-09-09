@@ -565,7 +565,13 @@ print(res.json())</code></pre>
                 const res = await fetch(`/api/v1/leads/${leadId}/feedback`, {
                     method: 'POST',
                     headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ feedback: feedbackType, status: feedbackType, feedback_type: feedbackType })
+                    body: JSON.stringify({
+                        feedback: feedbackType,
+                        status: feedbackType,
+                        feedback_type: feedbackType,
+                        rating: feedbackType === 'converted' ? 5 : 1,
+                        notes: `User submitted feedback: ${feedbackType}`
+                    })
                 });
                 const data = await res.json();
                 if (res.ok) showToast(data.message || `Lead feedback (${feedbackType}) saved successfully!`);
