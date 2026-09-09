@@ -1282,7 +1282,7 @@ async def get_lead_lookalikes(lead_id: int, request: Request, auth: dict = Depen
             )
         else:
             cursor.execute(
-                "SELECT id, company_name, domain, industry, trust_score, tech_stack, 0.95 as similarity FROM b2b_leads WHERE id != ? AND industry = ? LIMIT 5",
+                "SELECT id, company_name, domain, industry, trust_score, tech_stack, 0.95 as similarity FROM b2b_leads WHERE id != %s AND industry = %s LIMIT 5",
                 (lead_id, ind)
             )
         rows = cursor.fetchall()
