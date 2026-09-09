@@ -331,7 +331,7 @@
                 <!-- Team Workspaces & Key Management -->
                 <div class="bg-inputbg border border-slate-800 p-6 rounded-xl">
                     <span class="block text-xs font-bold uppercase tracking-wider text-accent mb-3 flex items-center gap-2"><i class="fa-solid fa-users-gear text-purple-400"></i> Multi-Key Management & Team Workspaces</span>
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                         <div>
                             <label class="block text-xs font-bold uppercase text-slate-400 mb-2">Key Label / Member Email</label>
                             <input type="text" id="newKeyName" placeholder="e.g. sdr-john@company.com" class="bg-darkbg border border-slate-700 rounded-lg px-3 py-2.5 text-xs w-full focus:outline-none focus:border-accent">
@@ -342,6 +342,13 @@
                                 <option value="sdr">Role: SDR (Ingest & Train)</option>
                                 <option value="viewer">Role: Viewer (Read-Only)</option>
                                 <option value="admin">Role: Admin (Full Access)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold uppercase text-slate-400 mb-2">Granular Scope</label>
+                            <select id="newKeyScope" class="bg-darkbg border border-slate-700 rounded-lg p-2.5 text-xs w-full">
+                                <option value="full">Scope: Full (Read/Write/Admin)</option>
+                                <option value="read">Scope: Read (Read-Only)</option>
                             </select>
                         </div>
                     </div>
@@ -548,6 +555,24 @@ print(res.json())</code></pre>
                     alert(data.detail || "Failed to send email.");
                 }
             } catch (err) { alert("Request failed."); }
+        }
+
+        async function submitLeadFeedback(leadId, feedbackType) {
+            const apiKey = document.getElementById('apiKey').value.trim();
+            if (!apiKey) { alert("Please authenticate first."); return; }
+
+            try {
+                const res = await fetch(`/api/v1/leads/${leadId}/feedback`, {
+                    method: 'POST',
+                    headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ feedback: feedbackType })
+                });
+                const data = await res.json();
+                if (res.ok) showToast(data.message || `Lead feedback (${feedbackType}) saved successfully!`);
+                else alert(data.detail || "Failed to submit feedback.");
+            } catch (err) {
+                alert("Feedback request failed: " + err.message);
+            }
         }
 
         async function syncLeadToCRM(leadId) {
@@ -887,11 +912,12 @@ print(res.json())</code></pre>
         async function openBillingPortal() {
             const apiKey = document.getElementById('apiKey').value.trim();
             if (!apiKey) { alert("Please authenticate first."); return; }
-            const email = prompt("Enter your account email address:");
-            if (!email) return;
 
             try {
-                const res = await fetch(`/create-portal-session?email=${encodeURIComponent(email)}`, { method: 'POST' });
+                const res = await fetch(`/create-portal-session`, {
+                    method: 'POST',
+                    headers: { 'x-api-key': apiKey }
+                });
                 const data = await res.json();
                 if (res.ok && data.portal_url) window.location.href = data.portal_url;
                 else alert(data.detail || "Failed to create portal session.");
@@ -1045,6 +1071,8 @@ print(res.json())</code></pre>
                                 <button class="bg-sky-500/10 hover:bg-sky-500/20 text-accent border border-sky-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${disabledAttr}" onclick="syncLeadToCRM(${lead.id})">🔗 Sync to CRM</button>
                                 <button class="bg-sky-500/10 hover:bg-sky-500/20 text-accent border border-sky-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${disabledAttr}" onclick="enrollSequence(${lead.id})">🚀 Enroll</button>
                                 <button class="bg-sky-500/10 hover:bg-sky-500/20 text-accent border border-sky-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition" onclick="triggerDeepScan(${lead.id})">🔍 Deep Scan</button>
+                                <button class="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${disabledAttr}" onclick="submitLeadFeedback(${lead.id}, 'converted')">👍 Convert</button>
+                                <button class="bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${disabledAttr}" onclick="submitLeadFeedback(${lead.id}, 'rejected')">👎 Reject</button>
                             </div>
                             <button class="bg-rose-500/10 hover:bg-rose-500 text-rose-400 hover:text-white border border-rose-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${disabledAttr}" onclick="deleteLeadCard(${lead.id})">🗑️ Delete</button>
                         </div>
@@ -1190,6 +1218,7 @@ print(res.json())</code></pre>
             const apiKey = document.getElementById('apiKey').value.trim();
             const keyNameInput = document.getElementById('newKeyName').value.trim() || "team@company.com";
             const role = document.getElementById('newKeyRole').value;
+            const scope = document.getElementById('newKeyScope').value;
             if (!apiKey) return;
 
             let emailValue = keyNameInput;
@@ -1199,7 +1228,7 @@ print(res.json())</code></pre>
                 const res = await fetch(`/api/v1/team/invite`, {
                     method: 'POST',
                     headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ email: emailValue, key_name: keyNameInput, role: role, scope: role === 'viewer' ? 'read' : 'full' })
+                    body: JSON.stringify({ email: emailValue, key_name: keyNameInput, role: role, scope: scope })
                 });
                 const data = await res.json();
                 if (res.ok) {
