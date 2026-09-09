@@ -1412,6 +1412,32 @@ async def get_lead_lookalikes(lead_id: int, request: Request, auth: dict = Depen
     return {"status": "success", "lead_id": lead_id, "lookalikes": lookalikes}
 
 
+@app.delete("/api/v1/leads/{lead_id}")
+async def delete_single_lead(lead_id: int, request: Request, auth: dict = Depends(verify_api_key)):
+    if auth.get("role") == "viewer":
+        raise HTTPException(status_code=403, detail="Viewer role is restricted from deleting leads.")
+
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute("DELETE FROM b2b_leads WHERE id = %s RETURNING id", (lead_id,))
+            row = cursor.fetchone()
+        else:
+            cursor.execute("DELETE FROM b2b_leads WHERE id = ?", (lead_id,))
+            row = cursor.lastrowid
+        conn.commit()
+        cursor.close()
+    finally:
+        release_db(conn)
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Lead not found.")
+
+    log_audit_event(auth["email"], "LEAD_DELETED", f"Deleted lead ID {lead_id}", auth["ip"])
+    return {"status": "success", "message": f"Lead #{lead_id} deleted successfully."}
+
+
 @app.post("/api/v1/admin/dlq/{dlq_id}/replay")
 async def replay_dlq_event(dlq_id: int, request: Request, background_tasks: BackgroundTasks, auth: dict = Depends(verify_api_key)):
     if auth.get("role") != "admin":

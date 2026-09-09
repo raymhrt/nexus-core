@@ -568,6 +568,40 @@ print(res.json())</code></pre>
             }
         }
 
+        async function deleteLeadCard(leadId) {
+            if (currentUserRole === 'viewer') {
+                alert("Viewer role is restricted from deleting leads.");
+                return;
+            }
+
+            if (!confirm(`Are you sure you want to delete lead #${leadId}?`)) {
+                return;
+            }
+
+            const apiKey = document.getElementById('apiKey').value.trim();
+            if (!apiKey) {
+                alert("Please authenticate first.");
+                return;
+            }
+
+            try {
+                const res = await fetch(`/api/v1/leads/${leadId}`, {
+                    method: 'DELETE',
+                    headers: { 'x-api-key': apiKey }
+                });
+                const data = await res.json();
+                
+                if (res.ok) {
+                    showToast(data.message || `Lead #${leadId} deleted successfully.`);
+                    saveAndFetch();
+                } else {
+                    alert(data.detail || "Failed to delete lead.");
+                }
+            } catch (err) {
+                alert("Delete request failed: " + err.message);
+            }
+        }
+
         async function triggerDeepScan(leadId) {
             const apiKey = document.getElementById('apiKey').value.trim();
             if (!apiKey) { alert("Please authenticate first."); return; }
@@ -960,11 +994,14 @@ print(res.json())</code></pre>
                         <div class="bg-sky-500/5 border-l-2 border-accent p-2.5 rounded-r-lg text-xs text-slate-300">
                             🔥 <strong class="text-white">Intent Signal:</strong> ${escapeHtml(intent)}
                         </div>
-                        <div class="flex flex-wrap gap-2 mt-1">
-                            <button class="bg-sky-500/10 hover:bg-sky-500/20 text-accent border border-sky-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${disabledAttr}" onclick="draftAIEmail(${lead.id}, '${escapeHtml(lead.company_name)}', '${escapeHtml(lead.email || 'contact@' + lead.domain)}')">✨ AI Draft & Send via Resend</button>
-                            <button class="bg-sky-500/10 hover:bg-sky-500/20 text-accent border border-sky-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${disabledAttr}" onclick="syncLeadToCRM(${lead.id})">🔗 Sync to CRM</button>
-                            <button class="bg-sky-500/10 hover:bg-sky-500/20 text-accent border border-sky-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${disabledAttr}" onclick="enrollSequence(${lead.id})">🚀 Enroll in Sequence</button>
-                            <button class="bg-sky-500/10 hover:bg-sky-500/20 text-accent border border-sky-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition" onclick="triggerDeepScan(${lead.id})">🔍 Deep Scan & Lookalikes</button>
+                        <div class="flex flex-wrap items-center justify-between mt-1">
+                            <div class="flex flex-wrap gap-2">
+                                <button class="bg-sky-500/10 hover:bg-sky-500/20 text-accent border border-sky-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${disabledAttr}" onclick="draftAIEmail(${lead.id}, '${escapeHtml(lead.company_name)}', '${escapeHtml(lead.email || 'contact@' + lead.domain)}')">✨ AI Draft & Send</button>
+                                <button class="bg-sky-500/10 hover:bg-sky-500/20 text-accent border border-sky-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${disabledAttr}" onclick="syncLeadToCRM(${lead.id})">🔗 Sync to CRM</button>
+                                <button class="bg-sky-500/10 hover:bg-sky-500/20 text-accent border border-sky-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${disabledAttr}" onclick="enrollSequence(${lead.id})">🚀 Enroll</button>
+                                <button class="bg-sky-500/10 hover:bg-sky-500/20 text-accent border border-sky-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition" onclick="triggerDeepScan(${lead.id})">🔍 Deep Scan</button>
+                            </div>
+                            <button class="bg-rose-500/10 hover:bg-rose-500 text-rose-400 hover:text-white border border-rose-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${disabledAttr}" onclick="deleteLeadCard(${lead.id})">🗑️ Delete</button>
                         </div>
                     </div>
                 `;
