@@ -1602,6 +1602,13 @@ async def generate_leads_on_demand(payload: OnDemandGeneratePayload, request: Re
     conn = get_db()
     try:
         cursor = conn.cursor()
+        
+        # 1. Fetch already discovered company names to prevent duplication
+        cursor.execute("SELECT company_name FROM b2b_leads")
+        existing_rows = cursor.fetchall()
+        existing_companies = [r["company_name"] if isinstance(r, dict) else r[0] for r in existing_rows]
+
+        # 2. Check user credits
         if DATABASE_URL:
             cursor.execute("SELECT credits_remaining, credits_limit FROM subscriber_credits WHERE email = %s", (auth["email"],))
         else:
@@ -1613,7 +1620,7 @@ async def generate_leads_on_demand(payload: OnDemandGeneratePayload, request: Re
             if DATABASE_URL:
                 cursor.execute("INSERT INTO subscriber_credits (email, credits_remaining, credits_limit) VALUES (%s, %s, %s)", (auth["email"], initial_credits, initial_credits))
             else:
-                cursor.execute("INSERT INTO subscriber_credits (email, credits_remaining, credits_limit) VALUES (?, ?, ?)", (auth["email"], initial_credits, initial_credits))
+                cursor.execute("INSERT OR REPLACE INTO subscriber_credits (email, credits_remaining, credits_limit) VALUES (?, ?, ?)", (auth["email"], initial_credits, initial_credits))
             conn.commit()
             credits_left = initial_credits
         else:
@@ -1628,8 +1635,14 @@ async def generate_leads_on_demand(payload: OnDemandGeneratePayload, request: Re
 
     generated_count = min(payload.count, 25)
 
+    # 3. Construct exclusion constraint for Gemini
+    exclusion_text = ""
+    if existing_companies:
+        exclusion_text = f" CRITICAL RULE: Do NOT include any of the following already-discovered companies under any circumstances: {', '.join(existing_companies)}. You must find entirely new, unique, alternative market competitors."
+
     prompt = (
         f"Generate a JSON list of {generated_count} real, active B2B companies specifically matching this search query / niche: '{payload.query}'. "
+        f"{exclusion_text} "
         "For each company, provide: company_name, domain (e.g. 'stripe.com'), email (e.g. 'contact@domain.com'), "
         "industry, employee_count, linkedin_url, confidence_score (0.0 to 1.0), and trust_score (0 to 100). "
         "Return strictly valid JSON matching this schema: "
@@ -1647,6 +1660,8 @@ async def generate_leads_on_demand(payload: OnDemandGeneratePayload, request: Re
         validated_leads = []
         for item in parsed_data:
             try:
+                if item.get("company_name") in existing_companies:
+                    continue
                 validated_leads.append(GeminiLeadSchema(**item))
             except ValidationError as val_err:
                 logger.warning(f"Skipping malformed lead item from Gemini: {val_err}")
@@ -1684,7 +1699,7 @@ async def generate_leads_on_demand(payload: OnDemandGeneratePayload, request: Re
                 )
                 l_id = cursor.lastrowid
 
-            if l_id:
+            if l_id and cursor.rowcount > 0:
                 new_leads.append({"id": l_id, "company_name": lead.company_name, "domain": clean_domain})
                 background_tasks.add_task(async_background_enrichment_worker, l_id, lead.company_name, clean_domain)
 
