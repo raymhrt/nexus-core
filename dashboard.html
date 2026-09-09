@@ -70,8 +70,8 @@
             <!-- Restructured Persona Navigation Tabs -->
             <div class="flex flex-wrap gap-2 border-b border-sky-500/20 pb-3">
                 <button id="btnTabLeads" onclick="switchTab('leads', this)" class="tab-btn px-4 py-2 rounded-lg text-xs font-bold transition bg-sky-500/15 text-accent border border-sky-500/40">🎯 Lead Intelligence (SDR)</button>
-                <button id="btnTabRevOps" onclick="switchTab('revops', this)" class="tab-btn px-4 py-2 rounded-lg text-xs font-bold transition text-slate-400 hover:text-slate-200">🔌 RevOps & Sync</button>
-                <button id="btnTabAdmin" onclick="switchTab('admin', this)" class="tab-btn px-4 py-2 rounded-lg text-xs font-bold transition text-slate-400 hover:text-slate-200">📊 Admin & Telemetry</button>
+                <button id="btnTabRevOps" onclick="switchTab('revops', this)" class="tab-btn px-4 py-2 rounded-lg text-xs font-bold transition text-slate-400 hover:text-slate-200">🔌 RevOps & Autopilot</button>
+                <button id="btnTabAdmin" onclick="switchTab('admin', this)" class="tab-btn px-4 py-2 rounded-lg text-xs font-bold transition text-slate-400 hover:text-slate-200">📊 Telemetry & Audit</button>
                 <button id="btnTabSandbox" onclick="switchTab('sandbox', this)" class="tab-btn px-4 py-2 rounded-lg text-xs font-bold transition text-slate-400 hover:text-slate-200">⚡ Developer Sandbox</button>
             </div>
 
@@ -144,7 +144,7 @@
                     <div class="flex justify-between items-center mb-4">
                         <div>
                             <span class="block text-xs font-bold uppercase tracking-wider text-accent">Live Lead Feed & Strategic Intelligence Explorer</span>
-                            <p class="text-xs text-slate-400">High-value anchor accounts verified with multi-stage enrichment waterfall.</p>
+                            <p class="text-xs text-slate-400">High-value anchor accounts verified with multi-stage enrichment waterfall and Resend live dispatch.</p>
                         </div>
                     </div>
                     <div id="leadFeedContainer" class="space-y-3">
@@ -154,8 +154,36 @@
                 </div>
             </div>
 
-            <!-- TAB 2: RevOps & Sync (CRM, Warehouses, ICP & Webhooks) -->
+            <!-- TAB 2: RevOps & Autonomous Autopilot -->
             <div id="tabRevOps" class="tab-content hidden mt-6 space-y-6">
+                <!-- Autonomous SDR Autopilot Rules -->
+                <div class="bg-inputbg border border-slate-800 p-6 rounded-xl">
+                    <span class="block text-xs font-bold uppercase tracking-wider text-accent mb-1">🤖 Autonomous SDR Autopilot Rules</span>
+                    <p class="text-xs text-slate-400 mb-4">Automatically sync high-trust leads to your CRM and enroll them in outbound sequences upon ingestion.</p>
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                        <div>
+                            <label class="block text-xs font-bold uppercase text-slate-400 mb-2">Min Trust Score Threshold</label>
+                            <input type="number" id="autoMinTrust" value="85" min="0" max="100" class="bg-darkbg border border-slate-700 rounded-lg px-3 py-2.5 text-xs w-full">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold uppercase text-slate-400 mb-2">Auto-Sync to CRM</label>
+                            <select id="autoSyncCrm" class="bg-darkbg border border-slate-700 rounded-lg p-2.5 text-xs w-full">
+                                <option value="1">Enabled</option>
+                                <option value="0">Disabled</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold uppercase text-slate-400 mb-2">Auto-Enroll Sequence</label>
+                            <select id="autoEnrollSeq" class="bg-darkbg border border-slate-700 rounded-lg p-2.5 text-xs w-full">
+                                <option value="1">Enabled</option>
+                                <option value="0">Disabled</option>
+                            </select>
+                        </div>
+                    </div>
+                    <button class="bg-accent text-slate-950 font-bold px-5 py-2.5 rounded-lg text-xs transition" onclick="saveAutonomousRules()">Save Autopilot Rules</button>
+                </div>
+
                 <!-- Target ICP Settings -->
                 <div class="bg-inputbg border border-slate-800 p-6 rounded-xl">
                     <span class="block text-xs font-bold uppercase tracking-wider text-accent mb-1">🎯 Target ICP Profile Settings</span>
@@ -224,7 +252,7 @@
                 </div>
             </div>
 
-            <!-- TAB 3: Admin & Telemetry (Usage, Quotas, Magic Links, DLQ, Audit Logs) -->
+            <!-- TAB 3: Telemetry & Audit (Usage, Quotas, Magic Links, DLQ, Audit Logs, Team Keys) -->
             <div id="tabAdmin" class="tab-content hidden mt-6 space-y-6">
                 <!-- Magic Link Box -->
                 <div class="bg-sky-500/5 border border-dashed border-sky-500/30 p-4 rounded-xl">
@@ -256,7 +284,7 @@
                     </div>
                 </div>
 
-                <!-- NEW: Dead Letter Queue (DLQ) Inspector & Replay Manager -->
+                <!-- Dead Letter Queue (DLQ) Inspector & Replay Manager -->
                 <div class="bg-inputbg border border-slate-800 p-6 rounded-xl">
                     <div class="flex justify-between items-center mb-3">
                         <div>
@@ -270,7 +298,7 @@
                     </div>
                 </div>
 
-                <!-- NEW: Enterprise Security Audit Log Feed -->
+                <!-- Enterprise Security Audit Log Feed -->
                 <div class="bg-inputbg border border-slate-800 p-6 rounded-xl">
                     <div class="flex justify-between items-center mb-3">
                         <div>
@@ -348,14 +376,27 @@ print(res.json())</code></pre>
         </div>
     </div>
 
-    <!-- AI Email Draft Modal -->
+    <!-- AI Email Draft & Live Send Modal -->
     <div id="emailModal" class="hidden fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex justify-center items-center p-4">
         <div class="bg-cardbg border border-sky-500/40 p-6 rounded-2xl max-w-xl w-full shadow-2xl">
-            <span class="text-xs font-bold uppercase tracking-wider text-accent block mb-3">✨ AI Personalized Cold Email Draft</span>
-            <pre class="bg-inputbg p-4 rounded-xl border border-slate-800 text-xs text-accent font-mono whitespace-pre-wrap max-h-80 overflow-y-auto mb-4" id="emailModalContent">Generating email via Gemini...</pre>
+            <span class="text-xs font-bold uppercase tracking-wider text-accent block mb-3">✨ AI Cold Outreach & Resend Live Dispatch</span>
+            <div class="space-y-3 mb-4">
+                <div>
+                    <label class="block text-[10px] font-bold uppercase text-slate-400 mb-1">Recipient Email</label>
+                    <input type="email" id="modalRecipientEmail" placeholder="contact@company.com" class="bg-inputbg border border-slate-700 rounded-lg px-3 py-2 text-xs w-full text-white">
+                </div>
+                <div>
+                    <label class="block text-[10px] font-bold uppercase text-slate-400 mb-1">Subject</label>
+                    <input type="text" id="modalSubject" class="bg-inputbg border border-slate-700 rounded-lg px-3 py-2 text-xs w-full text-white">
+                </div>
+                <div>
+                    <label class="block text-[10px] font-bold uppercase text-slate-400 mb-1">Email Body</label>
+                    <textarea id="modalBody" rows="8" class="bg-inputbg border border-slate-700 rounded-lg p-3 text-xs w-full text-white font-mono"></textarea>
+                </div>
+            </div>
             <div class="flex gap-3">
-                <button onclick="copyDraftEmail()" class="bg-accent hover:bg-accentHover text-slate-950 font-bold px-4 py-2 rounded-lg text-xs transition">Copy to Clipboard</button>
-                <button class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 font-bold px-4 py-2 rounded-lg text-xs transition" onclick="closeEmailModal()">Close</button>
+                <button onclick="sendLiveEmailViaResend()" class="bg-accent hover:bg-accentHover text-slate-950 font-bold px-4 py-2 rounded-lg text-xs transition">🚀 Send Live Email via Resend</button>
+                <button class="bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold px-4 py-2 rounded-lg text-xs transition" onclick="closeEmailModal()">Close</button>
             </div>
         </div>
     </div>
@@ -375,6 +416,8 @@ print(res.json())</code></pre>
     <script>
         let usageChartInstance = null;
         let cachedLeadsData = [];
+        let currentUserRole = 'admin';
+        let activeLeadIdForEmail = null;
 
         window.onload = function() {
             const savedKey = localStorage.getItem('nexus_api_key');
@@ -391,7 +434,7 @@ print(res.json())</code></pre>
         function showToast(message) {
             const container = document.getElementById('toastContainer');
             const toast = document.createElement('div');
-            toast.className = 'bg-cardbg border border-sky-500 text-slate-100 px-4 py-3 rounded-xl text-xs font-semibold shadow-2xl flex items-center gap-2 animate-bounce';
+            toast.className = 'bg-cardbg border border-sky-500 text-slate-100 px-4 py-3 rounded-xl text-xs font-semibold shadow-2xl flex items-center gap-2';
             toast.innerHTML = `✅ <span>${message}</span>`;
             container.appendChild(toast);
             setTimeout(() => toast.remove(), 3000);
@@ -458,26 +501,37 @@ print(res.json())</code></pre>
             }
         }
 
-        async function draftAIEmail(leadId) {
-            const apiKey = document.getElementById('apiKey').value.trim();
-            if (!apiKey) { alert("Please authenticate first."); return; }
+        async function draftAIEmail(leadId, company, email) {
+            if (currentUserRole === 'viewer') { alert("Viewer role cannot send live emails."); return; }
+            activeLeadIdForEmail = leadId;
+            document.getElementById('modalRecipientEmail').value = email || 'contact@company.com';
+            document.getElementById('modalSubject').value = `Scaling engineering workflows at ${company}`;
+            document.getElementById('modalBody').value = `Hi Engineering Team at ${company},\n\nI noticed your recent momentum and wanted to connect regarding automated workflow orchestration.\n\nBest,\nQuantCode Nexus SDR`;
+            document.getElementById('emailModal').classList.remove('hidden');
+        }
 
-            const modal = document.getElementById('emailModal');
-            const content = document.getElementById('emailModalContent');
-            modal.classList.remove('hidden');
-            content.innerText = "Generating personalized cold email via Gemini agent...";
+        async function sendLiveEmailViaResend() {
+            const apiKey = document.getElementById('apiKey').value.trim();
+            const to_email = document.getElementById('modalRecipientEmail').value.trim();
+            const subject = document.getElementById('modalSubject').value.trim();
+            const body = document.getElementById('modalBody').value.trim();
+
+            if (!to_email || !subject || !body) { alert("Fill all fields."); return; }
 
             try {
-                const res = await fetch(`/api/v1/leads/${leadId}/draft-email`, {
+                const res = await fetch(`/api/v1/leads/${activeLeadIdForEmail}/send-live-email`, {
                     method: 'POST',
-                    headers: { 'x-api-key': apiKey }
+                    headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ to_email, subject, body })
                 });
                 const data = await res.json();
-                if (res.ok) content.innerText = data.drafted_email;
-                else content.innerText = `Error: ${data.detail || "Failed to generate email."}`;
-            } catch (err) {
-                content.innerText = `Request failed: ${err.message}`;
-            }
+                if (res.ok) {
+                    showToast(data.message);
+                    closeEmailModal();
+                } else {
+                    alert(data.detail || "Failed to send email.");
+                }
+            } catch (err) { alert("Request failed."); }
         }
 
         async function syncLeadToCRM(leadId) {
@@ -640,11 +694,6 @@ print(res.json())</code></pre>
 
         function closeEmailModal() { document.getElementById('emailModal').classList.add('hidden'); }
         function closeDeepScanModal() { document.getElementById('deepScanModal').classList.add('hidden'); }
-        
-        function copyDraftEmail() {
-            navigator.clipboard.writeText(document.getElementById('emailModalContent').innerText);
-            showToast("Cold email copied to clipboard!");
-        }
 
         async function saveAndFetch() {
             const apiKey = document.getElementById('apiKey').value.trim();
@@ -705,6 +754,7 @@ print(res.json())</code></pre>
                 loadICPProfile(apiKey);
                 loadCredits(apiKey);
                 loadDestinations(apiKey);
+                loadAutonomousRules(apiKey);
                 showToast("Successfully authenticated & telemetry loaded!");
             } catch (err) {
                 leadFeedContainer.innerHTML = `<p class="text-rose-400">Request failed: ${err.message}</p>`;
@@ -717,8 +767,11 @@ print(res.json())</code></pre>
                 const data = await res.json();
                 if (res.ok && data.keys && data.keys.length > 0) {
                     const activeKey = data.keys.find(k => k.active === 1) || data.keys[0];
-                    const role = activeKey.role ? activeKey.role.toUpperCase() : 'ADMIN';
-                    document.getElementById('badgeRole').innerText = `Role: ${role}`;
+                    currentUserRole = (activeKey.role || 'admin').toLowerCase();
+                    document.getElementById('badgeRole').innerText = `Role: ${currentUserRole.toUpperCase()}`;
+                    if (currentUserRole === 'viewer') {
+                        showToast("Logged in as VIEWER (Read-Only Mode)");
+                    }
                 }
             } catch (e) { console.error(e); }
         }
@@ -843,6 +896,37 @@ print(res.json())</code></pre>
             } catch (e) { console.error(e); }
         }
 
+        async function loadAutonomousRules(apiKey) {
+            try {
+                const res = await fetch('/api/v1/autonomous/rules', { headers: { 'x-api-key': apiKey } });
+                const data = await res.json();
+                if (res.ok && data.rules) {
+                    document.getElementById('autoMinTrust').value = data.rules.min_trust;
+                    document.getElementById('autoSyncCrm').value = data.rules.auto_sync;
+                    document.getElementById('autoEnrollSeq').value = data.rules.auto_enroll;
+                }
+            } catch (e) { console.error(e); }
+        }
+
+        async function saveAutonomousRules() {
+            const apiKey = document.getElementById('apiKey').value.trim();
+            if (currentUserRole === 'viewer') { alert("Viewer role cannot update rules."); return; }
+
+            const min_trust = parseInt(document.getElementById('autoMinTrust').value) || 85;
+            const auto_sync = parseInt(document.getElementById('autoSyncCrm').value) || 1;
+            const auto_enroll = parseInt(document.getElementById('autoEnrollSeq').value) || 1;
+
+            try {
+                const res = await fetch('/api/v1/autonomous/rules', {
+                    method: 'POST',
+                    headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ min_trust, auto_sync, auto_enroll })
+                });
+                const data = await res.json();
+                showToast(data.message || "Rules saved!");
+            } catch (err) { alert("Failed."); }
+        }
+
         function renderLeadFeed(leads) {
             const container = document.getElementById('leadFeedContainer');
             if (!leads || leads.length === 0) {
@@ -855,6 +939,7 @@ print(res.json())</code></pre>
                 const trust = lead.trust_score || 90;
                 const emailStatus = lead.verified_email === 1 ? '✅ Verified Email' : '⚠️ Unverified';
                 const intent = lead.intent_signals || 'High hiring velocity';
+                const disabledAttr = currentUserRole === 'viewer' ? 'opacity-50 cursor-not-allowed' : '';
 
                 html += `
                     <div class="bg-inputbg border border-slate-800 p-4 rounded-xl flex flex-col gap-3 hover:border-sky-500/40 transition">
@@ -876,9 +961,9 @@ print(res.json())</code></pre>
                             🔥 <strong class="text-white">Intent Signal:</strong> ${escapeHtml(intent)}
                         </div>
                         <div class="flex flex-wrap gap-2 mt-1">
-                            <button class="bg-sky-500/10 hover:bg-sky-500/20 text-accent border border-sky-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition" onclick="draftAIEmail(${lead.id})">✨ Draft AI Email</button>
-                            <button class="bg-sky-500/10 hover:bg-sky-500/20 text-accent border border-sky-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition" onclick="syncLeadToCRM(${lead.id})">🔗 Sync to CRM</button>
-                            <button class="bg-sky-500/10 hover:bg-sky-500/20 text-accent border border-sky-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition" onclick="enrollSequence(${lead.id})">🚀 Enroll in Sequence</button>
+                            <button class="bg-sky-500/10 hover:bg-sky-500/20 text-accent border border-sky-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${disabledAttr}" onclick="draftAIEmail(${lead.id}, '${escapeHtml(lead.company_name)}', '${escapeHtml(lead.email || 'contact@' + lead.domain)}')">✨ AI Draft & Send via Resend</button>
+                            <button class="bg-sky-500/10 hover:bg-sky-500/20 text-accent border border-sky-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${disabledAttr}" onclick="syncLeadToCRM(${lead.id})">🔗 Sync to CRM</button>
+                            <button class="bg-sky-500/10 hover:bg-sky-500/20 text-accent border border-sky-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${disabledAttr}" onclick="enrollSequence(${lead.id})">🚀 Enroll in Sequence</button>
                             <button class="bg-sky-500/10 hover:bg-sky-500/20 text-accent border border-sky-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition" onclick="triggerDeepScan(${lead.id})">🔍 Deep Scan & Lookalikes</button>
                         </div>
                     </div>

@@ -202,6 +202,21 @@ def send_email_via_resend(to_email: str, api_key: str):
         logger.error(f"Resend error: {e}")
 
 
+def send_custom_email_via_resend(to_email: str, subject: str, html_content: str):
+    if not RESEND_API_KEY:
+        logger.warning("Resend API key missing; skipping live email dispatch.")
+        return False
+    url = "https://api.resend.com/emails"
+    headers = {"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"}
+    payload = {"from": f"QuantCode Nexus <{SENDER_EMAIL}>", "to": [to_email], "subject": subject, "html": html_content}
+    try:
+        res = requests.post(url, json=payload, headers=headers, timeout=10)
+        return res.status_code in [200, 201]
+    except Exception as e:
+        logger.error(f"Resend custom email error: {e}")
+        return False
+
+
 def send_password_reset_email(to_email: str, reset_url: str):
     if not RESEND_API_KEY:
         return
@@ -342,6 +357,17 @@ def init_db():
         )
         cursor.execute(
             """
+            CREATE TABLE IF NOT EXISTS autonomous_rules (
+                email TEXT PRIMARY KEY REFERENCES subscribers(email),
+                min_trust INT DEFAULT 85,
+                auto_sync INT DEFAULT 1,
+                auto_enroll INT DEFAULT 1,
+                active INT DEFAULT 1
+            )
+        """
+        )
+        cursor.execute(
+            """
             CREATE TABLE IF NOT EXISTS lead_feedback (
                 id SERIAL PRIMARY KEY,
                 email TEXT,
@@ -440,6 +466,7 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS subscriber_destinations (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT, destination_type TEXT NOT NULL, webhook_url TEXT NOT NULL, access_token TEXT DEFAULT '', mapping_rules TEXT DEFAULT '{}', active INTEGER DEFAULT 1, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS b2b_leads (id INTEGER PRIMARY KEY AUTOINCREMENT, company_name TEXT, domain TEXT UNIQUE, email TEXT, industry TEXT DEFAULT 'SaaS / Tech', employee_count TEXT DEFAULT '10-50', linkedin_url TEXT DEFAULT '', confidence_score REAL DEFAULT 0.9, trust_score INTEGER DEFAULT 95, tech_stack TEXT DEFAULT 'Python, PostgreSQL', funding_stage TEXT DEFAULT 'Series A', intent_signals TEXT DEFAULT 'None', verified_email INTEGER DEFAULT 1, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS subscriber_icps (email TEXT PRIMARY KEY, target_industries TEXT, min_trust_score INTEGER, preferred_employee_count TEXT, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
+        cursor.execute("CREATE TABLE IF NOT EXISTS autonomous_rules (email TEXT PRIMARY KEY, min_trust INTEGER DEFAULT 85, auto_sync INTEGER DEFAULT 1, auto_enroll INTEGER DEFAULT 1, active INTEGER DEFAULT 1)")
         cursor.execute("CREATE TABLE IF NOT EXISTS lead_feedback (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT, lead_id INTEGER, feedback_status TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS ai_error_dlq (id INTEGER PRIMARY KEY AUTOINCREMENT, raw_payload TEXT, error_message TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS subscriber_webhooks (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT, webhook_url TEXT NOT NULL, active INTEGER DEFAULT 1, consecutive_failures INTEGER DEFAULT 0, last_failure_time DATETIME, circuit_status TEXT DEFAULT 'ACTIVE', filter_rules TEXT DEFAULT '{}', created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
@@ -542,6 +569,31 @@ async def async_background_enrichment_worker(lead_id: int, company_name: str, do
         logger.error(f"Enrichment worker error for lead {lead_id}: {e}")
     finally:
         release_db(conn)
+
+    # Autonomous SDR Rule Evaluation
+    await evaluate_autonomous_rules_for_lead(lead_id)
+
+
+async def evaluate_autonomous_rules_for_lead(lead_id: int):
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute("SELECT l.id, l.company_name, l.email, l.trust_score, r.email as user_email, r.auto_sync, r.auto_enroll FROM b2b_leads l JOIN autonomous_rules r ON l.trust_score >= r.min_trust WHERE l.id = %s AND r.active = 1", (lead_id,))
+        else:
+            cursor.execute("SELECT l.id, l.company_name, l.email, l.trust_score, r.email as user_email, r.auto_sync, r.auto_enroll FROM b2b_leads l JOIN autonomous_rules r ON l.trust_score >= r.min_trust WHERE l.id = ? AND r.active = 1", (lead_id,))
+        rows = cursor.fetchall()
+        cursor.close()
+    finally:
+        release_db(conn)
+
+    for row in rows:
+        r = dict(row)
+        if r["auto_sync"] == 1:
+            logger.info(f"Autonomous Autopilot: Syncing lead {r['company_name']} to CRM for user {r['user_email']}")
+            send_telegram_alert(f"🤖 *Autonomous Autopilot Triggered!*\nSynced High-Trust Lead: `{r['company_name']}` (Trust: {r['trust_score']}/100)")
+        if r["auto_enroll"] == 1:
+            logger.info(f"Autonomous Autopilot: Enrolled lead {r['company_name']} into outbound sequence.")
 
 
 async def webhook_canary_healing_worker():
@@ -896,7 +948,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="QuantCode Nexus Enterprise Apex API",
-    version="3.6.0",
+    version="3.7.0",
     description="Enterprise B2B Lead Intelligence, RevOps Sync, DLQ Replay, and Developer Sandbox API.",
     lifespan=lifespan
 )
@@ -951,7 +1003,7 @@ async def custom_http_exception_handler(request: Request, exc: HTTPException):
 async def read_index():
     if os.path.exists("index.html"):
         return FileResponse("index.html")
-    return {"status": "online", "system": "QuantCode Nexus Enterprise Apex", "version": "3.6.0"}
+    return {"status": "online", "system": "QuantCode Nexus Enterprise Apex", "version": "3.7.0"}
 
 @app.get("/success")
 async def success_page():
@@ -1159,6 +1211,72 @@ async def verify_magic_link(token: str):
     if os.path.exists("dashboard.html"):
         return FileResponse("dashboard.html")
     return {"status": "success", "message": "Authentication verified via magic link token."}
+
+
+class SendEmailPayload(BaseModel):
+    to_email: EmailStr
+    subject: str
+    body: str
+
+@app.post("/api/v1/leads/{lead_id}/send-live-email")
+async def send_live_lead_email(lead_id: int, payload: SendEmailPayload, request: Request, auth: dict = Depends(verify_api_key)):
+    if auth.get("role") == "viewer":
+        raise HTTPException(status_code=403, detail="Viewer role is restricted from sending live emails.")
+
+    success = send_custom_email_via_resend(payload.to_email, payload.subject, f"<p>{payload.body.replace(chr(10), '<br>')}</p>")
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to dispatch live email via Resend API.")
+
+    log_audit_event(auth["email"], "LIVE_EMAIL_SENT", f"Sent live email to {payload.to_email} for lead ID {lead_id}", auth["ip"])
+    return {"status": "success", "message": f"Live email successfully dispatched to {payload.to_email} via Resend!"}
+
+
+class AutonomousRulesPayload(BaseModel):
+    min_trust: int = 85
+    auto_sync: int = 1
+    auto_enroll: int = 1
+
+@app.post("/api/v1/autonomous/rules")
+async def save_autonomous_rules(payload: AutonomousRulesPayload, auth: dict = Depends(verify_api_key)):
+    if auth.get("role") == "viewer":
+        raise HTTPException(status_code=403, detail="Viewer role cannot update automation rules.")
+
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute(
+                "INSERT INTO autonomous_rules (email, min_trust, auto_sync, auto_enroll, active) VALUES (%s, %s, %s, %s, 1) ON CONFLICT (email) DO UPDATE SET min_trust = EXCLUDED.min_trust, auto_sync = EXCLUDED.auto_sync, auto_enroll = EXCLUDED.auto_enroll",
+                (auth["email"], payload.min_trust, payload.auto_sync, payload.auto_enroll)
+            )
+        else:
+            cursor.execute(
+                "INSERT OR REPLACE INTO autonomous_rules (email, min_trust, auto_sync, auto_enroll, active) VALUES (?, ?, ?, ?, 1)",
+                (auth["email"], payload.min_trust, payload.auto_sync, payload.auto_enroll)
+            )
+        conn.commit()
+        cursor.close()
+    finally:
+        release_db(conn)
+    return {"status": "success", "message": "Autonomous SDR autopilot rules saved successfully."}
+
+
+@app.get("/api/v1/autonomous/rules")
+async def get_autonomous_rules(auth: dict = Depends(verify_api_key)):
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute("SELECT min_trust, auto_sync, auto_enroll FROM autonomous_rules WHERE email = %s", (auth["email"],))
+        else:
+            cursor.execute("SELECT min_trust, auto_sync, auto_enroll FROM autonomous_rules WHERE email = ?", (auth["email"],))
+        row = cursor.fetchone()
+        cursor.close()
+    finally:
+        release_db(conn)
+    if not row:
+        return {"status": "success", "rules": {"min_trust": 85, "auto_sync": 1, "auto_enroll": 1}}
+    return {"status": "success", "rules": dict(row)}
 
 
 @app.post("/api/v1/leads/{lead_id}/sync-crm")
