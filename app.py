@@ -1595,7 +1595,7 @@ class OnDemandGeneratePayload(BaseModel):
     count: Optional[int] = 10
 
 @app.post("/api/v1/leads/generate-on-demand")
-async def generate_leads_on_demand(payload: OnDemandGeneratePayload, request: Request, response: Response, auth: dict = Depends(verify_api_key)):
+async def generate_leads_on_demand(payload: OnDemandGeneratePayload, request: Request, response: Response, background_tasks: BackgroundTasks, auth: dict = Depends(verify_api_key)):
     if auth.get("role") == "viewer":
         raise HTTPException(status_code=403, detail="Viewer role is not authorized to generate on-demand leads.")
 
@@ -1622,41 +1622,71 @@ async def generate_leads_on_demand(payload: OnDemandGeneratePayload, request: Re
         requested_cost = payload.count
         if credits_left < requested_cost:
             raise HTTPException(status_code=402, detail=f"Insufficient lead generation credits. Remaining: {credits_left}, Requested: {requested_cost}.")
-
         cursor.close()
     finally:
         release_db(conn)
 
     generated_count = min(payload.count, 25)
 
+    prompt = (
+        f"Generate a JSON list of {generated_count} real, active B2B companies specifically matching this search query / niche: '{payload.query}'. "
+        "For each company, provide: company_name, domain (e.g. 'stripe.com'), email (e.g. 'contact@domain.com'), "
+        "industry, employee_count, linkedin_url, confidence_score (0.0 to 1.0), and trust_score (0 to 100). "
+        "Return strictly valid JSON matching this schema: "
+        '[{"company_name": "...", "domain": "...", "email": "...", "industry": "...", "employee_count": "...", "linkedin_url": "...", "confidence_score": 0.95, "trust_score": 95}]'
+    )
+
+    try:
+        raw_text = await asyncio.to_thread(call_gemini_rest, prompt)
+        if raw_text.startswith("```json"):
+            raw_text = raw_text[7:-3].strip()
+        elif raw_text.startswith("```"):
+            raw_text = raw_text[3:-3].strip()
+            
+        parsed_data = json.loads(raw_text)
+        validated_leads = []
+        for item in parsed_data:
+            try:
+                validated_leads.append(GeminiLeadSchema(**item))
+            except ValidationError as val_err:
+                logger.warning(f"Skipping malformed lead item from Gemini: {val_err}")
+    except Exception as e:
+        logger.error(f"On-demand Gemini generation error: {e}")
+        raise HTTPException(status_code=500, detail=f"AI agent generation failed: {str(e)}")
+
     ins_conn = get_db()
     try:
         cursor = ins_conn.cursor()
         new_leads = []
-        for i in range(generated_count):
-            comp_name = f"Apex Gen Corp {i+1}"
-            dom = f"apexgen{i+1}.io"
+        for lead in validated_leads:
+            clean_domain = lead.domain.lower().strip().replace("https://", "").replace("http://", "").rstrip("/")
+            conf_score = lead.confidence_score if lead.confidence_score is not None else 0.9
+            trust_score = lead.trust_score if lead.trust_score is not None else 95
+
             if DATABASE_URL:
                 cursor.execute(
                     """
                     INSERT INTO b2b_leads (company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score) 
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s) 
-                    ON CONFLICT (domain) DO UPDATE SET confidence_score = EXCLUDED.confidence_score 
+                    ON CONFLICT (domain) DO UPDATE SET 
+                        confidence_score = EXCLUDED.confidence_score,
+                        trust_score = EXCLUDED.trust_score
                     RETURNING id
                     """,
-                    (comp_name, dom, f"contact@{dom}", "SaaS / AI", "20-100", "", 0.95, 85 + (i % 12))
+                    (lead.company_name, clean_domain, lead.email, lead.industry, lead.employee_count, lead.linkedin_url, conf_score, trust_score)
                 )
                 r = cursor.fetchone()
                 l_id = r["id"] if r else None
             else:
                 cursor.execute(
                     "INSERT OR IGNORE INTO b2b_leads (company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                    (comp_name, dom, f"contact@{dom}", "SaaS / AI", "20-100", "", 0.95, 85 + (i % 12))
+                    (lead.company_name, clean_domain, lead.email, lead.industry, lead.employee_count, lead.linkedin_url, conf_score, trust_score)
                 )
                 l_id = cursor.lastrowid
 
             if l_id:
-                new_leads.append({"id": l_id, "company_name": comp_name, "domain": dom})
+                new_leads.append({"id": l_id, "company_name": lead.company_name, "domain": clean_domain})
+                background_tasks.add_task(async_background_enrichment_worker, l_id, lead.company_name, clean_domain)
 
         new_balance = credits_left - len(new_leads)
         if DATABASE_URL:
