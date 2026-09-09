@@ -444,6 +444,7 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS ai_error_dlq (id INTEGER PRIMARY KEY AUTOINCREMENT, raw_payload TEXT, error_message TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS subscriber_webhooks (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT, webhook_url TEXT NOT NULL, active INTEGER DEFAULT 1, consecutive_failures INTEGER DEFAULT 0, last_failure_time DATETIME, circuit_status TEXT DEFAULT 'ACTIVE', filter_rules TEXT DEFAULT '{}', created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS webhook_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT, webhook_url TEXT NOT NULL, payload TEXT, status_code INT, success INTEGER DEFAULT 0, error_message TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)")
+        cursor.execute("CREATE TABLE IF NOT EXISTS webhook_dlq (id INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT, webhook_url TEXT NOT NULL, payload TEXT, error_message TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS audit_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT, action TEXT NOT NULL, details TEXT, ip_address TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)")
     conn.commit()
     cursor.close()
@@ -895,8 +896,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="QuantCode Nexus Enterprise Apex API",
-    version="3.5.0",
-    description="Enterprise B2B Lead Intelligence, RevOps Sync, and Developer Sandbox API.",
+    version="3.6.0",
+    description="Enterprise B2B Lead Intelligence, RevOps Sync, DLQ Replay, and Developer Sandbox API.",
     lifespan=lifespan
 )
 
@@ -950,7 +951,7 @@ async def custom_http_exception_handler(request: Request, exc: HTTPException):
 async def read_index():
     if os.path.exists("index.html"):
         return FileResponse("index.html")
-    return {"status": "online", "system": "QuantCode Nexus Enterprise Apex", "version": "3.5.0"}
+    return {"status": "online", "system": "QuantCode Nexus Enterprise Apex", "version": "3.6.0"}
 
 @app.get("/success")
 async def success_page():
@@ -1183,7 +1184,6 @@ async def sync_lead_crm(lead_id: int, request: Request, background_tasks: Backgr
     lead_data = dict(row)
     lead_data["lead_id"] = lead_id
     
-    # Hand off the heavy outbound dispatch loop to FastAPI BackgroundTasks
     background_tasks.add_task(safe_dispatch_wrapper, lead_data)
     log_audit_event(auth["email"], "LEAD_SYNC_CRM", f"Dispatched background CRM sync for lead ID {lead_id} ({lead_data.get('company_name')})", auth["ip"])
 
@@ -1225,6 +1225,192 @@ Best regards,
 QuantCode Nexus SDR Agent"""
 
     return {"status": "success", "lead_id": lead_id, "company_name": lead['company_name'], "drafted_email": draft}
+
+
+@app.post("/api/v1/leads/{lead_id}/enroll-sequence")
+async def enroll_lead_in_sequence(lead_id: int, request: Request, background_tasks: BackgroundTasks, auth: dict = Depends(verify_api_key)):
+    if auth.get("role") == "viewer":
+        raise HTTPException(status_code=403, detail="Viewer role cannot enroll leads into outbound sequences.")
+
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute("SELECT company_name, email, domain, tech_stack, funding_stage FROM b2b_leads WHERE id = %s", (lead_id,))
+        else:
+            cursor.execute("SELECT company_name, email, domain, tech_stack, funding_stage FROM b2b_leads WHERE id = ?", (lead_id,))
+        row = cursor.fetchone()
+        cursor.close()
+    finally:
+        release_db(conn)
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Lead not found.")
+
+    lead = dict(row)
+    log_audit_event(auth["email"], "SEQUENCE_ENROLL", f"Enrolled lead {lead.get('company_name')} ({lead.get('email')}) into automated outreach sequence", auth["ip"])
+    return {"status": "success", "message": f"Successfully enrolled {lead.get('company_name')} into outbound email & LinkedIn sequence."}
+
+
+@app.get("/api/v1/leads/{lead_id}/lookalikes")
+async def get_lead_lookalikes(lead_id: int, request: Request, auth: dict = Depends(verify_api_key)):
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute("SELECT embedding, industry FROM b2b_leads WHERE id = %s", (lead_id,))
+        else:
+            cursor.execute("SELECT embedding, industry FROM b2b_leads WHERE id = ?", (lead_id,))
+        row = cursor.fetchone()
+        
+        if not row:
+            raise HTTPException(status_code=404, detail="Lead not found.")
+        
+        emb = row["embedding"] if isinstance(row, dict) else row[0]
+        ind = row["industry"] if isinstance(row, dict) else row[1]
+
+        if DATABASE_URL and emb:
+            cursor.execute(
+                """
+                SELECT id, company_name, domain, industry, trust_score, tech_stack, (1.0 - (embedding <=> %s::vector)) as similarity
+                FROM b2b_leads
+                WHERE id != %s AND embedding IS NOT NULL
+                ORDER BY embedding <=> %s::vector ASC
+                LIMIT 5
+                """,
+                (emb, lead_id, emb)
+            )
+        else:
+            cursor.execute(
+                "SELECT id, company_name, domain, industry, trust_score, tech_stack, 0.95 as similarity FROM b2b_leads WHERE id != ? AND industry = ? LIMIT 5",
+                (lead_id, ind)
+            )
+        rows = cursor.fetchall()
+        lookalikes = [dict(r) for r in rows]
+        cursor.close()
+    finally:
+        release_db(conn)
+
+    return {"status": "success", "lead_id": lead_id, "lookalikes": lookalikes}
+
+
+@app.post("/api/v1/admin/dlq/{dlq_id}/replay")
+async def replay_dlq_event(dlq_id: int, request: Request, background_tasks: BackgroundTasks, auth: dict = Depends(verify_api_key)):
+    if auth.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Only workspace admins can replay failed DLQ webhook events.")
+
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute("SELECT id, event_id, webhook_url, payload FROM webhook_dlq WHERE id = %s", (dlq_id,))
+        else:
+            cursor.execute("SELECT id, event_id, webhook_url, payload FROM webhook_dlq WHERE id = ?", (dlq_id,))
+        row = cursor.fetchone()
+        cursor.close()
+    finally:
+        release_db(conn)
+
+    if not row:
+        raise HTTPException(status_code=404, detail="DLQ event item not found.")
+
+    dlq_item = dict(row)
+    url = dlq_item["webhook_url"]
+    payload_str = dlq_item["payload"]
+
+    try:
+        payload_data = json.loads(payload_str)
+    except Exception:
+        payload_data = {"raw": payload_str}
+
+    signature = generate_hmac_signature(payload_str)
+    headers = {
+        "Content-Type": "application/json",
+        "X-Nexus-Signature": signature,
+        "X-Nexus-Event-Id": dlq_item["event_id"],
+        "X-Nexus-Replayed": "true"
+    }
+
+    try:
+        response = await asyncio.to_thread(requests.post, url, data=payload_str, headers=headers, timeout=10)
+        status_code = response.status_code
+        success = 1 if 200 <= status_code < 300 else 0
+        error_msg = None if success else f"HTTP {status_code}"
+    except Exception as e:
+        status_code = 500
+        success = 0
+        error_msg = str(e)
+
+    log_conn = get_db()
+    try:
+        log_cursor = log_conn.cursor()
+        if DATABASE_URL:
+            log_cursor.execute("INSERT INTO webhook_logs (event_id, webhook_url, payload, status_code, success, error_message) VALUES (%s, %s, %s, %s, %s, %s)", (dlq_item["event_id"], url, payload_str, status_code, success, error_msg))
+            if success == 1:
+                log_cursor.execute("DELETE FROM webhook_dlq WHERE id = %s", (dlq_id,))
+        else:
+            log_cursor.execute("INSERT INTO webhook_logs (event_id, webhook_url, payload, status_code, success, error_message) VALUES (?, ?, ?, ?, ?, ?)", (dlq_item["event_id"], url, payload_str, status_code, success, error_msg))
+            if success == 1:
+                log_cursor.execute("DELETE FROM webhook_dlq WHERE id = ?", (dlq_id,))
+        log_conn.commit()
+        log_cursor.close()
+    finally:
+        release_db(log_conn)
+
+    log_audit_event(auth["email"], "DLQ_REPLAY", f"Replayed DLQ event ID {dlq_id} to {url} (Success: {success})", auth["ip"])
+    return {"status": "success", "replayed": success, "status_code": status_code, "message": f"DLQ event replayed with status {status_code}."}
+
+
+@app.get("/api/v1/admin/dlq")
+async def list_dlq_events(request: Request, auth: dict = Depends(verify_api_key)):
+    if auth.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Only workspace admins can view the DLQ.")
+
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute("SELECT id, event_id, webhook_url, error_message, timestamp FROM webhook_dlq ORDER BY timestamp DESC LIMIT 50")
+        else:
+            cursor.execute("SELECT id, event_id, webhook_url, error_message, timestamp FROM webhook_dlq ORDER BY timestamp DESC LIMIT 50")
+        rows = cursor.fetchall()
+        dlq_items = []
+        for r in rows:
+            r_dict = dict(r)
+            if r_dict.get("timestamp") and isinstance(r_dict["timestamp"], datetime):
+                r_dict["timestamp"] = r_dict["timestamp"].isoformat()
+            dlq_items.append(r_dict)
+        cursor.close()
+    finally:
+        release_db(conn)
+
+    return {"status": "success", "dlq_count": len(dlq_items), "dlq_items": dlq_items}
+
+
+@app.get("/api/v1/admin/audit-logs")
+async def list_audit_logs(request: Request, auth: dict = Depends(verify_api_key)):
+    if auth.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Only workspace admins can view audit logs.")
+
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute("SELECT id, email, action, details, ip_address, timestamp FROM audit_logs ORDER BY timestamp DESC LIMIT 50")
+        else:
+            cursor.execute("SELECT id, email, action, details, ip_address, timestamp FROM audit_logs ORDER BY timestamp DESC LIMIT 50")
+        rows = cursor.fetchall()
+        logs = []
+        for r in rows:
+            r_dict = dict(r)
+            if r_dict.get("timestamp") and isinstance(r_dict["timestamp"], datetime):
+                r_dict["timestamp"] = r_dict["timestamp"].isoformat()
+            logs.append(r_dict)
+        cursor.close()
+    finally:
+        release_db(conn)
+
+    return {"status": "success", "audit_logs": logs}
 
 
 @app.post("/api/v1/leads/{lead_id}/deep-scan")

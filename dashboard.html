@@ -69,7 +69,7 @@
                 <button id="btnTabSandbox" onclick="switchTab('sandbox', this)" class="tab-btn px-4 py-2 rounded-lg text-xs font-bold transition text-slate-400 hover:text-slate-200">⚡ Developer Sandbox</button>
             </div>
 
-            <!-- TAB 1: Lead Intelligence Hub (SDR Focus - Brought Front & Center) -->
+            <!-- TAB 1: Lead Intelligence Hub (SDR Focus) -->
             <div id="tabLeads" class="tab-content active mt-6 space-y-6">
                 <!-- On-Demand Generator -->
                 <div class="bg-sky-500/5 border border-sky-500/20 p-6 rounded-xl">
@@ -218,7 +218,7 @@
                 </div>
             </div>
 
-            <!-- TAB 3: Admin & Telemetry (Usage, Quotas, Magic Links, Team Management) -->
+            <!-- TAB 3: Admin & Telemetry (Usage, Quotas, Magic Links, DLQ, Audit Logs) -->
             <div id="tabAdmin" class="tab-content hidden mt-6 space-y-6">
                 <!-- Magic Link Box -->
                 <div class="bg-sky-500/5 border border-dashed border-sky-500/30 p-4 rounded-xl">
@@ -247,6 +247,34 @@
                     <span class="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">7-Day API Request History</span>
                     <div class="h-56 relative">
                         <canvas id="usageChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- NEW: Dead Letter Queue (DLQ) Inspector & Replay Manager -->
+                <div class="bg-inputbg border border-slate-800 p-6 rounded-xl">
+                    <div class="flex justify-between items-center mb-3">
+                        <div>
+                            <span class="block text-xs font-bold uppercase tracking-wider text-accent">⚠️ Dead Letter Queue (DLQ) & Failed Webhooks</span>
+                            <p class="text-xs text-slate-400">Inspect failed webhook deliveries and trigger manual or automated payload replays.</p>
+                        </div>
+                        <button onclick="loadDLQEvents()" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-accent font-bold px-3 py-1.5 rounded-lg text-xs transition">Refresh DLQ</button>
+                    </div>
+                    <div id="dlqContainer" class="space-y-2 max-h-60 overflow-y-auto">
+                        <p class="text-xs text-slate-400">Authenticate to load DLQ events.</p>
+                    </div>
+                </div>
+
+                <!-- NEW: Enterprise Security Audit Log Feed -->
+                <div class="bg-inputbg border border-slate-800 p-6 rounded-xl">
+                    <div class="flex justify-between items-center mb-3">
+                        <div>
+                            <span class="block text-xs font-bold uppercase tracking-wider text-accent">🛡️ Workspace Audit Log Feed</span>
+                            <p class="text-xs text-slate-400">Real-time tracking of security events, exports, key creations, and replays.</p>
+                        </div>
+                        <button onclick="loadAuditLogs()" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-accent font-bold px-3 py-1.5 rounded-lg text-xs transition">Refresh Logs</button>
+                    </div>
+                    <div id="auditLogContainer" class="space-y-2 max-h-60 overflow-y-auto font-mono text-[11px]">
+                        <p class="text-xs text-slate-400 font-sans">Authenticate to load audit logs.</p>
                     </div>
                 </div>
 
@@ -312,7 +340,6 @@ print(res.json())</code></pre>
                 </div>
             </div>
         </div>
-
     </div>
 
     <!-- AI Email Draft Modal -->
@@ -330,7 +357,7 @@ print(res.json())</code></pre>
     <!-- Deep Intelligence Scan Modal -->
     <div id="deepScanModal" class="hidden fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex justify-center items-center p-4">
         <div class="bg-cardbg border border-sky-500/40 p-6 rounded-2xl max-w-xl w-full shadow-2xl">
-            <span class="text-xs font-bold uppercase tracking-wider text-accent block mb-3">🔍 Deep Company Intelligence & Competitor Scan</span>
+            <span class="text-xs font-bold uppercase tracking-wider text-accent block mb-3">🔍 Deep Company Intelligence & Lookalikes</span>
             <div id="deepScanContent" class="bg-inputbg p-4 rounded-xl border border-slate-800 text-xs text-slate-200 font-mono space-y-2 max-h-80 overflow-y-auto mb-4">Scanning company telemetry...</div>
             <div class="flex justify-end">
                 <button class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 font-bold px-4 py-2 rounded-lg text-xs transition" onclick="closeDeepScanModal()">Close Intelligence</button>
@@ -355,17 +382,6 @@ print(res.json())</code></pre>
             }
         };
 
-        // Bulletproof Global Event Delegation (Bypasses inline CSP blocks)
-        document.addEventListener('click', function(event) {
-            const btn = event.target.closest('button');
-            if (btn && btn.textContent.includes('Sync to CRM')) {
-                const leadId = btn.getAttribute('data-id');
-                if (leadId) {
-                    syncLeadToCRM(leadId);
-                }
-            }
-        });
-
         function showToast(message) {
             const container = document.getElementById('toastContainer');
             const toast = document.createElement('div');
@@ -387,15 +403,14 @@ print(res.json())</code></pre>
                 btnElement.classList.remove('text-slate-400');
             }
 
-            if (tabName === 'leads') {
-                document.getElementById('tabLeads').classList.remove('hidden');
-            } else if (tabName === 'revops') {
-                document.getElementById('tabRevOps').classList.remove('hidden');
-            } else if (tabName === 'admin') {
+            if (tabName === 'leads') document.getElementById('tabLeads').classList.remove('hidden');
+            else if (tabName === 'revops') document.getElementById('tabRevOps').classList.remove('hidden');
+            else if (tabName === 'admin') {
                 document.getElementById('tabAdmin').classList.remove('hidden');
-            } else if (tabName === 'sandbox') {
-                document.getElementById('tabSandbox').classList.remove('hidden');
+                loadDLQEvents();
+                loadAuditLogs();
             }
+            else if (tabName === 'sandbox') document.getElementById('tabSandbox').classList.remove('hidden');
         }
 
         async function requestMagicLink() {
@@ -408,8 +423,8 @@ print(res.json())</code></pre>
                     body: JSON.stringify({ email })
                 });
                 const data = await res.json();
-                if (res.ok) { showToast(data.message || "Magic link sent to email!"); }
-                else { alert(data.detail || "Failed to send magic link."); }
+                if (res.ok) showToast(data.message || "Magic link sent!");
+                else alert(data.detail || "Failed to send magic link.");
             } catch (err) { alert("Request failed."); }
         }
 
@@ -419,7 +434,7 @@ print(res.json())</code></pre>
             const limit = document.getElementById('sandboxLimit').value;
             const output = document.getElementById('sandboxResponseOutput');
 
-            if (!apiKey) { alert("Please enter your API key in the authentication bar first."); return; }
+            if (!apiKey) { alert("Please enter your API key first."); return; }
 
             const fullUrl = `https://nexus-core-yfou.onrender.com${endpoint}?limit=${limit}`;
             document.getElementById('curlSnippet').innerText = `curl -X GET "${fullUrl}" \\\n  -H "x-api-key: ${apiKey}"`;
@@ -452,49 +467,44 @@ print(res.json())</code></pre>
                     headers: { 'x-api-key': apiKey }
                 });
                 const data = await res.json();
-                if (res.ok) { content.innerText = data.drafted_email; }
-                else { content.innerText = `Error: ${data.detail || "Failed to generate email."}`; }
+                if (res.ok) content.innerText = data.drafted_email;
+                else content.innerText = `Error: ${data.detail || "Failed to generate email."}`;
             } catch (err) {
                 content.innerText = `Request failed: ${err.message}`;
             }
         }
 
         async function syncLeadToCRM(leadId) {
-            console.log("1. syncLeadToCRM triggered for Lead ID:", leadId);
             const apiKey = document.getElementById('apiKey').value.trim();
-            console.log("2. API Key retrieved. Length:", apiKey ? apiKey.length : 0);
-            
-            if (!apiKey) { 
-                alert("Please enter your API key in the authentication bar at the top first!"); 
-                return; 
-            }
+            if (!apiKey) { alert("Please enter your API key first!"); return; }
 
             try {
-                console.log("3. About to execute absolute fetch for ID:", leadId);
-
-                const res = await fetch(`https://nexus-core-yfou.onrender.com/api/v1/leads/${leadId}/sync-crm`, {
+                const res = await fetch(`/api/v1/leads/${leadId}/sync-crm`, {
                     method: 'POST',
                     headers: { 'x-api-key': apiKey }
                 });
+                const data = await res.json();
+                if (res.ok) showToast(data.message || `Lead #${leadId} synced successfully!`);
+                else alert(data.detail || "Failed to sync lead.");
+            } catch (err) {
+                alert("Sync request failed: " + err.message);
+            }
+        }
 
-                console.log("4. Fetch completed with status:", res.status);
-                
-                let data = {};
-                const contentType = res.headers.get("content-type");
-                if (contentType && contentType.includes("application/json")) {
-                    data = await res.json();
-                } else {
-                    data.message = await res.text();
-                }
-                
-                if (res.ok) { 
-                    showToast(data.message || `Lead #${leadId} synced to CRM successfully!`); 
-                } else { 
-                    alert(data.detail || "Failed to sync lead."); 
-                }
-            } catch (err) { 
-                console.error("5. Network/Fetch error caught:", err);
-                alert("Sync request failed: " + err.message); 
+        async function enrollSequence(leadId) {
+            const apiKey = document.getElementById('apiKey').value.trim();
+            if (!apiKey) { alert("Please authenticate first."); return; }
+
+            try {
+                const res = await fetch(`/api/v1/leads/${leadId}/enroll-sequence`, {
+                    method: 'POST',
+                    headers: { 'x-api-key': apiKey }
+                });
+                const data = await res.json();
+                if (res.ok) showToast(data.message);
+                else alert(data.detail || "Failed to enroll lead.");
+            } catch (err) {
+                alert("Request failed.");
             }
         }
 
@@ -505,30 +515,120 @@ print(res.json())</code></pre>
             const modal = document.getElementById('deepScanModal');
             const content = document.getElementById('deepScanContent');
             modal.classList.remove('hidden');
-            content.innerText = "Executing deep Gemini telemetry crawl and competitor analysis...";
+            content.innerText = "Executing deep intelligence scan & vector lookalikes search...";
 
             try {
-                const res = await fetch(`/api/v1/leads/${leadId}/deep-scan`, {
+                const scanRes = await fetch(`/api/v1/leads/${leadId}/deep-scan`, {
                     method: 'POST',
                     headers: { 'x-api-key': apiKey }
                 });
-                const data = await res.json();
-                if (res.ok && data.report) {
-                    const info = data.report.deep_intelligence;
+                const scanData = await scanRes.json();
+
+                const lookRes = await fetch(`/api/v1/leads/${leadId}/lookalikes`, {
+                    headers: { 'x-api-key': apiKey }
+                });
+                const lookData = await lookRes.json();
+
+                if (scanRes.ok && scanData.report) {
+                    const info = scanData.report.deep_intelligence;
+                    let lookalikesHtml = '<strong class="text-accent text-sm mt-3 block">Vector Lookalikes:</strong>';
+                    if (lookData.lookalikes && lookData.lookalikes.length > 0) {
+                        lookData.lookalikes.forEach(l => {
+                            const sim = Math.round((l.similarity || 0.9) * 100);
+                            lookalikesHtml += `<div class="text-slate-300 text-xs ml-2">- ${escapeHtml(l.company_name)} (${escapeHtml(l.domain)}) [${sim}% Match]</div>`;
+                        });
+                    } else {
+                        lookalikesHtml += '<div class="text-slate-400 text-xs ml-2">No lookalikes found.</div>';
+                    }
+
                     content.innerHTML = `
-                        <strong class="text-accent text-sm">Company:</strong> ${escapeHtml(data.report.company_name)} (${escapeHtml(data.report.domain)})<br>
+                        <strong class="text-accent text-sm">Company:</strong> ${escapeHtml(scanData.report.company_name)} (${escapeHtml(scanData.report.domain)})<br>
                         <strong class="text-accent text-sm mt-2 block">Tech Stack:</strong> ${escapeHtml(info.tech_stack)}<br>
                         <strong class="text-accent text-sm mt-2 block">Funding Stage:</strong> ${escapeHtml(info.funding_stage)}<br>
                         <strong class="text-accent text-sm mt-2 block">Trust Score:</strong> ${info.trust_score}/100<br>
                         <strong class="text-accent text-sm mt-2 block">Intent Signals:</strong> ${escapeHtml(info.intent_signals)}<br>
                         <strong class="text-accent text-sm mt-2 block">Threat Risk Assessment:</strong> ${escapeHtml(info.threat_risk_assessment)}<br>
                         <strong class="text-accent text-sm mt-2 block">Recommended Outreach Angle:</strong> ${escapeHtml(info.recommended_outreach_angle)}
+                        ${lookalikesHtml}
                     `;
                 } else {
-                    content.innerText = data.detail || "Failed to run deep intelligence scan.";
+                    content.innerText = "Failed to run deep intelligence scan.";
                 }
             } catch (err) {
                 content.innerText = "Request failed.";
+            }
+        }
+
+        async function loadDLQEvents() {
+            const apiKey = document.getElementById('apiKey').value.trim();
+            if (!apiKey) return;
+            const container = document.getElementById('dlqContainer');
+
+            try {
+                const res = await fetch('/api/v1/admin/dlq', { headers: { 'x-api-key': apiKey } });
+                const data = await res.json();
+                if (res.ok && data.dlq_items && data.dlq_items.length > 0) {
+                    let html = '';
+                    data.dlq_items.forEach(item => {
+                        html += `
+                            <div class="bg-darkbg border border-slate-800 p-3 rounded-lg flex justify-between items-center text-xs">
+                                <div>
+                                    <span class="text-rose-400 font-bold">Event: ${item.event_id}</span>
+                                    <div class="text-slate-300 text-[11px]">URL: ${escapeHtml(item.webhook_url)}</div>
+                                    <div class="text-slate-400 text-[10px]">Error: ${escapeHtml(item.error_message)}</div>
+                                </div>
+                                <button onclick="replayDLQ(${item.id})" class="bg-sky-500/10 hover:bg-sky-500/20 text-accent border border-sky-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition">Replay</button>
+                            </div>
+                        `;
+                    });
+                    container.innerHTML = html;
+                } else {
+                    container.innerHTML = '<p class="text-xs text-slate-400">No failed events in Dead Letter Queue.</p>';
+                }
+            } catch (e) {
+                container.innerHTML = '<p class="text-xs text-rose-400">Failed to load DLQ events.</p>';
+            }
+        }
+
+        async function replayDLQ(dlqId) {
+            const apiKey = document.getElementById('apiKey').value.trim();
+            if (!apiKey) return;
+            try {
+                const res = await fetch(`/api/v1/admin/dlq/${dlqId}/replay`, {
+                    method: 'POST',
+                    headers: { 'x-api-key': apiKey }
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    showToast(data.message);
+                    loadDLQEvents();
+                } else {
+                    alert(data.detail || "Failed to replay DLQ event.");
+                }
+            } catch (err) {
+                alert("Replay request failed.");
+            }
+        }
+
+        async function loadAuditLogs() {
+            const apiKey = document.getElementById('apiKey').value.trim();
+            if (!apiKey) return;
+            const container = document.getElementById('auditLogContainer');
+
+            try {
+                const res = await fetch('/api/v1/admin/audit-logs', { headers: { 'x-api-key': apiKey } });
+                const data = await res.json();
+                if (res.ok && data.audit_logs && data.audit_logs.length > 0) {
+                    let html = '';
+                    data.audit_logs.forEach(log => {
+                        html += `<div class="border-b border-slate-800/60 pb-1 mb-1"><span class="text-accent">[${log.timestamp}]</span> <strong class="text-white">${escapeHtml(log.action)}</strong> (${escapeHtml(log.email)}): ${escapeHtml(log.details)}</div>`;
+                    });
+                    container.innerHTML = html;
+                } else {
+                    container.innerHTML = '<p class="text-xs text-slate-400">No audit logs recorded.</p>';
+                }
+            } catch (e) {
+                container.innerHTML = '<p class="text-xs text-rose-400">Failed to load audit logs.</p>';
             }
         }
 
@@ -549,10 +649,9 @@ print(res.json())</code></pre>
             if (!apiKey) { alert("Please enter a valid API key."); return; }
 
             localStorage.setItem('nexus_api_key', apiKey);
-            leadFeedContainer.innerHTML = '<div class="bg-slate-900 border border-slate-800 p-4 rounded-xl animate-pulse h-20"></div><div class="bg-slate-900 border border-slate-800 p-4 rounded-xl animate-pulse h-20"></div>';
+            leadFeedContainer.innerHTML = '<div class="bg-slate-900 border border-slate-800 p-4 rounded-xl animate-pulse h-20"></div>';
             statusDiv.innerText = "Syncing with cluster...";
 
-            // Gather filter parameters
             const minTrust = document.getElementById('filterMinTrust').value.trim();
             const industry = document.getElementById('filterIndustry').value.trim();
             const funding = document.getElementById('filterFunding').value.trim();
@@ -584,9 +683,7 @@ print(res.json())</code></pre>
                     return;
                 }
 
-                if (data.tier) {
-                    document.getElementById('tierStatus').innerText = `Tier: ${data.tier.toUpperCase()}`;
-                }
+                if (data.tier) document.getElementById('tierStatus').innerText = `Tier: ${data.tier.toUpperCase()}`;
 
                 cachedLeadsData = data.leads || [];
                 renderLeadFeed(cachedLeadsData);
@@ -602,10 +699,7 @@ print(res.json())</code></pre>
         }
 
         function exportLeadsCSV() {
-            if (!cachedLeadsData || cachedLeadsData.length === 0) {
-                alert("No leads available to export. Authenticate and load leads first.");
-                return;
-            }
+            if (!cachedLeadsData || cachedLeadsData.length === 0) { alert("No leads available to export."); return; }
 
             let csvContent = "data:text/csv;charset=utf-8,ID,Company Name,Domain,Industry,Employee Count,Tech Stack,Funding Stage,Trust Score,Verified Email,Intent Signals\n";
             cachedLeadsData.forEach(lead => {
@@ -631,20 +725,20 @@ print(res.json())</code></pre>
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
-            showToast("Leads successfully exported to CSV!");
+            showToast("Leads exported to CSV!");
         }
 
         async function openBillingPortal() {
             const apiKey = document.getElementById('apiKey').value.trim();
-            if (!apiKey) { alert("Please authenticate with your API key first."); return; }
-            const email = prompt("Enter your account email address to open Stripe Billing Portal:");
+            if (!apiKey) { alert("Please authenticate first."); return; }
+            const email = prompt("Enter your account email address:");
             if (!email) return;
 
             try {
                 const res = await fetch(`/create-portal-session?email=${encodeURIComponent(email)}`, { method: 'POST' });
                 const data = await res.json();
-                if (res.ok && data.portal_url) { window.location.href = data.portal_url; }
-                else { alert(data.detail || "Failed to create portal session."); }
+                if (res.ok && data.portal_url) window.location.href = data.portal_url;
+                else alert(data.detail || "Failed to create portal session.");
             } catch (err) { alert("Request failed."); }
         }
 
@@ -652,10 +746,8 @@ print(res.json())</code></pre>
             try {
                 const res = await fetch('/api/v1/credits', { headers: { 'x-api-key': apiKey } });
                 const data = await res.json();
-                if (res.ok) {
-                    document.getElementById('creditStatus').innerText = `Lead Credits Remaining: ${data.credits_remaining} / ${data.credits_limit}`;
-                }
-            } catch (e) { console.error("Failed to load credits", e); }
+                if (res.ok) document.getElementById('creditStatus').innerText = `Lead Credits Remaining: ${data.credits_remaining} / ${data.credits_limit}`;
+            } catch (e) { console.error(e); }
         }
 
         async function triggerOnDemandGeneration() {
@@ -664,7 +756,7 @@ print(res.json())</code></pre>
             const count = parseInt(document.getElementById('onDemandCount').value) || 10;
             const resDiv = document.getElementById('onDemandResult');
 
-            if (!apiKey || !query) { alert("Please authenticate and enter a custom generation query."); return; }
+            if (!apiKey || !query) { alert("Please authenticate and enter a query."); return; }
 
             resDiv.className = "mt-3 text-xs text-accent font-semibold";
             resDiv.innerText = "Crawling Gemini agents & running enrichment waterfall...";
@@ -678,8 +770,8 @@ print(res.json())</code></pre>
                 const data = await res.json();
                 if (res.ok) {
                     resDiv.className = "mt-3 text-xs text-emerald-400 font-semibold";
-                    resDiv.innerText = `Successfully generated ${data.leads_generated} fresh leads! Credits remaining: ${data.credits_remaining}`;
-                    showToast("Fresh leads generated successfully!");
+                    resDiv.innerText = `Generated ${data.leads_generated} fresh leads! Credits remaining: ${data.credits_remaining}`;
+                    showToast("Fresh leads generated!");
                     saveAndFetch();
                 } else {
                     resDiv.className = "mt-3 text-xs text-rose-400 font-semibold";
@@ -697,7 +789,7 @@ print(res.json())</code></pre>
             const webhook_url = document.getElementById('destWebhookUrl').value.trim();
             const access_token = document.getElementById('destToken').value.trim();
 
-            if (!apiKey || !webhook_url) { alert("Please provide an endpoint URL."); return; }
+            if (!apiKey || !webhook_url) { alert("Provide an endpoint URL."); return; }
 
             try {
                 const res = await fetch('/api/v1/destinations', {
@@ -709,8 +801,8 @@ print(res.json())</code></pre>
                 if (res.ok) {
                     showToast(data.message || "Destination connected.");
                     loadDestinations(apiKey);
-                } else { alert(data.detail || "Failed to connect destination."); }
-            } catch (err) { alert("Error connecting destination."); }
+                } else alert(data.detail || "Failed.");
+            } catch (err) { alert("Error."); }
         }
 
         async function loadDestinations(apiKey) {
@@ -722,8 +814,8 @@ print(res.json())</code></pre>
                     let html = 'Connected Destinations: ';
                     data.destinations.forEach(d => { html += `[${d.destination_type.toUpperCase()}] `; });
                     container.innerHTML = html;
-                } else { container.innerHTML = 'No native CRM destinations connected.'; }
-            } catch (e) { console.error("Failed to load destinations", e); }
+                } else container.innerHTML = 'No native CRM destinations connected.';
+            } catch (e) { console.error(e); }
         }
 
         function renderLeadFeed(leads) {
@@ -736,8 +828,8 @@ print(res.json())</code></pre>
             let html = '';
             leads.forEach(lead => {
                 const trust = lead.trust_score || 90;
-                const emailStatus = lead.verified_email === 1 ? '✅ Verified Professional Email' : '⚠️ Unverified Email';
-                const intent = lead.intent_signals || 'High hiring velocity in engineering';
+                const emailStatus = lead.verified_email === 1 ? '✅ Verified Email' : '⚠️ Unverified';
+                const intent = lead.intent_signals || 'High hiring velocity';
 
                 html += `
                     <div class="bg-inputbg border border-slate-800 p-4 rounded-xl flex flex-col gap-3 hover:border-sky-500/40 transition">
@@ -760,31 +852,14 @@ print(res.json())</code></pre>
                         </div>
                         <div class="flex flex-wrap gap-2 mt-1">
                             <button class="bg-sky-500/10 hover:bg-sky-500/20 text-accent border border-sky-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition" onclick="draftAIEmail(${lead.id})">✨ Draft AI Email</button>
-                            <button class="bg-sky-500/10 hover:bg-sky-500/20 text-accent border border-sky-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition" data-id="${lead.id}">🔗 Sync to CRM</button>
-                            <button class="bg-sky-500/10 hover:bg-sky-500/20 text-accent border border-sky-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition" onclick="triggerDeepScan(${lead.id})">🔍 Deep Intelligence Scan</button>
-                            <button class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 px-3 py-1.5 rounded-lg text-xs font-semibold transition" onclick="submitFeedback(${lead.id}, 'converted')">🚀 Converted</button>
-                            <button class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 px-3 py-1.5 rounded-lg text-xs font-semibold transition" onclick="submitFeedback(${lead.id}, 'disqualified')">❌ Disqualified</button>
+                            <button class="bg-sky-500/10 hover:bg-sky-500/20 text-accent border border-sky-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition" onclick="syncLeadToCRM(${lead.id})">🔗 Sync to CRM</button>
+                            <button class="bg-sky-500/10 hover:bg-sky-500/20 text-accent border border-sky-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition" onclick="enrollSequence(${lead.id})">🚀 Enroll in Sequence</button>
+                            <button class="bg-sky-500/10 hover:bg-sky-500/20 text-accent border border-sky-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition" onclick="triggerDeepScan(${lead.id})">🔍 Deep Scan & Lookalikes</button>
                         </div>
                     </div>
                 `;
             });
             container.innerHTML = html;
-        }
-
-        async function submitFeedback(leadId, status) {
-            const apiKey = document.getElementById('apiKey').value.trim();
-            if (!apiKey) return;
-
-            try {
-                const res = await fetch(`/api/v1/leads/${leadId}/feedback`, {
-                    method: 'POST',
-                    headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ feedback_status: status })
-                });
-                const data = await res.json();
-                if (res.ok) { showToast(`Feedback '${status}' recorded successfully!`); }
-                else { alert(data.detail || "Failed to submit feedback."); }
-            } catch (err) { alert("Error recording feedback."); }
         }
 
         async function loadICPProfile(apiKey) {
@@ -794,15 +869,8 @@ print(res.json())</code></pre>
                 if (res.ok && data.icp) {
                     document.getElementById('targetIndustries').value = data.icp.target_industries || 'Fintech, SaaS, AI';
                     document.getElementById('minTrustScore').value = data.icp.min_trust_score || 85;
-                    
-                    const syncedRules = JSON.stringify({
-                        min_trust_score: data.icp.min_trust_score || 85,
-                        industries: data.icp.target_industries ? data.icp.target_industries.split(',').map(s => s.trim()) : ["Fintech"]
-                    });
-                    document.getElementById('webhookRules').value = syncedRules;
-                    localStorage.setItem('nexus_webhook_rules', syncedRules);
                 }
-            } catch (e) { console.error("Failed to load ICP profile", e); }
+            } catch (e) { console.error(e); }
         }
 
         async function saveICPProfile() {
@@ -810,7 +878,7 @@ print(res.json())</code></pre>
             const target_industries = document.getElementById('targetIndustries').value.trim();
             const min_trust_score = parseInt(document.getElementById('minTrustScore').value) || 85;
 
-            if (!apiKey) { alert("Please authenticate with your API key first."); return; }
+            if (!apiKey) { alert("Please authenticate first."); return; }
 
             try {
                 const res = await fetch('/api/v1/icp', {
@@ -819,22 +887,20 @@ print(res.json())</code></pre>
                     body: JSON.stringify({ target_industries, min_trust_score, preferred_employee_count: "10-50" })
                 });
                 const data = await res.json();
-                showToast(data.message || "ICP profile saved successfully.");
-            } catch (err) { alert("Failed to save ICP profile."); }
+                showToast(data.message || "ICP profile saved.");
+            } catch (err) { alert("Failed."); }
         }
 
         async function runSemanticSearch() {
             const query = document.getElementById('semanticQueryInput').value.trim();
             const apiKey = document.getElementById('apiKey').value.trim();
-            
-            if (!apiKey || !query) { alert("Please authenticate and enter a query."); return; }
+            if (!apiKey || !query) { alert("Authenticate and enter query."); return; }
 
             try {
                 const response = await fetch(`/api/v1/leads/semantic-search?query=${encodeURIComponent(query)}&limit=5`, {
                     headers: { 'x-api-key': apiKey }
                 });
                 const data = await response.json();
-
                 const container = document.getElementById('semanticResultsContainer');
                 const list = document.getElementById('semanticResultsList');
                 list.innerHTML = '';
@@ -842,7 +908,7 @@ print(res.json())</code></pre>
                 if (data.status === 'success' && data.leads && data.leads.length > 0) {
                     container.classList.remove('hidden');
                     data.leads.forEach((lead) => {
-                        const similarityPercent = lead.similarity !== undefined ? lead.similarity : Math.round((lead.raw_sim || 0.5) * 100);
+                        const sim = lead.similarity !== undefined ? lead.similarity : 90;
                         list.innerHTML += `
                             <div class="bg-darkbg border border-slate-800 p-3 rounded-lg flex justify-between items-center text-xs">
                                 <div>
@@ -850,9 +916,7 @@ print(res.json())</code></pre>
                                     <span class="text-slate-400 text-[11px] ml-1.5">(${escapeHtml(lead.industry)})</span>
                                     <div class="text-accent text-[11px] mt-0.5">Domain: ${escapeHtml(lead.domain)} | Intent: ${escapeHtml(lead.intent_signals || 'N/A')}</div>
                                 </div>
-                                <span class="bg-sky-500/10 text-accent font-bold px-2.5 py-1 rounded-md border border-sky-500/30 text-[11px]">
-                                    ${similarityPercent}% Match
-                                </span>
+                                <span class="bg-sky-500/10 text-accent font-bold px-2.5 py-1 rounded-md border border-sky-500/30 text-[11px]">${sim}% Match</span>
                             </div>
                         `;
                     });
@@ -860,7 +924,7 @@ print(res.json())</code></pre>
                     container.classList.remove('hidden');
                     list.innerHTML = '<p class="text-slate-400 text-xs">No matching semantic leads found.</p>';
                 }
-            } catch (err) { alert("Failed to execute semantic search."); }
+            } catch (err) { alert("Failed."); }
         }
 
         async function loadUsageChart(apiKey) {
@@ -901,7 +965,7 @@ print(res.json())</code></pre>
                         }
                     }
                 });
-            } catch (e) { console.error("Failed to load usage chart", e); }
+            } catch (e) { console.error(e); }
         }
 
         async function loadKeys(apiKey) {
@@ -926,8 +990,8 @@ print(res.json())</code></pre>
                         }
                     });
                     keyListContainer.innerHTML = html || 'No active keys found.';
-                } else { keyListContainer.innerHTML = 'No keys found.'; }
-            } catch(e) { console.error("Failed to load keys", e); }
+                } else keyListContainer.innerHTML = 'No keys found.';
+            } catch(e) { console.error(e); }
         }
 
         async function createNewKey() {
@@ -937,9 +1001,7 @@ print(res.json())</code></pre>
             if (!apiKey) return;
 
             let emailValue = keyNameInput;
-            if (!emailValue.includes('@')) {
-                emailValue = emailValue.toLowerCase().replace(/[^a-z0-9]/g, '') + '@company.com';
-            }
+            if (!emailValue.includes('@')) emailValue = emailValue.toLowerCase().replace(/[^a-z0-9]/g, '') + '@company.com';
 
             try {
                 const res = await fetch(`/api/v1/team/invite`, {
@@ -949,10 +1011,10 @@ print(res.json())</code></pre>
                 });
                 const data = await res.json();
                 if (res.ok) {
-                    showToast(data.message || "Team member invited successfully.");
+                    showToast(data.message);
                     loadKeys(apiKey);
-                } else { alert(data.detail || "Failed to invite team member."); }
-            } catch(e) { alert("Error inviting team member."); }
+                } else alert(data.detail || "Failed.");
+            } catch(e) { alert("Error."); }
         }
 
         async function revokeKey(keyId) {
@@ -967,11 +1029,8 @@ print(res.json())</code></pre>
                 if (res.ok) {
                     showToast("API key revoked.");
                     loadKeys(apiKey);
-                } else {
-                    const data = await res.json();
-                    alert(data.detail || "Failed to revoke key.");
-                }
-            } catch (err) { alert("Error revoking key."); }
+                } else alert("Failed.");
+            } catch (err) { alert("Error."); }
         }
 
         async function registerWebhook() {
@@ -989,7 +1048,7 @@ print(res.json())</code></pre>
                 });
                 const data = await res.json();
                 showToast(data.message || "Webhook registered.");
-            } catch (err) { alert("Failed to register webhook."); }
+            } catch (err) { alert("Failed."); }
         }
 
         async function fetchWebhookLogs() {
@@ -1005,7 +1064,7 @@ print(res.json())</code></pre>
                         logSummary += `[${l.timestamp}] URL: ${l.webhook_url} | Status: ${l.status_code} | Success: ${l.success}\n`;
                     });
                     alert(logSummary);
-                } else { alert(data.detail || "Failed to fetch logs"); }
+                } else alert(data.detail || "Failed");
             } catch (err) { alert("Request failed."); }
         }
 
@@ -1017,7 +1076,7 @@ print(res.json())</code></pre>
                 const res = await fetch(`/api/v1/request-key-reset?email=${encodeURIComponent(email)}`, { method: 'POST' });
                 const data = await res.json();
                 showToast(data.message || "Reset link sent.");
-            } catch (err) { alert("Failed to send reset request."); }
+            } catch (err) { alert("Failed."); }
         }
 
         function escapeHtml(str) {
