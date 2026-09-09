@@ -1161,7 +1161,7 @@ async def verify_magic_link(token: str):
 
 
 @app.post("/api/v1/leads/{lead_id}/sync-crm")
-async def sync_lead_crm(lead_id: int, request: Request, auth: dict = Depends(verify_api_key)):
+async def sync_lead_crm(lead_id: int, request: Request, background_tasks: BackgroundTasks, auth: dict = Depends(verify_api_key)):
     if auth.get("role") == "viewer":
         raise HTTPException(status_code=403, detail="Viewer role is not authorized to sync leads to CRM destinations.")
 
@@ -1183,12 +1183,13 @@ async def sync_lead_crm(lead_id: int, request: Request, auth: dict = Depends(ver
     lead_data = dict(row)
     lead_data["lead_id"] = lead_id
     
-    await safe_dispatch_wrapper(lead_data)
-    log_audit_event(auth["email"], "LEAD_SYNC_CRM", f"Manually triggered CRM sync for lead ID {lead_id} ({lead_data.get('company_name')})", auth["ip"])
+    # Hand off the heavy outbound dispatch loop to FastAPI BackgroundTasks
+    background_tasks.add_task(safe_dispatch_wrapper, lead_data)
+    log_audit_event(auth["email"], "LEAD_SYNC_CRM", f"Dispatched background CRM sync for lead ID {lead_id} ({lead_data.get('company_name')})", auth["ip"])
 
     return {
         "status": "success",
-        "message": f"Lead {lead_data.get('company_name')} (ID: {lead_id}) successfully synchronized to active CRM destinations!"
+        "message": f"Lead {lead_data.get('company_name')} (ID: {lead_id}) sync dispatched successfully!"
     }
 
 
