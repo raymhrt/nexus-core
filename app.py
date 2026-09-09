@@ -790,12 +790,21 @@ async def safe_dispatch_wrapper(lead_payload: dict):
 class GeminiLeadSchema(BaseModel):
     company_name: str
     domain: str
-    email: str
+    email: EmailStr
     industry: Optional[str] = "SaaS / Tech"
     employee_count: Optional[str] = "10-50"
     linkedin_url: Optional[str] = ""
     confidence_score: Optional[float] = 0.9
     trust_score: Optional[int] = 95
+    tech_stack: Optional[str] = "Python, PostgreSQL"
+    funding_stage: Optional[str] = "Series A"
+    intent_signals: Optional[str] = "None"
+
+
+class WebhookRegistrationResponse(BaseModel):
+    status: str
+    webhook_url: str
+    filter_rules: str
 
 
 async def automated_lead_ingestion():
@@ -1603,12 +1612,10 @@ async def generate_leads_on_demand(payload: OnDemandGeneratePayload, request: Re
     try:
         cursor = conn.cursor()
         
-        # 1. Fetch already discovered company names to prevent duplication
         cursor.execute("SELECT company_name FROM b2b_leads")
         existing_rows = cursor.fetchall()
         existing_companies = [r["company_name"] if isinstance(r, dict) else r[0] for r in existing_rows]
 
-        # 2. Check user credits
         if DATABASE_URL:
             cursor.execute("SELECT credits_remaining, credits_limit FROM subscriber_credits WHERE email = %s", (auth["email"],))
         else:
@@ -1635,7 +1642,6 @@ async def generate_leads_on_demand(payload: OnDemandGeneratePayload, request: Re
 
     generated_count = min(payload.count, 25)
 
-    # 3. Construct exclusion constraint for Gemini
     exclusion_text = ""
     if existing_companies:
         exclusion_text = f" CRITICAL RULE: Do NOT include any of the following already-discovered companies under any circumstances: {', '.join(existing_companies)}. You must find entirely new, unique, alternative market competitors."
@@ -2054,7 +2060,11 @@ async def confirm_key_reset(token: str, background_tasks: BackgroundTasks, reque
 
 
 @app.post("/api/v1/request-key-reset")
-async def request_key_reset(email: str, background_tasks: BackgroundTasks, request: Request):
+async def request_key_reset(
+    email: str = Query(..., description="User email address requesting API key reset"),
+    background_tasks: BackgroundTasks = None,
+    request: Request = None
+):
     conn = get_db()
     try:
         cursor = conn.cursor()
@@ -2080,9 +2090,11 @@ async def request_key_reset(email: str, background_tasks: BackgroundTasks, reque
     finally:
         release_db(conn)
 
-    log_audit_event(email, "KEY_RESET_REQUEST", "Requested password/key reset link", request.client.host if request.client else "unknown")
+    client_ip = request.client.host if request and request.client else "unknown"
+    log_audit_event(email, "KEY_RESET_REQUEST", "Requested password/key reset link", client_ip)
     reset_url = f"https://nexus-core-yfou.onrender.com/reset-confirm?token={reset_token}"
-    background_tasks.add_task(send_password_reset_email, email, reset_url)
+    if background_tasks:
+        background_tasks.add_task(send_password_reset_email, email, reset_url)
     return {"status": "success", "message": f"API key reset link sent to {email}."}
 
 
@@ -2193,8 +2205,13 @@ async def get_usage_analytics_history(request: Request, auth: dict = Depends(ver
     return {"status": "success", "usage_history": history}
 
 
-@app.post("/api/v1/webhooks")
-async def register_subscriber_webhook(webhook_url: str, filter_rules: Optional[str] = "{}", request: Request = None, auth: dict = Depends(verify_api_key)):
+@app.post("/api/v1/webhooks", response_model=WebhookRegistrationResponse, status_code=status.HTTP_201_CREATED)
+async def register_subscriber_webhook(
+    webhook_url: str = Query(..., description="Target destination URL for webhook payloads"),
+    filter_rules: Optional[str] = Query("{}", description="JSON stringified filter rules"),
+    request: Request = None,
+    auth: dict = Depends(verify_api_key)
+):
     if auth.get("role") == "viewer":
         raise HTTPException(status_code=403, detail="Viewer role cannot register webhooks.")
 
@@ -2216,7 +2233,11 @@ async def register_subscriber_webhook(webhook_url: str, filter_rules: Optional[s
     finally:
         release_db(conn)
     log_audit_event(auth["email"], "WEBHOOK_REGISTERED", f"Registered destination URL with filter rules: {webhook_url}", auth["ip"])
-    return {"status": "success", "message": "Webhook receiver and filter rules registered successfully."}
+    return {
+        "status": "success",
+        "webhook_url": webhook_url,
+        "filter_rules": filter_rules
+    }
 
 
 @app.get("/api/v1/webhook-logs")
@@ -2255,6 +2276,9 @@ class LeadItem(BaseModel):
     linkedin_url: Optional[str] = ""
     confidence_score: Optional[float] = 0.9
     trust_score: Optional[int] = 95
+    tech_stack: Optional[str] = "Python, PostgreSQL"
+    funding_stage: Optional[str] = "Series A"
+    intent_signals: Optional[str] = "None"
 
 class BatchLeadUpload(BaseModel):
     leads: List[LeadItem]
@@ -2288,21 +2312,24 @@ async def admin_upload_leads(
             if DATABASE_URL:
                 cursor.execute(
                     """
-                    INSERT INTO b2b_leads (company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score) 
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s) 
+                    INSERT INTO b2b_leads (company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals) 
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) 
                     ON CONFLICT (domain) DO UPDATE SET 
                         confidence_score = EXCLUDED.confidence_score,
-                        trust_score = EXCLUDED.trust_score
+                        trust_score = EXCLUDED.trust_score,
+                        tech_stack = EXCLUDED.tech_stack,
+                        funding_stage = EXCLUDED.funding_stage,
+                        intent_signals = EXCLUDED.intent_signals
                     RETURNING id
                     """,
-                    (lead.company_name, clean_domain, lead.email, lead.industry, lead.employee_count, lead.linkedin_url, conf_score, trust_score)
+                    (lead.company_name, clean_domain, lead.email, lead.industry, lead.employee_count, lead.linkedin_url, conf_score, trust_score, lead.tech_stack, lead.funding_stage, lead.intent_signals)
                 )
                 row = cursor.fetchone()
                 lead_id = row["id"] if row else None
             else:
                 cursor.execute(
-                    "INSERT OR IGNORE INTO b2b_leads (company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                    (lead.company_name, clean_domain, lead.email, lead.industry, lead.employee_count, lead.linkedin_url, conf_score, trust_score)
+                    "INSERT OR IGNORE INTO b2b_leads (company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (lead.company_name, clean_domain, lead.email, lead.industry, lead.employee_count, lead.linkedin_url, conf_score, trust_score, lead.tech_stack, lead.funding_stage, lead.intent_signals)
                 )
                 lead_id = cursor.lastrowid
             
@@ -2321,6 +2348,9 @@ async def admin_upload_leads(
                             "linkedin_url": lead.linkedin_url,
                             "confidence_score": conf_score,
                             "trust_score": trust_score,
+                            "tech_stack": lead.tech_stack,
+                            "funding_stage": lead.funding_stage,
+                            "intent_signals": lead.intent_signals,
                             "timestamp": datetime.now(timezone.utc).isoformat()
                         }
                     )
@@ -2546,7 +2576,9 @@ async def create_checkout_session(email: EmailStr, tier: str = "starter"):
 
 
 @app.post("/create-portal-session")
-async def create_portal_session(email: EmailStr):
+async def create_portal_session(
+    email: str = Query(..., description="Customer email address for billing portal session")
+):
     try:
         conn = get_db()
         try:
