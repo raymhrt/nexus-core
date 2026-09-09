@@ -570,7 +570,6 @@ async def async_background_enrichment_worker(lead_id: int, company_name: str, do
     finally:
         release_db(conn)
 
-    # Autonomous SDR Rule Evaluation
     await evaluate_autonomous_rules_for_lead(lead_id)
 
 
