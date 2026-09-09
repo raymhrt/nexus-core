@@ -566,11 +566,7 @@ print(res.json())</code></pre>
                     method: 'POST',
                     headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        feedback: feedbackType,
-                        status: feedbackType,
-                        feedback_type: feedbackType,
-                        rating: feedbackType === 'converted' ? 5 : 1,
-                        notes: `User submitted feedback: ${feedbackType}`
+                        feedback_status: feedbackType
                     })
                 });
                 const data = await res.json();
