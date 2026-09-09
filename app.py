@@ -2278,7 +2278,7 @@ async def elite_hybrid_lead_search(
                        ROW_NUMBER() OVER (ORDER BY embedding <=> %s::vector ASC) as v_rank
                 FROM b2b_leads
                 WHERE embedding IS NOT NULL 
-                  AND (embedding <=> %s::vector) < 0.55
+                  AND (embedding <=> %s::vector) < 0.40
                 LIMIT 30
             ),
             text_ranked AS (
@@ -2309,9 +2309,9 @@ async def elite_hybrid_lead_search(
                 FULL OUTER JOIN text_ranked t ON v.id = t.id
             )
             SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals, verified_email, timestamp,
-                   ROUND(CAST((CASE WHEN raw_sim > 0.45 THEN 0.65 + ((raw_sim - 0.45) / 0.55) * 0.34 ELSE raw_sim * 1.2 END) * 100 AS numeric), 0) as similarity
+                   ROUND(CAST((CASE WHEN raw_sim > 0.35 THEN 0.70 + ((raw_sim - 0.35) / 0.65) * 0.29 ELSE raw_sim * 1.1 END) * 100 AS numeric), 0) as similarity
             FROM combined
-            WHERE raw_sim >= 0.45
+            WHERE raw_sim >= 0.35
             ORDER BY rrf_score DESC, raw_sim DESC
             LIMIT %s
             """,

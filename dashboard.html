@@ -38,7 +38,13 @@
             
             <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
                 <div>
-                    <h1 class="text-2xl md:text-3xl font-black text-accent tracking-tight">Subscriber Command Center</h1>
+                    <div class="flex flex-wrap items-center gap-3">
+                        <h1 class="text-2xl md:text-3xl font-black text-accent tracking-tight">Subscriber Command Center</h1>
+                        <!-- Dynamic Role & Tier Badge -->
+                        <div id="userRoleBadge" class="hidden items-center gap-2 bg-sky-500/10 border border-sky-500/30 px-3 py-1 rounded-full text-xs font-bold text-accent">
+                            <span id="badgeTier">Tier: --</span> • <span id="badgeRole">Role: --</span>
+                        </div>
+                    </div>
                     <p class="text-sm text-slate-400 mt-1">Multi-persona workspace for SDR lead qualification, RevOps syncs, admin telemetry, and developer APIs.</p>
                 </div>
                 <div class="flex items-center gap-3">
@@ -683,11 +689,18 @@ print(res.json())</code></pre>
                     return;
                 }
 
-                if (data.tier) document.getElementById('tierStatus').innerText = `Tier: ${data.tier.toUpperCase()}`;
+                if (data.tier) {
+                    document.getElementById('tierStatus').innerText = `Tier: ${data.tier.toUpperCase()}`;
+                    const badgeContainer = document.getElementById('userRoleBadge');
+                    badgeContainer.classList.remove('hidden');
+                    badgeContainer.classList.add('flex');
+                    document.getElementById('badgeTier').innerText = `Tier: ${data.tier.toUpperCase()}`;
+                }
 
                 cachedLeadsData = data.leads || [];
                 renderLeadFeed(cachedLeadsData);
                 loadKeys(apiKey);
+                loadUserRoleBadge(apiKey);
                 loadUsageChart(apiKey);
                 loadICPProfile(apiKey);
                 loadCredits(apiKey);
@@ -696,6 +709,18 @@ print(res.json())</code></pre>
             } catch (err) {
                 leadFeedContainer.innerHTML = `<p class="text-rose-400">Request failed: ${err.message}</p>`;
             }
+        }
+
+        async function loadUserRoleBadge(apiKey) {
+            try {
+                const res = await fetch('/api/v1/keys', { headers: { 'x-api-key': apiKey } });
+                const data = await res.json();
+                if (res.ok && data.keys && data.keys.length > 0) {
+                    const activeKey = data.keys.find(k => k.active === 1) || data.keys[0];
+                    const role = activeKey.role ? activeKey.role.toUpperCase() : 'ADMIN';
+                    document.getElementById('badgeRole').innerText = `Role: ${role}`;
+                }
+            } catch (e) { console.error(e); }
         }
 
         function exportLeadsCSV() {
