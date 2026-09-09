@@ -886,7 +886,8 @@ print(res.json())</code></pre>
                 const data = await res.json();
                 if (res.ok) {
                     resDiv.className = "mt-3 text-xs text-emerald-400 font-semibold";
-                    resDiv.innerText = `Generated ${data.leads_generated} fresh leads! Credits remaining: ${data.credits_remaining}`;
+                    const generatedCount = data.leads_generated;
+                    resDiv.innerText = `Generated ${generatedCount} fresh ${generatedCount === 1 ? 'lead' : 'leads'}! Credits remaining: ${data.credits_remaining}`;
                     showToast("Fresh leads generated!");
                     saveAndFetch();
                 } else {
