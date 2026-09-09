@@ -1,6 +1,7 @@
 import os
 import logging
 from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.schedulers.blocking import BlockingScheduler
 from database import get_db, release_db
 
 logger = logging.getLogger("uvicorn")
@@ -23,3 +24,14 @@ def start_background_worker():
     scheduler.add_job(run_icp_tuning_job, 'interval', hours=6)
     scheduler.start()
     logger.info("Background APScheduler started successfully.")
+
+# Allow running worker.py standalone as a dedicated Render worker process
+if __name__ == '__main__':
+    logging.basicConfig(level=logging.INFO)
+    logger.info("Starting dedicated blocking background worker process...")
+    blocking_scheduler = BlockingScheduler()
+    blocking_scheduler.add_job(run_icp_tuning_job, 'interval', hours=6)
+    try:
+        blocking_scheduler.start()
+    except (KeyboardInterrupt, SystemExit):
+        logger.info("Background worker stopped.")
