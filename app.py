@@ -338,6 +338,9 @@ def init_db():
                 decision_maker_title TEXT DEFAULT 'VP of Engineering',
                 decision_maker_linkedin TEXT DEFAULT '',
                 acv_estimate TEXT DEFAULT '$25,000',
+                sync_status TEXT DEFAULT 'unsynced',
+                conversion_status TEXT DEFAULT 'active',
+                rejection_status TEXT DEFAULT 'normal',
                 embedding vector(768),
                 timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
@@ -350,6 +353,9 @@ def init_db():
         cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS decision_maker_title TEXT DEFAULT 'VP of Engineering';")
         cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS decision_maker_linkedin TEXT DEFAULT '';")
         cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS acv_estimate TEXT DEFAULT '$25,000';")
+        cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS sync_status TEXT DEFAULT 'unsynced';")
+        cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS conversion_status TEXT DEFAULT 'active';")
+        cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS rejection_status TEXT DEFAULT 'normal';")
         cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_b2b_leads_domain_unique ON b2b_leads (domain);")
         cursor.execute("CREATE INDEX IF NOT EXISTS b2b_leads_hnsw_idx ON b2b_leads USING hnsw (embedding vector_cosine_ops);")
 
@@ -473,7 +479,19 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS api_keys (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT, key_hash TEXT UNIQUE, key_name TEXT DEFAULT 'Default', scope TEXT DEFAULT 'full', role TEXT DEFAULT 'admin', active INTEGER DEFAULT 1, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS subscriber_credits (email TEXT PRIMARY KEY, credits_remaining INTEGER DEFAULT 500, credits_limit INTEGER DEFAULT 500, last_refill_date DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS subscriber_destinations (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT, destination_type TEXT NOT NULL, webhook_url TEXT NOT NULL, access_token TEXT DEFAULT '', mapping_rules TEXT DEFAULT '{}', active INTEGER DEFAULT 1, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
-        cursor.execute("CREATE TABLE IF NOT EXISTS b2b_leads (id INTEGER PRIMARY KEY AUTOINCREMENT, company_name TEXT, domain TEXT UNIQUE, email TEXT, industry TEXT DEFAULT 'SaaS / Tech', employee_count TEXT DEFAULT '10-50', linkedin_url TEXT DEFAULT '', confidence_score REAL DEFAULT 0.9, trust_score INTEGER DEFAULT 95, tech_stack TEXT DEFAULT 'Python, PostgreSQL', funding_stage TEXT DEFAULT 'Series A', intent_signals TEXT DEFAULT 'None', verified_email INTEGER DEFAULT 1, decision_maker_title TEXT DEFAULT 'VP of Engineering', decision_maker_linkedin TEXT DEFAULT '', acv_estimate TEXT DEFAULT '$25,000', timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)")
+        cursor.execute("CREATE TABLE IF NOT EXISTS b2b_leads (id INTEGER PRIMARY KEY AUTOINCREMENT, company_name TEXT, domain TEXT UNIQUE, email TEXT, industry TEXT DEFAULT 'SaaS / Tech', employee_count TEXT DEFAULT '10-50', linkedin_url TEXT DEFAULT '', confidence_score REAL DEFAULT 0.9, trust_score INTEGER DEFAULT 95, tech_stack TEXT DEFAULT 'Python, PostgreSQL', funding_stage TEXT DEFAULT 'Series A', intent_signals TEXT DEFAULT 'None', verified_email INTEGER DEFAULT 1, decision_maker_title TEXT DEFAULT 'VP of Engineering', decision_maker_linkedin TEXT DEFAULT '', acv_estimate TEXT DEFAULT '$25,000', sync_status TEXT DEFAULT 'unsynced', conversion_status TEXT DEFAULT 'active', rejection_status TEXT DEFAULT 'normal', timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)")
+        try:
+            cursor.execute("ALTER TABLE b2b_leads ADD COLUMN sync_status TEXT DEFAULT 'unsynced';")
+        except Exception:
+            pass
+        try:
+            cursor.execute("ALTER TABLE b2b_leads ADD COLUMN conversion_status TEXT DEFAULT 'active';")
+        except Exception:
+            pass
+        try:
+            cursor.execute("ALTER TABLE b2b_leads ADD COLUMN rejection_status TEXT DEFAULT 'normal';")
+        except Exception:
+            pass
         cursor.execute("CREATE TABLE IF NOT EXISTS subscriber_icps (email TEXT PRIMARY KEY, target_industries TEXT, min_trust_score INTEGER, preferred_employee_count TEXT, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS autonomous_rules (email TEXT PRIMARY KEY, min_trust INTEGER DEFAULT 85, auto_sync INTEGER DEFAULT 1, auto_enroll INTEGER DEFAULT 1, active INTEGER DEFAULT 1)")
         cursor.execute("CREATE TABLE IF NOT EXISTS lead_feedback (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT, lead_id INTEGER, feedback_status TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)")
@@ -815,7 +833,6 @@ async def dispatch_outbound_webhooks(lead_data: dict, trigger_action: str = "lea
             logger.info("Dispatching payload to Snowflake Warehouse staging table with retry handling...")
 
         try:
-            # Snowflake / Generic dispatch with exponential backoff for connection reset (Errno 104) resilience
             max_retries = 3
             backoff_factor = 2
             for attempt in range(1, max_retries + 1):
@@ -1388,26 +1405,118 @@ async def sync_lead_crm(lead_id: int, request: Request, background_tasks: Backgr
     try:
         cursor = conn.cursor()
         if DATABASE_URL:
-            cursor.execute("SELECT company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals FROM b2b_leads WHERE id = %s", (lead_id,))
+            cursor.execute("SELECT company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals, sync_status FROM b2b_leads WHERE id = %s", (lead_id,))
         else:
-            cursor.execute("SELECT company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals FROM b2b_leads WHERE id = ?", (lead_id,))
+            cursor.execute("SELECT company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals, sync_status FROM b2b_leads WHERE id = ?", (lead_id,))
         row = cursor.fetchone()
+        if not row:
+            cursor.close()
+            raise HTTPException(status_code=404, detail="Lead not found.")
+
+        current_sync = row["sync_status"] if isinstance(row, dict) else row[11]
+        new_sync = "unsynced" if current_sync == "synced" else "synced"
+
+        if DATABASE_URL:
+            cursor.execute("UPDATE b2b_leads SET sync_status = %s WHERE id = %s", (new_sync, lead_id))
+        else:
+            cursor.execute("UPDATE b2b_leads SET sync_status = ? WHERE id = ?", (new_sync, lead_id))
+        conn.commit()
+
+        cursor.execute("SELECT company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals FROM b2b_leads WHERE id = %s" if DATABASE_URL else "SELECT company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals FROM b2b_leads WHERE id = ?", (lead_id,))
+        lead_row = cursor.fetchone()
         cursor.close()
     finally:
         release_db(conn)
 
-    if not row:
-        raise HTTPException(status_code=404, detail="Lead not found.")
-
-    lead_data = dict(row)
+    lead_data = dict(lead_row)
     lead_data["lead_id"] = lead_id
     
-    background_tasks.add_task(safe_dispatch_wrapper, lead_data, "lead.synced")
-    log_audit_event(auth["email"], "LEAD_SYNC_CRM", f"Dispatched background CRM sync for lead ID {lead_id} ({lead_data.get('company_name')})", auth["ip"])
+    if new_sync == "synced":
+        background_tasks.add_task(safe_dispatch_wrapper, lead_data, "lead.synced")
+        log_audit_event(auth["email"], "LEAD_SYNC_CRM", f"Dispatched background CRM sync for lead ID {lead_id} ({lead_data.get('company_name')})", auth["ip"])
+        msg = f"Lead {lead_data.get('company_name')} (ID: {lead_id}) sync dispatched successfully!"
+    else:
+        log_audit_event(auth["email"], "LEAD_UNSYNC_CRM", f"Unsynced lead ID {lead_id} ({lead_data.get('company_name')})", auth["ip"])
+        msg = f"Lead {lead_data.get('company_name')} (ID: {lead_id}) successfully unsynced."
 
     return {
         "status": "success",
-        "message": f"Lead {lead_data.get('company_name')} (ID: {lead_id}) sync dispatched successfully!"
+        "sync_status": new_sync,
+        "message": msg
+    }
+
+
+@app.post("/api/v1/leads/{lead_id}/convert")
+async def convert_lead_action(lead_id: int, request: Request, auth: dict = Depends(verify_api_key)):
+    if auth.get("role") == "viewer":
+        raise HTTPException(status_code=403, detail="Viewer role is not authorized to convert leads.")
+
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute("SELECT company_name, conversion_status FROM b2b_leads WHERE id = %s", (lead_id,))
+        else:
+            cursor.execute("SELECT company_name, conversion_status FROM b2b_leads WHERE id = ?", (lead_id,))
+        row = cursor.fetchone()
+        if not row:
+            cursor.close()
+            raise HTTPException(status_code=404, detail="Lead not found.")
+
+        current_conv = row["conversion_status"] if isinstance(row, dict) else row[1]
+        new_conv = "active" if current_conv == "converted" else "converted"
+
+        if DATABASE_URL:
+            cursor.execute("UPDATE b2b_leads SET conversion_status = %s WHERE id = %s", (new_conv, lead_id))
+        else:
+            cursor.execute("UPDATE b2b_leads SET conversion_status = ? WHERE id = ?", (new_conv, lead_id))
+        conn.commit()
+        cursor.close()
+    finally:
+        release_db(conn)
+
+    log_audit_event(auth["email"], "LEAD_CONVERT_TOGGLE", f"Set conversion status to {new_conv} for lead ID {lead_id}", auth["ip"])
+    return {
+        "status": "success",
+        "conversion_status": new_conv,
+        "message": f"Lead conversion status updated to {new_conv}."
+    }
+
+
+@app.post("/api/v1/leads/{lead_id}/reject")
+async def reject_lead_action(lead_id: int, request: Request, auth: dict = Depends(verify_api_key)):
+    if auth.get("role") == "viewer":
+        raise HTTPException(status_code=403, detail="Viewer role is not authorized to reject leads.")
+
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute("SELECT company_name, rejection_status FROM b2b_leads WHERE id = %s", (lead_id,))
+        else:
+            cursor.execute("SELECT company_name, rejection_status FROM b2b_leads WHERE id = ?", (lead_id,))
+        row = cursor.fetchone()
+        if not row:
+            cursor.close()
+            raise HTTPException(status_code=404, detail="Lead not found.")
+
+        current_rej = row["rejection_status"] if isinstance(row, dict) else row[1]
+        new_rej = "normal" if current_rej == "rejected" else "rejected"
+
+        if DATABASE_URL:
+            cursor.execute("UPDATE b2b_leads SET rejection_status = %s WHERE id = %s", (new_rej, lead_id))
+        else:
+            cursor.execute("UPDATE b2b_leads SET rejection_status = ? WHERE id = ?", (new_rej, lead_id))
+        conn.commit()
+        cursor.close()
+    finally:
+        release_db(conn)
+
+    log_audit_event(auth["email"], "LEAD_REJECT_TOGGLE", f"Set rejection status to {new_rej} for lead ID {lead_id}", auth["ip"])
+    return {
+        "status": "success",
+        "rejection_status": new_rej,
+        "message": f"Lead rejection status updated to {new_rej}."
     }
 
 
@@ -2507,7 +2616,7 @@ async def get_b2b_leads(
     try:
         cursor = conn.cursor()
         if DATABASE_URL:
-            query = "SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals, verified_email, decision_maker_title, decision_maker_linkedin, acv_estimate, timestamp FROM b2b_leads WHERE 1=1"
+            query = "SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals, verified_email, decision_maker_title, decision_maker_linkedin, acv_estimate, sync_status, conversion_status, rejection_status, timestamp FROM b2b_leads WHERE 1=1"
             params = []
             if company:
                 query += " AND company_name ILIKE %s"
@@ -2533,7 +2642,7 @@ async def get_b2b_leads(
             params.extend([limit, offset])
             cursor.execute(query, params)
         else:
-            query = "SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals, verified_email, decision_maker_title, decision_maker_linkedin, acv_estimate, timestamp FROM b2b_leads WHERE 1=1"
+            query = "SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals, verified_email, decision_maker_title, decision_maker_linkedin, acv_estimate, sync_status, conversion_status, rejection_status, timestamp FROM b2b_leads WHERE 1=1"
             params = []
             if company:
                 query += " AND company_name LIKE ?"
@@ -2588,7 +2697,7 @@ async def elite_hybrid_lead_search(
         conn = get_db()
         try:
             cursor = conn.cursor()
-            cursor.execute("SELECT id, company_name, domain, industry, tech_stack, trust_score, intent_signals, decision_maker_title, acv_estimate FROM b2b_leads WHERE industry LIKE ? OR tech_stack LIKE ? OR intent_signals LIKE ? LIMIT ?", (f"%{query}%", f"%{query}%", f"%{query}%", limit))
+            cursor.execute("SELECT id, company_name, domain, industry, tech_stack, trust_score, intent_signals, decision_maker_title, acv_estimate, sync_status, conversion_status, rejection_status FROM b2b_leads WHERE industry LIKE ? OR tech_stack LIKE ? OR intent_signals LIKE ? LIMIT ?", (f"%{query}%", f"%{query}%", f"%{query}%", limit))
             rows = cursor.fetchall()
             leads = []
             for r in rows:
@@ -2602,6 +2711,9 @@ async def elite_hybrid_lead_search(
                     "intent_signals": r[6] if not hasattr(r, "keys") else r["intent_signals"],
                     "decision_maker_title": r[7] if not hasattr(r, "keys") else r.get("decision_maker_title", "VP of Engineering"),
                     "acv_estimate": r[8] if not hasattr(r, "keys") else r.get("acv_estimate", "$25,000"),
+                    "sync_status": r[9] if not hasattr(r, "keys") else r.get("sync_status", "unsynced"),
+                    "conversion_status": r[10] if not hasattr(r, "keys") else r.get("conversion_status", "active"),
+                    "rejection_status": r[11] if not hasattr(r, "keys") else r.get("rejection_status", "normal"),
                     "similarity": 94 if len(leads) == 0 else 88
                 })
             cursor.close()
@@ -2615,7 +2727,7 @@ async def elite_hybrid_lead_search(
         cursor.execute(
             """
             WITH vector_ranked AS (
-                SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals, verified_email, decision_maker_title, decision_maker_linkedin, acv_estimate, timestamp,
+                SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals, verified_email, decision_maker_title, decision_maker_linkedin, acv_estimate, sync_status, conversion_status, rejection_status, timestamp,
                        (1.0 - (embedding <=> %s::vector)) as raw_sim,
                        ROW_NUMBER() OVER (ORDER BY embedding <=> %s::vector ASC) as v_rank
                 FROM b2b_leads
@@ -2624,7 +2736,7 @@ async def elite_hybrid_lead_search(
                 LIMIT 30
             ),
             text_ranked AS (
-                SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals, verified_email, decision_maker_title, decision_maker_linkedin, acv_estimate, timestamp,
+                SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals, verified_email, decision_maker_title, decision_maker_linkedin, acv_estimate, sync_status, conversion_status, rejection_status, timestamp,
                        ROW_NUMBER() OVER (ORDER BY ts_rank(to_tsvector('english', company_name || ' ' || industry || ' ' || tech_stack), plainto_tsquery('english', %s)) DESC) as t_rank
                 FROM b2b_leads
                 WHERE to_tsvector('english', company_name || ' ' || industry || ' ' || tech_stack) @@ plainto_tsquery('english', %s)
@@ -2647,14 +2759,17 @@ async def elite_hybrid_lead_search(
                        COALESCE(v.decision_maker_title, t.decision_maker_title) as decision_maker_title,
                        COALESCE(v.decision_maker_linkedin, t.decision_maker_linkedin) as decision_maker_linkedin,
                        COALESCE(v.acv_estimate, t.acv_estimate) as acv_estimate,
+                       COALESCE(v.sync_status, t.sync_status, 'unsynced') as sync_status,
+                       COALESCE(v.conversion_status, t.conversion_status, 'active') as conversion_status,
+                       COALESCE(v.rejection_status, t.rejection_status, 'normal') as rejection_status,
                        COALESCE(v.timestamp, t.timestamp) as timestamp,
                        COALESCE(v.raw_sim, 0.4) as raw_sim,
                        (1.0 / (60.0 + COALESCE(v_rank, 999))) + (1.0 / (60.0 + COALESCE(t_rank, 999))) as rrf_score
                 FROM vector_ranked v
                 FULL OUTER JOIN text_ranked t ON v.id = t.id
             )
-            SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals, verified_email, decision_maker_title, decision_maker_linkedin, acv_estimate, timestamp,
-                   ROUND(CAST((CASE WHEN raw_sim > 0.35 THEN 0.70 + ((raw_sim - 0.35) / 0.65) * 0.29 ELSE raw_sim * 1.1 END) * 100 AS numeric), 0) as similarity
+            SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals, verified_email, decision_maker_title, decision_maker_linkedin, acv_estimate, sync_status, conversion_status, rejection_status, timestamp,
+                    ROUND(CAST((CASE WHEN raw_sim > 0.35 THEN 0.70 + ((raw_sim - 0.35) / 0.65) * 0.29 ELSE raw_sim * 1.1 END) * 100 AS numeric), 0) as similarity
             FROM combined
             WHERE raw_sim >= 0.35
             ORDER BY rrf_score DESC, raw_sim DESC
