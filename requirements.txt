@@ -11,3 +11,6 @@ httpx
 pytest
 google-genai
 email-validator
+python-dateutil
+cryptography
+python-multipart
