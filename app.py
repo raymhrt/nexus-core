@@ -1533,14 +1533,16 @@ async def reject_lead_action(lead_id: int, request: Request, auth: dict = Depend
 @app.post("/api/v1/leads/{lead_id}/ai-draft")
 def generate_ai_email_draft(lead_id: int, x_api_key: str = Header(...)):
     conn = get_db()
-    conn.row_factory = sqlite3.Row if not DATABASE_URL else dict
-    c = conn.cursor()
-    if DATABASE_URL:
-        c.execute("SELECT * FROM b2b_leads WHERE id = %s", (lead_id,))
-    else:
-        c.execute("SELECT * FROM b2b_leads WHERE id = ?", (lead_id,))
-    lead_row = c.fetchone()
-    conn.close()
+    try:
+        c = conn.cursor()
+        if DATABASE_URL:
+            c.execute("SELECT * FROM b2b_leads WHERE id = %s", (lead_id,))
+        else:
+            c.execute("SELECT * FROM b2b_leads WHERE id = ?", (lead_id,))
+        lead_row = c.fetchone()
+        c.close()
+    finally:
+        release_db(conn)
 
     if not lead_row:
         raise HTTPException(status_code=404, detail="Lead not found")
@@ -1572,25 +1574,28 @@ def submit_lead_feedback(
 ):
     status = feedback.get("feedback_status")  # 'converted' or 'rejected'
     conn = get_db()
-    c = conn.cursor()
-    if DATABASE_URL:
-        c.execute(
-            "UPDATE b2b_leads SET conversion_status = %s WHERE id = %s",
-            (
-                "converted" if status == "converted" else "active",
-                lead_id,
-            ),
-        )
-    else:
-        c.execute(
-            "UPDATE b2b_leads SET conversion_status = ? WHERE id = ?",
-            (
-                "converted" if status == "converted" else "active",
-                lead_id,
-            ),
-        )
-    conn.commit()
-    conn.close()
+    try:
+        c = conn.cursor()
+        if DATABASE_URL:
+            c.execute(
+                "UPDATE b2b_leads SET conversion_status = %s WHERE id = %s",
+                (
+                    "converted" if status == "converted" else "active",
+                    lead_id,
+                ),
+            )
+        else:
+            c.execute(
+                "UPDATE b2b_leads SET conversion_status = ? WHERE id = ?",
+                (
+                    "converted" if status == "converted" else "active",
+                    lead_id,
+                ),
+            )
+        conn.commit()
+        c.close()
+    finally:
+        release_db(conn)
     return {
         "status": "success",
         "message": f"Reinforcement vector updated for lead #{lead_id}",
