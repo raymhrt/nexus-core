@@ -568,13 +568,17 @@ def fetch_advanced_enrichment_data(domain: str, industry: str = "SaaS / Tech") -
         tech = "Python, PyTorch, Qdrant Vector DB, CUDA"
         acv = "$120,000"
         dm = "Head of AI Infrastructure"
+    elif "pharma" in ind_lower or "biotech" in ind_lower or "life sciences" in ind_lower:
+        tech = "AWS HIPAA-compliant pipelines, Python, Snowflake, PostgreSQL"
+        acv = "$150,000"
+        dm = "Director of Clinical Data Operations"
     else:
         tech = "React, Node.js, AWS, PostgreSQL"
         acv = "$30,000"
         dm = "CTO"
 
     funding_candidates = ["Seed", "Series A", "Series B", "Series C", "Bootstrapped"]
-    intent_candidates = ["High hiring velocity in engineering", "Recent funding announcement", "Migrated infrastructure to Cloud", "Expanding international sales team"]
+    intent_candidates = ["High hiring velocity in engineering", "Recent funding announcement", "Migrated infrastructure to Cloud", "Expanding clinical data processing"]
     
     hash_val = int(hashlib.md5(clean_dom.encode('utf-8')).hexdigest(), 16)
     funding = funding_candidates[(hash_val // 7) % len(funding_candidates)]
@@ -846,7 +850,7 @@ async def dispatch_outbound_webhooks(lead_data: dict, trigger_action: str = "lea
                     if attempt == max_retries:
                         logger.error(f"Max retries reached for destination dispatch: {net_err}")
                         raise
-                    await asyncio.sleep(backoff_factor ** attempt)
+                await asyncio.sleep(backoff_factor ** attempt)
         except Exception as crm_err:
             logger.error(f"Native CRM / Warehouse dispatch error for {dest_type}: {crm_err}")
 
@@ -1538,20 +1542,41 @@ async def draft_ai_cold_email(lead_id: int, request: Request, auth: dict = Depen
         raise HTTPException(status_code=404, detail="Lead not found.")
 
     lead = dict(row)
-    draft = f"""Subject: Scaling backend engineering workflows at {lead['company_name']}
+    company = lead['company_name']
+    industry = lead['industry']
+    tech = lead.get('tech_stack', 'Python, PostgreSQL')
+    intent = lead.get('intent_signals', 'Scaling operational workflows')
+    dm = lead.get('decision_maker_title', 'Engineering Team')
 
-Hi {lead.get('decision_maker_title', 'Engineering Team')} at {lead['company_name']},
+    # Industry-aware tailored context prompt for pharma/biotech vs SaaS
+    if "pharma" in industry.lower() or "biotech" in industry.lower() or "life sciences" in industry.lower():
+        draft = f"""Subject: Scaling {company}'s clinical data pipelines securely
 
-I noticed your recent momentum in {lead['industry']} and your focus on scalable systems ({lead['intent_signals']}). 
+Hi {dm} at {company},
 
-QuantCode Nexus helps teams like yours automate webhook orchestration, Stripe integrations, and lead intelligence synchronization with zero operational friction.
+Noticed {company} is scaling its clinical data infrastructure—especially given your reliance on {tech} for handling high-volume operational workloads.
+
+In the life sciences sector, we see teams bottlenecked trying to orchestrate automated data handoffs while maintaining strict compliance guardrails (HIPAA/GDPR). QuantCode Nexus helps engineering groups like yours automate backend deployments and webhook payloads securely on platforms like Render without risking delivery timeouts.
+
+Worth a brief 7-minute look next Tuesday to see how we handle automated orchestration for high-compliance stacks?
+
+Best regards,
+QuantCode Nexus SDR Agent"""
+    else:
+        draft = f"""Subject: Scaling backend engineering workflows at {company}
+
+Hi {dm} at {company},
+
+I noticed your recent momentum in {industry} and your focus on scalable systems ({intent}) utilizing {tech}. 
+
+QuantCode Nexus helps teams like yours automate webhook orchestration, API integrations, and lead intelligence synchronization with zero operational friction.
 
 Would you be open to a 10-minute technical walkthrough this Thursday at 2 PM?
 
 Best regards,
 QuantCode Nexus SDR Agent"""
 
-    return {"status": "success", "lead_id": lead_id, "company_name": lead['company_name'], "drafted_email": draft}
+    return {"status": "success", "lead_id": lead_id, "company_name": company, "drafted_email": draft}
 
 
 @app.post("/api/v1/leads/{lead_id}/enroll-sequence")
@@ -2769,7 +2794,7 @@ async def elite_hybrid_lead_search(
                 FULL OUTER JOIN text_ranked t ON v.id = t.id
             )
             SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals, verified_email, decision_maker_title, decision_maker_linkedin, acv_estimate, sync_status, conversion_status, rejection_status, timestamp,
-                    ROUND(CAST((CASE WHEN raw_sim > 0.35 THEN 0.70 + ((raw_sim - 0.35) / 0.65) * 0.29 ELSE raw_sim * 1.1 END) * 100 AS numeric), 0) as similarity
+                   ROUND(CAST((CASE WHEN raw_sim > 0.35 THEN 0.70 + ((raw_sim - 0.35) / 0.65) * 0.29 ELSE raw_sim * 1.1 END) * 100 AS numeric), 0) as similarity
             FROM combined
             WHERE raw_sim >= 0.35
             ORDER BY rrf_score DESC, raw_sim DESC
