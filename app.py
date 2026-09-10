@@ -45,7 +45,13 @@ if SENTRY_DSN:
 
 stripe.api_key = os.getenv("STRIPE_API_KEY", "your_stripe_key_here")
 ENDPOINT_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "your_webhook_secret_here")
-WEBHOOK_SIGNING_SECRET = os.getenv("WEBHOOK_SIGNING_SECRET", "nexus_sec_sig_default_99")
+
+# SECURITY FIX: Fail fast or log critical warnings if webhooks signing secret is missing or default
+WEBHOOK_SIGNING_SECRET = os.getenv("WEBHOOK_SIGNING_SECRET")
+if not WEBHOOK_SIGNING_SECRET:
+    logger.critical("FATAL: WEBHOOK_SIGNING_SECRET environment variable is missing! Webhook verification insecure.")
+    raise RuntimeError("WEBHOOK_SIGNING_SECRET must be explicitly configured in production environments.")
+
 ADMIN_SECRET_KEY = os.getenv("ADMIN_SECRET_KEY")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
@@ -360,6 +366,7 @@ def init_db():
         cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS rejection_status TEXT DEFAULT 'normal';")
         cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_b2b_leads_domain_unique ON b2b_leads (domain);")
         cursor.execute("CREATE INDEX IF NOT EXISTS b2b_leads_hnsw_idx ON b2b_leads USING hnsw (embedding vector_cosine_ops);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_b2b_leads_filter_sort ON b2b_leads (industry, funding_stage, trust_score, timestamp DESC);")
 
         cursor.execute(
             """
@@ -1196,23 +1203,21 @@ def verify_api_key(x_api_key: str = Header(...), request: Request = None):
 
 def check_rate_limit(api_key_hash: str, response: Response, max_requests: int = 30):
     window_seconds = 60
-    current_time = int(time.time())
-    current_minute = current_time // window_seconds
+    current_time = time.time()
     
     if redis_client:
         try:
-            redis_key = f"rate_limit:{api_key_hash}:{current_minute}"
+            # SLIDING WINDOW LOG: Using Redis sorted set for exact rate-limiting
+            redis_key = f"rate_limit_sliding:{api_key_hash}"
             pipe = redis_client.pipeline()
-            pipe.incr(redis_key, 1)
-            pipe.ttl(redis_key)
-            count, ttl = pipe.execute()
-            
-            if ttl == -1:
-                redis_client.expire(redis_key, window_seconds)
-                ttl = window_seconds
+            pipe.zremrangebyscore(redis_key, 0, current_time - window_seconds)
+            pipe.zadd(redis_key, {str(uuid.uuid4()): current_time})
+            pipe.zcard(redis_key)
+            pipe.expire(redis_key, window_seconds)
+            _, _, count, _ = pipe.execute()
 
             remaining = max(0, max_requests - count)
-            reset_time = (current_minute + 1) * window_seconds
+            reset_time = int(current_time + window_seconds)
 
             response.headers["X-RateLimit-Limit"] = str(max_requests)
             response.headers["X-RateLimit-Remaining"] = str(remaining)
@@ -1222,8 +1227,9 @@ def check_rate_limit(api_key_hash: str, response: Response, max_requests: int = 
                 raise HTTPException(status_code=429, detail=f"Rate limit exceeded. Maximum {max_requests} requests per minute allowed.")
             return
         except redis.RedisError as e:
-            logger.warning(f"Redis rate limit error: {e}")
+            logger.warning(f"Redis rate limit sliding window error: {e}")
 
+    current_minute = int(current_time) // window_seconds
     response.headers["X-RateLimit-Limit"] = str(max_requests)
     response.headers["X-RateLimit-Remaining"] = str(max_requests)
     response.headers["X-RateLimit-Reset"] = str((current_minute + 1) * window_seconds)
@@ -1249,7 +1255,7 @@ async def request_magic_link(payload: MagicLinkRequestPayload, background_tasks:
             if DATABASE_URL:
                 cursor.execute("INSERT INTO subscribers (email, active, tier) VALUES (%s, 1, 'starter') ON CONFLICT (email) DO NOTHING", (payload.email,))
                 cursor.execute("INSERT INTO api_keys (email, key_hash, key_name, scope, role) VALUES (%s, %s, 'Magic Link Key', 'full', 'admin')", (payload.email, hashed_key))
-                cursor.execute("INSERT INTO subscriber_credits (email, credits_remaining, credits_limit) VALUES (%s, 500, 500) ON CONFLICT (email) DO NOTHING", (payload.email,))
+                cursor.execute("INSERT INTO subscriber_credits (credits_remaining, credits_limit) VALUES (%s, 500) ON CONFLICT (email) DO NOTHING", (payload.email,))
             else:
                 cursor.execute("INSERT OR REPLACE INTO subscribers (email, active, tier) VALUES (?, 1, 'starter')", (payload.email,))
                 cursor.execute("INSERT INTO api_keys (email, key_hash, key_name, scope, role) VALUES (?, ?, 'Magic Link Key', 'full', 'admin')", (payload.email, hashed_key))
@@ -1908,6 +1914,8 @@ async def generate_leads_on_demand(payload: OnDemandGeneratePayload, request: Re
     if auth.get("role") == "viewer":
         raise HTTPException(status_code=403, detail="Viewer role is not authorized to generate on-demand leads.")
 
+    requested_cost = payload.count
+
     conn = get_db()
     try:
         cursor = conn.cursor()
@@ -1916,26 +1924,61 @@ async def generate_leads_on_demand(payload: OnDemandGeneratePayload, request: Re
         existing_rows = cursor.fetchall()
         existing_companies = [r["company_name"] if isinstance(r, dict) else r[0] for r in existing_rows]
 
+        # ATOMIC CREDIT DEDUCTION FIX: Use row-level conditional decrement to prevent race conditions & negative balances
         if DATABASE_URL:
-            cursor.execute("SELECT credits_remaining, credits_limit FROM subscriber_credits WHERE email = %s", (auth["email"],))
+            cursor.execute(
+                """
+                UPDATE subscriber_credits 
+                SET credits_remaining = credits_remaining - %s 
+                WHERE email = %s AND credits_remaining >= %s
+                RETURNING credits_remaining, credits_limit
+                """,
+                (requested_cost, auth["email"], requested_cost)
+            )
+            row = cursor.fetchone()
+            if not row:
+                # Check if user exists in credits table, if not initialize them
+                cursor.execute("SELECT credits_remaining FROM subscriber_credits WHERE email = %s", (auth["emailpliers"] if False else (auth["email"],)))
+                ex_row = cursor.fetchone()
+                if not ex_row:
+                    initial_credits = 2500 if auth["tier"] == "pro" else 500
+                    cursor.execute("INSERT INTO subscriber_credits (credits_remaining, credits_limit, email) VALUES (%s, %s, %s) ON CONFLICT (email) DO NOTHING", (initial_credits, initial_credits, auth["email"]))
+                    conn.commit()
+                    cursor.execute(
+                        """
+                        UPDATE subscriber_credits 
+                        SET credits_remaining = credits_remaining - %s 
+                        WHERE email = %s AND credits_remaining >= %s
+                        RETURNING credits_remaining, credits_limit
+                        """,
+                        (requested_cost, auth["email"], requested_cost)
+                    )
+                    row = cursor.fetchone()
+                
+                if not row:
+                    cursor.close()
+                    raise HTTPException(status_code=402, detail="Insufficient lead generation credits remaining.")
+            credits_left = row["credits_remaining"]
         else:
-            cursor.execute("SELECT credits_remaining, credits_limit FROM subscriber_credits WHERE email = ?", (auth["email"],))
-        row = cursor.fetchone()
-
-        if not row:
-            initial_credits = 2500 if auth["tier"] == "pro" else 500
-            if DATABASE_URL:
-                cursor.execute("INSERT INTO subscriber_credits (credits_remaining, credits_limit, email) VALUES (%s, %s, %s)", (initial_credits, initial_credits, auth["email"]))
-            else:
+            # SQLite atomic fallback check & update
+            cursor.execute("SELECT credits_remaining FROM subscriber_credits WHERE email = ?", (auth["email"],))
+            row = cursor.fetchone()
+            if not row:
+                initial_credits = 2500 if auth["tier"] == "pro" else 500
                 cursor.execute("INSERT OR REPLACE INTO subscriber_credits (credits_remaining, credits_limit, email) VALUES (?, ?, ?)", (initial_credits, initial_credits, auth["email"]))
-            conn.commit()
-            credits_left = initial_credits
-        else:
-            credits_left = row["credits_remaining"] if isinstance(row, dict) else row[0]
+                conn.commit()
+                credits_left = initial_credits
+            else:
+                credits_left = row["credits_remaining"] if isinstance(row, dict) else row[0]
 
-        requested_cost = payload.count
-        if credits_left < requested_cost:
-            raise HTTPException(status_code=402, detail=f"Insufficient lead generation credits. Remaining: {credits_left}, Requested: {requested_cost}.")
+            if credits_left < requested_cost:
+                cursor.close()
+                raise HTTPException(status_code=402, detail=f"Insufficient lead generation credits. Remaining: {credits_left}, Requested: {requested_cost}.")
+            
+            cursor.execute("UPDATE subscriber_credits SET credits_remaining = credits_remaining - ? WHERE email = ?", (requested_cost, auth["email"]))
+            conn.commit()
+            credits_left -= requested_cost
+
         cursor.close()
     finally:
         release_db(conn)
@@ -1957,10 +2000,16 @@ async def generate_leads_on_demand(payload: OnDemandGeneratePayload, request: Re
 
     try:
         raw_text = await asyncio.to_thread(call_gemini_rest, prompt)
-        if raw_text.startswith("```json"):
-            raw_text = raw_text[7:-3].strip()
-        elif raw_text.startswith("```"):
-            raw_text = raw_text[3:-3].strip()
+        # ROBUST JSON PARSING FIX: Isolate JSON block using regex if conversational text surrounds it
+        import re
+        json_match = re.search(r'\[\s*\{.*?\}\s*\]', raw_text, re.DOTALL)
+        if json_match:
+            raw_text = json_match.group(0)
+        else:
+            if raw_text.startswith("```json"):
+                raw_text = raw_text[7:-3].strip()
+            elif raw_text.startswith("```"):
+                raw_text = raw_text[3:-3].strip()
             
         parsed_data = json.loads(raw_text)
         validated_leads = []
@@ -2079,17 +2128,12 @@ async def generate_leads_on_demand(payload: OnDemandGeneratePayload, request: Re
                     )
                 )
 
-        new_balance = credits_left - len(new_leads)
-        if DATABASE_URL:
-            cursor.execute("UPDATE subscriber_credits SET credits_remaining = %s WHERE email = %s", (new_balance, auth["email"]))
-        else:
-            cursor.execute("UPDATE subscriber_credits SET credits_remaining = ? WHERE email = ?", (new_balance, auth["email"]))
         ins_conn.commit()
         cursor.close()
     finally:
         release_db(ins_conn)
 
-    return {"status": "success", "credits_remaining": new_balance, "leads_generated": len(new_leads), "leads": new_leads}
+    return {"status": "success", "credits_remaining": credits_left, "leads_generated": len(new_leads), "leads": new_leads}
 
 
 @app.get("/api/v1/credits")
