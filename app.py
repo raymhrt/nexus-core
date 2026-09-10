@@ -1538,7 +1538,7 @@ def generate_ai_email_draft(lead_id: int, x_api_key: str = Header(...)):
         if DATABASE_URL:
             c.execute("SELECT * FROM b2b_leads WHERE id = %s", (lead_id,))
         else:
-            c.execute("SELECT * FROM b2b_leads WHERE id = ?", (lead_id,))
+            c.execute("SELECT * FROM b2b_leads WHERE id = %s", (lead_id,)) # or ? for sqlite
         lead_row = c.fetchone()
         c.close()
     finally:
@@ -1552,20 +1552,21 @@ def generate_ai_email_draft(lead_id: int, x_api_key: str = Header(...)):
     industry = lead["industry"]
     tech_stack = lead["tech_stack"] or "modern stack"
     domain = lead["domain"]
-
+    dm_title = lead.get("decision_maker_title") or "Engineering Leader"
+    
+    # Custom hook based on title or industry
     subject = f"Scaling infrastructure resilience at {company}"
     body = (
-        f"Hi {company} Engineering Team,\n\nI was analyzing recent telemetry"
-        f" for {domain} and noticed your reliance on {tech_stack} within the"
-        f" {industry} sector. As you scale, maintaining low-latency webhook"
-        f" delivery and secure state synchronization becomes critical.\n\nWe've"
-        f" built automated orchestration pipelines specifically designed for"
-        f" {industry} architectures to eliminate timeout risks and streamline"
-        f" outbound dispatch.\n\nWould you be open to a 10-minute technical"
-        f" walkthrough this week?\n\nBest,\nQuantCode Nexus Autopilot"
+        f"Hi there,\n\n"
+        f"I was looking at the technical architecture for {domain} and noticed your team leveraging {tech_stack}. "
+        f"As a {dm_title} in the {industry} sector, maintaining low-latency webhook delivery and secure state synchronization is likely a core focus.\n\n"
+        f"We've built automated orchestration pipelines specifically designed for {industry} teams to eliminate timeout risks and streamline outbound syncs.\n\n"
+        f"Would you be open to a 10-minute technical walkthrough this week?\n\n"
+        f"Best,\n"
+        f"QuantCode Nexus Autopilot"
     )
 
-    return {"subject": subject, "body": body, "to_email": f"contact@{domain}"}
+    return {"subject": subject, "body": body, "to_email": lead.get("email") or f"contact@{domain}"}
 
 
 @app.post("/api/v1/leads/{lead_id}/feedback")
@@ -1923,9 +1924,9 @@ async def generate_leads_on_demand(payload: OnDemandGeneratePayload, request: Re
         if not row:
             initial_credits = 2500 if auth["tier"] == "pro" else 500
             if DATABASE_URL:
-                cursor.execute("INSERT INTO subscriber_credits (email, credits_remaining, credits_limit) VALUES (%s, %s, %s)", (auth["email"], initial_credits, initial_credits))
+                cursor.execute("INSERT INTO subscriber_credits (credits_remaining, credits_limit, email) VALUES (%s, %s, %s)", (initial_credits, initial_credits, auth["email"]))
             else:
-                cursor.execute("INSERT OR REPLACE INTO subscriber_credits (email, credits_remaining, credits_limit) VALUES (?, ?, ?)", (auth["email"], initial_credits, initial_credits))
+                cursor.execute("INSERT OR REPLACE INTO subscriber_credits (credits_remaining, credits_limit, email) VALUES (?, ?, ?)", (initial_credits, initial_credits, auth["email"]))
             conn.commit()
             credits_left = initial_credits
         else:
@@ -2300,11 +2301,11 @@ async def claim_session_key(session_id: str):
                 if DATABASE_URL:
                     cursor.execute("INSERT INTO subscribers (email, active, stripe_customer_id, tier) VALUES (%s, 1, %s, %s) ON CONFLICT (email) DO UPDATE SET active = 1", (customer_email, session.customer, tier))
                     cursor.execute("INSERT INTO api_keys (email, key_hash, key_name, scope, role) VALUES (%s, %s, 'Primary Key', 'full', 'admin')", (customer_email, hashed_key))
-                    cursor.execute("INSERT INTO subscriber_credits (email, credits_remaining, credits_limit) VALUES (%s, %s, %s) ON CONFLICT (email) DO UPDATE SET credits_limit = EXCLUDED.credits_limit", (customer_email, initial_credits, initial_credits))
+                    cursor.execute("INSERT INTO subscriber_credits (credits_remaining, credits_limit, email) VALUES (%s, %s, %s) ON CONFLICT (email) DO UPDATE SET credits_limit = EXCLUDED.credits_limit", (initial_credits, initial_credits, customer_email))
                 else:
                     cursor.execute("INSERT OR REPLACE INTO subscribers (email, active, stripe_customer_id, tier) VALUES (?, 1, ?, ?)", (customer_email, session.customer, tier))
                     cursor.execute("INSERT INTO api_keys (email, key_hash, key_name, scope, role) VALUES (?, ?, 'Primary Key', 'full', 'admin')", (customer_email, hashed_key))
-                    cursor.execute("INSERT OR REPLACE INTO subscriber_credits (email, credits_remaining, credits_limit) VALUES (?, ?, ?)", (customer_email, initial_credits, initial_credits))
+                    cursor.execute("INSERT OR REPLACE INTO subscriber_credits (credits_remaining, credits_limit, email) VALUES (?, ?, ?)", (initial_credits, initial_credits, customer_email))
                 conn.commit()
                 cursor.close()
                 return {"status": "success", "email": customer_email, "api_key": raw_api_key, "note": "Key freshly generated and claimed."}
@@ -2979,11 +2980,11 @@ async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
                     if DATABASE_URL:
                         cursor.execute("INSERT INTO subscribers (email, active, stripe_customer_id, tier) VALUES (%s, 1, %s, %s) ON CONFLICT (email) DO UPDATE SET active = 1, stripe_customer_id = EXCLUDED.stripe_customer_id, tier = EXCLUDED.tier", (customer_email, customer_id, tier))
                         cursor.execute("INSERT INTO api_keys (email, key_hash, key_name, scope, role) VALUES (%s, %s, 'Primary Key', 'full', 'admin')", (customer_email, hashed_key))
-                        cursor.execute("INSERT INTO subscriber_credits (email, credits_remaining, credits_limit) VALUES (%s, %s, %s) ON CONFLICT (email) DO UPDATE SET credits_limit = EXCLUDED.credits_limit", (customer_email, initial_credits, initial_credits))
+                        cursor.execute("INSERT INTO subscriber_credits (credits_remaining, credits_limit, email) VALUES (%s, %s, %s) ON CONFLICT (email) DO UPDATE SET credits_limit = EXCLUDED.credits_limit", (initial_credits, initial_credits, customer_email))
                     else:
                         cursor.execute("INSERT OR REPLACE INTO subscribers (email, active, stripe_customer_id, tier) VALUES (?, 1, ?, ?)", (customer_email, customer_id, tier))
                         cursor.execute("INSERT INTO api_keys (email, key_hash, key_name, scope, role) VALUES (?, ?, 'Primary Key', 'full', 'admin')", (customer_email, hashed_key))
-                        cursor.execute("INSERT OR REPLACE INTO subscriber_credits (email, credits_remaining, credits_limit) VALUES (?, ?, ?)", (customer_email, initial_credits, initial_credits))
+                        cursor.execute("INSERT OR REPLACE INTO subscriber_credits (credits_remaining, credits_limit, email) VALUES (?, ?, ?)", (initial_credits, initial_credits, customer_email))
                     conn.commit()
 
                     log_audit_event(customer_email, "SUBSCRIPTION_CREATED", f"New subscription created on tier {tier}")
