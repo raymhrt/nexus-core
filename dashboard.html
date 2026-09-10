@@ -526,11 +526,30 @@ print(res.json())</code></pre>
 
         async function draftAIEmail(leadId, company, email) {
             if (currentUserRole === 'viewer') { alert("Viewer role cannot send live emails."); return; }
+            const apiKey = document.getElementById('apiKey').value.trim();
             activeLeadIdForEmail = leadId;
+            
             document.getElementById('modalRecipientEmail').value = email || 'contact@company.com';
-            document.getElementById('modalSubject').value = `Scaling engineering workflows at ${company}`;
-            document.getElementById('modalBody').value = `Hi Engineering Team at ${company},\n\nI noticed your recent momentum and wanted to connect regarding automated workflow orchestration.\n\nBest,\nQuantCode Nexus SDR`;
+            document.getElementById('modalSubject').value = "Generating AI draft...";
+            document.getElementById('modalBody').value = "Analyzing lead telemetry and drafting personalized outreach...";
             document.getElementById('emailModal').classList.remove('hidden');
+
+            try {
+                const res = await fetch(`/api/v1/leads/${leadId}/ai-draft`, {
+                    method: 'POST',
+                    headers: { 'x-api-key': apiKey }
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    document.getElementById('modalRecipientEmail').value = data.to_email;
+                    document.getElementById('modalSubject').value = data.subject;
+                    document.getElementById('modalBody').value = data.body;
+                } else {
+                    showToast("Failed to generate AI draft.", true);
+                }
+            } catch (err) {
+                showToast("AI draft request failed.", true);
+            }
         }
 
         async function sendLiveEmailViaResend() {

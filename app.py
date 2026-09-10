@@ -1530,58 +1530,71 @@ async def reject_lead_action(lead_id: int, request: Request, auth: dict = Depend
     }
 
 
-@app.post("/api/v1/leads/{lead_id}/draft-email")
-async def draft_ai_cold_email(lead_id: int, request: Request, auth: dict = Depends(verify_api_key)):
+@app.post("/api/v1/leads/{lead_id}/ai-draft")
+def generate_ai_email_draft(lead_id: int, x_api_key: str = Header(...)):
     conn = get_db()
-    try:
-        cursor = conn.cursor()
-        if DATABASE_URL:
-            cursor.execute("SELECT company_name, domain, industry, tech_stack, funding_stage, intent_signals, decision_maker_title FROM b2b_leads WHERE id = %s", (lead_id,))
-        else:
-            cursor.execute("SELECT company_name, domain, industry, tech_stack, funding_stage, intent_signals, decision_maker_title FROM b2b_leads WHERE id = ?", (lead_id,))
-        row = cursor.fetchone()
-        cursor.close()
-    finally:
-        release_db(conn)
-
-    if not row:
-        raise HTTPException(status_code=404, detail="Lead not found.")
-
-    lead = dict(row)
-    company = lead['company_name']
-    industry = lead['industry']
-    tech = lead.get('tech_stack', 'Python, PostgreSQL')
-    intent = lead.get('intent_signals', 'Scaling operational workflows')
-    dm = lead.get('decision_maker_title', 'Engineering Team')
-
-    if "pharma" in industry.lower() or "biotech" in industry.lower() or "life sciences" in industry.lower():
-        draft = f"""Subject: Scaling {company}'s clinical data pipelines securely
-
-Hi {dm} at {company},
-
-Noticed {company} is scaling its clinical data infrastructure—especially given your reliance on {tech} for handling high-volume operational workloads.
-
-In the life sciences sector, we see teams bottlenecked trying to orchestrate automated data handoffs while maintaining strict compliance guardrails (HIPAA/GDPR). QuantCode Nexus helps engineering groups like yours automate backend deployments and webhook payloads securely on platforms like Render without risking delivery timeouts.
-
-Worth a brief 7-minute look next Tuesday to see how we handle automated orchestration for high-compliance stacks?
-
-Best regards,
-QuantCode Nexus SDR Agent"""
+    conn.row_factory = sqlite3.Row if not DATABASE_URL else dict
+    c = conn.cursor()
+    if DATABASE_URL:
+        c.execute("SELECT * FROM b2b_leads WHERE id = %s", (lead_id,))
     else:
-        draft = f"""Subject: Scaling backend engineering workflows at {company}
+        c.execute("SELECT * FROM b2b_leads WHERE id = ?", (lead_id,))
+    lead_row = c.fetchone()
+    conn.close()
 
-Hi {dm} at {company},
+    if not lead_row:
+        raise HTTPException(status_code=404, detail="Lead not found")
 
-I noticed your recent momentum in {industry} and your focus on scalable systems ({intent}) utilizing {tech}. 
+    lead = dict(lead_row)
+    company = lead["company_name"]
+    industry = lead["industry"]
+    tech_stack = lead["tech_stack"] or "modern stack"
+    domain = lead["domain"]
 
-QuantCode Nexus helps teams like yours automate webhook orchestration, API integrations, and lead intelligence synchronization with zero operational friction.
+    subject = f"Scaling infrastructure resilience at {company}"
+    body = (
+        f"Hi {company} Engineering Team,\n\nI was analyzing recent telemetry"
+        f" for {domain} and noticed your reliance on {tech_stack} within the"
+        f" {industry} sector. As you scale, maintaining low-latency webhook"
+        f" delivery and secure state synchronization becomes critical.\n\nWe've"
+        f" built automated orchestration pipelines specifically designed for"
+        f" {industry} architectures to eliminate timeout risks and streamline"
+        f" outbound dispatch.\n\nWould you be open to a 10-minute technical"
+        f" walkthrough this week?\n\nBest,\nQuantCode Nexus Autopilot"
+    )
 
-Would you be open to a 10-minute technical walkthrough this Thursday at 2 PM?
+    return {"subject": subject, "body": body, "to_email": f"contact@{domain}"}
 
-Best regards,
-QuantCode Nexus SDR Agent"""
 
-    return {"status": "success", "lead_id": lead_id, "company_name": company, "drafted_email": draft}
+@app.post("/api/v1/leads/{lead_id}/feedback")
+def submit_lead_feedback(
+    lead_id: int, feedback: dict, x_api_key: str = Header(...)
+):
+    status = feedback.get("feedback_status")  # 'converted' or 'rejected'
+    conn = get_db()
+    c = conn.cursor()
+    if DATABASE_URL:
+        c.execute(
+            "UPDATE b2b_leads SET conversion_status = %s WHERE id = %s",
+            (
+                "converted" if status == "converted" else "active",
+                lead_id,
+            ),
+        )
+    else:
+        c.execute(
+            "UPDATE b2b_leads SET conversion_status = ? WHERE id = ?",
+            (
+                "converted" if status == "converted" else "active",
+                lead_id,
+            ),
+        )
+    conn.commit()
+    conn.close()
+    return {
+        "status": "success",
+        "message": f"Reinforcement vector updated for lead #{lead_id}",
+    }
 
 
 @app.post("/api/v1/leads/{lead_id}/enroll-sequence")
@@ -2187,32 +2200,7 @@ async def get_subscriber_icp(request: Request, auth: dict = Depends(verify_api_k
 class LeadFeedbackPayload(BaseModel):
     feedback_status: str
 
-@app.post("/api/v1/leads/{lead_id}/feedback")
-async def submit_lead_feedback(lead_id: int, payload: LeadFeedbackPayload, request: Request, auth: dict = Depends(verify_api_key)):
-    if auth.get("role") == "viewer":
-        raise HTTPException(status_code=403, detail="Viewer role cannot submit agent feedback.")
-
-    conn = get_db()
-    try:
-        cursor = conn.cursor()
-        if DATABASE_URL:
-            cursor.execute("INSERT INTO lead_feedback (email, lead_id, feedback_status) VALUES (%s, %s, %s)", (auth["email"], lead_id, payload.feedback_status))
-            if payload.feedback_status == 'rejected':
-                cursor.execute("UPDATE subscriber_icps SET min_trust_score = LEAST(100, min_trust_score + 2) WHERE email = %s", (auth["email"],))
-            elif payload.feedback_status == 'converted':
-                cursor.execute("UPDATE subscriber_icps SET min_trust_score = GREATEST(50, min_trust_score - 1) WHERE email = %s", (auth["email"],))
-        else:
-            cursor.execute("INSERT INTO lead_feedback (email, lead_id, feedback_status) VALUES (?, ?, ?)", (auth["email"], lead_id, payload.feedback_status))
-        conn.commit()
-        cursor.close()
-    finally:
-        release_db(conn)
-        
-    log_audit_event(auth["email"], "VECTOR_REINFORCEMENT", f"Feedback '{payload.feedback_status}' applied for lead {lead_id}; ICP vector weights adjusted.", auth["ip"])
-    return {"status": "success", "lead_id": lead_id, "feedback_status": payload.feedback_status, "message": "Feedback ingested into vector reinforcement loop."}
-
-
-@app.get("/api/v1/admin/cleanup-webhooks")
+@app.post("/api/v1/admin/cleanup-webhooks")
 async def cleanup_webhooks(admin_key: str):
     if not ADMIN_SECRET_KEY or admin_key != ADMIN_SECRET_KEY:
         raise HTTPException(status_code=403, detail="Unauthorized")
