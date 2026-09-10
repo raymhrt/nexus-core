@@ -454,13 +454,13 @@ print(res.json())</code></pre>
             }
         };
 
-        function showToast(message) {
+        function showToast(message, isError = false) {
             const container = document.getElementById('toastContainer');
             const toast = document.createElement('div');
-            toast.className = 'bg-cardbg border border-sky-500 text-slate-100 px-4 py-3 rounded-xl text-xs font-semibold shadow-2xl flex items-center gap-2';
-            toast.innerHTML = `<i class="fa-solid fa-circle-check text-emerald-400"></i> <span>${message}</span>`;
+            toast.className = `bg-cardbg border ${isError ? 'border-rose-500 text-rose-300' : 'border-sky-500 text-slate-100'} px-4 py-3 rounded-xl text-xs font-semibold shadow-2xl flex items-center gap-2`;
+            toast.innerHTML = `<i class="fa-solid ${isError ? 'fa-triangle-exclamation text-rose-400' : 'fa-circle-check text-emerald-400'}"></i> <span>${message}</span>`;
             container.appendChild(toast);
-            setTimeout(() => toast.remove(), 3000);
+            setTimeout(() => toast.remove(), isError ? 5000 : 3000);
         }
 
         function switchTab(tabName, btnElement) {
@@ -496,8 +496,8 @@ print(res.json())</code></pre>
                 });
                 const data = await res.json();
                 if (res.ok) showToast(data.message || "Magic link sent!");
-                else alert(data.detail || "Failed to send magic link.");
-            } catch (err) { alert("Request failed."); }
+                else showToast(data.detail || "Failed to send magic link.", true);
+            } catch (err) { showToast("Request failed.", true); }
         }
 
         async function runSandboxRequest() {
@@ -551,10 +551,11 @@ print(res.json())</code></pre>
                 if (res.ok) {
                     showToast(data.message);
                     closeEmailModal();
+                    saveAndFetch();
                 } else {
-                    alert(data.detail || "Failed to send email.");
+                    showToast(data.detail || "Failed to send email.", true);
                 }
-            } catch (err) { alert("Request failed."); }
+            } catch (err) { showToast("Request failed.", true); }
         }
 
         async function submitLeadFeedback(leadId, feedbackType) {
@@ -571,9 +572,9 @@ print(res.json())</code></pre>
                 });
                 const data = await res.json();
                 if (res.ok) showToast(data.message || `Lead feedback (${feedbackType}) saved successfully!`);
-                else alert(data.detail || "Failed to submit feedback.");
+                else showToast(data.detail || "Failed to submit feedback.", true);
             } catch (err) {
-                alert("Feedback request failed: " + err.message);
+                showToast("Feedback request failed: " + err.message, true);
             }
         }
 
@@ -588,9 +589,9 @@ print(res.json())</code></pre>
                 });
                 const data = await res.json();
                 if (res.ok) showToast(data.message || `Lead #${leadId} synced successfully!`);
-                else alert(data.detail || "Failed to sync lead.");
+                else showToast(data.detail || "Failed to sync lead.", true);
             } catch (err) {
-                alert("Sync request failed: " + err.message);
+                showToast("Sync request failed: " + err.message, true);
             }
         }
 
@@ -605,9 +606,9 @@ print(res.json())</code></pre>
                 });
                 const data = await res.json();
                 if (res.ok) showToast(data.message);
-                else alert(data.detail || "Failed to enroll lead.");
+                else showToast(data.detail || "Failed to enroll lead.", true);
             } catch (err) {
-                alert("Request failed.");
+                showToast("Request failed.", true);
             }
         }
 
@@ -638,10 +639,10 @@ print(res.json())</code></pre>
                     showToast(data.message || `Lead #${leadId} deleted successfully.`);
                     saveAndFetch();
                 } else {
-                    alert(data.detail || "Failed to delete lead.");
+                    showToast(data.detail || "Failed to delete lead.", true);
                 }
             } catch (err) {
-                alert("Delete request failed: " + err.message);
+                showToast("Delete request failed: " + err.message, true);
             }
         }
 
@@ -740,10 +741,10 @@ print(res.json())</code></pre>
                     showToast(data.message);
                     loadDLQEvents();
                 } else {
-                    alert(data.detail || "Failed to replay DLQ event.");
+                    showToast(data.detail || "Failed to replay DLQ event.", true);
                 }
             } catch (err) {
-                alert("Replay request failed.");
+                showToast("Replay request failed.", true);
             }
         }
 
@@ -782,8 +783,8 @@ print(res.json())</code></pre>
                 });
                 const data = await res.json();
                 if (res.ok) showToast(data.message || "Telegram settings saved!");
-                else alert(data.detail || "Failed to save Telegram settings.");
-            } catch (err) { alert("Request failed."); }
+                else showToast(data.detail || "Failed to save Telegram settings.", true);
+            } catch (err) { showToast("Request failed.", true); }
         }
 
         async function loadTelegramSettings(apiKey) {
@@ -838,6 +839,9 @@ print(res.json())</code></pre>
 
                 const data = await response.json();
                 if (!response.ok) {
+                    if (response.status === 429) {
+                        showToast("Rate limit exceeded (429). Please wait before retrying.", true);
+                    }
                     leadFeedContainer.innerHTML = `<pre class="text-rose-400">Error (${response.status}):\n` + JSON.stringify(data, null, 2) + `</pre>`;
                     return;
                 }
@@ -922,8 +926,8 @@ print(res.json())</code></pre>
                 });
                 const data = await res.json();
                 if (res.ok && data.portal_url) window.location.href = data.portal_url;
-                else alert(data.detail || "Failed to create portal session.");
-            } catch (err) { alert("Request failed."); }
+                else showToast(data.detail || "Failed to create portal session.", true);
+            } catch (err) { showToast("Request failed.", true); }
         }
 
         async function loadCredits(apiKey) {
@@ -986,8 +990,8 @@ print(res.json())</code></pre>
                 if (res.ok) {
                     showToast(data.message || "Destination connected.");
                     loadDestinations(apiKey);
-                } else alert(data.detail || "Failed.");
-            } catch (err) { alert("Error."); }
+                } else showToast(data.detail || "Failed.", true);
+            } catch (err) { showToast("Error.", true); }
         }
 
         async function loadDestinations(apiKey) {
@@ -1031,7 +1035,7 @@ print(res.json())</code></pre>
                 });
                 const data = await res.json();
                 showToast(data.message || "Rules saved!");
-            } catch (err) { alert("Failed."); }
+            } catch (err) { showToast("Failed.", true); }
         }
 
         function renderLeadFeed(leads) {
@@ -1110,7 +1114,7 @@ print(res.json())</code></pre>
                 });
                 const data = await res.json();
                 showToast(data.message || "ICP profile saved.");
-            } catch (err) { alert("Failed."); }
+            } catch (err) { showToast("Failed.", true); }
         }
 
         async function runSemanticSearch() {
@@ -1146,7 +1150,7 @@ print(res.json())</code></pre>
                     container.classList.remove('hidden');
                     list.innerHTML = '<p class="text-slate-400 text-xs">No matching semantic leads found.</p>';
                 }
-            } catch (err) { alert("Failed."); }
+            } catch (err) { showToast("Failed.", true); }
         }
 
         async function loadUsageChart(apiKey) {
@@ -1236,8 +1240,8 @@ print(res.json())</code></pre>
                 if (res.ok) {
                     showToast(data.message);
                     loadKeys(apiKey);
-                } else alert(data.detail || "Failed.");
-            } catch(e) { alert("Error."); }
+                } else showToast(data.detail || "Failed.", true);
+            } catch(e) { showToast("Error.", true); }
         }
 
         async function revokeKey(keyId) {
@@ -1252,8 +1256,8 @@ print(res.json())</code></pre>
                 if (res.ok) {
                     showToast("API key revoked.");
                     loadKeys(apiKey);
-                } else alert("Failed.");
-            } catch (err) { alert("Error."); }
+                } else showToast("Failed.", true);
+            } catch (err) { showToast("Error.", true); }
         }
 
         async function registerWebhook() {
@@ -1271,7 +1275,7 @@ print(res.json())</code></pre>
                 });
                 const data = await res.json();
                 showToast(data.message || "Webhook registered.");
-            } catch (err) { alert("Failed."); }
+            } catch (err) { showToast("Failed.", true); }
         }
 
         async function fetchWebhookLogs() {
@@ -1287,8 +1291,8 @@ print(res.json())</code></pre>
                         logSummary += `[${l.timestamp}] URL: ${l.webhook_url} | Status: ${l.status_code} | Success: ${l.success}\n`;
                     });
                     alert(logSummary);
-                } else alert(data.detail || "Failed");
-            } catch (err) { alert("Request failed."); }
+                } else showToast(data.detail || "Failed", true);
+            } catch (err) { showToast("Request failed.", true); }
         }
 
         async function triggerReset() {
@@ -1299,7 +1303,7 @@ print(res.json())</code></pre>
                 const res = await fetch(`/api/v1/request-key-reset?email=${encodeURIComponent(email)}`, { method: 'POST' });
                 const data = await res.json();
                 showToast(data.message || "Reset link sent.");
-            } catch (err) { alert("Failed."); }
+            } catch (err) { showToast("Failed.", true); }
         }
 
         function escapeHtml(str) {

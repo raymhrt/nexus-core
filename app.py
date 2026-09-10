@@ -537,7 +537,6 @@ def generate_lead_embedding(text_content: str):
 def fetch_advanced_enrichment_data(domain: str, industry: str = "SaaS / Tech") -> dict:
     clean_dom = domain.lower().replace("https://", "").replace("http://", "").rstrip("/")
     
-    # Industry-specific enrichment mapping
     ind_lower = industry.lower()
     if "fintech" in ind_lower or "insurtech" in ind_lower:
         tech = "Stripe API, Plaid, PostgreSQL, AWS"
@@ -692,7 +691,6 @@ async def dispatch_outbound_webhooks(lead_data: dict, trigger_action: str = "lea
     span_id = uuid.uuid4().hex[:16]
     traceparent_header = f"00-{trace_id}-{span_id}-01"
 
-    # Dispatch to custom Webhooks only on initial ingest or distinct actions, avoiding multi-dispatch duplication for single ingestion
     if trigger_action == "lead.ingested":
         for wh in webhooks:
             wh_dict = dict(wh) if not isinstance(wh, dict) and not hasattr(wh, "keys") else wh
@@ -814,12 +812,26 @@ async def dispatch_outbound_webhooks(lead_data: dict, trigger_action: str = "lea
                 "text": f"🚀 *New B2B Lead Ingested!*\n*Company:* {lead_data.get('company_name')} ({lead_data.get('domain')})\n*Industry:* {lead_data.get('industry')} | *Trust Score:* {lead_data.get('trust_score')}/100"
             }
         elif dest_type.lower() == "snowflake":
-            logger.info("Dispatching payload to Snowflake Warehouse staging table...")
+            logger.info("Dispatching payload to Snowflake Warehouse staging table with retry handling...")
 
         try:
-            await asyncio.to_thread(requests.post, dest_url, json=formatted_payload, headers=headers, timeout=10)
+            # Snowflake / Generic dispatch with exponential backoff for connection reset (Errno 104) resilience
+            max_retries = 3
+            backoff_factor = 2
+            for attempt in range(1, max_retries + 1):
+                try:
+                    response = await asyncio.to_thread(requests.post, dest_url, json=formatted_payload, headers=headers, timeout=15)
+                    if response.status_code == 200:
+                        break
+                    elif attempt == max_retries:
+                        logger.error(f"Warehouse destination returned status {response.status_code}: {response.text}")
+                except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as net_err:
+                    if attempt == max_retries:
+                        logger.error(f"Max retries reached for destination dispatch: {net_err}")
+                        raise
+                    await asyncio.sleep(backoff_factor ** attempt)
         except Exception as crm_err:
-            logger.error(f"Native CRM dispatch error for {dest_type}: {crm_err}")
+            logger.error(f"Native CRM / Warehouse dispatch error for {dest_type}: {crm_err}")
 
 
 async def safe_dispatch_wrapper(lead_payload: dict, trigger_action: str = "lead.ingested"):
@@ -999,8 +1011,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="QuantCode Nexus Enterprise Apex API",
-    version="3.8.0",
-    description="Enterprise B2B Lead Intelligence, RevOps Sync, DLQ Replay, and Developer Sandbox API.",
+    version="3.9.0",
+    description="Enterprise B2B Lead Intelligence, RevOps Sync, DLQ Replay, and Elite ⌘K Command Center API.",
     lifespan=lifespan
 )
 
@@ -1054,7 +1066,7 @@ async def custom_http_exception_handler(request: Request, exc: HTTPException):
 async def read_index():
     if os.path.exists("index.html"):
         return FileResponse("index.html")
-    return {"status": "online", "system": "QuantCode Nexus Enterprise Apex", "version": "3.8.0"}
+    return {"status": "online", "system": "QuantCode Nexus Enterprise Apex", "version": "3.9.0"}
 
 @app.get("/success")
 async def success_page():
