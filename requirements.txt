@@ -1,22 +1,12 @@
-cat << 'EOF' > requirements.txt
 fastapi
-uvicorn[standard]
+uvicorn
 stripe
+numpy
 requests
 redis
-celery
-sse-starlette
 sentry-sdk
-psycopg2-binary
-python-dotenv
+pydantic
 apscheduler
-httpx
-pytest
+python-dotenv
+psycopg2-binary
 google-genai
-email-validator
-python-dateutil
-cryptography
-python-multipart
-resend
-numpy
-EOF
