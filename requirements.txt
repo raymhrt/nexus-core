@@ -15,3 +15,5 @@ python-dateutil
 cryptography
 python-multipart
 resend
+numpy
+EOF
