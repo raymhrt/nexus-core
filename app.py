@@ -441,9 +441,12 @@ class ClosedLoopLearningEngine:
         optimized_score = min(100, max(0, base_score + adjustment))
         return optimized_score
 
-def background_signal_monitor_job():
+async def background_signal_monitor_job():
     logger.info("APScheduler Autonomous Sentinel: Scanning live webhook feeds and repository velocity spikes...")
-    asyncio.create_task(sse_broker.broadcast("telemetry_heartbeat", {"status": "active", "message": "Sentinel scan completed successfully."}))
+    try:
+        await sse_broker.broadcast("telemetry_heartbeat", {"status": "active", "message": "Sentinel scan completed successfully."})
+    except Exception as e:
+        logger.error(f"Telemetry broadcast error in background job: {e}")
 
 def init_db():
     conn = get_db()
@@ -1151,11 +1154,14 @@ async def gdpr_compliance_cleanup():
     finally:
         release_db(conn)
 
+async def async_gdpr_cleanup():
+    await asyncio.to_thread(gdpr_compliance_cleanup)
+
 scheduler = AsyncIOScheduler()
-scheduler.add_job(gdpr_compliance_cleanup, "interval", hours=24)
-scheduler.add_job(webhook_canary_healing_worker, "interval", minutes=1)
-scheduler.add_job(webhook_dlq_replay_worker, "interval", minutes=5)
-scheduler.add_job(background_signal_monitor_job, "interval", minutes=30)
+scheduler.add_job(async_gdpr_cleanup, "interval", hours=24, id="gdpr_cleanup", replace_existing=True)
+scheduler.add_job(webhook_canary_healing_worker, "interval", minutes=1, id="canary_healing", replace_existing=True)
+scheduler.add_job(webhook_dlq_replay_worker, "interval", minutes=5, id="dlq_replay", replace_existing=True)
+scheduler.add_job(background_signal_monitor_job, "interval", minutes=30, id="signal_monitor", replace_existing=True)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
