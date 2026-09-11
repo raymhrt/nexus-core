@@ -104,7 +104,7 @@
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                         <div class="md:col-span-2">
                             <label class="block text-xs font-bold uppercase text-slate-400 mb-2">Custom Lead Generation Query / Niche</label>
-                            <input type="text" id="onDemandQuery" value="Fintech Stripe API infrastructure" placeholder="e.g., Enterprise cybersecurity startups in San Francisco..." class="bg-inputbg border border-slate-700 rounded-lg px-3 py-2.5 text-xs w-full focus:outline-none focus:border-accent">
+                            <input type="text" id="onDemandQuery" value="" placeholder="e.g. Enterprise SaaS in San Francisco" class="bg-inputbg border border-slate-700 rounded-lg px-3 py-2.5 text-xs w-full focus:outline-none focus:border-accent">
                         </div>
                         <div>
                             <label class="block text-xs font-bold uppercase text-slate-400 mb-2">Number of Leads (1-25)</label>
@@ -1193,10 +1193,17 @@ print(res.json())</code></pre>
                 const data = await res.json();
                 if (res.ok) {
                     resDiv.className = "mt-3 text-xs text-emerald-400 font-semibold";
-                    const generatedCount = data.leads_generated;
+                    const generatedCount = data.leads_generated !== undefined ? data.leads_generated : (data.count || count);
                     resDiv.innerText = `Generated ${generatedCount} fresh ${generatedCount === 1 ? 'lead' : 'leads'}! Credits remaining: ${data.credits_remaining}`;
                     showToast("Fresh leads generated!");
-                    saveAndFetch();
+                    
+                    // Automatically append/update local leads array and render matrix table instantly
+                    if (data.leads && Array.isArray(data.leads)) {
+                        cachedLeadsData = data.leads.concat(cachedLeadsData);
+                        renderLeadFeed(cachedLeadsData);
+                    } else {
+                        saveAndFetch();
+                    }
                 } else {
                     resDiv.className = "mt-3 text-xs text-rose-400 font-semibold";
                     resDiv.innerText = data.detail || "Generation failed.";
