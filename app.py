@@ -168,7 +168,7 @@ def call_gemini_rest(prompt: str, max_retries: int = 3) -> str:
         logger.error("GEMINI_API_KEY environment variable is missing or empty.")
         raise HTTPException(status_code=500, detail="GEMINI_API_KEY not configured")
      
-    models = ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-1.5-flash", "gemini-pro"]
+    models = ["gemini-3.6-flash", "gemini-3-flash-preview", "gemini-pro"]
      
     for model_name in models:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={GEMINI_API_KEY}"
@@ -345,7 +345,7 @@ class NexusAdvancedAgentSwarmOrchestrator:
     """
     def __init__(self, client: genai.Client):
         self.client = client
-        self.model_id = "gemini-2.0-flash"
+        self.model_id = "gemini-3.6-flash"
 
     def execute_advanced_swarm(self, target_query: str) -> Dict[str, Any]:
         logger.info(f"Initializing Advanced Multi-Agent Consensus Swarm for: {target_query}")
