@@ -1,8 +1,11 @@
+cat << 'EOF' > requirements.txt
 fastapi
 uvicorn[standard]
 stripe
 requests
 redis
+celery
+sse-starlette
 sentry-sdk
 psycopg2-binary
 python-dotenv
@@ -16,3 +19,4 @@ cryptography
 python-multipart
 resend
 numpy
+EOF
