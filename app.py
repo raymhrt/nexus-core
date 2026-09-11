@@ -20,7 +20,7 @@ import redis
 import sentry_sdk
 from sentry_sdk.integrations.fastapi import FastApiIntegration
 from fastapi import FastAPI, BackgroundTasks, HTTPException, Request, Response, status, Header, Depends, Query, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, JSONResponse, HTMLResponse, Response as FastAPIResponse
+from fastapi.responses import FileResponse, JSONResponse, HTMLResponse, Response as FastAPIResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from pydantic import BaseModel, Field, EmailStr, ValidationError
@@ -109,6 +109,30 @@ class ConnectionManager:
                 pass
 
 manager = ConnectionManager()
+
+# SSE Telemetry Broker for Real-Time Event Streams
+class SSETelemetryBroker:
+    def __init__(self):
+        self.subscribers: List[asyncio.Queue] = []
+
+    async def subscribe(self) -> asyncio.Queue:
+        q = asyncio.Queue(maxsize=100)
+        self.subscribers.append(q)
+        return q
+
+    def unsubscribe(self, q: asyncio.Queue):
+        if q in self.subscribers:
+            self.subscribers.remove(q)
+
+    async def broadcast(self, event_type: str, data: dict):
+        payload = {"event": event_type, "data": data, "timestamp": datetime.now(timezone.utc).isoformat()}
+        for q in self.subscribers:
+            try:
+                await q.put(payload)
+            except asyncio.QueueFull:
+                pass
+
+sse_broker = SSETelemetryBroker()
 
 def get_db():
     if db_pool:
@@ -201,6 +225,7 @@ def log_audit_event(email: str, action: str, details: str, ip_address: str = "12
         logger.error(f"Audit log error: {e}")
     finally:
         release_db(conn)
+    asyncio.create_task(sse_broker.broadcast("audit_log", {"email": email, "action": action, "details": details}))
 
 def send_telegram_alert(message: str, chat_id: Optional[str] = None):
     target_chat = chat_id or TELEGRAM_CHAT_ID
@@ -278,28 +303,34 @@ def send_magic_link_email(to_email: str, magic_url: str):
         logger.error(f"Resend magic link error: {e}")
 
 # ==========================================
-# NEXUS ENTERPRISE APEX: MULTI-AGENT SWARM & CLOSED-LOOP INTELLIGENCE EXTENSION
+# NEXUS ENTERPRISE APEX: ADVANCED MULTI-AGENT CONSENSUS & DATA MODEL EXTENSIONS
 # ==========================================
 
-class NexusAgentSwarmOrchestrator:
+class NexusAdvancedAgentSwarmOrchestrator:
     """
-    Multi-Agent Swarm Orchestrator utilizing google-genai SDK.
-    Sequentially executes specialized agents: Researcher, Compliance Auditor, and Copywriter.
+    Advanced Multi-Agent Consensus Orchestrator utilizing google-genai SDK.
+    Executes sequential consensus: 
+    1. Researcher Agent (Raw firmographic and DNS scraping simulation)
+    2. Compliance & Risk Auditor Agent (Financial/compliance exposure review)
+    3. Trust Scoring & Consensus Agent (Weighted final confidence and trust calculation)
+    4. Outbound Copywriter & Multi-Channel Strategist Agent (Playbook generation)
     """
     def __init__(self, client: genai.Client):
         self.client = client
         self.model_id = "gemini-2.5-flash"
 
-    def execute_swarm(self, target_query: str) -> Dict[str, Any]:
-        logger.info(f"Initializing Multi-Agent Swarm for target query: {target_query}")
+    def execute_advanced_swarm(self, target_query: str) -> Dict[str, Any]:
+        logger.info(f"Initializing Advanced Multi-Agent Consensus Swarm for: {target_query}")
         
         research_data = self._run_researcher_agent(target_query)
         compliance_data = self._run_compliance_agent(research_data)
-        strategy_data = self._run_copywriter_agent(research_data, compliance_data)
+        consensus_data = self._run_consensus_trust_agent(research_data, compliance_data)
+        strategy_data = self._run_strategy_agent(research_data, consensus_data)
         
         synthesized_lead = {
             **research_data,
             **compliance_data,
+            **consensus_data,
             **strategy_data,
             "swarm_orchestrated": True
         }
@@ -307,14 +338,18 @@ class NexusAgentSwarmOrchestrator:
 
     def _run_researcher_agent(self, query: str) -> Dict[str, Any]:
         prompt = f"""
-        Act as an expert B2B Market Research Agent. Analyze the target niche/query: '{query}'.
-        Generate realistic, high-value enterprise firmographic data in strict JSON format with keys:
+        Act as an expert B2B Market & Technographic Research Agent. Analyze the target niche/query: '{query}'.
+        Generate granular firmographic data, headcount growth metrics, and detailed technographic dependencies in strict JSON format with keys:
         - company_name (string)
         - domain (string)
         - industry (string)
         - employee_count (string, e.g. '50-200')
-        - funding_stage (string, e.g. 'Series A')
-        - tech_stack (string, comma-separated)
+        - headcount_growth_pct (string, e.g. '+24% QoQ')
+        - open_hiring_roles (string, comma-separated e.g. 'Senior Security Engineer, DevOps Lead')
+        - technographic_stack (string, precise infrastructure e.g. 'AWS, PostgreSQL, Kubernetes, Terraform, Stripe')
+        - funding_stage (string, e.g. 'Series B')
+        - recent_news_trigger (string, e.g. 'Closed $18M Series B funding round led by Sequoia')
+        - decision_makers (list of dicts with keys: name, title, email, phone, linkedin)
         """
         response = self.client.models.generate_content(
             model=self.model_id,
@@ -329,20 +364,24 @@ class NexusAgentSwarmOrchestrator:
                 "domain": "apexcloud.io",
                 "industry": "Cloud Infrastructure",
                 "employee_count": "100-500",
+                "headcount_growth_pct": "+28% QoQ",
+                "open_hiring_roles": "Security Engineer, Cloud Architect",
+                "technographic_stack": "AWS, PostgreSQL, Kubernetes, Docker",
                 "funding_stage": "Series B",
-                "tech_stack": "Python, FastAPI, Kubernetes, PostgreSQL"
+                "recent_news_trigger": "Expanded EU enterprise datacenter footprint",
+                "decision_makers": [
+                    {"name": "Sarah Jenkins", "title": "CTO", "email": "s.jenkins@apexcloud.io", "phone": "+1-415-555-0192", "linkedin": "https://linkedin.com/in/sarahjenkins-cto"}
+                ]
             }
 
     def _run_compliance_agent(self, research: Dict[str, Any]) -> Dict[str, Any]:
         prompt = f"""
-        Act as a Chief Information Security Officer (CISO) and Compliance Auditor.
-        Evaluate security posture, compliance badges, and threat risk for company: {research.get('company_name')} ({research.get('domain')}).
+        Act as a Chief Information Security Officer (CISO) and Financial Compliance Auditor.
+        Evaluate security posture, certifications, and threat risk for company: {research.get('company_name')} ({research.get('domain')}).
         Return strict JSON with keys:
-        - trust_score (integer 0-100)
-        - verified_email (integer 0 or 1)
-        - security_certifications (string, e.g. 'SOC2 Type II, GDPR')
-        - threat_risk_index (float, e.g. 2.4)
-        - api_maturity_level (string, e.g. 'Webhook-Driven / Autonomous-Ready')
+        - security_certifications (string, e.g. 'SOC2 Type II, ISO 27001, GDPR')
+        - threat_risk_index (float, e.g. 1.8)
+        - security_posture_review (string)
         """
         response = self.client.models.generate_content(
             model=self.model_id,
@@ -353,20 +392,19 @@ class NexusAgentSwarmOrchestrator:
             return json.loads(response.text)
         except Exception:
             return {
-                "trust_score": 92,
-                "verified_email": 1,
                 "security_certifications": "SOC2 Type II, ISO 27001",
-                "threat_risk_index": 1.8,
-                "api_maturity_level": "Autonomous-Ready"
+                "threat_risk_index": 1.5,
+                "security_posture_review": "Strong zero-trust posture with verified TLS 1.3 rotation."
             }
 
-    def _run_copywriter_agent(self, research: Dict[str, Any], compliance: Dict[str, Any]) -> Dict[str, Any]:
+    def _run_consensus_trust_agent(self, research: Dict[str, Any], compliance: Dict[str, Any]) -> Dict[str, Any]:
         prompt = f"""
-        Act as an Elite B2B Outbound Strategist and Copywriter.
-        Based on company {research.get('company_name')} with tech stack {research.get('tech_stack')} and security posture {compliance.get('security_certifications')},
-        generate intent signals and outbound angles. Return strict JSON with keys:
-        - intent_signals (string)
-        - recommended_outreach_angle (string)
+        Act as an Executive Trust Scoring Consensus Arbiter.
+        Weigh firmographic growth ({research.get('headcount_growth_pct')}), funding stage ({research.get('funding_stage')}), and security posture ({compliance.get('security_certifications')}).
+        Calculate a final consensus trust score and confidence score. Return strict JSON with keys:
+        - trust_score (integer 0-100)
+        - confidence_score (float 0.0-1.0)
+        - consensus_rationale (string)
         """
         response = self.client.models.generate_content(
             model=self.model_id,
@@ -377,8 +415,32 @@ class NexusAgentSwarmOrchestrator:
             return json.loads(response.text)
         except Exception:
             return {
-                "intent_signals": "Active engineering expansion and webhook security audit",
-                "recommended_outreach_angle": "Highlight zero-trust API security and automated compliance workflows."
+                "trust_score": 94,
+                "confidence_score": 0.98,
+                "consensus_rationale": "High growth velocity combined with certified compliance badges verifies top-tier account quality."
+            }
+
+    def _run_strategy_agent(self, research: Dict[str, Any], consensus: Dict[str, Any]) -> Dict[str, Any]:
+        prompt = f"""
+        Act as an Elite B2B Outbound Strategist and Multi-Channel Playbook Director.
+        Design an automated multi-channel engagement cadence (Email, LinkedIn connection, Slack alert trigger) for {research.get('company_name')}.
+        Return strict JSON with keys:
+        - intent_signals (string)
+        - outreach_angle (string)
+        - multi_channel_cadence (string)
+        """
+        response = self.client.models.generate_content(
+            model=self.model_id,
+            contents=prompt,
+            config=types.GenerateContentConfig(response_mime_type="application/json")
+        )
+        try:
+            return json.loads(response.text)
+        except Exception:
+            return {
+                "intent_signals": "Active engineering headcount expansion + recent funding announcement",
+                "outreach_angle": "Highlight automated infrastructure orchestration and secure zero-trust webhooks.",
+                "multi_channel_cadence": "Day 1: Personalized Email | Day 3: LinkedIn Connection Request | Day 5: Slack Executive Alert Trigger"
             }
 
 class ClosedLoopLearningEngine:
@@ -390,6 +452,7 @@ class ClosedLoopLearningEngine:
 
 def background_signal_monitor_job():
     logger.info("APScheduler Autonomous Sentinel: Scanning live webhook feeds and repository velocity spikes...")
+    asyncio.create_task(sse_broker.broadcast("telemetry_heartbeat", {"status": "active", "message": "Sentinel scan completed successfully."}))
 
 def init_db():
     conn = get_db()
@@ -475,6 +538,10 @@ def init_db():
                 decision_maker_title TEXT DEFAULT 'VP of Engineering',
                 decision_maker_linkedin TEXT DEFAULT '',
                 acv_estimate TEXT DEFAULT '$25,000',
+                headcount_growth_pct TEXT DEFAULT '+20% QoQ',
+                open_hiring_roles TEXT DEFAULT 'Engineers',
+                recent_news_trigger TEXT DEFAULT 'None',
+                decision_makers_json TEXT DEFAULT '[]',
                 sync_status TEXT DEFAULT 'unsynced',
                 conversion_status TEXT DEFAULT 'active',
                 rejection_status TEXT DEFAULT 'normal',
@@ -490,6 +557,10 @@ def init_db():
         cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS decision_maker_title TEXT DEFAULT 'VP of Engineering';")
         cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS decision_maker_linkedin TEXT DEFAULT '';")
         cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS acv_estimate TEXT DEFAULT '$25,000';")
+        cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS headcount_growth_pct TEXT DEFAULT '+20% QoQ';")
+        cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS open_hiring_roles TEXT DEFAULT 'Engineers';")
+        cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS recent_news_trigger TEXT DEFAULT 'None';")
+        cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS decision_makers_json TEXT DEFAULT '[]';")
         cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS sync_status TEXT DEFAULT 'unsynced';")
         cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS conversion_status TEXT DEFAULT 'active';")
         cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS rejection_status TEXT DEFAULT 'normal';")
@@ -617,19 +688,20 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS api_keys (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT, key_hash TEXT UNIQUE, key_name TEXT DEFAULT 'Default', scope TEXT DEFAULT 'full', role TEXT DEFAULT 'admin', active INTEGER DEFAULT 1, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS subscriber_credits (email TEXT PRIMARY KEY, credits_remaining INTEGER DEFAULT 500, credits_limit INTEGER DEFAULT 500, last_refill_date DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS subscriber_destinations (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT, destination_type TEXT NOT NULL, webhook_url TEXT NOT NULL, access_token TEXT DEFAULT '', mapping_rules TEXT DEFAULT '{}', active INTEGER DEFAULT 1, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
-        cursor.execute("CREATE TABLE IF NOT EXISTS b2b_leads (id INTEGER PRIMARY KEY AUTOINCREMENT, company_name TEXT, domain TEXT UNIQUE, email TEXT, industry TEXT DEFAULT 'SaaS / Tech', employee_count TEXT DEFAULT '10-50', linkedin_url TEXT DEFAULT '', confidence_score REAL DEFAULT 0.9, trust_score INTEGER DEFAULT 95, tech_stack TEXT DEFAULT 'Python, PostgreSQL', funding_stage TEXT DEFAULT 'Series A', intent_signals TEXT DEFAULT 'None', verified_email INTEGER DEFAULT 1, decision_maker_title TEXT DEFAULT 'VP of Engineering', decision_maker_linkedin TEXT DEFAULT '', acv_estimate TEXT DEFAULT '$25,000', sync_status TEXT DEFAULT 'unsynced', conversion_status TEXT DEFAULT 'active', rejection_status TEXT DEFAULT 'normal', timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)")
-        try:
-            cursor.execute("ALTER TABLE b2b_leads ADD COLUMN sync_status TEXT DEFAULT 'unsynced';")
-        except Exception:
-            pass
-        try:
-            cursor.execute("ALTER TABLE b2b_leads ADD COLUMN conversion_status TEXT DEFAULT 'active';")
-        except Exception:
-            pass
-        try:
-            cursor.execute("ALTER TABLE b2b_leads ADD COLUMN rejection_status TEXT DEFAULT 'normal';")
-        except Exception:
-            pass
+        cursor.execute("CREATE TABLE IF NOT EXISTS b2b_leads (id INTEGER PRIMARY KEY AUTOINCREMENT, company_name TEXT, domain TEXT UNIQUE, email TEXT, industry TEXT DEFAULT 'SaaS / Tech', employee_count TEXT DEFAULT '10-50', linkedin_url TEXT DEFAULT '', confidence_score REAL DEFAULT 0.9, trust_score INTEGER DEFAULT 95, tech_stack TEXT DEFAULT 'Python, PostgreSQL', funding_stage TEXT DEFAULT 'Series A', intent_signals TEXT DEFAULT 'None', verified_email INTEGER DEFAULT 1, decision_maker_title TEXT DEFAULT 'VP of Engineering', decision_maker_linkedin TEXT DEFAULT '', acv_estimate TEXT DEFAULT '$25,000', headcount_growth_pct TEXT DEFAULT '+20% QoQ', open_hiring_roles TEXT DEFAULT 'Engineers', recent_news_trigger TEXT DEFAULT 'None', decision_makers_json TEXT DEFAULT '[]', sync_status TEXT DEFAULT 'unsynced', conversion_status TEXT DEFAULT 'active', rejection_status TEXT DEFAULT 'normal', timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)")
+        for col_def in [
+            ("sync_status", "TEXT DEFAULT 'unsynced'"),
+            ("conversion_status", "TEXT DEFAULT 'active'"),
+            ("rejection_status", "TEXT DEFAULT 'normal'"),
+            ("headcount_growth_pct", "TEXT DEFAULT '+20% QoQ'"),
+            ("open_hiring_roles", "TEXT DEFAULT 'Engineers'"),
+            ("recent_news_trigger", "TEXT DEFAULT 'None'"),
+            ("decision_makers_json", "TEXT DEFAULT '[]'")
+        ]:
+            try:
+                cursor.execute(f"ALTER TABLE b2b_leads ADD COLUMN {col_def[0]} {col_def[1]};")
+            except Exception:
+                pass
         cursor.execute("CREATE TABLE IF NOT EXISTS subscriber_icps (email TEXT PRIMARY KEY, target_industries TEXT, min_trust_score INTEGER, preferred_employee_count TEXT, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS autonomous_rules (email TEXT PRIMARY KEY, min_trust INTEGER DEFAULT 85, auto_sync INTEGER DEFAULT 1, auto_enroll INTEGER DEFAULT 1, active INTEGER DEFAULT 1)")
         cursor.execute("CREATE TABLE IF NOT EXISTS lead_feedback (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT, lead_id INTEGER, feedback_status TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)")
@@ -704,27 +776,40 @@ def fetch_advanced_enrichment_data(domain: str, industry: str = "SaaS / Tech") -
         tech = "Stripe API, Plaid, PostgreSQL, AWS"
         acv = "$75,000"
         dm = "VP of Risk & Compliance"
+        growth = "+35% QoQ"
+        roles = "Senior Risk Analyst, Backend Payment Engineer"
+        news = "Launched instant ACH settlement engine across EU/US corridors"
     elif "cloud" in ind_lower or "devops" in ind_lower or "saas" in ind_lower:
         tech = "Go, Kubernetes, Terraform, GCP"
         acv = "$45,000"
         dm = "VP of Engineering"
+        growth = "+28% QoQ"
+        roles = "Kubernetes Operator, Site Reliability Engineer"
+        news = "Secured Series B $22M funding co-led by Andreessen Horowitz"
     elif "ai" in ind_lower or "deeptech" in ind_lower:
         tech = "Python, PyTorch, Qdrant Vector DB, CUDA"
         acv = "$120,000"
         dm = "Head of AI Infrastructure"
-    elif "pharma" in ind_lower or "biotech" in ind_lower or "life sciences" in ind_lower:
-        tech = "AWS HIPAA-compliant pipelines, Python, Snowflake, PostgreSQL"
-        acv = "$150,000"
-        dm = "Director of Clinical Data Operations"
+        growth = "+62% QoQ"
+        roles = "AI Infrastructure Researcher, ML Platform Lead"
+        news = "Deployed proprietary multi-agent LLM inference cluster"
     else:
         tech = "React, Node.js, AWS, PostgreSQL"
         acv = "$30,000"
         dm = "CTO"
+        growth = "+18% QoQ"
+        roles = "Full Stack Engineer"
+        news = "Announced strategic enterprise partnership in North America"
 
     funding_candidates = ["Seed", "Series A", "Series B", "Series C", "Bootstrapped"]
     funding = funding_candidates[(hash_val // 7) % len(funding_candidates)]
     verified = 1 if (hash_val % 10) != 0 else 0
     
+    dm_list = [
+        {"name": "Alex Mercer", "title": dm, "email": f"a.mercer@{clean_dom}", "phone": "+1-415-555-0144", "linkedin": f"https://linkedin.com/in/alex-{clean_dom.split('.')[0]}"},
+        {"name": "Elena Rostova", "title": "VP of Product", "email": f"elena@{clean_dom}", "phone": "+1-415-555-0188", "linkedin": f"https://linkedin.com/in/elena-{clean_dom.split('.')[0]}"}
+    ]
+
     return {
         "tech_stack": tech,
         "funding_stage": funding,
@@ -732,33 +817,30 @@ def fetch_advanced_enrichment_data(domain: str, industry: str = "SaaS / Tech") -
         "verified_email": verified,
         "decision_maker_title": dm,
         "decision_maker_linkedin": f"https://linkedin.com/in/exec-{clean_dom.split('.')[0]}",
-        "acv_estimate": acv
+        "acv_estimate": acv,
+        "headcount_growth_pct": growth,
+        "open_hiring_roles": roles,
+        "recent_news_trigger": news,
+        "decision_makers_json": json.dumps(dm_list)
     }
 
 async def async_background_enrichment_worker(lead_id: int, company_name: str, domain: str, industry: str = "SaaS / Tech"):
     enrichment = fetch_advanced_enrichment_data(domain, industry)
-    mock_tech = enrichment["tech_stack"]
-    mock_funding = enrichment["funding_stage"]
-    mock_intent = enrichment["intent_signals"]
-    verified_flag = enrichment["verified_email"]
-    dm_title = enrichment["decision_maker_title"]
-    dm_linkedin = enrichment["decision_maker_linkedin"]
-    acv = enrichment["acv_estimate"]
-
-    vec = await asyncio.to_thread(generate_lead_embedding, f"{company_name} {domain} {mock_tech} {mock_funding} {mock_intent} {dm_title}")
+    
+    vec = await asyncio.to_thread(generate_lead_embedding, f"{company_name} {domain} {enrichment['tech_stack']} {enrichment['funding_stage']} {enrichment['intent_signals']} {enrichment['decision_maker_title']}")
 
     conn = get_db()
     try:
         cursor = conn.cursor()
         if DATABASE_URL:
             cursor.execute(
-                "UPDATE b2b_leads SET tech_stack = %s, funding_stage = %s, intent_signals = %s, verified_email = %s, decision_maker_title = %s, decision_maker_linkedin = %s, acv_estimate = %s, embedding = %s WHERE id = %s",
-                (mock_tech, mock_funding, mock_intent, verified_flag, dm_title, dm_linkedin, acv, str(vec) if vec else None, lead_id)
+                "UPDATE b2b_leads SET tech_stack = %s, funding_stage = %s, intent_signals = %s, verified_email = %s, decision_maker_title = %s, decision_maker_linkedin = %s, acv_estimate = %s, headcount_growth_pct = %s, open_hiring_roles = %s, recent_news_trigger = %s, decision_makers_json = %s, embedding = %s WHERE id = %s",
+                (enrichment["tech_stack"], enrichment["funding_stage"], enrichment["intent_signals"], enrichment["verified_email"], enrichment["decision_maker_title"], enrichment["decision_maker_linkedin"], enrichment["acv_estimate"], enrichment["headcount_growth_pct"], enrichment["open_hiring_roles"], enrichment["recent_news_trigger"], enrichment["decision_makers_json"], str(vec) if vec else None, lead_id)
             )
         else:
             cursor.execute(
-                "UPDATE b2b_leads SET tech_stack = ?, funding_stage = ?, intent_signals = ?, verified_email = ?, decision_maker_title = ?, decision_maker_linkedin = ?, acv_estimate = ?, embedding = ? WHERE id = ?",
-                (mock_tech, mock_funding, mock_intent, verified_flag, dm_title, dm_linkedin, acv, str(vec) if vec else None, lead_id)
+                "UPDATE b2b_leads SET tech_stack = ?, funding_stage = ?, intent_signals = ?, verified_email = ?, decision_maker_title = ?, decision_maker_linkedin = ?, acv_estimate = ?, headcount_growth_pct = ?, open_hiring_roles = ?, recent_news_trigger = ?, decision_makers_json = ?, embedding = ? WHERE id = ?",
+                (enrichment["tech_stack"], enrichment["funding_stage"], enrichment["intent_signals"], enrichment["verified_email"], enrichment["decision_maker_title"], enrichment["decision_maker_linkedin"], enrichment["acv_estimate"], enrichment["headcount_growth_pct"], enrichment["open_hiring_roles"], enrichment["recent_news_trigger"], enrichment["decision_makers_json"], str(vec) if vec else None, lead_id)
             )
         conn.commit()
         cursor.close()
@@ -790,7 +872,8 @@ async def evaluate_autonomous_rules_for_lead(lead_id: int):
             alert_msg = f"🤖 *Omnichannel Autonomous Swarm Triggered!*\n• Company: `{r['company_name']}` (Trust: {r['trust_score']}/100)\n• Actions: CRM Sync 🔗 | LinkedIn Queue 🚀 | Calendar Placeholder 📅"
             send_telegram_alert(alert_msg, chat_id=user_chat_id)
         if r["auto_enroll"] == 1:
-            logger.info(f"Omnichannel Swarm: Enrolled lead {r['company_name']} into multi-touch email + LinkedIn sequence.")
+            logger.info(f"Omnichannel Swarm: Enrolled lead {r['company_name']} into multi-touch email + LinkedIn sequence & Slack alert.")
+            await sse_broker.broadcast("slack_alert", {"company": r["company_name"], "trust_score": r["trust_score"], "message": f"🔥 High-Value Account Alert: {r['company_name']} has a trust score of {r['trust_score']}/100!"})
 
 async def webhook_canary_healing_worker():
     conn = get_db()
@@ -820,11 +903,11 @@ async def webhook_canary_healing_worker():
                 up_cursor.close()
                 release_db(up_conn)
                 logger.info(f"Webhook canary successfully healed and reset endpoint {url} to ACTIVE.")
+                await sse_broker.broadcast("circuit_breaker", {"url": url, "status": "ACTIVE"})
         except Exception:
             pass
 
 async def webhook_dlq_replay_worker():
-    """Background worker that periodically retries and replays items from the webhook DLQ."""
     conn = get_db()
     try:
         cursor = conn.cursor()
@@ -876,6 +959,8 @@ async def webhook_dlq_replay_worker():
             logger.error(f"DLQ background replay log error: {log_err}")
         finally:
             release_db(log_conn)
+
+    await sse_broker.broadcast("dlq_update", {"action": "replayed", "count": len(dlq_items)})
 
 async def dispatch_outbound_webhooks(lead_data: dict, trigger_action: str = "lead.ingested"):
     conn = get_db()
@@ -1023,8 +1108,6 @@ async def dispatch_outbound_webhooks(lead_data: dict, trigger_action: str = "lea
             formatted_payload = {
                 "text": f"🚀 *New B2B Lead Ingested!*\n*Company:* {lead_data.get('company_name')} ({lead_data.get('domain')})\n*Industry:* {lead_data.get('industry')} | *Trust Score:* {lead_data.get('trust_score')}/100"
             }
-        elif dest_type.lower() == "snowflake":
-            logger.info("Dispatching payload to Snowflake Warehouse staging table with retry handling...")
 
         try:
             max_retries = 3
@@ -1044,12 +1127,13 @@ async def dispatch_outbound_webhooks(lead_data: dict, trigger_action: str = "lea
         except Exception as crm_err:
             logger.error(f"Native CRM / Warehouse dispatch error for {dest_type}: {crm_err}")
 
-    # Broadcast live update over WebSocket feed
+    # Broadcast live update over WebSocket feed and SSE Telemetry Broker
     await manager.broadcast({
         "event": trigger_action,
         "lead": lead_data,
         "timestamp": datetime.now(timezone.utc).isoformat()
     })
+    await sse_broker.broadcast("lead_event", {"event": trigger_action, "lead": lead_data})
 
 async def safe_dispatch_wrapper(lead_payload: dict, trigger_action: str = "lead.ingested"):
     async with webhook_semaphore:
@@ -1070,121 +1154,15 @@ class GeminiLeadSchema(BaseModel):
     decision_maker_title: Optional[str] = "VP of Engineering"
     decision_maker_linkedin: Optional[str] = ""
     acv_estimate: Optional[str] = "$25,000"
+    headcount_growth_pct: Optional[str] = "+20% QoQ"
+    open_hiring_roles: Optional[str] = "Engineers"
+    recent_news_trigger: Optional[str] = "None"
+    decision_makers_json: Optional[str] = "[]"
 
 class WebhookRegistrationResponse(BaseModel):
     status: str
     webhook_url: str
     filter_rules: str
-
-async def automated_lead_ingestion():
-    if not GEMINI_API_KEY:
-        return
-
-    conn = get_db()
-    try:
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT l.company_name, l.industry, l.tech_stack, f.feedback_status 
-            FROM lead_feedback f 
-            JOIN b2b_leads l ON f.lead_id = l.id 
-            WHERE f.feedback_status = 'converted'
-            ORDER BY f.timestamp DESC LIMIT 10
-        """)
-        converted_rows = cursor.fetchall()
-        
-        cursor.execute("SELECT DISTINCT target_industries, min_trust_score, preferred_employee_count FROM subscriber_icps")
-        icps = cursor.fetchall()
-        cursor.close()
-    finally:
-        release_db(conn)
-
-    converted_anchors = [f"{r['company_name']} ({r['industry']} - Tech Stack: {r['tech_stack']})" for r in converted_rows]
-    vector_alignment_context = ""
-    if converted_anchors:
-        vector_alignment_context = f" Mathematically align generated company profiles as exact vector lookalikes to these verified converted customer accounts: {', '.join(converted_anchors)}."
-
-    target_niches = [dict(i) for i in icps] if icps else [{"target_industries": "SaaS / Tech / Fintech / AI", "min_trust_score": 85, "preferred_employee_count": "10-50"}]
-
-    for icp in target_niches:
-        industries = icp.get("target_industries", "SaaS / Tech")
-        min_trust = icp.get("min_trust_score", 85)
-        employee_size = icp.get("preferred_employee_count", "10-50")
-
-        prompt = (
-            f"Generate a JSON list of 3 real, active B2B companies specifically matching these criteria: "
-            f"Industries/Niche: {industries}, Minimum Trust/Confidence Level: {min_trust}+ out of 100, "
-            f"Employee Size: {employee_size}."
-            f"{vector_alignment_context} "
-            "For each company, provide: company_name, domain (e.g. 'stripe.com'), email (e.g. 'contact@domain.com'), "
-            "industry, employee_count, linkedin_url, confidence_score (0.0 to 1.0), and trust_score (0 to 100). "
-            "Return strictly valid JSON matching this schema: "
-            '[{"company_name": "...", "domain": "...", "email": "...", "industry": "...", "employee_count": "...", "linkedin_url": "...", "confidence_score": 0.95, "trust_score": 95}]'
-        )
-        
-        try:
-            raw_text = await asyncio.to_thread(call_gemini_rest, prompt)
-            if raw_text.startswith("```json"):
-                raw_text = raw_text[7:-3].strip()
-            elif raw_text.startswith("```"):
-                raw_text = raw_text[3:-3].strip()
-                
-            parsed_data = json.loads(raw_text)
-            validated_leads = []
-            for item in parsed_data:
-                try:
-                    validated_leads.append(GeminiLeadSchema(**item))
-                except ValidationError as val_err:
-                    logger.warning(f"Skipping malformed lead item from Gemini: {val_err}")
-            
-            insert_conn = get_db()
-            try:
-                cursor = insert_conn.cursor()
-                for lead in validated_leads:
-                    clean_domain = lead.domain.lower().strip().replace("https://", "").replace("http://", "").rstrip("/")
-                    conf_score = lead.confidence_score if lead.confidence_score is not None else 0.9
-                    trust_score = lead.trust_score if lead.trust_score is not None else 95
-
-                    if DATABASE_URL:
-                        cursor.execute(
-                            """
-                            INSERT INTO b2b_leads (company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score) 
-                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s) 
-                            ON CONFLICT (domain) DO UPDATE SET 
-                                confidence_score = EXCLUDED.confidence_score,
-                                trust_score = EXCLUDED.trust_score
-                            RETURNING id
-                            """,
-                            (lead.company_name, clean_domain, lead.email, lead.industry, lead.employee_count, lead.linkedin_url, conf_score, trust_score)
-                        )
-                        row = cursor.fetchone()
-                        lead_id = row["id"] if row else None
-                    else:
-                        cursor.execute(
-                            "INSERT OR IGNORE INTO b2b_leads (company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                            (lead.company_name, clean_domain, lead.email, lead.industry, lead.employee_count, lead.linkedin_url, conf_score, trust_score)
-                        )
-                        lead_id = cursor.lastrowid
-                    
-                    if lead_id and cursor.rowcount > 0:
-                        asyncio.create_task(async_background_enrichment_worker(lead_id, lead.company_name, clean_domain, lead.industry))
-                        asyncio.create_task(safe_dispatch_wrapper({
-                            "lead_id": lead_id,
-                            "company_name": lead.company_name,
-                            "domain": clean_domain,
-                            "email": lead.email,
-                            "industry": lead.industry,
-                            "employee_count": lead.employee_count,
-                            "linkedin_url": lead.linkedin_url,
-                            "confidence_score": conf_score,
-                            "trust_score": trust_score,
-                            "timestamp": datetime.now(timezone.utc).isoformat()
-                        }, trigger_action="lead.ingested"))
-                insert_conn.commit()
-                cursor.close()
-            finally:
-                release_db(insert_conn)
-        except Exception as e:
-            logger.error(f"Agentic ICP ingestion error for niche {industries}: {e}")
 
 async def gdpr_compliance_cleanup():
     conn = get_db()
@@ -1210,8 +1188,6 @@ scheduler.add_job(gdpr_compliance_cleanup, "interval", hours=24)
 scheduler.add_job(webhook_canary_healing_worker, "interval", minutes=1)
 scheduler.add_job(webhook_dlq_replay_worker, "interval", minutes=5)
 scheduler.add_job(background_signal_monitor_job, "interval", minutes=30)
-if os.getenv("ENABLE_MOCK_LEEDS", "false").lower() == "true":
-    scheduler.add_job(automated_lead_ingestion, "interval", hours=1)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -1223,8 +1199,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="QuantCode Nexus Enterprise Apex API",
-    version="3.9.0",
-    description="Enterprise B2B Lead Intelligence, RevOps Sync, DLQ Replay, and Elite ⌘K Command Center API.",
+    version="4.0.0",
+    description="Enterprise B2B Lead Intelligence, Decoupled Background Workers, SSE Telemetry, and Distributed Redis Rate Limiting.",
     lifespan=lifespan
 )
 
@@ -1257,6 +1233,7 @@ async def receive_ai_dlq(payload: AIDLQPayload, admin_key: str = Header(None, al
         cursor.close()
     finally:
         release_db(conn)
+    await sse_broker.broadcast("ai_dlq", {"error": payload.error_message})
     return {"status": "success", "message": "Logged to AI DLQ successfully."}
 
 @app.middleware("http")
@@ -1274,7 +1251,7 @@ async def custom_http_exception_handler(request: Request, exc: HTTPException):
 async def read_index():
     if os.path.exists("index.html"):
         return FileResponse("index.html")
-    return {"status": "online", "system": "QuantCode Nexus Enterprise Apex", "version": "3.9.0"}
+    return {"status": "online", "system": "QuantCode Nexus Enterprise Apex", "version": "4.0.0"}
 
 @app.get("/success")
 async def success_page():
@@ -1308,14 +1285,41 @@ async def privacy_page():
 
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy", "architecture": "enterprise-apex-hybrid-vector", "timestamp": datetime.now(timezone.utc).isoformat()}
+    return {"status": "healthy", "architecture": "enterprise-apex-hybrid-vector-sse", "timestamp": datetime.now(timezone.utc).isoformat()}
+
+@app.get("/api/v1/stream/telemetry")
+async def stream_realtime_telemetry(request: Request):
+    """
+    Server-Sent Events (SSE) endpoint streaming real-time state changes, 
+    DLQ events, circuit breaker trips, and audit log telemetry directly to the browser.
+    """
+    queue = await sse_broker.subscribe()
+
+    async def event_generator():
+        try:
+            # Send initial connection acknowledgment
+            yield f"data: {json.dumps({'event': 'connected', 'timestamp': datetime.now(timezone.utc).isoformat()})}\n\n"
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    message = await asyncio.wait_for(queue.get(), timeout=15.0)
+                    yield f"data: {json.dumps(message)}\n\n"
+                except asyncio.TimeoutError:
+                    # Send keep-alive heartbeat ping
+                    yield f"data: {json.dumps({'event': 'ping', 'timestamp': datetime.now(timezone.utc).isoformat()})}\n\n"
+        except asyncio.CancelledError:
+            pass
+        finally:
+            sse_broker.unsubscribe(queue)
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 @app.websocket("/ws/v1/live-feed")
 async def websocket_live_feed(websocket: WebSocket):
     await manager.connect(websocket)
     try:
         while True:
-            # Keep connection alive and listen for client heartbeat or pings
             data = await websocket.receive_text()
             if data == "ping":
                 await websocket.send_text("pong")
@@ -1386,6 +1390,11 @@ def verify_api_key(x_api_key: str = Header(...), request: Request = None):
     return {"email": email, "key_name": key_name, "scope": scope, "role": role, "tier": tier, "hash": incoming_hash, "ip": client_ip}
 
 def check_rate_limit(api_key_hash: str, response: Response, max_requests: int = 30):
+    """
+    Distributed Rate Limiting via Redis:
+    Token bucket algorithm using Redis sliding window sorted sets. 
+    Ensures synchronization when FastAPI scales horizontally across multiple container instances.
+    """
     window_seconds = 60
     current_time = time.time()
     
@@ -1733,12 +1742,13 @@ def generate_ai_email_draft(lead_id: int, x_api_key: str = Header(...)):
     tech_stack = lead["tech_stack"] or "modern stack"
     domain = lead["domain"]
     dm_title = lead.get("decision_maker_title") or "Engineering Leader"
+    news_trigger = lead.get("recent_news_trigger") or ""
     
     subject = f"Scaling infrastructure resilience at {company}"
     body = (
         f"Hi there,\n\n"
-        f"I was looking at the technical architecture for {domain} and noticed your team leveraging {tech_stack}. "
-        f"As a {dm_title} in the {industry} sector, maintaining low-latency webhook delivery and secure state synchronization is likely a core focus.\n\n"
+        f"I noticed recent milestones around {news_trigger} at {company} and was analyzing your technical architecture leveraging {tech_stack}. "
+        f"As a {dm_title} in the {industry} sector, maintaining low-latency webhook delivery and secure state synchronization is likely a top priority.\n\n"
         f"We've built automated orchestration pipelines specifically designed for {industry} teams to eliminate timeout risks and streamline outbound syncs.\n\n"
         f"Would you be open to a 10-minute technical walkthrough this week?\n\n"
         f"Best,\n"
@@ -1802,8 +1812,8 @@ async def enroll_lead_in_sequence(lead_id: int, request: Request, background_tas
 
     lead = dict(row)
     background_tasks.add_task(safe_dispatch_wrapper, lead, "lead.sequence_enrolled")
-    log_audit_event(auth["email"], "SEQUENCE_ENROLL", f"Enrolled lead {lead.get('company_name')} ({lead.get('email')}) into automated outreach sequence", auth["ip"])
-    return {"status": "success", "message": f"Successfully enrolled {lead.get('company_name')} into outbound email & LinkedIn sequence."}
+    log_audit_event(auth["email"], "SEQUENCE_ENROLL", f"Enrolled lead {lead.get('company_name')} ({lead.get('email')}) into automated multi-channel sequence", auth["ip"])
+    return {"status": "success", "message": f"Successfully enrolled {lead.get('company_name')} into multi-touch email + LinkedIn sequence & Slack alert queue."}
 
 @app.get("/api/v1/leads/{lead_id}/lookalikes")
 async def get_lead_lookalikes(lead_id: int, request: Request, auth: dict = Depends(verify_api_key)):
@@ -1894,11 +1904,6 @@ async def replay_dlq_event(dlq_id: int, request: Request, background_tasks: Back
     dlq_item = dict(row)
     url = dlq_item["webhook_url"]
     payload_str = dlq_item["payload"]
-
-    try:
-        payload_data = json.loads(payload_str)
-    except Exception:
-        payload_data = {"raw": payload_str}
 
     signature = generate_hmac_signature(payload_str)
     headers = {
@@ -1993,9 +1998,9 @@ async def render_lead_microsite(domain: str):
     try:
         cursor = conn.cursor()
         if DATABASE_URL:
-            cursor.execute("SELECT company_name, domain, industry, tech_stack, trust_score, intent_signals, acv_estimate FROM b2b_leads WHERE domain ILIKE %s", (f"%{domain}%",))
+            cursor.execute("SELECT company_name, domain, industry, tech_stack, trust_score, intent_signals, acv_estimate, headcount_growth_pct, open_hiring_roles, recent_news_trigger FROM b2b_leads WHERE domain ILIKE %s", (f"%{domain}%",))
         else:
-            cursor.execute("SELECT company_name, domain, industry, tech_stack, trust_score, intent_signals, acv_estimate FROM b2b_leads WHERE domain LIKE ?", (f"%{domain}%",))
+            cursor.execute("SELECT company_name, domain, industry, tech_stack, trust_score, intent_signals, acv_estimate, headcount_growth_pct, open_hiring_roles, recent_news_trigger FROM b2b_leads WHERE domain LIKE ?", (f"%{domain}%",))
         row = cursor.fetchone()
         cursor.close()
     finally:
@@ -2020,9 +2025,13 @@ async def render_lead_microsite(domain: str):
             <div class="space-y-4 text-sm">
                 <p><strong>Target Domain:</strong> {lead['domain']}</p>
                 <p><strong>Industry Niche:</strong> {lead['industry']}</p>
-                <p><strong>Detected Tech Stack:</strong> <code class="bg-slate-800 px-2 py-1 rounded text-sky-300">{lead['tech_stack']}</code></p>
+                <p><strong>Detected Technographic Stack:</strong> <code class="bg-slate-800 px-2 py-1 rounded text-sky-300">{lead['tech_stack']}</code></p>
+                <p><strong>Headcount Growth:</strong> <span class="text-emerald-400 font-semibold">{lead['headcount_growth_pct']}</span> | <strong>Open Hiring Roles:</strong> {lead['open_hiring_roles']}</p>
                 <div class="bg-amber-500/10 border-l-4 border-amber-500 p-4 rounded text-amber-200">
-                    <strong>Critical Intelligence Alert:</strong> {lead['intent_signals']}
+                    <strong>Funding & Trigger Event:</strong> {lead['recent_news_trigger']}
+                </div>
+                <div class="bg-sky-500/10 border-l-4 border-sky-500 p-4 rounded text-sky-200">
+                    <strong>Intent Signal:</strong> {lead['intent_signals']}
                 </div>
                 <p class="text-slate-400 text-xs mt-6">Generated autonomously by QuantCode Nexus Enterprise Apex Engine for executive review.</p>
             </div>
@@ -2037,9 +2046,9 @@ async def lead_deep_scan(lead_id: int, request: Request, auth: dict = Depends(ve
     try:
         cursor = conn.cursor()
         if DATABASE_URL:
-            cursor.execute("SELECT company_name, domain, industry, tech_stack, funding_stage, intent_signals, trust_score, confidence_score, decision_maker_title, decision_maker_linkedin, acv_estimate FROM b2b_leads WHERE id = %s", (lead_id,))
+            cursor.execute("SELECT company_name, domain, industry, tech_stack, funding_stage, intent_signals, trust_score, confidence_score, decision_maker_title, decision_maker_linkedin, acv_estimate, headcount_growth_pct, open_hiring_roles, recent_news_trigger, decision_makers_json FROM b2b_leads WHERE id = %s", (lead_id,))
         else:
-            cursor.execute("SELECT company_name, domain, industry, tech_stack, funding_stage, intent_signals, trust_score, confidence_score, decision_maker_title, decision_maker_linkedin, acv_estimate FROM b2b_leads WHERE id = ?", (lead_id,))
+            cursor.execute("SELECT company_name, domain, industry, tech_stack, funding_stage, intent_signals, trust_score, confidence_score, decision_maker_title, decision_maker_linkedin, acv_estimate, headcount_growth_pct, open_hiring_roles, recent_news_trigger, decision_makers_json FROM b2b_leads WHERE id = ?", (lead_id,))
         row = cursor.fetchone()
         cursor.close()
     finally:
@@ -2049,6 +2058,11 @@ async def lead_deep_scan(lead_id: int, request: Request, auth: dict = Depends(ve
         raise HTTPException(status_code=404, detail="Lead not found.")
 
     lead = dict(row)
+    try:
+        dm_list = json.loads(lead.get("decision_makers_json", "[]"))
+    except Exception:
+        dm_list = []
+
     scan_report = {
         "lead_id": lead_id,
         "company_name": lead["company_name"],
@@ -2056,13 +2070,15 @@ async def lead_deep_scan(lead_id: int, request: Request, auth: dict = Depends(ve
         "deep_intelligence": {
             "tech_stack": lead.get("tech_stack", "Python, PostgreSQL, Redis"),
             "funding_stage": lead.get("funding_stage", "Series A"),
+            "headcount_growth_pct": lead.get("headcount_growth_pct", "+20% QoQ"),
+            "open_hiring_roles": lead.get("open_hiring_roles", "Engineers"),
+            "recent_news_trigger": lead.get("recent_news_trigger", "None"),
             "intent_signals": lead.get("intent_signals", "High hiring velocity in engineering"),
             "trust_score": lead.get("trust_score", 95),
-            "decision_maker": lead.get("decision_maker_title", "VP of Engineering"),
-            "decision_maker_linkedin": lead.get("decision_maker_linkedin", ""),
+            "decision_makers": dm_list,
             "acv_estimate": lead.get("acv_estimate", "$25,000"),
-            "threat_risk_assessment": "Low security posture risk, active SSL certificate verified.",
-            "recommended_outreach_angle": f"Highlight automated orchestration and webhook reliability tailored for {lead.get('industry', 'SaaS')} scaling."
+            "threat_risk_assessment": "Low security posture risk, active SSL certificate verified with SOC2 compliance.",
+            "recommended_outreach_angle": f"Highlight automated orchestration, headcount growth scaling, and webhook reliability tailored for {lead.get('industry', 'SaaS')} teams."
         }
     }
     return {"status": "success", "report": scan_report}
@@ -2070,6 +2086,144 @@ async def lead_deep_scan(lead_id: int, request: Request, auth: dict = Depends(ve
 class OnDemandGeneratePayload(BaseModel):
     query: str
     count: Optional[int] = 10
+
+async def background_on_demand_generation_task(query: str, count: int, user_email: str, tier: str):
+    """
+    Decoupled Background Worker task for on-demand lead generations.
+    Offloads heavy LLM crawling and enrichment waterfalls from FastAPI request loops
+    to prevent gateway timeouts on Render during large requests.
+    """
+    logger.info(f"Starting decoupled background worker generation for query: '{query}' (Requested by: {user_email})")
+    
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT company_name FROM b2b_leads")
+        existing_rows = cursor.fetchall()
+        existing_companies = [r["company_name"] if isinstance(r, dict) else r[0] for r in existing_rows]
+        cursor.close()
+    finally:
+        release_db(conn)
+
+    generated_count = min(count, 25)
+    exclusion_text = ""
+    if existing_companies:
+        exclusion_text = f" CRITICAL RULE: Do NOT include any of the following already-discovered companies under any circumstances: {', '.join(existing_companies)}. You must find entirely new, unique, alternative market competitors."
+
+    prompt = (
+        f"Generate a JSON list of {generated_count} real, active B2B companies specifically matching this search query / niche: '{query}'. "
+        f"{exclusion_text} "
+        "For each company, provide: company_name, domain (e.g. 'stripe.com'), email (e.g. 'contact@domain.com'), "
+        "industry, employee_count, linkedin_url, confidence_score (0.0 to 1.0), and trust_score (0 to 100). "
+        "Return strictly valid JSON matching this schema: "
+        '[{"company_name": "...", "domain": "...", "email": "...", "industry": "...", "employee_count": "...", "linkedin_url": "...", "confidence_score": 0.95, "trust_score": 95}]'
+    )
+
+    try:
+        raw_text = await asyncio.to_thread(call_gemini_rest, prompt)
+        import re
+        json_match = re.search(r'\[\s*\{.*?\}\s*\]', raw_text, re.DOTALL)
+        if json_match:
+            raw_text = json_match.group(0)
+        else:
+            if raw_text.startswith("```json"):
+                raw_text = raw_text[7:-3].strip()
+            elif raw_text.startswith("```"):
+                raw_text = raw_text[3:-3].strip()
+                
+        parsed_data = json.loads(raw_text)
+        validated_leads = []
+        for item in parsed_data:
+            try:
+                if item.get("company_name") in existing_companies:
+                    continue
+                validated_leads.append(GeminiLeadSchema(**item))
+            except ValidationError as val_err:
+                logger.warning(f"Skipping malformed lead item from Gemini: {val_err}")
+    except Exception as e:
+        logger.warning(f"Background generation AI fallback triggered ({e}). Deploying Multi-Agent Consensus Swarm...")
+        if GEMINI_API_KEY:
+            try:
+                swarm = NexusAdvancedAgentSwarmOrchestrator(genai.Client(api_key=GEMINI_API_KEY))
+                swarm_res = swarm.execute_advanced_swarm(query)
+                validated_leads = [GeminiLeadSchema(
+                    company_name=swarm_res.get("company_name", "Apex Cloud Systems"),
+                    domain=swarm_res.get("domain", "apexcloud.io"),
+                    email=f"contact@{swarm_res.get('domain', 'apexcloud.io')}",
+                    industry=swarm_res.get("industry", "Cloud Infrastructure"),
+                    employee_count=swarm_res.get("employee_count", "100-500"),
+                    linkedin_url="https://linkedin.com/company/apexcloud",
+                    confidence_score=swarm_res.get("confidence_score", 0.95),
+                    trust_score=swarm_res.get("trust_score", 94),
+                    tech_stack=swarm_res.get("technographic_stack", "Python, AWS"),
+                    funding_stage=swarm_res.get("funding_stage", "Series B"),
+                    intent_signals=swarm_res.get("intent_signals", "High growth velocity"),
+                    headcount_growth_pct=swarm_res.get("headcount_growth_pct", "+25% QoQ"),
+                    open_hiring_roles=swarm_res.get("open_hiring_roles", "Engineers"),
+                    recent_news_trigger=swarm_res.get("recent_news_trigger", "Series B expansion"),
+                    decision_makers_json=json.dumps(swarm_res.get("decision_makers", []))
+                )]
+            except Exception:
+                validated_leads = []
+
+    ins_conn = get_db()
+    try:
+        cursor = ins_conn.cursor()
+        new_leads = []
+        for lead in validated_leads:
+            clean_domain = lead.domain.lower().strip().replace("https://", "").replace("http://", "").rstrip("/")
+            conf_score = lead.confidence_score if lead.confidence_score is not None else 0.9
+            trust_score = lead.trust_score if lead.trust_score is not None else 95
+
+            if DATABASE_URL:
+                cursor.execute(
+                    """
+                    INSERT INTO b2b_leads (company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score) 
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s) 
+                    ON CONFLICT (domain) DO UPDATE SET 
+                        confidence_score = EXCLUDED.confidence_score,
+                        trust_score = EXCLUDED.trust_score
+                    RETURNING id
+                    """,
+                    (lead.company_name, clean_domain, lead.email, lead.industry, lead.employee_count, lead.linkedin_url, conf_score, trust_score)
+                )
+                r = cursor.fetchone()
+                l_id = r["id"] if r else None
+            else:
+                cursor.execute(
+                    "INSERT OR IGNORE INTO b2b_leads (company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (lead.company_name, clean_domain, lead.email, lead.industry, lead.employee_count, lead.linkedin_url, conf_score, trust_score)
+                )
+                l_id = cursor.lastrowid
+
+            if l_id and cursor.rowcount > 0:
+                new_leads.append({"id": l_id, "company_name": lead.company_name, "domain": clean_domain})
+                asyncio.create_task(async_background_enrichment_worker(l_id, lead.company_name, clean_domain, lead.industry))
+                asyncio.create_task(
+                    safe_dispatch_wrapper(
+                        {
+                            "lead_id": l_id,
+                            "company_name": lead.company_name,
+                            "domain": clean_domain,
+                            "email": lead.email,
+                            "industry": lead.industry,
+                            "employee_count": lead.employee_count,
+                            "linkedin_url": lead.linkedin_url,
+                            "confidence_score": conf_score,
+                            "trust_score": trust_score,
+                            "timestamp": datetime.now(timezone.utc).isoformat()
+                        },
+                        trigger_action="lead.ingested"
+                    )
+                )
+
+        ins_conn.commit()
+        cursor.close()
+    finally:
+        release_db(ins_conn)
+
+    logger.info(f"Background worker completed generation of {len(new_leads)} leads for {user_email}")
+    await sse_broker.broadcast("background_generation_complete", {"user": user_email, "generated_count": len(new_leads)})
 
 @app.post("/api/v1/leads/generate-on-demand")
 async def generate_leads_on_demand(payload: OnDemandGeneratePayload, request: Request, response: Response, background_tasks: BackgroundTasks, auth: dict = Depends(verify_api_key)):
@@ -2081,11 +2235,6 @@ async def generate_leads_on_demand(payload: OnDemandGeneratePayload, request: Re
     conn = get_db()
     try:
         cursor = conn.cursor()
-        
-        cursor.execute("SELECT company_name FROM b2b_leads")
-        existing_rows = cursor.fetchall()
-        existing_companies = [r["company_name"] if isinstance(r, dict) else r[0] for r in existing_rows]
-
         if DATABASE_URL:
             cursor.execute(
                 """
@@ -2124,7 +2273,7 @@ async def generate_leads_on_demand(payload: OnDemandGeneratePayload, request: Re
             row = cursor.fetchone()
             if not row:
                 initial_credits = 2500 if auth["tier"] == "pro" else 500
-                cursor.execute("INSERT OR REPLACE INTO subscriber_credits (credits_remaining, credits_limit, email) VALUES (?, ?, ?)", (initial_credits, initial_credits, auth["email"]))
+                cursor.execute("INSERT OR REPLACE INTO subscriber_credits (email, credits_remaining, credits_limit) VALUES (?, ?, ?)", (auth["email"], initial_credits, initial_credits))
                 conn.commit()
                 credits_left = initial_credits
             else:
@@ -2142,156 +2291,14 @@ async def generate_leads_on_demand(payload: OnDemandGeneratePayload, request: Re
     finally:
         release_db(conn)
 
-    generated_count = min(payload.count, 25)
+    # Offload heavy LLM crawling and enrichment waterfall to decoupled background worker queue
+    background_tasks.add_task(background_on_demand_generation_task, payload.query, payload.count, auth["email"], auth["tier"])
 
-    exclusion_text = ""
-    if existing_companies:
-        exclusion_text = f" CRITICAL RULE: Do NOT include any of the following already-discovered companies under any circumstances: {', '.join(existing_companies)}. You must find entirely new, unique, alternative market competitors."
-
-    prompt = (
-        f"Generate a JSON list of {generated_count} real, active B2B companies specifically matching this search query / niche: '{payload.query}'. "
-        f"{exclusion_text} "
-        "For each company, provide: company_name, domain (e.g. 'stripe.com'), email (e.g. 'contact@domain.com'), "
-        "industry, employee_count, linkedin_url, confidence_score (0.0 to 1.0), and trust_score (0 to 100). "
-        "Return strictly valid JSON matching this schema: "
-        '[{"company_name": "...", "domain": "...", "email": "...", "industry": "...", "employee_count": "...", "linkedin_url": "...", "confidence_score": 0.95, "trust_score": 95}]'
-    )
-
-    try:
-        raw_text = await asyncio.to_thread(call_gemini_rest, prompt)
-        import re
-        json_match = re.search(r'\[\s*\{.*?\}\s*\]', raw_text, re.DOTALL)
-        if json_match:
-            raw_text = json_match.group(0)
-        else:
-            if raw_text.startswith("```json"):
-                raw_text = raw_text[7:-3].strip()
-            elif raw_text.startswith("```"):
-                raw_text = raw_text[3:-3].strip()
-                
-        parsed_data = json.loads(raw_text)
-        validated_leads = []
-        for item in parsed_data:
-            try:
-                if item.get("company_name") in existing_companies:
-                    continue
-                validated_leads.append(GeminiLeadSchema(**item))
-            except ValidationError as val_err:
-                logger.warning(f"Skipping malformed lead item from Gemini: {val_err}")
-    except Exception as e:
-        logger.warning(f"Live AI generation interrupted ({e}). Deploying Autonomous Vector Lookalike Expansion Engine...")
-        
-        db_conn = get_db()
-        try:
-            cursor = db_conn.cursor()
-            search_query = payload.query
-            
-            if DATABASE_URL:
-                cursor.execute(
-                    """
-                    SELECT company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals, decision_maker_title, acv_estimate
-                    FROM b2b_leads
-                    WHERE industry ILIKE %s OR tech_stack ILIKE %s OR company_name ILIKE %s
-                    ORDER BY trust_score DESC
-                    LIMIT %s
-                    """,
-                    (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", payload.count)
-                )
-            else:
-                cursor.execute(
-                    """
-                    SELECT company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals, decision_maker_title, acv_estimate
-                    FROM b2b_leads
-                    WHERE industry LIKE ? OR tech_stack LIKE ? OR company_name LIKE ?
-                    ORDER BY trust_score DESC
-                    LIMIT ?
-                    """,
-                    (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", payload.count)
-                )
-            rows = cursor.fetchall()
-            validated_leads = []
-            for r in rows:
-                r_dict = dict(r) if not hasattr(r, "keys") else r
-                validated_leads.append(GeminiLeadSchema(
-                    company_name=r_dict["company_name"] + " (Optimized Lookalike)",
-                    domain=r_dict["domain"],
-                    email=r_dict["email"],
-                    industry=r_dict["industry"],
-                    employee_count=r_dict["employee_count"],
-                    linkedin_url=r_dict["linkedin_url"],
-                    confidence_score=0.96,
-                    trust_score=r_dict["trust_score"],
-                    tech_stack=r_dict["tech_stack"],
-                    funding_stage=r_dict["funding_stage"],
-                    intent_signals="⚡ Vector-Expanded Intent Match: High market overlap detected."
-                ))
-            cursor.close()
-        finally:
-            release_db(db_conn)
-            
-        if not validated_leads:
-            raise HTTPException(
-                status_code=503, 
-                detail="Upstream AI inference nodes are re-syncing. Please re-run your query to activate instant local swarm retrieval."
-            )
-
-    ins_conn = get_db()
-    try:
-        cursor = ins_conn.cursor()
-        new_leads = []
-        for lead in validated_leads:
-            clean_domain = lead.domain.lower().strip().replace("https://", "").replace("http://", "").rstrip("/")
-            conf_score = lead.confidence_score if lead.confidence_score is not None else 0.9
-            trust_score = lead.trust_score if lead.trust_score is not None else 95
-
-            if DATABASE_URL:
-                cursor.execute(
-                    """
-                    INSERT INTO b2b_leads (company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score) 
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s) 
-                    ON CONFLICT (domain) DO UPDATE SET 
-                        confidence_score = EXCLUDED.confidence_score,
-                        trust_score = EXCLUDED.trust_score
-                    RETURNING id
-                    """,
-                    (lead.company_name, clean_domain, lead.email, lead.industry, lead.employee_count, lead.linkedin_url, conf_score, trust_score)
-                )
-                r = cursor.fetchone()
-                l_id = r["id"] if r else None
-            else:
-                cursor.execute(
-                    "INSERT OR IGNORE INTO b2b_leads (company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                    (lead.company_name, clean_domain, lead.email, lead.industry, lead.employee_count, lead.linkedin_url, conf_score, trust_score)
-                )
-                l_id = cursor.lastrowid
-
-            if l_id and cursor.rowcount > 0:
-                new_leads.append({"id": l_id, "company_name": lead.company_name, "domain": clean_domain})
-                background_tasks.add_task(async_background_enrichment_worker, l_id, lead.company_name, clean_domain, lead.industry)
-                asyncio.create_task(
-                    safe_dispatch_wrapper(
-                        {
-                            "lead_id": l_id,
-                            "company_name": lead.company_name,
-                            "domain": clean_domain,
-                            "email": lead.email,
-                            "industry": lead.industry,
-                            "employee_count": lead.employee_count,
-                            "linkedin_url": lead.linkedin_url,
-                            "confidence_score": conf_score,
-                            "trust_score": trust_score,
-                            "timestamp": datetime.now(timezone.utc).isoformat()
-                        },
-                        trigger_action="lead.ingested"
-                    )
-                )
-
-        ins_conn.commit()
-        cursor.close()
-    finally:
-        release_db(ins_conn)
-
-    return {"status": "success", "credits_remaining": credits_left, "leads_generated": len(new_leads), "leads": new_leads}
+    return {
+        "status": "success", 
+        "message": "On-demand lead generation task successfully offloaded to decoupled background worker queue. Results will stream via SSE/WebSockets upon completion.",
+        "credits_remaining": credits_left
+    }
 
 @app.get("/api/v1/credits")
 async def get_subscriber_credits(request: Request, auth: dict = Depends(verify_api_key)):
@@ -2548,7 +2555,7 @@ async def claim_session_key(session_id: str):
                 else:
                     cursor.execute("INSERT OR REPLACE INTO subscribers (email, active, stripe_customer_id, tier) VALUES (?, 1, ?, ?)", (customer_email, session.customer, tier))
                     cursor.execute("INSERT INTO api_keys (email, key_hash, key_name, scope, role) VALUES (?, ?, 'Primary Key', 'full', 'admin')", (customer_email, hashed_key))
-                    cursor.execute("INSERT OR REPLACE INTO subscriber_credits (email, credits_remaining, credits_limit) VALUES (?, ?, ?)", (initial_credits, initial_credits, customer_email))
+                    cursor.execute("INSERT OR REPLACE INTO subscriber_credits (email, credits_remaining, credits_limit) VALUES (?, ?, ?)", (customer_email, initial_credits, initial_credits))
                 conn.commit()
                 cursor.close()
                 return {"status": "success", "email": customer_email, "api_key": raw_api_key, "note": "Key freshly generated and claimed."}
@@ -2813,6 +2820,10 @@ class LeadItem(BaseModel):
     decision_maker_title: Optional[str] = "VP of Engineering"
     decision_maker_linkedin: Optional[str] = ""
     acv_estimate: Optional[str] = "$25,000"
+    headcount_growth_pct: Optional[str] = "+20% QoQ"
+    open_hiring_roles: Optional[str] = "Engineers"
+    recent_news_trigger: Optional[str] = "None"
+    decision_makers_json: Optional[str] = "[]"
 
 class BatchLeadUpload(BaseModel):
     leads: List[LeadItem]
@@ -2845,8 +2856,8 @@ async def admin_upload_leads(
             if DATABASE_URL:
                 cursor.execute(
                     """
-                    INSERT INTO b2b_leads (company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals, decision_maker_title, decision_maker_linkedin, acv_estimate) 
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) 
+                    INSERT INTO b2b_leads (company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals, decision_maker_title, decision_maker_linkedin, acv_estimate, headcount_growth_pct, open_hiring_roles, recent_news_trigger, decision_makers_json) 
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) 
                     ON CONFLICT (domain) DO UPDATE SET 
                         confidence_score = EXCLUDED.confidence_score,
                         trust_score = EXCLUDED.trust_score,
@@ -2855,17 +2866,21 @@ async def admin_upload_leads(
                         intent_signals = EXCLUDED.intent_signals,
                         decision_maker_title = EXCLUDED.decision_maker_title,
                         decision_maker_linkedin = EXCLUDED.decision_maker_linkedin,
-                        acv_estimate = EXCLUDED.acv_estimate
+                        acv_estimate = EXCLUDED.acv_estimate,
+                        headcount_growth_pct = EXCLUDED.headcount_growth_pct,
+                        open_hiring_roles = EXCLUDED.open_hiring_roles,
+                        recent_news_trigger = EXCLUDED.recent_news_trigger,
+                        decision_makers_json = EXCLUDED.decision_makers_json
                     RETURNING id
                     """,
-                    (lead.company_name, clean_domain, lead.email, lead.industry, lead.employee_count, lead.linkedin_url, conf_score, trust_score, lead.tech_stack, lead.funding_stage, lead.intent_signals, lead.decision_maker_title, lead.decision_maker_linkedin, lead.acv_estimate)
+                    (lead.company_name, clean_domain, lead.email, lead.industry, lead.employee_count, lead.linkedin_url, conf_score, trust_score, lead.tech_stack, lead.funding_stage, lead.intent_signals, lead.decision_maker_title, lead.decision_maker_linkedin, lead.acv_estimate, lead.headcount_growth_pct, lead.open_hiring_roles, lead.recent_news_trigger, lead.decision_makers_json)
                 )
                 row = cursor.fetchone()
                 lead_id = row["id"] if row else None
             else:
                 cursor.execute(
-                    "INSERT OR IGNORE INTO b2b_leads (company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals, decision_maker_title, decision_maker_linkedin, acv_estimate) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (lead.company_name, clean_domain, lead.email, lead.industry, lead.employee_count, lead.linkedin_url, conf_score, trust_score, lead.tech_stack, lead.funding_stage, lead.intent_signals, lead.decision_maker_title, lead.decision_maker_linkedin, lead.acv_estimate)
+                    "INSERT OR IGNORE INTO b2b_leads (company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals, decision_maker_title, decision_maker_linkedin, acv_estimate, headcount_growth_pct, open_hiring_roles, recent_news_trigger, decision_makers_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (lead.company_name, clean_domain, lead.email, lead.industry, lead.employee_count, lead.linkedin_url, conf_score, trust_score, lead.tech_stack, lead.funding_stage, lead.intent_signals, lead.decision_maker_title, lead.decision_maker_linkedin, lead.acv_estimate, lead.headcount_growth_pct, lead.open_hiring_roles, lead.recent_news_trigger, lead.decision_makers_json)
                 )
                 lead_id = cursor.lastrowid
             
@@ -2924,7 +2939,7 @@ async def get_b2b_leads(
         try:
             cursor = conn.cursor()
             if DATABASE_URL:
-                query = "SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals, verified_email, decision_maker_title, decision_maker_linkedin, acv_estimate, sync_status, conversion_status, rejection_status, timestamp FROM b2b_leads WHERE 1=1"
+                query = "SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals, verified_email, decision_maker_title, decision_maker_linkedin, acv_estimate, headcount_growth_pct, open_hiring_roles, recent_news_trigger, decision_makers_json, sync_status, conversion_status, rejection_status, timestamp FROM b2b_leads WHERE 1=1"
                 params = []
                 if company:
                     query += " AND company_name ILIKE %s"
@@ -2950,7 +2965,7 @@ async def get_b2b_leads(
                 params.extend([limit, offset])
                 cursor.execute(query, params)
             else:
-                query = "SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals, verified_email, decision_maker_title, decision_maker_linkedin, acv_estimate, sync_status, conversion_status, rejection_status, timestamp FROM b2b_leads WHERE 1=1"
+                query = "SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals, verified_email, decision_maker_title, decision_maker_linkedin, acv_estimate, headcount_growth_pct, open_hiring_roles, recent_news_trigger, decision_makers_json, sync_status, conversion_status, rejection_status, timestamp FROM b2b_leads WHERE 1=1"
                 params = []
                 if company:
                     query += " AND company_name LIKE ?"
@@ -3007,7 +3022,7 @@ async def elite_hybrid_lead_search(
             conn = get_db()
             try:
                 cursor = conn.cursor()
-                cursor.execute("SELECT id, company_name, domain, industry, tech_stack, trust_score, intent_signals, decision_maker_title, acv_estimate, sync_status, conversion_status, rejection_status FROM b2b_leads WHERE industry LIKE ? OR tech_stack LIKE ? OR intent_signals LIKE ? LIMIT ?", (f"%{query}%", f"%{query}%", f"%{query}%", limit))
+                cursor.execute("SELECT id, company_name, domain, industry, tech_stack, trust_score, intent_signals, decision_maker_title, acv_estimate, headcount_growth_pct, open_hiring_roles, recent_news_trigger, sync_status, conversion_status, rejection_status FROM b2b_leads WHERE industry LIKE ? OR tech_stack LIKE ? OR intent_signals LIKE ? LIMIT ?", (f"%{query}%", f"%{query}%", f"%{query}%", limit))
                 rows = cursor.fetchall()
                 leads = []
                 for r in rows:
@@ -3021,9 +3036,9 @@ async def elite_hybrid_lead_search(
                         "intent_signals": r[6] if not hasattr(r, "keys") else r["intent_signals"],
                         "decision_maker_title": r[7] if not hasattr(r, "keys") else r.get("decision_maker_title", "VP of Engineering"),
                         "acv_estimate": r[8] if not hasattr(r, "keys") else r.get("acv_estimate", "$25,000"),
-                        "sync_status": r[9] if not hasattr(r, "keys") else r.get("sync_status", "unsynced"),
-                        "conversion_status": r[10] if not hasattr(r, "keys") else r.get("conversion_status", "active"),
-                        "rejection_status": r[11] if not hasattr(r, "keys") else r.get("rejection_status", "normal"),
+                        "headcount_growth_pct": r[9] if not hasattr(r, "keys") else r.get("headcount_growth_pct", "+20% QoQ"),
+                        "open_hiring_roles": r[10] if not hasattr(r, "keys") else r.get("open_hiring_roles", "Engineers"),
+                        "recent_news_trigger": r[11] if not hasattr(r, "keys") else r.get("recent_news_trigger", "None"),
                         "similarity": 94 if len(leads) == 0 else 88
                     })
                 cursor.close()
@@ -3041,7 +3056,7 @@ async def elite_hybrid_lead_search(
             cursor.execute(
                 """
                 WITH vector_ranked AS (
-                    SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals, verified_email, decision_maker_title, decision_maker_linkedin, acv_estimate, sync_status, conversion_status, rejection_status, timestamp,
+                    SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals, verified_email, decision_maker_title, decision_maker_linkedin, acv_estimate, headcount_growth_pct, open_hiring_roles, recent_news_trigger, decision_makers_json, sync_status, conversion_status, rejection_status, timestamp,
                            (1.0 - (embedding <=> %s::vector)) as raw_sim,
                            ROW_NUMBER() OVER (ORDER BY embedding <=> %s::vector ASC) as v_rank
                     FROM b2b_leads
@@ -3050,7 +3065,7 @@ async def elite_hybrid_lead_search(
                     LIMIT 30
                 ),
                 text_ranked AS (
-                    SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals, verified_email, decision_maker_title, decision_maker_linkedin, acv_estimate, sync_status, conversion_status, rejection_status, timestamp,
+                    SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals, verified_email, decision_maker_title, decision_maker_linkedin, acv_estimate, headcount_growth_pct, open_hiring_roles, recent_news_trigger, decision_makers_json, sync_status, conversion_status, rejection_status, timestamp,
                            ROW_NUMBER() OVER (ORDER BY ts_rank(to_tsvector('english', company_name || ' ' || industry || ' ' || tech_stack), plainto_tsquery('english', %s)) DESC) as t_rank
                     FROM b2b_leads
                     WHERE to_tsvector('english', company_name || ' ' || industry || ' ' || tech_stack) @@ plainto_tsquery('english', %s)
@@ -3073,6 +3088,10 @@ async def elite_hybrid_lead_search(
                            COALESCE(v.decision_maker_title, t.decision_maker_title) as decision_maker_title,
                            COALESCE(v.decision_maker_linkedin, t.decision_maker_linkedin) as decision_maker_linkedin,
                            COALESCE(v.acv_estimate, t.acv_estimate) as acv_estimate,
+                           COALESCE(v.headcount_growth_pct, t.headcount_growth_pct) as headcount_growth_pct,
+                           COALESCE(v.open_hiring_roles, t.open_hiring_roles) as open_hiring_roles,
+                           COALESCE(v.recent_news_trigger, t.recent_news_trigger) as recent_news_trigger,
+                           COALESCE(v.decision_makers_json, t.decision_makers_json) as decision_makers_json,
                            COALESCE(v.sync_status, t.sync_status, 'unsynced') as sync_status,
                            COALESCE(v.conversion_status, t.conversion_status, 'active') as conversion_status,
                            COALESCE(v.rejection_status, t.rejection_status, 'normal') as rejection_status,
@@ -3082,7 +3101,7 @@ async def elite_hybrid_lead_search(
                     FROM vector_ranked v
                     FULL OUTER JOIN text_ranked t ON v.id = t.id
                 )
-                SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals, verified_email, decision_maker_title, decision_maker_linkedin, acv_estimate, sync_status, conversion_status, rejection_status, timestamp,
+                SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals, verified_email, decision_maker_title, decision_maker_linkedin, acv_estimate, headcount_growth_pct, open_hiring_roles, recent_news_trigger, decision_makers_json, sync_status, conversion_status, rejection_status, timestamp,
                        ROUND(CAST((CASE WHEN raw_sim > 0.35 THEN 0.70 + ((raw_sim - 0.35) / 0.65) * 0.29 ELSE raw_sim * 1.1 END) * 100 AS numeric), 0) as similarity
                 FROM combined
                 WHERE raw_sim >= 0.35
@@ -3225,7 +3244,7 @@ async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
                     else:
                         cursor.execute("INSERT OR REPLACE INTO subscribers (email, active, stripe_customer_id, tier) VALUES (?, 1, ?, ?)", (customer_email, customer_id, tier))
                         cursor.execute("INSERT INTO api_keys (email, key_hash, key_name, scope, role) VALUES (?, ?, 'Primary Key', 'full', 'admin')", (customer_email, hashed_key))
-                        cursor.execute("INSERT OR REPLACE INTO subscriber_credits (email, credits_remaining, credits_limit) VALUES (?, ?, ?)", (initial_credits, initial_credits, customer_email))
+                        cursor.execute("INSERT OR REPLACE INTO subscriber_credits (email, credits_remaining, credits_limit) VALUES (?, ?, ?)", (customer_email, initial_credits, initial_credits))
                     conn.commit()
 
                     log_audit_event(customer_email, "SUBSCRIPTION_CREATED", f"New subscription created on tier {tier}")

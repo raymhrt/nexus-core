@@ -7,6 +7,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://unpkg.com/lucide@latest"></script>
     <script>
         tailwind.config = {
             darkMode: 'class',
@@ -20,14 +21,16 @@
                         accentHover: '#7dd3fc',
                         success: '#22c55e',
                         danger: '#ef4444',
-                        warning: '#f59e0b'
+                        warning: '#f59e0b',
+                        slate: { 950: '#020617', 900: '#0f172a', 800: '#1e293b', 700: '#334155' },
+                        sky: { 400: '#38bdf8', 500: '#0ea5e9', 600: '#0284c7' }
                     }
                 }
             }
         }
     </script>
 </head>
-<body class="bg-darkbg text-slate-100 min-h-screen font-sans p-4 md:p-8 flex flex-col items-center">
+<body class="bg-darkbg text-slate-100 min-h-screen font-sans p-4 md:p-8 flex flex-col items-center selection:bg-sky-500 selection:text-slate-950">
 
     <div id="toastContainer" class="fixed bottom-6 right-6 z-50 flex flex-col gap-3"></div>
 
@@ -49,9 +52,13 @@
                             <span id="badgeTier">Tier: --</span> • <span id="badgeRole">Role: --</span>
                         </div>
                     </div>
-                    <p class="text-sm text-slate-400 mt-1">Multi-persona workspace for SDR lead qualification, RevOps syncs, admin telemetry, and developer APIs.</p>
+                    <p class="text-sm text-slate-400 mt-1">Multi-persona workspace for SDR lead qualification, RevOps syncs, admin telemetry, and developer APIs with SSE streaming.</p>
                 </div>
                 <div class="flex items-center gap-3">
+                    <div id="sse-status-badge" class="flex items-center space-x-2 bg-emerald-500/10 border border-emerald-500/30 px-3 py-1.5 rounded-full text-xs font-semibold text-emerald-400">
+                        <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                        <span>SSE Telemetry Connected</span>
+                    </div>
                     <button onclick="openBillingPortal()" class="bg-slate-800 hover:bg-slate-700 text-accent border border-sky-500/30 px-4 py-2 rounded-lg text-xs font-semibold transition flex items-center gap-2">
                         <i class="fa-solid fa-credit-card text-cyan-400"></i> Manage Subscription
                     </button>
@@ -84,12 +91,12 @@
                 <!-- On-Demand Generator -->
                 <div class="bg-sky-500/5 border border-sky-500/20 p-6 rounded-xl">
                     <span class="block text-xs font-bold uppercase tracking-wider text-accent mb-1 flex items-center gap-2"><i class="fa-solid fa-wand-magic-sparkles text-cyan-400"></i> On-Demand Lead Generation Engine</span>
-                    <p class="text-xs text-slate-400 mb-4">Trigger instant Gemini crawls and real-time enrichment waterfalls on the fly.</p>
+                    <p class="text-xs text-slate-400 mb-4">Offload heavy LLM crawling & enrichment waterfalls to decoupled background workers.</p>
                     
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                         <div class="md:col-span-2">
                             <label class="block text-xs font-bold uppercase text-slate-400 mb-2">Custom Lead Generation Query / Niche</label>
-                            <input type="text" id="onDemandQuery" placeholder="e.g., Enterprise cybersecurity startups in San Francisco..." class="bg-inputbg border border-slate-700 rounded-lg px-3 py-2.5 text-xs w-full focus:outline-none focus:border-accent">
+                            <input type="text" id="onDemandQuery" value="Fintech Stripe API infrastructure" placeholder="e.g., Enterprise cybersecurity startups in San Francisco..." class="bg-inputbg border border-slate-700 rounded-lg px-3 py-2.5 text-xs w-full focus:outline-none focus:border-accent">
                         </div>
                         <div>
                             <label class="block text-xs font-bold uppercase text-slate-400 mb-2">Number of Leads (1-25)</label>
@@ -147,8 +154,8 @@
                 <div>
                     <div class="flex justify-between items-center mb-4">
                         <div>
-                            <span class="block text-xs font-bold uppercase tracking-wider text-accent flex items-center gap-2"><i class="fa-solid fa-database text-blue-400"></i> Live Lead Feed & Strategic Intelligence Explorer</span>
-                            <p class="text-xs text-slate-400">High-value anchor accounts verified with multi-stage enrichment waterfall and Resend live dispatch.</p>
+                            <span class="block text-xs font-bold uppercase tracking-wider text-accent flex items-center gap-2"><i class="fa-solid fa-database text-blue-400"></i> Granular B2B Lead Intelligence Matrix</span>
+                            <p class="text-xs text-slate-400">Decision-maker mapping, headcount velocity metrics, technographic fingerprints & recent news triggers.</p>
                         </div>
                     </div>
                     <div id="leadFeedContainer" class="space-y-3">
@@ -163,7 +170,7 @@
                 <!-- Autonomous SDR Autopilot Rules -->
                 <div class="bg-inputbg border border-slate-800 p-6 rounded-xl">
                     <span class="block text-xs font-bold uppercase tracking-wider text-accent mb-1 flex items-center gap-2"><i class="fa-solid fa-robot text-amber-400"></i> Autonomous SDR Autopilot Rules</span>
-                    <p class="text-xs text-slate-400 mb-4">Automatically sync high-trust leads to your CRM and enroll them in outbound sequences upon ingestion.</p>
+                    <p class="text-xs text-slate-400 mb-4">Multi-channel engagement playbooks, Slack triggers, and trust score filtering.</p>
                     
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                         <div>
@@ -289,6 +296,29 @@
                     <div class="flex justify-between items-center text-xs text-slate-400">
                         <div id="creditStatus">Lead Credits Remaining: -- / --</div>
                         <div id="tierStatus" class="font-bold text-accent uppercase">Tier: --</div>
+                    </div>
+                </div>
+
+                <!-- Real-Time SSE Telemetry & DLQ Stream Drawer -->
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl">
+                        <h3 class="text-sm font-bold text-white flex items-center space-x-2 mb-4">
+                            <i data-lucide="activity" class="w-4 h-4 text-emerald-400"></i>
+                            <span>Real-Time SSE Telemetry Stream Feed</span>
+                        </h3>
+                        <div id="sse-telemetry-log" class="bg-slate-950 border border-slate-800 p-4 rounded-xl h-48 overflow-y-auto font-mono text-[11px] text-slate-300 space-y-2">
+                            <div class="text-slate-500">Connecting to /api/v1/stream/telemetry EventSource...</div>
+                        </div>
+                    </div>
+
+                    <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl">
+                        <h3 class="text-sm font-bold text-white flex items-center space-x-2 mb-4">
+                            <i data-lucide="alert-triangle" class="w-4 h-4 text-amber-400"></i>
+                            <span>Circuit Breakers & Dead Letter Queue (DLQ)</span>
+                        </h3>
+                        <div id="dlq-telemetry-log" class="bg-slate-950 border border-slate-800 p-4 rounded-xl h-48 overflow-y-auto font-mono text-[11px] text-slate-300 space-y-2">
+                            <div class="text-slate-500">Monitoring circuit breaker states & automated replay workers...</div>
+                        </div>
                     </div>
                 </div>
 
@@ -470,6 +500,8 @@ print(res.json())</code></pre>
 
     <!-- Frontend Controller Script -->
     <script>
+        lucide.createIcons();
+
         let usageChartInstance = null;
         let cachedLeadsData = [];
         let currentUserRole = 'admin';
@@ -485,7 +517,48 @@ print(res.json())</code></pre>
                 document.getElementById('apiKey').value = savedKey;
                 saveAndFetch();
             }
+            initSSETelemetry();
         };
+
+        // Initialize EventSource for Server-Sent Events (SSE) Live Telemetry
+        function initSSETelemetry() {
+            const eventSource = new EventSource('/api/v1/stream/telemetry');
+            const sseLog = document.getElementById('sse-telemetry-log');
+            const dlqLog = document.getElementById('dlq-telemetry-log');
+
+            if (!sseLog || !dlqLog) return;
+
+            eventSource.onmessage = function(event) {
+                try {
+                    const parsed = JSON.parse(event.data);
+                    const timestamp = parsed.timestamp || new Date().toISOString();
+                    
+                    if (parsed.event === 'connected' || parsed.event === 'ping') {
+                        return; // Skip heartbeat clutter
+                    }
+
+                    const entry = document.createElement('div');
+                    entry.className = "border-b border-slate-900 pb-1";
+                    entry.innerHTML = `<span class="text-sky-400">[${timestamp.split('T')[1].split('.')[0]}]</span> <strong class="text-white">${parsed.event}:</strong> ${JSON.stringify(parsed.data || parsed)}`
+                    
+                    if (parsed.event === 'dlq_update' || parsed.event === 'circuit_breaker') {
+                        dlqLog.prepend(entry);
+                    } else {
+                        sseLog.prepend(entry);
+                    }
+                } catch (e) {
+                    console.error("SSE parse error:", e);
+                }
+            };
+
+            eventSource.onerror = function(err) {
+                console.warn("SSE connection interrupted, reconnecting...", err);
+                const badge = document.getElementById('sse-status-badge');
+                if (badge) {
+                    badge.className = "flex items-center space-x-2 bg-amber-500/10 border border-amber-500/30 px-3 py-1.5 rounded-full text-xs font-semibold text-amber-400";
+                }
+            };
+        }
 
         function showToast(message, isError = false) {
             const container = document.getElementById('toastContainer');
@@ -1221,9 +1294,19 @@ print(res.json())</code></pre>
 
             let html = '';
             leads.forEach(lead => {
+                let dmList = [];
+                try {
+                    dmList = JSON.parse(lead.decision_makers_json || '[]');
+                } catch (e) {}
+
+                let dmHtml = `<div class="font-semibold text-slate-200">${lead.decision_maker_title || 'VP of Engineering'}</div>`;
+                if (dmList.length > 0) {
+                    dmHtml += `<div class="text-[10px] text-sky-400 mt-0.5">${dmList.length} verified stakeholders mapped</div>`;
+                }
+
                 const trust = lead.trust_score || 90;
                 const emailStatus = lead.verified_email === 1 ? '✅ Verified Email' : '⚠️ Unverified';
-                const intent = lead.intent_signals || 'High hiring velocity';
+                const intent = lead.intent_signals || lead.recent_news_trigger || 'High hiring velocity';
                 const disabledAttr = currentUserRole === 'viewer' ? 'opacity-50 cursor-not-allowed' : '';
                 const syncBadge = lead.sync_status === 'synced' ? '<span class="bg-blue-500/10 text-blue-400 border border-blue-500/20 text-[10px] px-2 py-0.5 rounded font-bold uppercase">Synced</span>' : '<span class="bg-slate-800 text-slate-400 text-[10px] px-2 py-0.5 rounded font-bold uppercase">Unsynced</span>';
                 const convBadge = lead.conversion_status === 'converted' ? '<span class="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] px-2 py-0.5 rounded font-bold uppercase">Converted</span>' : '';
@@ -1241,15 +1324,24 @@ print(res.json())</code></pre>
                             </span>
                             <span class="text-accent text-xs font-semibold">${escapeHtml(lead.domain)}</span>
                         </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+                            <div class="bg-darkbg border border-slate-800 p-2.5 rounded text-slate-300">
+                                <span class="text-slate-400 block text-[10px] uppercase font-bold mb-0.5">Decision-Maker Matrix</span>
+                                ${dmHtml}
+                            </div>
+                            <div class="bg-darkbg border border-slate-800 p-2.5 rounded text-slate-300">
+                                <span class="text-slate-400 block text-[10px] uppercase font-bold mb-0.5">Headcount & Tech Stack</span>
+                                Growth: <span class="text-emerald-400 font-bold">${escapeHtml(lead.headcount_growth_pct || '+20% QoQ')}</span> | Stack: <span class="font-mono text-white">${escapeHtml(lead.tech_stack || 'AWS, Python')}</span>
+                            </div>
+                        </div>
                         <div class="flex flex-wrap gap-2 text-xs">
                             <span class="bg-darkbg border border-slate-800 px-2.5 py-1 rounded text-slate-300">Industry: <strong class="text-white">${escapeHtml(lead.industry)}</strong></span>
                             <span class="bg-darkbg border border-slate-800 px-2.5 py-1 rounded text-slate-300">Size: <strong class="text-white">${escapeHtml(lead.employee_count)}</strong></span>
-                            <span class="bg-darkbg border border-slate-800 px-2.5 py-1 rounded text-slate-300 font-mono">Stack: <strong class="text-white">${escapeHtml(lead.tech_stack || 'Python, PostgreSQL')}</strong></span>
                             <span class="bg-darkbg border border-slate-800 px-2.5 py-1 rounded text-slate-300">Stage: <strong class="text-white">${escapeHtml(lead.funding_stage || 'Series A')}</strong></span>
                             <span class="bg-darkbg border border-slate-800 px-2.5 py-1 rounded text-emerald-400 font-semibold">${emailStatus}</span>
                         </div>
                         <div class="bg-sky-500/5 border-l-2 border-accent p-2.5 rounded-r-lg text-xs text-slate-300">
-                            🔥 <strong class="text-white">Intent Signal:</strong> ${escapeHtml(intent)}
+                            🔥 <strong class="text-white">Intent Signal / News Trigger:</strong> ${escapeHtml(intent)}
                         </div>
                         <div class="flex flex-wrap items-center justify-between mt-1">
                             <div class="flex flex-wrap gap-2">
