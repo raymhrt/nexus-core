@@ -268,7 +268,7 @@
                 </div>
             </div>
 
-            <!-- TAB 3: Telemetry & Audit (Usage, Quotas, Magic Links, DLQ, Audit Logs, Team Keys) -->
+            <!-- TAB 3: Telemetry & Audit (Usage, Quotas, Magic Links, DLQ, Audit Logs, Team Keys, Circuit Breaker) -->
             <div id="tabAdmin" class="tab-content hidden mt-6 space-y-6">
                 <!-- Magic Link Box -->
                 <div class="bg-sky-500/5 border border-dashed border-sky-500/30 p-4 rounded-xl">
@@ -292,6 +292,36 @@
                     </div>
                 </div>
 
+                <!-- Circuit Breaker & Canary Health Control Center (NEW) -->
+                <div class="bg-inputbg border border-slate-800 p-6 rounded-xl">
+                    <div class="flex justify-between items-center mb-3">
+                        <div>
+                            <span class="block text-xs font-bold uppercase tracking-wider text-accent flex items-center gap-2"><i class="fa-solid fa-shield-halved text-cyan-400"></i> Circuit Breakers & Canary Health Status</span>
+                            <p class="text-xs text-slate-400">Monitor automated circuit breaker states and trigger manual health checks or canary recoveries.</p>
+                        </div>
+                        <button onclick="loadCircuitBreakers()" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-accent font-bold px-3 py-1.5 rounded-lg text-xs transition flex items-center gap-1"><i class="fa-solid fa-rotate text-cyan-400"></i> Refresh States</button>
+                    </div>
+                    <div id="circuitBreakersContainer" class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+                        <div class="bg-darkbg border border-slate-800 p-3 rounded-lg text-xs">
+                            <div class="flex justify-between items-center mb-1">
+                                <span class="font-bold text-white">Webhook Dispatch Circuit</span>
+                                <span id="cbWebhookState" class="bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded text-[10px] font-bold uppercase">CLOSED</span>
+                            </div>
+                            <p class="text-slate-400 text-[11px] mb-2">Failures: <span id="cbWebhookFailures">0</span> / 5 threshold</p>
+                            <button onclick="resetCircuit('webhook')" class="bg-sky-500/10 hover:bg-sky-500/20 text-accent border border-sky-500/30 px-2.5 py-1 rounded text-[11px] font-semibold transition">Reset Circuit</button>
+                        </div>
+                        <div class="bg-darkbg border border-slate-800 p-3 rounded-lg text-xs">
+                            <div class="flex justify-between items-center mb-1">
+                                <span class="font-bold text-white">AI Processing / Gemini Circuit</span>
+                                <span id="cbAiState" class="bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded text-[10px] font-bold uppercase">CLOSED</span>
+                            </div>
+                            <p class="text-slate-400 text-[11px] mb-2">Failures: <span id="cbAiFailures">0</span> / 3 threshold</p>
+                            <button onclick="resetCircuit('ai')" class="bg-sky-500/10 hover:bg-sky-500/20 text-accent border border-sky-500/30 px-2.5 py-1 rounded text-[11px] font-semibold transition">Reset Circuit</button>
+                        </div>
+                    </div>
+                    <button onclick="triggerCanaryHealing()" class="bg-accent hover:bg-accentHover text-slate-950 font-bold px-4 py-2 rounded-lg text-xs transition flex items-center gap-1.5"><i class="fa-solid fa-wand-magic-sparkles"></i> Run Canary Health Healing Worker</button>
+                </div>
+
                 <!-- 7-Day Chart -->
                 <div class="bg-inputbg border border-slate-800 p-6 rounded-xl">
                     <span class="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-2"><i class="fa-solid fa-chart-line text-emerald-400"></i> 7-Day API Request History</span>
@@ -307,7 +337,10 @@
                             <span class="block text-xs font-bold uppercase tracking-wider text-accent flex items-center gap-2"><i class="fa-solid fa-triangle-exclamation text-amber-400"></i> Dead Letter Queue (DLQ) & Failed Webhooks</span>
                             <p class="text-xs text-slate-400">Inspect failed webhook deliveries and trigger manual or automated payload replays.</p>
                         </div>
-                        <button onclick="loadDLQEvents()" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-accent font-bold px-3 py-1.5 rounded-lg text-xs transition flex items-center gap-1"><i class="fa-solid fa-rotate text-cyan-400"></i> Refresh DLQ</button>
+                        <div class="flex items-center gap-2">
+                            <button onclick="replayAllDLQ()" class="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1"><i class="fa-solid fa-play"></i> Replay All</button>
+                            <button onclick="loadDLQEvents()" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-accent font-bold px-3 py-1.5 rounded-lg text-xs transition flex items-center gap-1"><i class="fa-solid fa-rotate text-cyan-400"></i> Refresh DLQ</button>
+                        </div>
                     </div>
                     <div id="dlqContainer" class="space-y-2 max-h-60 overflow-y-auto">
                         <p class="text-xs text-slate-400">Authenticate to load DLQ events.</p>
@@ -481,6 +514,7 @@ print(res.json())</code></pre>
                 document.getElementById('tabAdmin').classList.remove('hidden');
                 loadDLQEvents();
                 loadAuditLogs();
+                loadCircuitBreakers();
             }
             else if (tabName === 'sandbox') document.getElementById('tabSandbox').classList.remove('hidden');
         }
@@ -778,6 +812,7 @@ print(res.json())</code></pre>
                 }
             } catch (e) {
                 container.innerHTML = '<p class="text-xs text-rose-400">Failed to load DLQ events.</p>';
+                console.error("DLQ polling network fault:", e);
             }
         }
 
@@ -801,6 +836,90 @@ print(res.json())</code></pre>
             }
         }
 
+        async function replayAllDLQ() {
+            const apiKey = document.getElementById('apiKey').value.trim();
+            if (!apiKey) return;
+            try {
+                const res = await fetch(`/api/v1/admin/dlq/replay-all`, {
+                    method: 'POST',
+                    headers: { 'x-api-key': apiKey }
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    showToast(data.message || "All DLQ items replayed!");
+                    loadDLQEvents();
+                } else {
+                    showToast(data.detail || "Failed to replay DLQ queue.", true);
+                }
+            } catch (err) {
+                showToast("Replay all request failed.", true);
+            }
+        }
+
+        async function loadCircuitBreakers() {
+            const apiKey = document.getElementById('apiKey').value.trim();
+            if (!apiKey) return;
+            try {
+                const res = await fetch('/api/v1/admin/circuit-breakers', { headers: { 'x-api-key': apiKey } });
+                const data = await res.json();
+                if (res.ok && data.breakers) {
+                    const wb = data.breakers.webhook || { state: 'CLOSED', failures: 0 };
+                    const ai = data.breakers.ai || { state: 'CLOSED', failures: 0 };
+                    
+                    document.getElementById('cbWebhookState').innerText = wb.state;
+                    document.getElementById('cbWebhookState').className = wb.state === 'OPEN' ? 'bg-rose-500/10 text-rose-400 border border-rose-500/30 px-2 py-0.5 rounded text-[10px] font-bold uppercase' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded text-[10px] font-bold uppercase';
+                    document.getElementById('cbWebhookFailures').innerText = wb.failures;
+
+                    document.getElementById('cbAiState').innerText = ai.state;
+                    document.getElementById('cbAiState').className = ai.state === 'OPEN' ? 'bg-rose-500/10 text-rose-400 border border-rose-500/30 px-2 py-0.5 rounded text-[10px] font-bold uppercase' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded text-[10px] font-bold uppercase';
+                    document.getElementById('cbAiFailures').innerText = ai.failures;
+                }
+            } catch (e) {
+                console.error("Failed to load circuit breakers:", e);
+            }
+        }
+
+        async function resetCircuit(service) {
+            const apiKey = document.getElementById('apiKey').value.trim();
+            if (!apiKey) return;
+            try {
+                const res = await fetch(`/api/v1/admin/circuit-breakers/${service}/reset`, {
+                    method: 'POST',
+                    headers: { 'x-api-key': apiKey }
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    showToast(data.message || `Circuit ${service} reset successfully!`);
+                    loadCircuitBreakers();
+                } else {
+                    showToast(data.detail || "Failed to reset circuit.", true);
+                }
+            } catch (err) {
+                showToast("Request failed.", true);
+            }
+        }
+
+        async function triggerCanaryHealing() {
+            const apiKey = document.getElementById('apiKey').value.trim();
+            if (!apiKey) return;
+            try {
+                const res = await fetch('/api/v1/admin/canary-heal', {
+                    method: 'POST',
+                    headers: { 'x-api-key': apiKey }
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    showToast(data.message || "Canary healing executed!");
+                    loadCircuitBreakers();
+                    loadDLQEvents();
+                } else {
+                    showToast(data.detail || "Canary healing failed.", true);
+                }
+            } catch (err) {
+                showToast("Canary request failed.", true);
+            }
+        }
+
         async function loadAuditLogs() {
             const apiKey = document.getElementById('apiKey').value.trim();
             if (!apiKey) return;
@@ -820,6 +939,7 @@ print(res.json())</code></pre>
                 }
             } catch (e) {
                 container.innerHTML = '<p class="text-xs text-rose-400">Failed to load audit logs.</p>';
+                console.error("Audit log polling network fault:", e);
             }
         }
 
@@ -920,6 +1040,7 @@ print(res.json())</code></pre>
                 showToast("Successfully authenticated & telemetry loaded!");
             } catch (err) {
                 leadFeedContainer.innerHTML = `<p class="text-rose-400">Request failed: ${err.message}</p>`;
+                showToast("Network sync fault detected.", true);
             }
         }
 
