@@ -1192,17 +1192,24 @@ print(res.json())</code></pre>
                 });
                 const data = await res.json();
                 if (res.ok) {
-                    resDiv.className = "mt-3 text-xs text-emerald-400 font-semibold";
-                    const generatedCount = data.leads_generated !== undefined ? data.leads_generated : (data.count || count);
-                    resDiv.innerText = `Generated ${generatedCount} fresh ${generatedCount === 1 ? 'lead' : 'leads'}! Credits remaining: ${data.credits_remaining}`;
-                    showToast("Fresh leads generated!");
-                    
-                    // Automatically append/update local leads array and render matrix table instantly
-                    if (data.leads && Array.isArray(data.leads)) {
-                        cachedLeadsData = data.leads.concat(cachedLeadsData);
-                        renderLeadFeed(cachedLeadsData);
+                    // Safely parse the actual generated count from the backend response
+                    const generatedCount = data.leads_generated !== undefined ? data.leads_generated : (data.leads ? data.leads.length : 0);
+                    if (generatedCount > 0) {
+                        resDiv.className = "mt-3 text-xs text-emerald-400 font-semibold";
+                        resDiv.innerText = `Generated ${generatedCount} fresh ${generatedCount === 1 ? 'lead' : 'leads'}! Credits remaining: ${data.credits_remaining}`;
+                        showToast("Fresh leads generated!");
+                        
+                        // Automatically append or refresh the lead feed
+                        if (data.leads && Array.isArray(data.leads)) {
+                            cachedLeadsData = data.leads.concat(cachedLeadsData);
+                            renderLeadFeed(cachedLeadsData);
+                        } else {
+                            saveAndFetch();
+                        }
                     } else {
-                        saveAndFetch();
+                        resDiv.className = "mt-3 text-xs text-rose-400 font-semibold";
+                        resDiv.innerText = data.detail || "Generation completed, but 0 leads were returned. Check server logs for AI model rate limits.";
+                        showToast("Generation returned 0 leads.", true);
                     }
                 } else {
                     resDiv.className = "mt-3 text-xs text-rose-400 font-semibold";
