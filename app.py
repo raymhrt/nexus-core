@@ -168,7 +168,7 @@ def call_gemini_rest(prompt: str, max_retries: int = 3) -> str:
         logger.error("GEMINI_API_KEY environment variable is missing or empty.")
         raise HTTPException(status_code=500, detail="GEMINI_API_KEY not configured")
      
-    models = ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-1.5-flash", "gemini-pro"]
+    models = ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-1.5-flash", "gemini-pro"]
      
     for model_name in models:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={GEMINI_API_KEY}"
@@ -248,7 +248,12 @@ def log_audit_event(email: str, action: str, details: str, ip_address: str = "12
         logger.error(f"Audit log error: {e}")
     finally:
         release_db(conn)
-    asyncio.create_task(sse_broker.broadcast("audit_log", {"email": email, "action": action, "details": details}))
+    
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(sse_broker.broadcast("audit_log", {"email": email, "action": action, "details": details}))
+    except RuntimeError:
+        pass
 
 def send_telegram_alert(message: str, chat_id: Optional[str] = None):
     target_chat = chat_id or TELEGRAM_CHAT_ID
@@ -340,7 +345,7 @@ class NexusAdvancedAgentSwarmOrchestrator:
     """
     def __init__(self, client: genai.Client):
         self.client = client
-        self.model_id = "gemini-2.5-flash"
+        self.model_id = "gemini-2.0-flash"
 
     def execute_advanced_swarm(self, target_query: str) -> Dict[str, Any]:
         logger.info(f"Initializing Advanced Multi-Agent Consensus Swarm for: {target_query}")
@@ -3076,6 +3081,7 @@ async def create_checkout_session(email: EmailStr, tier: str = "starter"):
             mode="subscription",
             success_url="https://nexus-core-yfou.onrender.com/success?session_id={CHECKOUT_SESSION_ID}",
             cancel_url="https://nexus-core-yfou.onrender.com/dashboard?canceled=true",
+            managed_payments={"enabled": False},
         )
         return {"checkout_url": checkout_session.url}
     except Exception as e:
