@@ -32,6 +32,8 @@
     <style>
         @keyframes pulse-slow { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
         .animate-pulse-slow { animation: pulse-slow 3s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-fade-in { animation: fadeIn 0.3s ease-out forwards; }
         ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-track { background: #020617; }
         ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 3px; }
@@ -528,7 +530,7 @@ print(res.json())</code></pre>
             initSSETelemetry();
         };
 
-        // Initialize EventSource for Server-Sent Events (SSE) Live Telemetry
+        // Initialize EventSource for Server-Sent Events (SSE) Live Telemetry & Real-Time Lead Updates
         function initSSETelemetry() {
             const eventSource = new EventSource('/api/v1/stream/telemetry');
             const sseLog = document.getElementById('sse-telemetry-log');
@@ -543,6 +545,20 @@ print(res.json())</code></pre>
                     
                     if (parsed.event === 'connected' || parsed.event === 'ping') {
                         return; // Skip heartbeat clutter
+                    }
+
+                    // Handle real-time lead ingestion and syncing events
+                    if (parsed.event === 'lead.ingested' || parsed.event === 'lead.synced' || parsed.event === 'lead.sequence_enrolled') {
+                        const lead = parsed.lead || parsed.data;
+                        if (lead) {
+                            prependLeadToUI(lead);
+                        }
+                    }
+
+                    // If background generation finished, trigger a notification & refresh
+                    if (parsed.event === 'background_generation_complete') {
+                        showToast("New background leads generated! Refreshing view...");
+                        saveAndFetch();
                     }
 
                     const entry = document.createElement('div');
@@ -568,10 +584,27 @@ print(res.json())</code></pre>
             };
         }
 
+        // Real-time DOM prepender for live telemetry events
+        function prependLeadToUI(lead) {
+            const container = document.getElementById('leadFeedContainer');
+            if (!container) return;
+
+            // Check if lead already exists in cached list to avoid duplicates
+            if (cachedLeadsData.some(l => l.id === lead.lead_id || l.id === lead.id)) {
+                return;
+            }
+
+            cachedLeadsData.unshift(lead);
+            
+            // Re-render full lead feed to maintain correct sorting and action handlers
+            renderLeadFeed(cachedLeadsData);
+            showToast(`🚀 New lead ingested live: ${lead.company_name || 'New Account'}`);
+        }
+
         function showToast(message, isError = false) {
             const container = document.getElementById('toastContainer');
             const toast = document.createElement('div');
-            toast.className = `bg-cardbg border ${isError ? 'border-rose-500 text-rose-300' : 'border-sky-500 text-slate-100'} px-4 py-3 rounded-xl text-xs font-semibold shadow-2xl flex items-center gap-2`;
+            toast.className = `bg-cardbg border ${isError ? 'border-rose-500 text-rose-300' : 'border-sky-500 text-slate-100'} px-4 py-3 rounded-xl text-xs font-semibold shadow-2xl flex items-center gap-2 animate-fade-in`;
             toast.innerHTML = `<i class="fa-solid ${isError ? 'fa-triangle-exclamation text-rose-400' : 'fa-circle-check text-emerald-400'}"></i> <span>${message}</span>`;
             container.appendChild(toast);
             setTimeout(() => toast.remove(), isError ? 5000 : 3000);
@@ -1192,25 +1225,11 @@ print(res.json())</code></pre>
                 });
                 const data = await res.json();
                 if (res.ok) {
-                    // Safely parse the actual generated count from the backend response
-                    const generatedCount = data.leads_generated !== undefined ? data.leads_generated : (data.leads ? data.leads.length : 0);
-                    if (generatedCount > 0) {
-                        resDiv.className = "mt-3 text-xs text-emerald-400 font-semibold";
-                        resDiv.innerText = `Generated ${generatedCount} fresh ${generatedCount === 1 ? 'lead' : 'leads'}! Credits remaining: ${data.credits_remaining}`;
-                        showToast("Fresh leads generated!");
-                        
-                        // Automatically append or refresh the lead feed
-                        if (data.leads && Array.isArray(data.leads)) {
-                            cachedLeadsData = data.leads.concat(cachedLeadsData);
-                            renderLeadFeed(cachedLeadsData);
-                        } else {
-                            saveAndFetch();
-                        }
-                    } else {
-                        resDiv.className = "mt-3 text-xs text-rose-400 font-semibold";
-                        resDiv.innerText = data.detail || "Generation completed, but 0 leads were returned. Check server logs for AI model rate limits.";
-                        showToast("Generation returned 0 leads.", true);
-                    }
+                    const generatedCount = data.leads_generated !== undefined ? data.leads_generated : (data.leads ? data.leads.length : count);
+                    resDiv.className = "mt-3 text-xs text-emerald-400 font-semibold";
+                    resDiv.innerText = `${data.message || 'Generation dispatched successfully!'} Credits remaining: ${data.credits_remaining}`;
+                    showToast("On-demand lead generation dispatched!");
+                    saveAndFetch();
                 } else {
                     resDiv.className = "mt-3 text-xs text-rose-400 font-semibold";
                     resDiv.innerText = data.detail || "Generation failed.";
