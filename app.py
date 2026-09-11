@@ -1955,6 +1955,40 @@ async def list_audit_logs(request: Request, auth: dict = Depends(verify_api_key)
 
     return {"status": "success", "audit_logs": logs}
 
+@app.get("/api/v1/admin/circuit-breakers")
+async def get_circuit_breakers(request: Request, auth: dict = Depends(verify_api_key)):
+    if auth.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Only workspace admins can view circuit breakers.")
+
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute("SELECT id, email, webhook_url, circuit_status, consecutive_failures, last_failure_time FROM subscriber_webhooks")
+        else:
+            cursor.execute("SELECT id, email, webhook_url, circuit_status, consecutive_failures, last_failure_time FROM subscriber_webhooks")
+        rows = cursor.fetchall()
+        hooks = []
+        for r in rows:
+            r_dict = dict(r)
+            if r_dict.get("last_failure_time") and isinstance(r_dict["last_failure_time"], datetime):
+                r_dict["last_failure_time"] = r_dict["last_failure_time"].isoformat()
+            hooks.append(r_dict)
+        cursor.close()
+    finally:
+        release_db(conn)
+
+    return {"status": "success", "circuit_breakers": hooks}
+
+@app.post("/api/v1/admin/canary-heal")
+async def trigger_canary_heal_endpoint(request: Request, auth: dict = Depends(verify_api_key)):
+    if auth.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Only workspace admins can manually trigger canary healing.")
+
+    await webhook_canary_healing_worker()
+    log_audit_event(auth["email"], "MANUAL_CANARY_HEAL", "Manually triggered canary healing worker loop", auth["ip"])
+    return {"status": "success", "message": "Canary healing worker executed successfully."}
+
 @app.get("/audit/{domain}")
 async def render_lead_microsite(domain: str):
     conn = get_db()
