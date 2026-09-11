@@ -1,1 +1,18 @@
-fastapi uvicorn[standard] stripe requests redis sentry-sdk psycopg2-binary python-dotenv apscheduler httpx pytest google-genai email-validator python-dateutil cryptography python-multipart resend numpy
+fastapi
+uvicorn[standard]
+stripe
+requests
+redis
+sentry-sdk
+psycopg2-binary
+python-dotenv
+apscheduler
+httpx
+pytest
+google-genai
+email-validator
+python-dateutil
+cryptography
+python-multipart
+resend
+numpy
