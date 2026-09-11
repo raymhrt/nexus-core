@@ -166,7 +166,7 @@ def generate_hmac_signature(payload_json: str) -> str:
 def call_gemini_rest(prompt: str, max_retries: int = 3) -> str:
     if not GEMINI_API_KEY:
         logger.error("GEMINI_API_KEY environment variable is missing or empty.")
-        raise Exception("GEMINI_API_KEY not configured")
+        raise HTTPException(status_code=500, detail="GEMINI_API_KEY not configured")
      
     models = ["gemini-3.6-flash", "gemini-2.5-flash"]
      
@@ -203,7 +203,7 @@ def call_gemini_rest(prompt: str, max_retries: int = 3) -> str:
 
             time.sleep((backoff_factor ** attempt) + random.uniform(0.1, 1.0))
             
-    raise Exception("All Gemini model endpoints failed after maximum retries and model fallbacks.")
+    raise HTTPException(status_code=502, detail="All Gemini model endpoints failed after maximum retries and model fallbacks.")
 
 def log_audit_event(email: str, action: str, details: str, ip_address: str = "127.0.0.1"):
     conn = get_db()
@@ -310,7 +310,7 @@ class NexusAdvancedAgentSwarmOrchestrator:
     """
     Advanced Multi-Agent Consensus Orchestrator utilizing google-genai SDK.
     Executes sequential consensus: 
-    1. Researcher Agent (Raw firmographic and DNS scraping simulation)
+    1. Researcher Agent (Raw firmographic and DNS scraping)
     2. Compliance & Risk Auditor Agent (Financial/compliance exposure review)
     3. Trust Scoring & Consensus Agent (Weighted final confidence and trust calculation)
     4. Outbound Copywriter & Multi-Channel Strategist Agent (Playbook generation)
@@ -356,23 +356,7 @@ class NexusAdvancedAgentSwarmOrchestrator:
             contents=prompt,
             config=types.GenerateContentConfig(response_mime_type="application/json")
         )
-        try:
-            return json.loads(response.text)
-        except Exception:
-            return {
-                "company_name": "Apex Cloud Systems",
-                "domain": "apexcloud.io",
-                "industry": "Cloud Infrastructure",
-                "employee_count": "100-500",
-                "headcount_growth_pct": "+28% QoQ",
-                "open_hiring_roles": "Security Engineer, Cloud Architect",
-                "technographic_stack": "AWS, PostgreSQL, Kubernetes, Docker",
-                "funding_stage": "Series B",
-                "recent_news_trigger": "Expanded EU enterprise datacenter footprint",
-                "decision_makers": [
-                    {"name": "Sarah Jenkins", "title": "CTO", "email": "s.jenkins@apexcloud.io", "phone": "+1-415-555-0192", "linkedin": "https://linkedin.com/in/sarahjenkins-cto"}
-                ]
-            }
+        return json.loads(response.text)
 
     def _run_compliance_agent(self, research: Dict[str, Any]) -> Dict[str, Any]:
         prompt = f"""
@@ -388,14 +372,7 @@ class NexusAdvancedAgentSwarmOrchestrator:
             contents=prompt,
             config=types.GenerateContentConfig(response_mime_type="application/json")
         )
-        try:
-            return json.loads(response.text)
-        except Exception:
-            return {
-                "security_certifications": "SOC2 Type II, ISO 27001",
-                "threat_risk_index": 1.5,
-                "security_posture_review": "Strong zero-trust posture with verified TLS 1.3 rotation."
-            }
+        return json.loads(response.text)
 
     def _run_consensus_trust_agent(self, research: Dict[str, Any], compliance: Dict[str, Any]) -> Dict[str, Any]:
         prompt = f"""
@@ -411,14 +388,7 @@ class NexusAdvancedAgentSwarmOrchestrator:
             contents=prompt,
             config=types.GenerateContentConfig(response_mime_type="application/json")
         )
-        try:
-            return json.loads(response.text)
-        except Exception:
-            return {
-                "trust_score": 94,
-                "confidence_score": 0.98,
-                "consensus_rationale": "High growth velocity combined with certified compliance badges verifies top-tier account quality."
-            }
+        return json.loads(response.text)
 
     def _run_strategy_agent(self, research: Dict[str, Any], consensus: Dict[str, Any]) -> Dict[str, Any]:
         prompt = f"""
@@ -434,14 +404,7 @@ class NexusAdvancedAgentSwarmOrchestrator:
             contents=prompt,
             config=types.GenerateContentConfig(response_mime_type="application/json")
         )
-        try:
-            return json.loads(response.text)
-        except Exception:
-            return {
-                "intent_signals": "Active engineering headcount expansion + recent funding announcement",
-                "outreach_angle": "Highlight automated infrastructure orchestration and secure zero-trust webhooks.",
-                "multi_channel_cadence": "Day 1: Personalized Email | Day 3: LinkedIn Connection Request | Day 5: Slack Executive Alert Trigger"
-            }
+        return json.loads(response.text)
 
 class ClosedLoopLearningEngine:
     @staticmethod
@@ -788,7 +751,6 @@ def fetch_advanced_enrichment_data(domain: str, industry: str = "SaaS / Tech") -
         return parsed
     except Exception as e:
         logger.error(f"Dynamic enrichment AI extraction failed for {clean_dom}: {e}")
-        # Return empty or explicit unverified indicators rather than misleading hardcoded generic data
         return {
             "tech_stack": "Pending Deep Scan",
             "funding_stage": "Unknown",
@@ -1106,7 +1068,6 @@ async def dispatch_outbound_webhooks(lead_data: dict, trigger_action: str = "lea
         except Exception as crm_err:
             logger.error(f"Native CRM / Warehouse dispatch error for {dest_type}: {crm_err}")
 
-    # Broadcast live update over WebSocket feed and SSE Telemetry Broker
     await manager.broadcast({
         "event": trigger_action,
         "lead": lead_data,
@@ -1268,15 +1229,10 @@ async def health_check():
 
 @app.get("/api/v1/stream/telemetry")
 async def stream_realtime_telemetry(request: Request):
-    """
-    Server-Sent Events (SSE) endpoint streaming real-time state changes, 
-    DLQ events, circuit breaker trips, and audit log telemetry directly to the browser.
-    """
     queue = await sse_broker.subscribe()
 
     async def event_generator():
         try:
-            # Send initial connection acknowledgment
             yield f"data: {json.dumps({'event': 'connected', 'timestamp': datetime.now(timezone.utc).isoformat()})}\n\n"
             while True:
                 if await request.is_disconnected():
@@ -1285,7 +1241,6 @@ async def stream_realtime_telemetry(request: Request):
                     message = await asyncio.wait_for(queue.get(), timeout=15.0)
                     yield f"data: {json.dumps(message)}\n\n"
                 except asyncio.TimeoutError:
-                    # Send keep-alive heartbeat ping
                     yield f"data: {json.dumps({'event': 'ping', 'timestamp': datetime.now(timezone.utc).isoformat()})}\n\n"
         except asyncio.CancelledError:
             pass
@@ -1369,11 +1324,6 @@ def verify_api_key(x_api_key: str = Header(...), request: Request = None):
     return {"email": email, "key_name": key_name, "scope": scope, "role": role, "tier": tier, "hash": incoming_hash, "ip": client_ip}
 
 def check_rate_limit(api_key_hash: str, response: Response, max_requests: int = 30):
-    """
-    Distributed Rate Limiting via Redis:
-    Token bucket algorithm using Redis sliding window sorted sets. 
-    Ensures synchronization when FastAPI scales horizontally across multiple container instances.
-    """
     window_seconds = 60
     current_time = time.time()
     
@@ -2067,11 +2017,6 @@ class OnDemandGeneratePayload(BaseModel):
     count: Optional[int] = 10
 
 async def background_on_demand_generation_task(query: str, count: int, user_email: str, tier: str):
-    """
-    Decoupled Background Worker task for on-demand lead generations.
-    Offloads heavy LLM crawling and enrichment waterfalls from FastAPI request loops
-    to prevent gateway timeouts on Render during large requests.
-    """
     logger.info(f"Starting decoupled background worker generation for query: '{query}' (Requested by: {user_email})")
     
     conn = get_db()
@@ -2270,7 +2215,6 @@ async def generate_leads_on_demand(payload: OnDemandGeneratePayload, request: Re
     finally:
         release_db(conn)
 
-    # Offload heavy LLM crawling and enrichment waterfall to decoupled background worker queue
     background_tasks.add_task(background_on_demand_generation_task, payload.query, payload.count, auth["email"], auth["tier"])
 
     return {
@@ -2712,16 +2656,6 @@ async def get_usage_analytics_history(request: Request, auth: dict = Depends(ver
         cursor.close()
     finally:
         release_db(conn)
-    if not history:
-        history = [
-            {"day": "2026-09-02", "request_count": 1420},
-            {"day": "2026-09-03", "request_count": 1890},
-            {"day": "2026-09-04", "request_count": 2150},
-            {"day": "2026-09-05", "request_count": 1780},
-            {"day": "2026-09-06", "request_count": 2600},
-            {"day": "2026-09-07", "request_count": 3100},
-            {"day": "2026-09-08", "request_count": 3450}
-        ]
     return {"status": "success", "usage_history": history}
 
 @app.post("/api/v1/webhooks", response_model=WebhookRegistrationResponse, status_code=status.HTTP_201_CREATED)
@@ -2777,11 +2711,6 @@ async def get_webhook_logs(request: Request, auth: dict = Depends(verify_api_key
         cursor.close()
     finally:
         release_db(conn)
-    if not logs:
-        logs = [
-            {"timestamp": "2026-09-08 13:30:00", "webhook_url": "https://api.hubspot.com/v3", "status_code": 200, "success": 1},
-            {"timestamp": "2026-09-08 12:15:00", "webhook_url": "https://api.snowflake.com/ingest", "status_code": 200, "success": 1}
-        ]
     return {"status": "success", "delivery_logs": logs}
 
 class LeadItem(BaseModel):
@@ -3153,7 +3082,7 @@ async def create_portal_session(
         if not customer_id:
             customers = stripe.Customer.list(email=email, limit=1)
             if not customers.data:
-                return {"status": "success", "portal_url": "https://billing.stripe.com/p/session/test_portal_mock"}
+                raise HTTPException(status_code=404, detail="No Stripe customer profile found for billing portal.")
             customer_id = customers.data[0].id
 
         portal_session = stripe.billing_portal.Session.create(
@@ -3161,8 +3090,8 @@ async def create_portal_session(
             return_url="https://nexus-core-yfou.onrender.com/dashboard",
         )
         return {"portal_url": portal_session.url}
-    except Exception:
-        return {"status": "success", "portal_url": "https://billing.stripe.com/p/session/test_portal_mock"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @app.post("/webhook")
 async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
