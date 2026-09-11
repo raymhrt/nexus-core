@@ -760,69 +760,48 @@ def generate_lead_embedding(text_content: str):
 
 def fetch_advanced_enrichment_data(domain: str, industry: str = "SaaS / Tech") -> dict:
     clean_dom = domain.lower().replace("https://", "").replace("http://", "").rstrip("/")
-    ind_lower = industry.lower()
     
-    zero_day_signals = [
-        "🚨 Zero-Day: Deprecated urllib3/requests dependency migration detected 14 hours ago",
-        "⚡ Zero-Day: Sudden drop in public API response latency (-320ms) indicating Redis cluster migration",
-        "🔥 Zero-Day: Open-source package registry release detected: custom postgres-pool v4.2 pushed",
-        "⚠️ Zero-Day: SSL/TLS certificate rotation mismatch detected on primary subdomain gateway"
-    ]
+    prompt = f"""
+    Act as an elite B2B Technographic & Financial Intelligence Agent. 
+    Analyze target domain: '{clean_dom}' in industry '{industry}'.
+    Provide verified, realistic company intelligence. Return strict JSON with keys:
+    - tech_stack (string, e.g. 'AWS, Snowflake, PostgreSQL, Python')
+    - funding_stage (string, e.g. 'Series B')
+    - intent_signals (string, e.g. 'Active zero-trust infrastructure expansion')
+    - verified_email (int, 1 or 0)
+    - decision_maker_title (string, e.g. 'VP of Engineering')
+    - decision_maker_linkedin (string)
+    - acv_estimate (string, e.g. '$65,000')
+    - headcount_growth_pct (string, e.g. '+34% QoQ')
+    - open_hiring_roles (string, e.g. 'Senior Security Engineer')
+    - recent_news_trigger (string, e.g. 'Closed $22M Series B funding round')
+    - decision_makers_json (stringified JSON list of dicts with name, title, email, phone, linkedin)
+    """
     
-    hash_val = int(hashlib.md5(clean_dom.encode('utf-8')).hexdigest(), 16)
-    intent = zero_day_signals[hash_val % len(zero_day_signals)]
-    
-    if "fintech" in ind_lower or "insurtech" in ind_lower:
-        tech = "Stripe API, Plaid, PostgreSQL, AWS"
-        acv = "$75,000"
-        dm = "VP of Risk & Compliance"
-        growth = "+35% QoQ"
-        roles = "Senior Risk Analyst, Backend Payment Engineer"
-        news = "Launched instant ACH settlement engine across EU/US corridors"
-    elif "cloud" in ind_lower or "devops" in ind_lower or "saas" in ind_lower:
-        tech = "Go, Kubernetes, Terraform, GCP"
-        acv = "$45,000"
-        dm = "VP of Engineering"
-        growth = "+28% QoQ"
-        roles = "Kubernetes Operator, Site Reliability Engineer"
-        news = "Secured Series B $22M funding co-led by Andreessen Horowitz"
-    elif "ai" in ind_lower or "deeptech" in ind_lower:
-        tech = "Python, PyTorch, Qdrant Vector DB, CUDA"
-        acv = "$120,000"
-        dm = "Head of AI Infrastructure"
-        growth = "+62% QoQ"
-        roles = "AI Infrastructure Researcher, ML Platform Lead"
-        news = "Deployed proprietary multi-agent LLM inference cluster"
-    else:
-        tech = "React, Node.js, AWS, PostgreSQL"
-        acv = "$30,000"
-        dm = "CTO"
-        growth = "+18% QoQ"
-        roles = "Full Stack Engineer"
-        news = "Announced strategic enterprise partnership in North America"
-
-    funding_candidates = ["Seed", "Series A", "Series B", "Series C", "Bootstrapped"]
-    funding = funding_candidates[(hash_val // 7) % len(funding_candidates)]
-    verified = 1 if (hash_val % 10) != 0 else 0
-    
-    dm_list = [
-        {"name": "Alex Mercer", "title": dm, "email": f"a.mercer@{clean_dom}", "phone": "+1-415-555-0144", "linkedin": f"https://linkedin.com/in/alex-{clean_dom.split('.')[0]}"},
-        {"name": "Elena Rostova", "title": "VP of Product", "email": f"elena@{clean_dom}", "phone": "+1-415-555-0188", "linkedin": f"https://linkedin.com/in/elena-{clean_dom.split('.')[0]}"}
-    ]
-
-    return {
-        "tech_stack": tech,
-        "funding_stage": funding,
-        "intent_signals": intent,
-        "verified_email": verified,
-        "decision_maker_title": dm,
-        "decision_maker_linkedin": f"https://linkedin.com/in/exec-{clean_dom.split('.')[0]}",
-        "acv_estimate": acv,
-        "headcount_growth_pct": growth,
-        "open_hiring_roles": roles,
-        "recent_news_trigger": news,
-        "decision_makers_json": json.dumps(dm_list)
-    }
+    try:
+        raw_text = call_gemini_rest(prompt)
+        import re
+        json_match = re.search(r'\{.*\}', raw_text, re.DOTALL)
+        if json_match:
+            raw_text = json_match.group(0)
+        parsed = json.loads(raw_text)
+        return parsed
+    except Exception as e:
+        logger.error(f"Dynamic enrichment AI extraction failed for {clean_dom}: {e}")
+        # Return empty or explicit unverified indicators rather than misleading hardcoded generic data
+        return {
+            "tech_stack": "Pending Deep Scan",
+            "funding_stage": "Unknown",
+            "intent_signals": "No active intent signals detected",
+            "verified_email": 0,
+            "decision_maker_title": "Engineering Lead",
+            "decision_maker_linkedin": "",
+            "acv_estimate": "Pending",
+            "headcount_growth_pct": "Pending",
+            "open_hiring_roles": "Pending",
+            "recent_news_trigger": "Pending Live Crawler Verification",
+            "decision_makers_json": "[]"
+        }
 
 async def async_background_enrichment_worker(lead_id: int, company_name: str, domain: str, industry: str = "SaaS / Tech"):
     enrichment = fetch_advanced_enrichment_data(domain, industry)
@@ -1215,7 +1194,7 @@ class AIDLQPayload(BaseModel):
 async def receive_ai_dlq(payload: AIDLQPayload, admin_key: str = Header(None, alias="admin-key")):
     if not ADMIN_SECRET_KEY or admin_key != ADMIN_SECRET_KEY:
         raise HTTPException(status_code=403, detail="Unauthorized")
-    
+     
     conn = get_db()
     try:
         cursor = conn.cursor()
@@ -2463,7 +2442,7 @@ async def get_subscriber_icp(request: Request, auth: dict = Depends(verify_api_k
 async def cleanup_webhooks(admin_key: str):
     if not ADMIN_SECRET_KEY or admin_key != ADMIN_SECRET_KEY:
         raise HTTPException(status_code=403, detail="Unauthorized")
-    
+     
     conn = get_db()
     try:
         cursor = conn.cursor()
@@ -2484,7 +2463,7 @@ async def cleanup_webhooks(admin_key: str):
 async def clear_leads(admin_key: str):
     if not ADMIN_SECRET_KEY or admin_key != ADMIN_SECRET_KEY:
         raise HTTPException(status_code=403, detail="Unauthorized")
-    
+     
     conn = get_db()
     try:
         cursor = conn.cursor()
@@ -2502,7 +2481,7 @@ async def clear_leads(admin_key: str):
 async def backfill_embeddings(admin_key: str = Header(None, alias="admin-key")):
     if not ADMIN_SECRET_KEY or admin_key != ADMIN_SECRET_KEY:
         raise HTTPException(status_code=403, detail="Unauthorized admin key.")
-    
+     
     if DATABASE_URL is None:
         raise HTTPException(status_code=400, detail="Backfill requires PostgreSQL with pgvector.")
 
@@ -2837,13 +2816,13 @@ async def admin_upload_leads(
 ):
     if not ADMIN_SECRET_KEY or admin_key != ADMIN_SECRET_KEY:
         raise HTTPException(status_code=403, detail="Unauthorized admin key.")
-    
+     
     if idempotency_key and redis_client:
         idem_cache_key = f"idempotency:{idempotency_key}"
         if redis_client.get(idem_cache_key):
             return {"status": "success", "message": "Duplicate request caught via idempotency key.", "imported_count": 0}
         redis_client.setex(idem_cache_key, 3600, "processed")
-    
+     
     conn = get_db()
     try:
         cursor = conn.cursor()
