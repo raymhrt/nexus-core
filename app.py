@@ -1,15 +1,285 @@
-# ==========================================
-# NEXUS ENTERPRISE APEX: MULTI-AGENT SWARM & CLOSED-LOOP INTELLIGENCE EXTENSION
-# Drop-in enhancements for app.py
-# ==========================================
-
-import json
+import os
+import asyncio
 import logging
-from typing import Dict, Any, List
+import json
+import secrets
+import sqlite3
+import hashlib
+import hmac
+import time
+import random
+import uuid
+from typing import List, Dict, Optional, Any
+from datetime import datetime, timedelta, timezone
+from contextlib import asynccontextmanager
+
+import stripe
+import numpy as np
+import requests
+import redis
+import sentry_sdk
+from sentry_sdk.integrations.fastapi import FastApiIntegration
+from fastapi import FastAPI, BackgroundTasks, HTTPException, Request, Response, status, Header, Depends, Query, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, JSONResponse, HTMLResponse, Response as FastAPIResponse
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from pydantic import BaseModel, Field, EmailStr, ValidationError
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from dotenv import load_dotenv
+from psycopg2 import pool
+from psycopg2.extras import RealDictCursor
 from google import genai
 from google.genai import types
 
+load_dotenv()
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='{"time": "%(asctime)s", "level": "%(levelname)s", "logger": "%(name)s", "message": "%(message)s"}'
+)
 logger = logging.getLogger("nexus-enterprise-apex")
+
+SENTRY_DSN = os.getenv("SENTRY_DSN")
+if SENTRY_DSN:
+    sentry_sdk.init(
+        dsn=SENTRY_DSN,
+        integrations=[FastApiIntegration()],
+        traces_sample_rate=1.0,
+    )
+
+stripe.api_key = os.getenv("STRIPE_API_KEY", "your_stripe_key_here")
+ENDPOINT_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "your_webhook_secret_here")
+WEBHOOK_SIGNING_SECRET = os.getenv("WEBHOOK_SIGNING_SECRET")
+if not WEBHOOK_SIGNING_SECRET:
+    logger.critical("FATAL: WEBHOOK_SIGNING_SECRET environment variable is missing! Webhook verification insecure.")
+    raise RuntimeError("WEBHOOK_SIGNING_SECRET must be explicitly configured in production environments.")
+
+ADMIN_SECRET_KEY = os.getenv("ADMIN_SECRET_KEY")
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+RESEND_API_KEY = os.getenv("RESEND_API_KEY")
+SENDER_EMAIL = os.getenv("SENDER_EMAIL", "onboarding@resend.dev")
+
+DATABASE_URL = os.getenv("DATABASE_URL")
+REDIS_URL = os.getenv("REDIS_URL")
+
+# Production CORS & Trusted Hosts configuration via environment variable
+TRUSTED_ORIGINS = [origin.strip() for origin in os.getenv("TRUSTED_ORIGINS", "https://nexus-core-yfou.onrender.com,http://localhost:3000,http://127.0.0.1:8000").split(",") if origin.strip()]
+
+redis_client = None
+if REDIS_URL:
+    try:
+        redis_client = redis.from_url(REDIS_URL, decode_responses=True)
+        redis_client.ping()
+    except Exception as e:
+        logger.warning(f"Redis connection failed: {e}")
+        redis_client = None
+
+db_pool = None
+if DATABASE_URL:
+    try:
+        db_url = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+        db_pool = pool.ThreadedConnectionPool(minconn=5, maxconn=40, dsn=db_url)
+    except Exception as e:
+        logger.warning(f"Database connection pool initialization failed: {e}")
+
+webhook_semaphore = asyncio.Semaphore(10)
+
+# WebSocket Connection Manager for live feed streaming
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: List[WebSocket] = []
+
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections.append(websocket)
+
+    def disconnect(self, websocket: WebSocket):
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
+
+    async def broadcast(self, message: dict):
+        for connection in self.active_connections:
+            try:
+                await connection.send_json(message)
+            except Exception:
+                pass
+
+manager = ConnectionManager()
+
+def get_db():
+    if db_pool:
+        conn = db_pool.getconn()
+        conn.cursor_factory = RealDictCursor
+        return conn
+    else:
+        conn = sqlite3.connect("quantcode_nexus.db")
+        conn.row_factory = sqlite3.Row
+        return conn
+
+def release_db(conn):
+    if db_pool:
+        try:
+            db_pool.putconn(conn)
+        except Exception:
+            pass
+    else:
+        conn.close()
+
+def hash_api_key(api_key: str) -> str:
+    return hashlib.sha256(api_key.encode("utf-8")).hexdigest()
+
+def generate_hmac_signature(payload_json: str) -> str:
+    return hmac.new(
+        WEBHOOK_SIGNING_SECRET.encode("utf-8"),
+        payload_json.encode("utf-8"),
+        hashlib.sha256
+    ).hexdigest()
+
+def call_gemini_rest(prompt: str, max_retries: int = 3) -> str:
+    if not GEMINI_API_KEY:
+        logger.error("GEMINI_API_KEY environment variable is missing or empty.")
+        raise Exception("GEMINI_API_KEY not configured")
+     
+    models = ["gemini-3.6-flash", "gemini-2.5-flash"]
+     
+    for model_name in models:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={GEMINI_API_KEY}"
+        headers = {"Content-Type": "application/json"}
+        payload = {
+            "contents": [{
+                "parts": [{"text": prompt}]
+            }]
+        }
+        
+        backoff_factor = 2
+        for attempt in range(1, max_retries + 1):
+            try:
+                res = requests.post(url, json=payload, headers=headers, timeout=30)
+                if res.status_code == 200:
+                    data = res.json()
+                    return data["candidates"][0]["content"]["parts"][0]["text"]
+                elif res.status_code in [503, 429, 502, 504, 500]:
+                    logger.warning(f"Model {model_name} returned status {res.status_code} on attempt {attempt}/{max_retries}. Retrying...")
+                    if attempt == max_retries:
+                        break
+                else:
+                    logger.error(f"Model {model_name} error status {res.status_code}: {res.text}")
+                    break
+            except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as net_err:
+                logger.warning(f"Network error on model {model_name} attempt {attempt}: {net_err}")
+                if attempt == max_retries:
+                    break
+            except Exception:
+                if attempt == max_retries:
+                    break
+
+            time.sleep((backoff_factor ** attempt) + random.uniform(0.1, 1.0))
+            
+    raise Exception("All Gemini model endpoints failed after maximum retries and model fallbacks.")
+
+def log_audit_event(email: str, action: str, details: str, ip_address: str = "127.0.0.1"):
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute(
+                "INSERT INTO audit_logs (email, action, details, ip_address) VALUES (%s, %s, %s, %s)",
+                (email, action, details, ip_address)
+            )
+        else:
+            cursor.execute(
+                "INSERT INTO audit_logs (email, action, details, ip_address) VALUES (?, ?, ?, ?)",
+                (email, action, details, ip_address)
+            )
+        conn.commit()
+        cursor.close()
+    except Exception as e:
+        logger.error(f"Audit log error: {e}")
+    finally:
+        release_db(conn)
+
+def send_telegram_alert(message: str, chat_id: Optional[str] = None):
+    target_chat = chat_id or TELEGRAM_CHAT_ID
+    if not TELEGRAM_BOT_TOKEN or not target_chat:
+        return
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+        requests.post(url, json={"chat_id": target_chat, "text": message, "parse_mode": "Markdown"}, timeout=5)
+    except Exception as e:
+        logger.error(f"Telegram alert failed: {e}")
+
+def send_email_via_resend(to_email: str, api_key: str):
+    if not RESEND_API_KEY:
+        return
+    url = "https://api.resend.com/emails"
+    headers = {"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"}
+    html_content = f"""
+        <h2>Welcome to QuantCode Nexus Enterprise Apex!</h2>
+        <p>Your elite B2B lead API key has been generated and activated.</p>
+        <p><strong>Your API Key:</strong> <code>{api_key}</code></p>
+        <p><a href="https://nexus-core-yfou.onrender.com/dashboard" style="background: #38bdf8; color: #0f172a; padding: 12px 20px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold;">Open Dashboard</a></p>
+    """
+    payload = {"from": f"QuantCode Nexus <{SENDER_EMAIL}>", "to": [to_email], "subject": "Your Enterprise API Key 🚀", "html": html_content}
+    try:
+        requests.post(url, json=payload, headers=headers, timeout=10)
+    except Exception as e:
+        logger.error(f"Resend error: {e}")
+
+def send_custom_email_via_resend(to_email: str, subject: str, html_content: str):
+    if not RESEND_API_KEY:
+        logger.warning("Resend API key missing; skipping live email dispatch.")
+        return False
+    url = "https://api.resend.com/emails"
+    headers = {"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"}
+    payload = {"from": f"QuantCode Nexus <{SENDER_EMAIL}>", "to": [to_email], "subject": subject, "html": html_content}
+    try:
+        res = requests.post(url, json=payload, headers=headers, timeout=10)
+        return res.status_code in [200, 201]
+    except Exception as e:
+        logger.error(f"Resend custom email error: {e}")
+        return False
+
+def send_password_reset_email(to_email: str, reset_url: str):
+    if not RESEND_API_KEY:
+        return
+    url = "https://api.resend.com/emails"
+    headers = {"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"}
+    html_content = f"""
+        <h2>QuantCode Nexus API Key Reset</h2>
+        <p>Click below to generate your replacement API key:</p>
+        <p><a href="{reset_url}" style="background: #38bdf8; color: #0f172a; padding: 12px 20px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold;">Reset My API Key</a></p>
+        <p><small>Link expires in 15 minutes.</small></p>
+    """
+    payload = {"from": f"QuantCode Nexus <{SENDER_EMAIL}>", "to": [to_email], "subject": "Reset your API Key", "html": html_content}
+    try:
+        requests.post(url, json=payload, headers=headers, timeout=10)
+    except Exception as e:
+        logger.error(f"Resend reset error: {e}")
+
+def send_magic_link_email(to_email: str, magic_url: str):
+    if not RESEND_API_KEY:
+        return
+    url = "https://api.resend.com/emails"
+    headers = {"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"}
+    html_content = f"""
+        <h2>QuantCode Nexus Magic Link Sign-In</h2>
+        <p>Click the secure link below to instantly sign in to your dashboard:</p>
+        <p><a href="{magic_url}" style="background: #38bdf8; color: #0f172a; padding: 12px 20px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold;">Sign In Instantly 🚀</a></p>
+        <p><small>Link expires in 15 minutes.</small></p>
+    """
+    payload = {"from": f"QuantCode Nexus <{SENDER_EMAIL}>", "to": [to_email], "subject": "Your Magic Sign-In Link", "html": html_content}
+    try:
+        requests.post(url, json=payload, headers=headers, timeout=10)
+    except Exception as e:
+        logger.error(f"Resend magic link error: {e}")
+
+# ==========================================
+# NEXUS ENTERPRISE APEX: MULTI-AGENT SWARM & CLOSED-LOOP INTELLIGENCE EXTENSION
+# ==========================================
 
 class NexusAgentSwarmOrchestrator:
     """
@@ -23,16 +293,10 @@ class NexusAgentSwarmOrchestrator:
     def execute_swarm(self, target_query: str) -> Dict[str, Any]:
         logger.info(f"Initializing Multi-Agent Swarm for target query: {target_query}")
         
-        # Agent 1: Deep Research & Firmographic Agent
         research_data = self._run_researcher_agent(target_query)
-        
-        # Agent 2: Compliance & Security Auditor Agent
         compliance_data = self._run_compliance_agent(research_data)
-        
-        # Agent 3: Outreach Strategist & Copywriter Agent
         strategy_data = self._run_copywriter_agent(research_data, compliance_data)
         
-        # Synthesize final enterprise lead profile
         synthesized_lead = {
             **research_data,
             **compliance_data,
@@ -117,286 +381,15 @@ class NexusAgentSwarmOrchestrator:
                 "recommended_outreach_angle": "Highlight zero-trust API security and automated compliance workflows."
             }
 
-
 class ClosedLoopLearningEngine:
-    """
-    Self-optimizing feedback loop that adjusts lead scoring weights based on conversion/rejection outcomes.
-    """
     @staticmethod
     def calculate_adaptive_trust_score(base_score: int, historical_conversions_in_industry: float) -> int:
-        # Boost trust score if historical conversion rate in this industry is high (> 20%)
         adjustment = int(historical_conversions_in_industry * 10)
         optimized_score = min(100, max(0, base_score + adjustment))
         return optimized_score
 
-
-# Background Signal Monitor utilizing APScheduler integration hook
 def background_signal_monitor_job():
     logger.info("APScheduler Autonomous Sentinel: Scanning live webhook feeds and repository velocity spikes...")
-
-
-from datetime import datetime, timedelta, timezone
-import os
-import secrets
-import sqlite3
-import hashlib
-import hmac
-import time
-import asyncio
-import json
-import uuid
-import logging
-import random
-import stripe
-import requests
-import redis
-import sentry_sdk
-from sentry_sdk.integrations.fastapi import FastApiIntegration
-from fastapi import FastAPI, Header, HTTPException, Request, Query, Response, BackgroundTasks, Depends, status
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response as FastAPIResponse, HTMLResponse
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.trustedhost import TrustedHostMiddleware
-from pydantic import BaseModel, Field, ValidationError, EmailStr
-from typing import List, Optional, Dict, Any
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from contextlib import asynccontextmanager
-from dotenv import load_dotenv
-from psycopg2 import pool
-from psycopg2.extras import RealDictCursor
-
-load_dotenv()
-
-logging.basicConfig(
-    level=logging.INFO,
-    format='{"time": "%(asctime)s", "level": "%(levelname)s", "logger": "%(name)s", "message": "%(message)s"}'
-)
-logger = logging.getLogger("nexus-enterprise-apex")
-
-SENTRY_DSN = os.getenv("SENTRY_DSN")
-if SENTRY_DSN:
-    sentry_sdk.init(
-        dsn=SENTRY_DSN,
-        integrations=[FastApiIntegration()],
-        traces_sample_rate=1.0,
-    )
-
-stripe.api_key = os.getenv("STRIPE_API_KEY", "your_stripe_key_here")
-ENDPOINT_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "your_webhook_secret_here")
-
-WEBHOOK_SIGNING_SECRET = os.getenv("WEBHOOK_SIGNING_SECRET")
-if not WEBHOOK_SIGNING_SECRET:
-    logger.critical("FATAL: WEBHOOK_SIGNING_SECRET environment variable is missing! Webhook verification insecure.")
-    raise RuntimeError("WEBHOOK_SIGNING_SECRET must be explicitly configured in production environments.")
-
-ADMIN_SECRET_KEY = os.getenv("ADMIN_SECRET_KEY")
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-
-RESEND_API_KEY = os.getenv("RESEND_API_KEY")
-SENDER_EMAIL = os.getenv("SENDER_EMAIL", "onboarding@resend.dev")
-
-DATABASE_URL = os.getenv("DATABASE_URL")
-REDIS_URL = os.getenv("REDIS_URL")
-
-redis_client = None
-if REDIS_URL:
-    try:
-        redis_client = redis.from_url(REDIS_URL, decode_responses=True)
-        redis_client.ping()
-    except Exception as e:
-        logger.warning(f"Redis connection failed: {e}")
-        redis_client = None
-
-db_pool = None
-if DATABASE_URL:
-    try:
-        db_url = DATABASE_URL.replace("postgres://", "postgresql://", 1)
-        db_pool = pool.ThreadedConnectionPool(minconn=5, maxconn=40, dsn=db_url)
-    except Exception as e:
-        logger.warning(f"Database connection pool initialization failed: {e}")
-
-webhook_semaphore = asyncio.Semaphore(10)
-
-
-def get_db():
-    if db_pool:
-        conn = db_pool.getconn()
-        conn.cursor_factory = RealDictCursor
-        return conn
-    else:
-        conn = sqlite3.connect("quantcode_nexus.db")
-        conn.row_factory = sqlite3.Row
-        return conn
-
-
-def release_db(conn):
-    if db_pool:
-        try:
-            db_pool.putconn(conn)
-        except Exception:
-            pass
-    else:
-        conn.close()
-
-
-def hash_api_key(api_key: str) -> str:
-    return hashlib.sha256(api_key.encode("utf-8")).hexdigest()
-
-
-def generate_hmac_signature(payload_json: str) -> str:
-    return hmac.new(
-        WEBHOOK_SIGNING_SECRET.encode("utf-8"),
-        payload_json.encode("utf-8"),
-        hashlib.sha256
-    ).hexdigest()
-
-
-def call_gemini_rest(prompt: str, max_retries: int = 3) -> str:
-    if not GEMINI_API_KEY:
-        logger.error("GEMINI_API_KEY environment variable is missing or empty.")
-        raise Exception("GEMINI_API_KEY not configured")
-    
-    models = ["gemini-3.6-flash", "gemini-2.5-flash"]
-    
-    for model_name in models:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={GEMINI_API_KEY}"
-        headers = {"Content-Type": "application/json"}
-        payload = {
-            "contents": [{
-                "parts": [{"text": prompt}]
-            }]
-        }
-        
-        backoff_factor = 2
-        for attempt in range(1, max_retries + 1):
-            try:
-                res = requests.post(url, json=payload, headers=headers, timeout=30)
-                if res.status_code == 200:
-                    data = res.json()
-                    return data["candidates"][0]["content"]["parts"][0]["text"]
-                elif res.status_code in [503, 429, 502, 504, 500]:
-                    logger.warning(f"Model {model_name} returned status {res.status_code} on attempt {attempt}/{max_retries}. Retrying...")
-                    if attempt == max_retries:
-                        break
-                else:
-                    logger.error(f"Model {model_name} error status {res.status_code}: {res.text}")
-                    break
-            except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as net_err:
-                logger.warning(f"Network error on model {model_name} attempt {attempt}: {net_err}")
-                if attempt == max_retries:
-                    break
-            except Exception as err:
-                if attempt == max_retries:
-                    break
-                logger.warning(f"Model {model_name} retryable exception on attempt {attempt}: {err}")
-
-            time.sleep((backoff_factor ** attempt) + random.uniform(0.1, 1.0))
-            
-    raise Exception("All Gemini model endpoints failed after maximum retries and model fallbacks.")
-
-
-def log_audit_event(email: str, action: str, details: str, ip_address: str = "127.0.0.1"):
-    conn = get_db()
-    try:
-        cursor = conn.cursor()
-        if DATABASE_URL:
-            cursor.execute(
-                "INSERT INTO audit_logs (email, action, details, ip_address) VALUES (%s, %s, %s, %s)",
-                (email, action, details, ip_address)
-            )
-        else:
-            cursor.execute(
-                "INSERT INTO audit_logs (email, action, details, ip_address) VALUES (?, ?, ?, ?)",
-                (email, action, details, ip_address)
-            )
-        conn.commit()
-        cursor.close()
-    except Exception as e:
-        logger.error(f"Audit log error: {e}")
-    finally:
-        release_db(conn)
-
-
-def send_telegram_alert(message: str, chat_id: Optional[str] = None):
-    target_chat = chat_id or TELEGRAM_CHAT_ID
-    if not TELEGRAM_BOT_TOKEN or not target_chat:
-        return
-    try:
-        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-        requests.post(url, json={"chat_id": target_chat, "text": message, "parse_mode": "Markdown"}, timeout=5)
-    except Exception as e:
-        logger.error(f"Telegram alert failed: {e}")
-
-
-def send_email_via_resend(to_email: str, api_key: str):
-    if not RESEND_API_KEY:
-        return
-    url = "https://api.resend.com/emails"
-    headers = {"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"}
-    html_content = f"""
-        <h2>Welcome to QuantCode Nexus Enterprise Apex!</h2>
-        <p>Your elite B2B lead API key has been generated and activated.</p>
-        <p><strong>Your API Key:</strong> <code>{api_key}</code></p>
-        <p><a href="https://nexus-core-yfou.onrender.com/dashboard" style="background: #38bdf8; color: #0f172a; padding: 12px 20px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold;">Open Dashboard</a></p>
-    """
-    payload = {"from": f"QuantCode Nexus <{SENDER_EMAIL}>", "to": [to_email], "subject": "Your Enterprise API Key 🚀", "html": html_content}
-    try:
-        requests.post(url, json=payload, headers=headers, timeout=10)
-    except Exception as e:
-        logger.error(f"Resend error: {e}")
-
-
-def send_custom_email_via_resend(to_email: str, subject: str, html_content: str):
-    if not RESEND_API_KEY:
-        logger.warning("Resend API key missing; skipping live email dispatch.")
-        return False
-    url = "https://api.resend.com/emails"
-    headers = {"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"}
-    payload = {"from": f"QuantCode Nexus <{SENDER_EMAIL}>", "to": [to_email], "subject": subject, "html": html_content}
-    try:
-        res = requests.post(url, json=payload, headers=headers, timeout=10)
-        return res.status_code in [200, 201]
-    except Exception as e:
-        logger.error(f"Resend custom email error: {e}")
-        return False
-
-
-def send_password_reset_email(to_email: str, reset_url: str):
-    if not RESEND_API_KEY:
-        return
-    url = "https://api.resend.com/emails"
-    headers = {"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"}
-    html_content = f"""
-        <h2>QuantCode Nexus API Key Reset</h2>
-        <p>Click below to generate your replacement API key:</p>
-        <p><a href="{reset_url}" style="background: #38bdf8; color: #0f172a; padding: 12px 20px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold;">Reset My API Key</a></p>
-        <p><small>Link expires in 15 minutes.</small></p>
-    """
-    payload = {"from": f"QuantCode Nexus <{SENDER_EMAIL}>", "to": [to_email], "subject": "Reset your API Key", "html": html_content}
-    try:
-        requests.post(url, json=payload, headers=headers, timeout=10)
-    except Exception as e:
-        logger.error(f"Resend reset error: {e}")
-
-
-def send_magic_link_email(to_email: str, magic_url: str):
-    if not RESEND_API_KEY:
-        return
-    url = "https://api.resend.com/emails"
-    headers = {"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"}
-    html_content = f"""
-        <h2>QuantCode Nexus Magic Link Sign-In</h2>
-        <p>Click the secure link below to instantly sign in to your dashboard:</p>
-        <p><a href="{magic_url}" style="background: #38bdf8; color: #0f172a; padding: 12px 20px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold;">Sign In Instantly 🚀</a></p>
-        <p><small>Link expires in 15 minutes.</small></p>
-    """
-    payload = {"from": f"QuantCode Nexus <{SENDER_EMAIL}>", "to": [to_email], "subject": "Your Magic Sign-In Link", "html": html_content}
-    try:
-        requests.post(url, json=payload, headers=headers, timeout=10)
-    except Exception as e:
-        logger.error(f"Resend magic link error: {e}")
-
 
 def init_db():
     conn = get_db()
@@ -649,9 +642,7 @@ def init_db():
     cursor.close()
     release_db(conn)
 
-
 init_db()
-
 
 def record_usage_hit(email: str):
     conn = get_db()
@@ -667,7 +658,6 @@ def record_usage_hit(email: str):
         logger.error(f"Usage analytics record error: {e}")
     finally:
         release_db(conn)
-
 
 def generate_lead_embedding(text_content: str):
     if not GEMINI_API_KEY:
@@ -695,7 +685,6 @@ def generate_lead_embedding(text_content: str):
     except Exception as e:
         logger.error(f"CRITICAL Embedding generation error: {e}")
         return None
-
 
 def fetch_advanced_enrichment_data(domain: str, industry: str = "SaaS / Tech") -> dict:
     clean_dom = domain.lower().replace("https://", "").replace("http://", "").rstrip("/")
@@ -746,7 +735,6 @@ def fetch_advanced_enrichment_data(domain: str, industry: str = "SaaS / Tech") -
         "acv_estimate": acv
     }
 
-
 async def async_background_enrichment_worker(lead_id: int, company_name: str, domain: str, industry: str = "SaaS / Tech"):
     enrichment = fetch_advanced_enrichment_data(domain, industry)
     mock_tech = enrichment["tech_stack"]
@@ -781,7 +769,6 @@ async def async_background_enrichment_worker(lead_id: int, company_name: str, do
 
     await evaluate_autonomous_rules_for_lead(lead_id)
 
-
 async def evaluate_autonomous_rules_for_lead(lead_id: int):
     conn = get_db()
     try:
@@ -804,7 +791,6 @@ async def evaluate_autonomous_rules_for_lead(lead_id: int):
             send_telegram_alert(alert_msg, chat_id=user_chat_id)
         if r["auto_enroll"] == 1:
             logger.info(f"Omnichannel Swarm: Enrolled lead {r['company_name']} into multi-touch email + LinkedIn sequence.")
-
 
 async def webhook_canary_healing_worker():
     conn = get_db()
@@ -837,6 +823,59 @@ async def webhook_canary_healing_worker():
         except Exception:
             pass
 
+async def webhook_dlq_replay_worker():
+    """Background worker that periodically retries and replays items from the webhook DLQ."""
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, event_id, webhook_url, payload FROM webhook_dlq LIMIT 10")
+        dlq_items = cursor.fetchall()
+        cursor.close()
+    finally:
+        release_db(conn)
+
+    for item in dlq_items:
+        item_dict = dict(item) if not hasattr(item, "keys") else item
+        dlq_id = item_dict["id"]
+        event_id = item_dict["event_id"]
+        url = item_dict["webhook_url"]
+        payload_str = item_dict["payload"]
+
+        signature = generate_hmac_signature(payload_str)
+        headers = {
+            "Content-Type": "application/json",
+            "X-Nexus-Signature": signature,
+            "X-Nexus-Event-Id": event_id,
+            "X-Nexus-Replayed": "true"
+        }
+
+        try:
+            response = await asyncio.to_thread(requests.post, url, data=payload_str, headers=headers, timeout=10)
+            status_code = response.status_code
+            success = 1 if 200 <= status_code < 300 else 0
+            error_msg = None if success else f"HTTP {status_code}"
+        except Exception as e:
+            status_code = 500
+            success = 0
+            error_msg = str(e)
+
+        log_conn = get_db()
+        try:
+            log_cursor = log_conn.cursor()
+            if DATABASE_URL:
+                log_cursor.execute("INSERT INTO webhook_logs (event_id, webhook_url, payload, status_code, success, error_message) VALUES (%s, %s, %s, %s, %s, %s)", (event_id, url, payload_str, status_code, success, error_msg))
+                if success == 1:
+                    log_cursor.execute("DELETE FROM webhook_dlq WHERE id = %s", (dlq_id,))
+            else:
+                log_cursor.execute("INSERT INTO webhook_logs (event_id, webhook_url, payload, status_code, success, error_message) VALUES (?, ?, ?, ?, ?, ?)", (event_id, url, payload_str, status_code, success, error_msg))
+                if success == 1:
+                    log_cursor.execute("DELETE FROM webhook_dlq WHERE id = ?", (dlq_id,))
+            log_conn.commit()
+            log_cursor.close()
+        except Exception as log_err:
+            logger.error(f"DLQ background replay log error: {log_err}")
+        finally:
+            release_db(log_conn)
 
 async def dispatch_outbound_webhooks(lead_data: dict, trigger_action: str = "lead.ingested"):
     conn = get_db()
@@ -1005,11 +1044,16 @@ async def dispatch_outbound_webhooks(lead_data: dict, trigger_action: str = "lea
         except Exception as crm_err:
             logger.error(f"Native CRM / Warehouse dispatch error for {dest_type}: {crm_err}")
 
+    # Broadcast live update over WebSocket feed
+    await manager.broadcast({
+        "event": trigger_action,
+        "lead": lead_data,
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    })
 
 async def safe_dispatch_wrapper(lead_payload: dict, trigger_action: str = "lead.ingested"):
     async with webhook_semaphore:
         await dispatch_outbound_webhooks(lead_payload, trigger_action=trigger_action)
-
 
 class GeminiLeadSchema(BaseModel):
     company_name: str
@@ -1027,12 +1071,10 @@ class GeminiLeadSchema(BaseModel):
     decision_maker_linkedin: Optional[str] = ""
     acv_estimate: Optional[str] = "$25,000"
 
-
 class WebhookRegistrationResponse(BaseModel):
     status: str
     webhook_url: str
     filter_rules: str
-
 
 async def automated_lead_ingestion():
     if not GEMINI_API_KEY:
@@ -1144,7 +1186,6 @@ async def automated_lead_ingestion():
         except Exception as e:
             logger.error(f"Agentic ICP ingestion error for niche {industries}: {e}")
 
-
 async def gdpr_compliance_cleanup():
     conn = get_db()
     try:
@@ -1164,14 +1205,13 @@ async def gdpr_compliance_cleanup():
     finally:
         release_db(conn)
 
-
 scheduler = AsyncIOScheduler()
 scheduler.add_job(gdpr_compliance_cleanup, "interval", hours=24)
 scheduler.add_job(webhook_canary_healing_worker, "interval", minutes=1)
+scheduler.add_job(webhook_dlq_replay_worker, "interval", minutes=5)
 scheduler.add_job(background_signal_monitor_job, "interval", minutes=30)
 if os.getenv("ENABLE_MOCK_LEEDS", "false").lower() == "true":
     scheduler.add_job(automated_lead_ingestion, "interval", hours=1)
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -1181,7 +1221,6 @@ async def lifespan(app: FastAPI):
     yield
     scheduler.shutdown()
 
-
 app = FastAPI(
     title="QuantCode Nexus Enterprise Apex API",
     version="3.9.0",
@@ -1190,8 +1229,7 @@ app = FastAPI(
 )
 
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=["nexus-core-yfou.onrender.com", "localhost", "127.0.0.1", "testserver"])
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
-
+app.add_middleware(CORSMiddleware, allow_origins=TRUSTED_ORIGINS, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 class AIDLQPayload(BaseModel):
     raw_payload: str
@@ -1221,7 +1259,6 @@ async def receive_ai_dlq(payload: AIDLQPayload, admin_key: str = Header(None, al
         release_db(conn)
     return {"status": "success", "message": "Logged to AI DLQ successfully."}
 
-
 @app.middleware("http")
 async def correlation_id_middleware(request: Request, call_next):
     request_id = request.headers.get("X-Request-Id", f"req_{uuid.uuid4()}")
@@ -1229,11 +1266,9 @@ async def correlation_id_middleware(request: Request, call_next):
     response.headers["X-Request-Id"] = request_id
     return response
 
-
 @app.exception_handler(HTTPException)
 async def custom_http_exception_handler(request: Request, exc: HTTPException):
     return JSONResponse(status_code=exc.status_code, content={"status": "error", "code": exc.status_code, "message": exc.detail, "path": request.url.path})
-
 
 @app.get("/")
 async def read_index():
@@ -1271,24 +1306,38 @@ async def privacy_page():
         return FileResponse("privacy.html")
     return {"status": "privacy"}
 
-
 @app.get("/health")
 async def health_check():
     return {"status": "healthy", "architecture": "enterprise-apex-hybrid-vector", "timestamp": datetime.now(timezone.utc).isoformat()}
 
+@app.websocket("/ws/v1/live-feed")
+async def websocket_live_feed(websocket: WebSocket):
+    await manager.connect(websocket)
+    try:
+        while True:
+            # Keep connection alive and listen for client heartbeat or pings
+            data = await websocket.receive_text()
+            if data == "ping":
+                await websocket.send_text("pong")
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)
 
 @app.get("/metrics")
 async def prometheus_metrics():
-    conn = get_db()
-    try:
-        cursor = conn.cursor()
-        cursor.execute("SELECT COUNT(*) FROM b2b_leads;")
-        lead_count = cursor.fetchone()["count"] if DATABASE_URL else cursor.fetchone()[0]
-        cursor.execute("SELECT COUNT(*) FROM subscribers WHERE active = 1;")
-        sub_count = cursor.fetchone()["count"] if DATABASE_URL else cursor.fetchone()[0]
-        cursor.close()
-    finally:
-        release_db(conn)
+    def _fetch_metrics():
+        conn = get_db()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM b2b_leads;")
+            lead_count = cursor.fetchone()["count"] if DATABASE_URL else cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(*) FROM subscribers WHERE active = 1;")
+            sub_count = cursor.fetchone()["count"] if DATABASE_URL else cursor.fetchone()[0]
+            cursor.close()
+            return lead_count, sub_count
+        finally:
+            release_db(conn)
+
+    lead_count, sub_count = await asyncio.to_thread(_fetch_metrics)
 
     metrics_output = f"""# HELP nexus_leads_total Total active B2B leads stored
 # TYPE nexus_leads_total gauge
@@ -1298,7 +1347,6 @@ nexus_leads_total {lead_count}
 nexus_subscribers_active {sub_count}
 """
     return FastAPIResponse(content=metrics_output, media_type="text/plain")
-
 
 def verify_api_key(x_api_key: str = Header(...), request: Request = None):
     incoming_hash = hash_api_key(x_api_key)
@@ -1337,7 +1385,6 @@ def verify_api_key(x_api_key: str = Header(...), request: Request = None):
     record_usage_hit(email)
     return {"email": email, "key_name": key_name, "scope": scope, "role": role, "tier": tier, "hash": incoming_hash, "ip": client_ip}
 
-
 def check_rate_limit(api_key_hash: str, response: Response, max_requests: int = 30):
     window_seconds = 60
     current_time = time.time()
@@ -1369,7 +1416,6 @@ def check_rate_limit(api_key_hash: str, response: Response, max_requests: int = 
     response.headers["X-RateLimit-Limit"] = str(max_requests)
     response.headers["X-RateLimit-Remaining"] = str(max_requests)
     response.headers["X-RateLimit-Reset"] = str((current_minute + 1) * window_seconds)
-
 
 class MagicLinkRequestPayload(BaseModel):
     email: EmailStr
@@ -1415,7 +1461,6 @@ async def request_magic_link(payload: MagicLinkRequestPayload, background_tasks:
     log_audit_event(payload.email, "MAGIC_LINK_REQUESTED", "Magic link sign-in requested", request.client.host if request.client else "unknown")
     return {"status": "success", "message": f"Magic link sent to {payload.email}. Check your inbox."}
 
-
 @app.get("/auth/verify-magic")
 async def verify_magic_link(token: str):
     conn = get_db()
@@ -1446,7 +1491,6 @@ async def verify_magic_link(token: str):
         return FileResponse("dashboard.html")
     return {"status": "success", "message": "Authentication verified via magic link token."}
 
-
 class TelegramSettingsPayload(BaseModel):
     telegram_chat_id: str
 
@@ -1466,7 +1510,6 @@ async def save_user_telegram_settings(payload: TelegramSettingsPayload, request:
     log_audit_event(auth["email"], "TELEGRAM_CONFIGURED", "Updated user Telegram chat ID settings", auth["ip"])
     return {"status": "success", "message": "Telegram chat ID saved successfully! You will now receive autonomous alerts here."}
 
-
 @app.get("/api/v1/user/telegram")
 async def get_user_telegram_settings(request: Request, auth: dict = Depends(verify_api_key)):
     conn = get_db()
@@ -1482,7 +1525,6 @@ async def get_user_telegram_settings(request: Request, auth: dict = Depends(veri
         release_db(conn)
     chat_id = row["telegram_chat_id"] if row and row.get("telegram_chat_id") else ""
     return {"status": "success", "telegram_chat_id": chat_id}
-
 
 class SendEmailPayload(BaseModel):
     to_email: EmailStr
@@ -1500,7 +1542,6 @@ async def send_live_lead_email(lead_id: int, payload: SendEmailPayload, request:
 
     log_audit_event(auth["email"], "LIVE_EMAIL_SENT", f"Sent live email to {payload.to_email} for lead ID {lead_id}", auth["ip"])
     return {"status": "success", "message": f"Live email successfully dispatched to {payload.to_email} via Resend!"}
-
 
 class AutonomousRulesPayload(BaseModel):
     min_trust: int = 85
@@ -1531,7 +1572,6 @@ async def save_autonomous_rules(payload: AutonomousRulesPayload, auth: dict = De
         release_db(conn)
     return {"status": "success", "message": "Autonomous SDR autopilot rules saved successfully."}
 
-
 @app.get("/api/v1/autonomous/rules")
 async def get_autonomous_rules(auth: dict = Depends(verify_api_key)):
     conn = get_db()
@@ -1548,7 +1588,6 @@ async def get_autonomous_rules(auth: dict = Depends(verify_api_key)):
     if not row:
         return {"status": "success", "rules": {"min_trust": 85, "auto_sync": 1, "auto_enroll": 1}}
     return {"status": "success", "rules": dict(row)}
-
 
 @app.post("/api/v1/leads/{lead_id}/sync-crm")
 async def sync_lead_crm(lead_id: int, request: Request, background_tasks: BackgroundTasks, auth: dict = Depends(verify_api_key)):
@@ -1599,7 +1638,6 @@ async def sync_lead_crm(lead_id: int, request: Request, background_tasks: Backgr
         "message": msg
     }
 
-
 @app.post("/api/v1/leads/{lead_id}/convert")
 async def convert_lead_action(lead_id: int, request: Request, auth: dict = Depends(verify_api_key)):
     if auth.get("role") == "viewer":
@@ -1636,7 +1674,6 @@ async def convert_lead_action(lead_id: int, request: Request, auth: dict = Depen
         "message": f"Lead conversion status updated to {new_conv}."
     }
 
-
 @app.post("/api/v1/leads/{lead_id}/reject")
 async def reject_lead_action(lead_id: int, request: Request, auth: dict = Depends(verify_api_key)):
     if auth.get("role") == "viewer":
@@ -1672,7 +1709,6 @@ async def reject_lead_action(lead_id: int, request: Request, auth: dict = Depend
         "rejection_status": new_rej,
         "message": f"Lead rejection status updated to {new_rej}."
     }
-
 
 @app.post("/api/v1/leads/{lead_id}/ai-draft")
 def generate_ai_email_draft(lead_id: int, x_api_key: str = Header(...)):
@@ -1711,12 +1747,11 @@ def generate_ai_email_draft(lead_id: int, x_api_key: str = Header(...)):
 
     return {"subject": subject, "body": body, "to_email": lead.get("email") or f"contact@{domain}"}
 
-
 @app.post("/api/v1/leads/{lead_id}/feedback")
 def submit_lead_feedback(
     lead_id: int, feedback: dict, x_api_key: str = Header(...)
 ):
-    status = feedback.get("feedback_status")
+    status_val = feedback.get("feedback_status")
     conn = get_db()
     try:
         c = conn.cursor()
@@ -1724,7 +1759,7 @@ def submit_lead_feedback(
             c.execute(
                 "UPDATE b2b_leads SET conversion_status = %s WHERE id = %s",
                 (
-                    "converted" if status == "converted" else "active",
+                    "converted" if status_val == "converted" else "active",
                     lead_id,
                 ),
             )
@@ -1732,7 +1767,7 @@ def submit_lead_feedback(
             c.execute(
                 "UPDATE b2b_leads SET conversion_status = ? WHERE id = ?",
                 (
-                    "converted" if status == "converted" else "active",
+                    "converted" if status_val == "converted" else "active",
                     lead_id,
                 ),
             )
@@ -1744,7 +1779,6 @@ def submit_lead_feedback(
         "status": "success",
         "message": f"Reinforcement vector updated for lead #{lead_id}",
     }
-
 
 @app.post("/api/v1/leads/{lead_id}/enroll-sequence")
 async def enroll_lead_in_sequence(lead_id: int, request: Request, background_tasks: BackgroundTasks, auth: dict = Depends(verify_api_key)):
@@ -1770,7 +1804,6 @@ async def enroll_lead_in_sequence(lead_id: int, request: Request, background_tas
     background_tasks.add_task(safe_dispatch_wrapper, lead, "lead.sequence_enrolled")
     log_audit_event(auth["email"], "SEQUENCE_ENROLL", f"Enrolled lead {lead.get('company_name')} ({lead.get('email')}) into automated outreach sequence", auth["ip"])
     return {"status": "success", "message": f"Successfully enrolled {lead.get('company_name')} into outbound email & LinkedIn sequence."}
-
 
 @app.get("/api/v1/leads/{lead_id}/lookalikes")
 async def get_lead_lookalikes(lead_id: int, request: Request, auth: dict = Depends(verify_api_key)):
@@ -1813,7 +1846,6 @@ async def get_lead_lookalikes(lead_id: int, request: Request, auth: dict = Depen
 
     return {"status": "success", "lead_id": lead_id, "lookalikes": lookalikes}
 
-
 @app.delete("/api/v1/leads/{lead_id}")
 async def delete_single_lead(lead_id: int, request: Request, auth: dict = Depends(verify_api_key)):
     if auth.get("role") == "viewer":
@@ -1838,7 +1870,6 @@ async def delete_single_lead(lead_id: int, request: Request, auth: dict = Depend
 
     log_audit_event(auth["email"], "LEAD_DELETED", f"Deleted lead ID {lead_id}", auth["ip"])
     return {"status": "success", "message": f"Lead #{lead_id} deleted successfully."}
-
 
 @app.post("/api/v1/admin/dlq/{dlq_id}/replay")
 async def replay_dlq_event(dlq_id: int, request: Request, background_tasks: BackgroundTasks, auth: dict = Depends(verify_api_key)):
@@ -1906,7 +1937,6 @@ async def replay_dlq_event(dlq_id: int, request: Request, background_tasks: Back
     log_audit_event(auth["email"], "DLQ_REPLAY", f"Replayed DLQ event ID {dlq_id} to {url} (Success: {success})", auth["ip"])
     return {"status": "success", "replayed": success, "status_code": status_code, "message": f"DLQ event replayed with status {status_code}."}
 
-
 @app.get("/api/v1/admin/dlq")
 async def list_dlq_events(request: Request, auth: dict = Depends(verify_api_key)):
     if auth.get("role") != "admin":
@@ -1932,7 +1962,6 @@ async def list_dlq_events(request: Request, auth: dict = Depends(verify_api_key)
 
     return {"status": "success", "dlq_count": len(dlq_items), "dlq_items": dlq_items}
 
-
 @app.get("/api/v1/admin/audit-logs")
 async def list_audit_logs(request: Request, auth: dict = Depends(verify_api_key)):
     if auth.get("role") != "admin":
@@ -1957,7 +1986,6 @@ async def list_audit_logs(request: Request, auth: dict = Depends(verify_api_key)
         release_db(conn)
 
     return {"status": "success", "audit_logs": logs}
-
 
 @app.get("/audit/{domain}")
 async def render_lead_microsite(domain: str):
@@ -2003,7 +2031,6 @@ async def render_lead_microsite(domain: str):
     </html>"""
     return HTMLResponse(content=html_content)
 
-
 @app.post("/api/v1/leads/{lead_id}/deep-scan")
 async def lead_deep_scan(lead_id: int, request: Request, auth: dict = Depends(verify_api_key)):
     conn = get_db()
@@ -2039,7 +2066,6 @@ async def lead_deep_scan(lead_id: int, request: Request, auth: dict = Depends(ve
         }
     }
     return {"status": "success", "report": scan_report}
-
 
 class OnDemandGeneratePayload(BaseModel):
     query: str
@@ -2142,7 +2168,7 @@ async def generate_leads_on_demand(payload: OnDemandGeneratePayload, request: Re
                 raw_text = raw_text[7:-3].strip()
             elif raw_text.startswith("```"):
                 raw_text = raw_text[3:-3].strip()
-            
+                
         parsed_data = json.loads(raw_text)
         validated_leads = []
         for item in parsed_data:
@@ -2267,7 +2293,6 @@ async def generate_leads_on_demand(payload: OnDemandGeneratePayload, request: Re
 
     return {"status": "success", "credits_remaining": credits_left, "leads_generated": len(new_leads), "leads": new_leads}
 
-
 @app.get("/api/v1/credits")
 async def get_subscriber_credits(request: Request, auth: dict = Depends(verify_api_key)):
     conn = get_db()
@@ -2286,7 +2311,6 @@ async def get_subscriber_credits(request: Request, auth: dict = Depends(verify_a
         limit = 2500 if auth["tier"] == "pro" else 500
         return {"tier": "Enterprise Apex", "credits_remaining": limit, "credits_limit": limit}
     return {"tier": "Enterprise Apex", "credits_remaining": row["credits_remaining"] if isinstance(row, dict) else row[0], "credits_limit": row["credits_limit"] if isinstance(row, dict) else row[1]}
-
 
 class DestinationPayload(BaseModel):
     destination_type: str
@@ -2319,7 +2343,6 @@ async def register_native_destination(payload: DestinationPayload, request: Requ
     log_audit_event(auth["email"], "DESTINATION_REGISTERED", f"Registered native destination {payload.destination_type}", auth["ip"])
     return {"status": "success", "message": f"Successfully connected {payload.destination_type} destination."}
 
-
 @app.get("/api/v1/destinations")
 async def list_native_destinations(request: Request, auth: dict = Depends(verify_api_key)):
     conn = get_db()
@@ -2335,7 +2358,6 @@ async def list_native_destinations(request: Request, auth: dict = Depends(verify
     finally:
         release_db(conn)
     return {"status": "success", "destinations": destinations}
-
 
 class TeamInvitePayload(BaseModel):
     email: EmailStr
@@ -2373,7 +2395,6 @@ async def invite_team_member(payload: TeamInvitePayload, request: Request, backg
     background_tasks.add_task(send_email_via_resend, payload.email, raw_key)
     return {"status": "success", "message": f"Successfully provisioned API key for {payload.email} with role {payload.role}."}
 
-
 class ICPPayload(BaseModel):
     target_industries: str
     min_trust_score: int
@@ -2407,7 +2428,6 @@ async def save_subscriber_icp(payload: ICPPayload, request: Request, auth: dict 
         release_db(conn)
     return {"status": "success", "message": "ICP profile successfully updated."}
 
-
 @app.get("/api/v1/icp")
 async def get_subscriber_icp(request: Request, auth: dict = Depends(verify_api_key)):
     conn = get_db()
@@ -2432,10 +2452,6 @@ async def get_subscriber_icp(request: Request, auth: dict = Depends(verify_api_k
         return {"status": "success", "icp": {"target_industries": "Fintech, SaaS, AI", "min_trust_score": 85, "preferred_employee_count": "10-50"}}
     return {"status": "success", "icp": dict(row)}
 
-
-class LeadFeedbackPayload(BaseModel):
-    feedback_status: str
-
 @app.post("/api/v1/admin/cleanup-webhooks")
 async def cleanup_webhooks(admin_key: str):
     if not ADMIN_SECRET_KEY or admin_key != ADMIN_SECRET_KEY:
@@ -2457,7 +2473,6 @@ async def cleanup_webhooks(admin_key: str):
         release_db(conn)
     return {"status": "success", "message": "Automated 7-day TTL log retention and placeholder webhook cleanup executed successfully."}
 
-
 @app.get("/api/v1/admin/clear-leads")
 async def clear_leads(admin_key: str):
     if not ADMIN_SECRET_KEY or admin_key != ADMIN_SECRET_KEY:
@@ -2475,7 +2490,6 @@ async def clear_leads(admin_key: str):
     finally:
         release_db(conn)
     return {"status": "success", "message": "All historical leads cleared."}
-
 
 @app.get("/api/v1/admin/backfill-embeddings")
 async def backfill_embeddings(admin_key: str = Header(None, alias="admin-key")):
@@ -2503,7 +2517,6 @@ async def backfill_embeddings(admin_key: str = Header(None, alias="admin-key")):
     finally:
         release_db(conn)
     return {"status": "success", "backfilled_count": count}
-
 
 @app.get("/api/v1/claim-session")
 async def claim_session_key(session_id: str):
@@ -2547,7 +2560,6 @@ async def claim_session_key(session_id: str):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-
 @app.get("/reset-confirm")
 async def confirm_key_reset(token: str, background_tasks: BackgroundTasks, request: Request):
     conn = get_db()
@@ -2584,7 +2596,6 @@ async def confirm_key_reset(token: str, background_tasks: BackgroundTasks, reque
     if os.path.exists("reset_success.html"):
         return FileResponse("reset_success.html")
     return {"status": "success", "message": "API key successfully reset."}
-
 
 @app.post("/api/v1/request-key-reset")
 async def request_key_reset(
@@ -2624,7 +2635,6 @@ async def request_key_reset(
         background_tasks.add_task(send_password_reset_email, email, reset_url)
     return {"status": "success", "message": f"API key reset link sent to {email}."}
 
-
 @app.get("/api/v1/keys")
 async def list_subscriber_keys(request: Request, auth: dict = Depends(verify_api_key)):
     conn = get_db()
@@ -2646,7 +2656,6 @@ async def list_subscriber_keys(request: Request, auth: dict = Depends(verify_api
     finally:
         release_db(conn)
     return {"status": "success", "keys": keys}
-
 
 @app.post("/api/v1/keys")
 async def create_subscriber_key(request: Request, key_name: str = "New Key", scope: str = "full", role: str = "sdr", auth: dict = Depends(verify_api_key)):
@@ -2677,7 +2686,6 @@ async def create_subscriber_key(request: Request, key_name: str = "New Key", sco
     log_audit_event(auth["email"], "KEY_CREATED", f"Created new API key labeled '{key_name}' with scope '{scope}' and role '{role}'", auth["ip"])
     return {"status": "success", "key_name": key_name, "scope": scope, "role": role, "api_key": raw_key, "message": "Save this key now. It will not be shown again."}
 
-
 @app.delete("/api/v1/keys/{key_id}")
 async def revoke_subscriber_key(key_id: int, request: Request, auth: dict = Depends(verify_api_key)):
     if auth.get("role") != "admin":
@@ -2704,7 +2712,6 @@ async def revoke_subscriber_key(key_id: int, request: Request, auth: dict = Depe
     log_audit_event(auth["email"], "KEY_REVOKED", f"Revoked API key ID {key_id}", auth["ip"])
     return {"status": "success", "message": f"API key ID {key_id} revoked successfully."}
 
-
 @app.get("/api/v1/analytics/usage")
 async def get_usage_analytics_history(request: Request, auth: dict = Depends(verify_api_key)):
     conn = get_db()
@@ -2730,7 +2737,6 @@ async def get_usage_analytics_history(request: Request, auth: dict = Depends(ver
             {"day": "2026-09-08", "request_count": 3450}
         ]
     return {"status": "success", "usage_history": history}
-
 
 @app.post("/api/v1/webhooks", response_model=WebhookRegistrationResponse, status_code=status.HTTP_201_CREATED)
 async def register_subscriber_webhook(
@@ -2766,7 +2772,6 @@ async def register_subscriber_webhook(
         "filter_rules": filter_rules
     }
 
-
 @app.get("/api/v1/webhook-logs")
 async def get_webhook_logs(request: Request, auth: dict = Depends(verify_api_key)):
     conn = get_db()
@@ -2793,7 +2798,6 @@ async def get_webhook_logs(request: Request, auth: dict = Depends(verify_api_key
         ]
     return {"status": "success", "delivery_logs": logs}
 
-
 class LeadItem(BaseModel):
     company_name: str
     domain: str
@@ -2812,7 +2816,6 @@ class LeadItem(BaseModel):
 
 class BatchLeadUpload(BaseModel):
     leads: List[LeadItem]
-
 
 @app.post("/api/v1/admin/upload-leads")
 async def admin_upload_leads(
@@ -2897,7 +2900,6 @@ async def admin_upload_leads(
         release_db(conn)
     return {"status": "success", "imported_count": count}
 
-
 @app.get("/api/v1/leads")
 async def get_b2b_leads(
     request: Request,
@@ -2917,75 +2919,77 @@ async def get_b2b_leads(
 
     check_rate_limit(auth["hash"], response=response, max_requests=(120 if auth["tier"] == "pro" else 30))
 
-    conn = get_db()
-    try:
-        cursor = conn.cursor()
-        if DATABASE_URL:
-            query = "SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals, verified_email, decision_maker_title, decision_maker_linkedin, acv_estimate, sync_status, conversion_status, rejection_status, timestamp FROM b2b_leads WHERE 1=1"
-            params = []
-            if company:
-                query += " AND company_name ILIKE %s"
-                params.append(f"%{company}%")
-            if min_trust is not None:
-                query += " AND trust_score >= %s"
-                params.append(min_trust)
-            if industry:
-                query += " AND industry ILIKE %s"
-                params.append(f"%{industry}%")
-            if funding_stage:
-                query += " AND funding_stage ILIKE %s"
-                params.append(f"%{funding_stage}%")
+    def _fetch_leads_db():
+        conn = get_db()
+        try:
+            cursor = conn.cursor()
+            if DATABASE_URL:
+                query = "SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals, verified_email, decision_maker_title, decision_maker_linkedin, acv_estimate, sync_status, conversion_status, rejection_status, timestamp FROM b2b_leads WHERE 1=1"
+                params = []
+                if company:
+                    query += " AND company_name ILIKE %s"
+                    params.append(f"%{company}%")
+                if min_trust is not None:
+                    query += " AND trust_score >= %s"
+                    params.append(min_trust)
+                if industry:
+                    query += " AND industry ILIKE %s"
+                    params.append(f"%{industry}%")
+                if funding_stage:
+                    query += " AND funding_stage ILIKE %s"
+                    params.append(f"%{funding_stage}%")
 
-            if sort_by == "trust_desc":
-                query += " ORDER BY trust_score DESC"
-            elif sort_by == "trust_asc":
-                query += " ORDER BY trust_score ASC"
+                if sort_by == "trust_desc":
+                    query += " ORDER BY trust_score DESC"
+                elif sort_by == "trust_asc":
+                    query += " ORDER BY trust_score ASC"
+                else:
+                    query += " ORDER BY timestamp DESC"
+
+                query += " LIMIT %s OFFSET %s"
+                params.extend([limit, offset])
+                cursor.execute(query, params)
             else:
-                query += " ORDER BY timestamp DESC"
+                query = "SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals, verified_email, decision_maker_title, decision_maker_linkedin, acv_estimate, sync_status, conversion_status, rejection_status, timestamp FROM b2b_leads WHERE 1=1"
+                params = []
+                if company:
+                    query += " AND company_name LIKE ?"
+                    params.append(f"%{company}%")
+                if min_trust is not None:
+                    query += " AND trust_score >= ?"
+                    params.append(min_trust)
+                if industry:
+                    query += " AND industry LIKE ?"
+                    params.append(f"%{industry}%")
+                if funding_stage:
+                    query += " AND funding_stage LIKE ?"
+                    params.append(f"%{funding_stage}%")
 
-            query += " LIMIT %s OFFSET %s"
-            params.extend([limit, offset])
-            cursor.execute(query, params)
-        else:
-            query = "SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals, verified_email, decision_maker_title, decision_maker_linkedin, acv_estimate, sync_status, conversion_status, rejection_status, timestamp FROM b2b_leads WHERE 1=1"
-            params = []
-            if company:
-                query += " AND company_name LIKE ?"
-                params.append(f"%{company}%")
-            if min_trust is not None:
-                query += " AND trust_score >= ?"
-                params.append(min_trust)
-            if industry:
-                query += " AND industry LIKE ?"
-                params.append(f"%{industry}%")
-            if funding_stage:
-                query += " AND funding_stage LIKE ?"
-                params.append(f"%{funding_stage}%")
+                if sort_by == "trust_desc":
+                    query += " ORDER BY trust_score DESC"
+                elif sort_by == "trust_asc":
+                    query += " ORDER BY trust_score ASC"
+                else:
+                    query += " ORDER BY timestamp DESC"
 
-            if sort_by == "trust_desc":
-                query += " ORDER BY trust_score DESC"
-            elif sort_by == "trust_asc":
-                query += " ORDER BY trust_score ASC"
-            else:
-                query += " ORDER BY timestamp DESC"
+                query += " LIMIT ? OFFSET ?"
+                params.extend([limit, offset])
+                cursor.execute(query, params)
 
-            query += " LIMIT ? OFFSET ?"
-            params.extend([limit, offset])
-            cursor.execute(query, params)
+            rows = cursor.fetchall()
+            leads = []
+            for row in rows:
+                r_dict = dict(row)
+                if r_dict.get("timestamp") and isinstance(r_dict["timestamp"], datetime):
+                    r_dict["timestamp"] = r_dict["timestamp"].isoformat()
+                leads.append(r_dict)
+            cursor.close()
+            return leads
+        finally:
+            release_db(conn)
 
-        rows = cursor.fetchall()
-        leads = []
-        for row in rows:
-            r_dict = dict(row)
-            if r_dict.get("timestamp") and isinstance(r_dict["timestamp"], datetime):
-                r_dict["timestamp"] = r_dict["timestamp"].isoformat()
-            leads.append(r_dict)
-        cursor.close()
-    finally:
-        release_db(conn)
-
+    leads = await asyncio.to_thread(_fetch_leads_db)
     return {"status": "success", "tier": auth["tier"], "count": len(leads), "limit": limit, "offset": offset, "leads": leads}
-
 
 @app.get("/api/v1/leads/semantic-search")
 async def elite_hybrid_lead_search(
@@ -2999,102 +3003,108 @@ async def elite_hybrid_lead_search(
 
     query_embedding = await asyncio.to_thread(generate_lead_embedding, query)
     if not query_embedding or DATABASE_URL is None:
+        def _fallback_search():
+            conn = get_db()
+            try:
+                cursor = conn.cursor()
+                cursor.execute("SELECT id, company_name, domain, industry, tech_stack, trust_score, intent_signals, decision_maker_title, acv_estimate, sync_status, conversion_status, rejection_status FROM b2b_leads WHERE industry LIKE ? OR tech_stack LIKE ? OR intent_signals LIKE ? LIMIT ?", (f"%{query}%", f"%{query}%", f"%{query}%", limit))
+                rows = cursor.fetchall()
+                leads = []
+                for r in rows:
+                    leads.append({
+                        "id": r[0] if not hasattr(r, "keys") else r["id"],
+                        "company_name": r[1] if not hasattr(r, "keys") else r["company_name"],
+                        "domain": r[2] if not hasattr(r, "keys") else r["domain"],
+                        "industry": r[3] if not hasattr(r, "keys") else r["industry"],
+                        "tech_stack": r[4] if not hasattr(r, "keys") else r["tech_stack"],
+                        "trust_score": r[5] if not hasattr(r, "keys") else r["trust_score"],
+                        "intent_signals": r[6] if not hasattr(r, "keys") else r["intent_signals"],
+                        "decision_maker_title": r[7] if not hasattr(r, "keys") else r.get("decision_maker_title", "VP of Engineering"),
+                        "acv_estimate": r[8] if not hasattr(r, "keys") else r.get("acv_estimate", "$25,000"),
+                        "sync_status": r[9] if not hasattr(r, "keys") else r.get("sync_status", "unsynced"),
+                        "conversion_status": r[10] if not hasattr(r, "keys") else r.get("conversion_status", "active"),
+                        "rejection_status": r[11] if not hasattr(r, "keys") else r.get("rejection_status", "normal"),
+                        "similarity": 94 if len(leads) == 0 else 88
+                    })
+                cursor.close()
+                return leads
+            finally:
+                release_db(conn)
+
+        leads = await asyncio.to_thread(_fallback_search)
+        return {"status": "success", "query": query, "count": len(leads), "leads": leads}
+
+    def _vector_search():
         conn = get_db()
         try:
             cursor = conn.cursor()
-            cursor.execute("SELECT id, company_name, domain, industry, tech_stack, trust_score, intent_signals, decision_maker_title, acv_estimate, sync_status, conversion_status, rejection_status FROM b2b_leads WHERE industry LIKE ? OR tech_stack LIKE ? OR intent_signals LIKE ? LIMIT ?", (f"%{query}%", f"%{query}%", f"%{query}%", limit))
+            cursor.execute(
+                """
+                WITH vector_ranked AS (
+                    SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals, verified_email, decision_maker_title, decision_maker_linkedin, acv_estimate, sync_status, conversion_status, rejection_status, timestamp,
+                           (1.0 - (embedding <=> %s::vector)) as raw_sim,
+                           ROW_NUMBER() OVER (ORDER BY embedding <=> %s::vector ASC) as v_rank
+                    FROM b2b_leads
+                    WHERE embedding IS NOT NULL 
+                      AND (embedding <=> %s::vector) < 0.40
+                    LIMIT 30
+                ),
+                text_ranked AS (
+                    SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals, verified_email, decision_maker_title, decision_maker_linkedin, acv_estimate, sync_status, conversion_status, rejection_status, timestamp,
+                           ROW_NUMBER() OVER (ORDER BY ts_rank(to_tsvector('english', company_name || ' ' || industry || ' ' || tech_stack), plainto_tsquery('english', %s)) DESC) as t_rank
+                    FROM b2b_leads
+                    WHERE to_tsvector('english', company_name || ' ' || industry || ' ' || tech_stack) @@ plainto_tsquery('english', %s)
+                    LIMIT 30
+                ),
+                combined AS (
+                    SELECT COALESCE(v.id, t.id) as id,
+                           COALESCE(v.company_name, t.company_name) as company_name,
+                           COALESCE(v.domain, t.domain) as domain,
+                           COALESCE(v.email, t.email) as email,
+                           COALESCE(v.industry, t.industry) as industry,
+                           COALESCE(v.employee_count, t.employee_count) as employee_count,
+                           COALESCE(v.linkedin_url, t.linkedin_url) as linkedin_url,
+                           COALESCE(v.confidence_score, t.confidence_score) as confidence_score,
+                           COALESCE(v.trust_score, t.trust_score) as trust_score,
+                           COALESCE(v.tech_stack, t.tech_stack) as tech_stack,
+                           COALESCE(v.funding_stage, t.funding_stage) as funding_stage,
+                           COALESCE(v.intent_signals, t.intent_signals) as intent_signals,
+                           COALESCE(v.verified_email, t.verified_email) as verified_email,
+                           COALESCE(v.decision_maker_title, t.decision_maker_title) as decision_maker_title,
+                           COALESCE(v.decision_maker_linkedin, t.decision_maker_linkedin) as decision_maker_linkedin,
+                           COALESCE(v.acv_estimate, t.acv_estimate) as acv_estimate,
+                           COALESCE(v.sync_status, t.sync_status, 'unsynced') as sync_status,
+                           COALESCE(v.conversion_status, t.conversion_status, 'active') as conversion_status,
+                           COALESCE(v.rejection_status, t.rejection_status, 'normal') as rejection_status,
+                           COALESCE(v.timestamp, t.timestamp) as timestamp,
+                           COALESCE(v.raw_sim, 0.4) as raw_sim,
+                           (1.0 / (60.0 + COALESCE(v_rank, 999))) + (1.0 / (60.0 + COALESCE(t_rank, 999))) as rrf_score
+                    FROM vector_ranked v
+                    FULL OUTER JOIN text_ranked t ON v.id = t.id
+                )
+                SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals, verified_email, decision_maker_title, decision_maker_linkedin, acv_estimate, sync_status, conversion_status, rejection_status, timestamp,
+                       ROUND(CAST((CASE WHEN raw_sim > 0.35 THEN 0.70 + ((raw_sim - 0.35) / 0.65) * 0.29 ELSE raw_sim * 1.1 END) * 100 AS numeric), 0) as similarity
+                FROM combined
+                WHERE raw_sim >= 0.35
+                ORDER BY rrf_score DESC, raw_sim DESC
+                LIMIT %s
+                """,
+                (str(query_embedding), str(query_embedding), str(query_embedding), query, query, limit)
+            )
             rows = cursor.fetchall()
             leads = []
-            for r in rows:
-                leads.append({
-                    "id": r[0] if not hasattr(r, "keys") else r["id"],
-                    "company_name": r[1] if not hasattr(r, "keys") else r["company_name"],
-                    "domain": r[2] if not hasattr(r, "keys") else r["domain"],
-                    "industry": r[3] if not hasattr(r, "keys") else r["industry"],
-                    "tech_stack": r[4] if not hasattr(r, "keys") else r["tech_stack"],
-                    "trust_score": r[5] if not hasattr(r, "keys") else r["trust_score"],
-                    "intent_signals": r[6] if not hasattr(r, "keys") else r["intent_signals"],
-                    "decision_maker_title": r[7] if not hasattr(r, "keys") else r.get("decision_maker_title", "VP of Engineering"),
-                    "acv_estimate": r[8] if not hasattr(r, "keys") else r.get("acv_estimate", "$25,000"),
-                    "sync_status": r[9] if not hasattr(r, "keys") else r.get("sync_status", "unsynced"),
-                    "conversion_status": r[10] if not hasattr(r, "keys") else r.get("conversion_status", "active"),
-                    "rejection_status": r[11] if not hasattr(r, "keys") else r.get("rejection_status", "normal"),
-                    "similarity": 94 if len(leads) == 0 else 88
-                })
+            for row in rows:
+                r_dict = dict(row)
+                if r_dict.get("timestamp") and isinstance(r_dict["timestamp"], datetime):
+                    r_dict["timestamp"] = r_dict["timestamp"].isoformat()
+                leads.append(r_dict)
             cursor.close()
+            return leads
         finally:
             release_db(conn)
-        return {"status": "success", "query": query, "count": len(leads), "leads": leads}
 
-    conn = get_db()
-    try:
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            WITH vector_ranked AS (
-                SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals, verified_email, decision_maker_title, decision_maker_linkedin, acv_estimate, sync_status, conversion_status, rejection_status, timestamp,
-                       (1.0 - (embedding <=> %s::vector)) as raw_sim,
-                       ROW_NUMBER() OVER (ORDER BY embedding <=> %s::vector ASC) as v_rank
-                FROM b2b_leads
-                WHERE embedding IS NOT NULL 
-                  AND (embedding <=> %s::vector) < 0.40
-                LIMIT 30
-            ),
-            text_ranked AS (
-                SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals, verified_email, decision_maker_title, decision_maker_linkedin, acv_estimate, sync_status, conversion_status, rejection_status, timestamp,
-                       ROW_NUMBER() OVER (ORDER BY ts_rank(to_tsvector('english', company_name || ' ' || industry || ' ' || tech_stack), plainto_tsquery('english', %s)) DESC) as t_rank
-                FROM b2b_leads
-                WHERE to_tsvector('english', company_name || ' ' || industry || ' ' || tech_stack) @@ plainto_tsquery('english', %s)
-                LIMIT 30
-            ),
-            combined AS (
-                SELECT COALESCE(v.id, t.id) as id,
-                       COALESCE(v.company_name, t.company_name) as company_name,
-                       COALESCE(v.domain, t.domain) as domain,
-                       COALESCE(v.email, t.email) as email,
-                       COALESCE(v.industry, t.industry) as industry,
-                       COALESCE(v.employee_count, t.employee_count) as employee_count,
-                       COALESCE(v.linkedin_url, t.linkedin_url) as linkedin_url,
-                       COALESCE(v.confidence_score, t.confidence_score) as confidence_score,
-                       COALESCE(v.trust_score, t.trust_score) as trust_score,
-                       COALESCE(v.tech_stack, t.tech_stack) as tech_stack,
-                       COALESCE(v.funding_stage, t.funding_stage) as funding_stage,
-                       COALESCE(v.intent_signals, t.intent_signals) as intent_signals,
-                       COALESCE(v.verified_email, t.verified_email) as verified_email,
-                       COALESCE(v.decision_maker_title, t.decision_maker_title) as decision_maker_title,
-                       COALESCE(v.decision_maker_linkedin, t.decision_maker_linkedin) as decision_maker_linkedin,
-                       COALESCE(v.acv_estimate, t.acv_estimate) as acv_estimate,
-                       COALESCE(v.sync_status, t.sync_status, 'unsynced') as sync_status,
-                       COALESCE(v.conversion_status, t.conversion_status, 'active') as conversion_status,
-                       COALESCE(v.rejection_status, t.rejection_status, 'normal') as rejection_status,
-                       COALESCE(v.timestamp, t.timestamp) as timestamp,
-                       COALESCE(v.raw_sim, 0.4) as raw_sim,
-                       (1.0 / (60.0 + COALESCE(v_rank, 999))) + (1.0 / (60.0 + COALESCE(t_rank, 999))) as rrf_score
-                FROM vector_ranked v
-                FULL OUTER JOIN text_ranked t ON v.id = t.id
-            )
-            SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals, verified_email, decision_maker_title, decision_maker_linkedin, acv_estimate, sync_status, conversion_status, rejection_status, timestamp,
-                   ROUND(CAST((CASE WHEN raw_sim > 0.35 THEN 0.70 + ((raw_sim - 0.35) / 0.65) * 0.29 ELSE raw_sim * 1.1 END) * 100 AS numeric), 0) as similarity
-            FROM combined
-            WHERE raw_sim >= 0.35
-            ORDER BY rrf_score DESC, raw_sim DESC
-            LIMIT %s
-            """,
-            (str(query_embedding), str(query_embedding), str(query_embedding), query, query, limit)
-        )
-        rows = cursor.fetchall()
-        leads = []
-        for row in rows:
-            r_dict = dict(row)
-            if r_dict.get("timestamp") and isinstance(r_dict["timestamp"], datetime):
-                r_dict["timestamp"] = r_dict["timestamp"].isoformat()
-            leads.append(r_dict)
-        cursor.close()
-    finally:
-        release_db(conn)
-
+    leads = await asyncio.to_thread(_vector_search)
     return {"status": "success", "query": query, "count": len(leads), "leads": leads}
-
 
 @app.post("/create-checkout-session")
 async def create_checkout_session(email: EmailStr, tier: str = "starter"):
@@ -3121,24 +3131,26 @@ async def create_checkout_session(email: EmailStr, tier: str = "starter"):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-
 @app.post("/create-portal-session")
 async def create_portal_session(
     email: str = Query(..., description="Customer email address for billing portal session")
 ):
     try:
-        conn = get_db()
-        try:
-            cursor = conn.cursor()
-            if DATABASE_URL:
-                cursor.execute("SELECT stripe_customer_id FROM subscribers WHERE email = %s", (email,))
-            else:
-                cursor.execute("SELECT stripe_customer_id FROM subscribers WHERE email = ?", (email,))
-            row = cursor.fetchone()
-            cursor.close()
-        finally:
-            release_db(conn)
+        def _fetch_customer():
+            conn = get_db()
+            try:
+                cursor = conn.cursor()
+                if DATABASE_URL:
+                    cursor.execute("SELECT stripe_customer_id FROM subscribers WHERE email = %s", (email,))
+                else:
+                    cursor.execute("SELECT stripe_customer_id FROM subscribers WHERE email = ?", (email,))
+                row = cursor.fetchone()
+                cursor.close()
+                return row
+            finally:
+                release_db(conn)
 
+        row = await asyncio.to_thread(_fetch_customer)
         customer_id = row["stripe_customer_id"] if row else None
         if not customer_id:
             customers = stripe.Customer.list(email=email, limit=1)
@@ -3151,9 +3163,8 @@ async def create_portal_session(
             return_url="https://nexus-core-yfou.onrender.com/dashboard",
         )
         return {"portal_url": portal_session.url}
-    except Exception as e:
+    except Exception:
         return {"status": "success", "portal_url": "https://billing.stripe.com/p/session/test_portal_mock"}
-
 
 @app.post("/webhook")
 async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
@@ -3226,8 +3237,8 @@ async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
         elif event_type == "customer.subscription.updated":
             try:
                 customer_id = session_dict.get("customer")
-                status = session_dict.get("status")
-                active_state = 1 if status == "active" else 0
+                status_val = session_dict.get("status")
+                active_state = 1 if status_val == "active" else 0
                 if customer_id:
                     if DATABASE_URL:
                         cursor.execute("UPDATE subscribers SET active = %s WHERE stripe_customer_id = %s", (active_state, customer_id))
@@ -3254,7 +3265,6 @@ async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
     finally:
         release_db(conn)
     return {"status": "success"}
-
 
 if __name__ == "__main__":
     import uvicorn
