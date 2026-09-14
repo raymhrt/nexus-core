@@ -1330,8 +1330,12 @@ print(res.json())</code></pre>
                 const intent = lead.intent_signals || lead.recent_news_trigger || 'High hiring velocity';
                 const disabledAttr = currentUserRole === 'viewer' ? 'opacity-50 cursor-not-allowed' : '';
                 const syncBadge = lead.sync_status === 'synced' ? '<span class="bg-blue-500/10 text-blue-400 border border-blue-500/20 text-[10px] px-2 py-0.5 rounded font-bold uppercase">Synced</span>' : '<span class="bg-slate-800 text-slate-400 text-[10px] px-2 py-0.5 rounded font-bold uppercase">Unsynced</span>';
-                const convBadge = lead.conversion_status === 'converted' ? '<span class="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] px-2 py-0.5 rounded font-bold uppercase">Converted</span>' : '';
-                const rejBadge = lead.rejection_status === 'rejected' ? '<span class="bg-rose-500/10 text-rose-400 border border-rose-500/20 text-[10px] px-2 py-0.5 rounded font-bold uppercase">Rejected</span>' : '';
+                
+                const isConverted = lead.conversion_status === 'converted';
+                const isRejected = lead.rejection_status === 'rejected';
+
+                const convBadge = isConverted ? '<span class="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] px-2 py-0.5 rounded font-bold uppercase">Converted</span>' : '';
+                const rejBadge = isRejected ? '<span class="bg-rose-500/10 text-rose-400 border border-rose-500/20 text-[10px] px-2 py-0.5 rounded font-bold uppercase">Rejected</span>' : '';
 
                 html += `
                     <div class="bg-inputbg border border-slate-800 p-4 rounded-xl flex flex-col gap-3 hover:border-sky-500/40 transition">
@@ -1370,8 +1374,12 @@ print(res.json())</code></pre>
                                 <button class="bg-sky-500/10 hover:bg-sky-500/20 text-accent border border-sky-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${disabledAttr}" onclick="syncLeadToCRM(${lead.id})">🔗 ${lead.sync_status === 'synced' ? 'Unsync' : 'Sync'} CRM</button>
                                 <button class="bg-sky-500/10 hover:bg-sky-500/20 text-accent border border-sky-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${disabledAttr}" onclick="enrollSequence(${lead.id})">🚀 Enroll</button>
                                 <button class="bg-sky-500/10 hover:bg-sky-500/20 text-accent border border-sky-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition" onclick="triggerDeepScan(${lead.id})">🔍 Deep Scan</button>
-                                <button class="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${disabledAttr}" onclick="convertLeadAction(${lead.id})">👍 ${lead.conversion_status === 'converted' ? 'Unconvert' : 'Convert'}</button>
-                                <button class="bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${disabledAttr}" onclick="rejectLeadAction(${lead.id})">👎 ${lead.rejection_status === 'rejected' ? 'Unreject' : 'Reject'}</button>
+                                <button class="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${disabledAttr}" onclick="convertLeadAction(${lead.id})">
+                                    👍 ${isConverted ? 'Unconvert' : 'Convert'}
+                                </button>
+                                <button class="bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${disabledAttr}" onclick="rejectLeadAction(${lead.id})">
+                                    👎 ${isRejected ? 'Unreject' : 'Reject'}
+                                </button>
                             </div>
                             <button class="bg-rose-500/10 hover:bg-rose-500 text-rose-400 hover:text-white border border-rose-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${disabledAttr}" onclick="deleteLeadCard(${lead.id})">🗑️ Delete</button>
                         </div>

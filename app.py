@@ -508,8 +508,8 @@ def init_db():
                 recent_news_trigger TEXT DEFAULT 'None',
                 decision_makers_json TEXT DEFAULT '[]',
                 sync_status TEXT DEFAULT 'unsynced',
-                conversion_status TEXT DEFAULT 'active',
-                rejection_status TEXT DEFAULT 'normal',
+                conversion_status TEXT DEFAULT 'unconverted',
+                rejection_status TEXT DEFAULT 'active',
                 embedding vector(768),
                 timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
@@ -527,8 +527,8 @@ def init_db():
         cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS recent_news_trigger TEXT DEFAULT 'None';")
         cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS decision_makers_json TEXT DEFAULT '[]';")
         cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS sync_status TEXT DEFAULT 'unsynced';")
-        cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS conversion_status TEXT DEFAULT 'active';")
-        cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS rejection_status TEXT DEFAULT 'normal';")
+        cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS conversion_status TEXT DEFAULT 'unconverted';")
+        cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS rejection_status TEXT DEFAULT 'active';")
         cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_b2b_leads_domain_unique ON b2b_leads (domain);")
         cursor.execute("CREATE INDEX IF NOT EXISTS b2b_leads_hnsw_idx ON b2b_leads USING hnsw (embedding vector_cosine_ops);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_b2b_leads_filter_sort ON b2b_leads (industry, funding_stage, trust_score, timestamp DESC);")
@@ -653,11 +653,11 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS api_keys (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT, key_hash TEXT UNIQUE, key_name TEXT DEFAULT 'Default', scope TEXT DEFAULT 'full', role TEXT DEFAULT 'admin', active INTEGER DEFAULT 1, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS subscriber_credits (email TEXT PRIMARY KEY, credits_remaining INTEGER DEFAULT 500, credits_limit INTEGER DEFAULT 500, last_refill_date DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS subscriber_destinations (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT, destination_type TEXT NOT NULL, webhook_url TEXT NOT NULL, access_token TEXT DEFAULT '', mapping_rules TEXT DEFAULT '{}', active INTEGER DEFAULT 1, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
-        cursor.execute("CREATE TABLE IF NOT EXISTS b2b_leads (id INTEGER PRIMARY KEY AUTOINCREMENT, company_name TEXT, domain TEXT UNIQUE, email TEXT, industry TEXT DEFAULT 'SaaS / Tech', employee_count TEXT DEFAULT '10-50', linkedin_url TEXT DEFAULT '', confidence_score REAL DEFAULT 0.9, trust_score INTEGER DEFAULT 95, tech_stack TEXT DEFAULT 'Python, PostgreSQL', funding_stage TEXT DEFAULT 'Series A', intent_signals TEXT DEFAULT 'None', verified_email INTEGER DEFAULT 1, decision_maker_title TEXT DEFAULT 'VP of Engineering', decision_maker_linkedin TEXT DEFAULT '', acv_estimate TEXT DEFAULT '$25,000', headcount_growth_pct TEXT DEFAULT '+20% QoQ', open_hiring_roles TEXT DEFAULT 'Engineers', recent_news_trigger TEXT DEFAULT 'None', decision_makers_json TEXT DEFAULT '[]', sync_status TEXT DEFAULT 'unsynced', conversion_status TEXT DEFAULT 'active', rejection_status TEXT DEFAULT 'normal', timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)")
+        cursor.execute("CREATE TABLE IF NOT EXISTS b2b_leads (id INTEGER PRIMARY KEY AUTOINCREMENT, company_name TEXT, domain TEXT UNIQUE, email TEXT, industry TEXT DEFAULT 'SaaS / Tech', employee_count TEXT DEFAULT '10-50', linkedin_url TEXT DEFAULT '', confidence_score REAL DEFAULT 0.9, trust_score INTEGER DEFAULT 95, tech_stack TEXT DEFAULT 'Python, PostgreSQL', funding_stage TEXT DEFAULT 'Series A', intent_signals TEXT DEFAULT 'None', verified_email INTEGER DEFAULT 1, decision_maker_title TEXT DEFAULT 'VP of Engineering', decision_maker_linkedin TEXT DEFAULT '', acv_estimate TEXT DEFAULT '$25,000', headcount_growth_pct TEXT DEFAULT '+20% QoQ', open_hiring_roles TEXT DEFAULT 'Engineers', recent_news_trigger TEXT DEFAULT 'None', decision_makers_json TEXT DEFAULT '[]', sync_status TEXT DEFAULT 'unsynced', conversion_status TEXT DEFAULT 'unconverted', rejection_status TEXT DEFAULT 'active', timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)")
         for col_def in [
             ("sync_status", "TEXT DEFAULT 'unsynced'"),
-            ("conversion_status", "TEXT DEFAULT 'active'"),
-            ("rejection_status", "TEXT DEFAULT 'normal'"),
+            ("conversion_status", "TEXT DEFAULT 'unconverted'"),
+            ("rejection_status", "TEXT DEFAULT 'active'"),
             ("headcount_growth_pct", "TEXT DEFAULT '+20% QoQ'"),
             ("open_hiring_roles", "TEXT DEFAULT 'Engineers'"),
             ("recent_news_trigger", "TEXT DEFAULT 'None'"),
@@ -1582,7 +1582,7 @@ async def sync_lead_crm(lead_id: int, request: Request, background_tasks: Backgr
     }
 
 @app.post("/api/v1/leads/{lead_id}/convert")
-async def convert_lead_action(lead_id: int, request: Request, auth: dict = Depends(verify_api_key)):
+async def convert_lead(lead_id: int, request: Request, auth: dict = Depends(verify_api_key)):
     if auth.get("role") == "viewer":
         raise HTTPException(status_code=403, detail="Viewer role is not authorized to convert leads.")
 
@@ -1590,21 +1590,31 @@ async def convert_lead_action(lead_id: int, request: Request, auth: dict = Depen
     try:
         cursor = conn.cursor()
         if DATABASE_URL:
-            cursor.execute("SELECT company_name, conversion_status FROM b2b_leads WHERE id = %s", (lead_id,))
+            cursor.execute("SELECT conversion_status FROM b2b_leads WHERE id = %s", (lead_id,))
         else:
-            cursor.execute("SELECT company_name, conversion_status FROM b2b_leads WHERE id = ?", (lead_id,))
+            cursor.execute("SELECT conversion_status FROM b2b_leads WHERE id = ?", (lead_id,))
         row = cursor.fetchone()
         if not row:
             cursor.close()
             raise HTTPException(status_code=404, detail="Lead not found.")
 
-        current_conv = row["conversion_status"] if isinstance(row, dict) else row[1]
-        new_conv = "active" if current_conv == "converted" else "converted"
+        current_conv = row["conversion_status"] if isinstance(row, dict) else row[0]
+        if current_conv == 'converted':
+            new_conv = 'unconverted'
+        else:
+            new_conv = 'converted'
+            new_rej = 'active' # Mutually exclusive: clear rejection
 
         if DATABASE_URL:
-            cursor.execute("UPDATE b2b_leads SET conversion_status = %s WHERE id = %s", (new_conv, lead_id))
+            if new_conv == 'converted':
+                cursor.execute("UPDATE b2b_leads SET conversion_status = %s, rejection_status = %s WHERE id = %s", (new_conv, 'active', lead_id))
+            else:
+                cursor.execute("UPDATE b2b_leads SET conversion_status = %s WHERE id = %s", (new_conv, lead_id))
         else:
-            cursor.execute("UPDATE b2b_leads SET conversion_status = ? WHERE id = ?", (new_conv, lead_id))
+            if new_conv == 'converted':
+                cursor.execute("UPDATE b2b_leads SET conversion_status = ?, rejection_status = ? WHERE id = ?", (new_conv, 'active', lead_id))
+            else:
+                cursor.execute("UPDATE b2b_leads SET conversion_status = ? WHERE id = ?", (new_conv, lead_id))
         conn.commit()
         cursor.close()
     finally:
@@ -1614,11 +1624,11 @@ async def convert_lead_action(lead_id: int, request: Request, auth: dict = Depen
     return {
         "status": "success",
         "conversion_status": new_conv,
-        "message": f"Lead conversion status updated to {new_conv}."
+        "message": "Lead conversion updated"
     }
 
 @app.post("/api/v1/leads/{lead_id}/reject")
-async def reject_lead_action(lead_id: int, request: Request, auth: dict = Depends(verify_api_key)):
+async def reject_lead(lead_id: int, request: Request, auth: dict = Depends(verify_api_key)):
     if auth.get("role") == "viewer":
         raise HTTPException(status_code=403, detail="Viewer role is not authorized to reject leads.")
 
@@ -1626,21 +1636,31 @@ async def reject_lead_action(lead_id: int, request: Request, auth: dict = Depend
     try:
         cursor = conn.cursor()
         if DATABASE_URL:
-            cursor.execute("SELECT company_name, rejection_status FROM b2b_leads WHERE id = %s", (lead_id,))
+            cursor.execute("SELECT rejection_status FROM b2b_leads WHERE id = %s", (lead_id,))
         else:
-            cursor.execute("SELECT company_name, rejection_status FROM b2b_leads WHERE id = ?", (lead_id,))
+            cursor.execute("SELECT rejection_status FROM b2b_leads WHERE id = ?", (lead_id,))
         row = cursor.fetchone()
         if not row:
             cursor.close()
             raise HTTPException(status_code=404, detail="Lead not found.")
 
-        current_rej = row["rejection_status"] if isinstance(row, dict) else row[1]
-        new_rej = "normal" if current_rej == "rejected" else "rejected"
+        current_rej = row["rejection_status"] if isinstance(row, dict) else row[0]
+        if current_rej == 'rejected':
+            new_rej = 'active'
+        else:
+            new_rej = 'rejected'
+            new_conv = 'unconverted' # Mutually exclusive: clear conversion
 
         if DATABASE_URL:
-            cursor.execute("UPDATE b2b_leads SET rejection_status = %s WHERE id = %s", (new_rej, lead_id))
+            if new_rej == 'rejected':
+                cursor.execute("UPDATE b2b_leads SET rejection_status = %s, conversion_status = %s WHERE id = %s", (new_rej, 'unconverted', lead_id))
+            else:
+                cursor.execute("UPDATE b2b_leads SET rejection_status = %s WHERE id = %s", (new_rej, lead_id))
         else:
-            cursor.execute("UPDATE b2b_leads SET rejection_status = ? WHERE id = ?", (new_rej, lead_id))
+            if new_rej == 'rejected':
+                cursor.execute("UPDATE b2b_leads SET rejection_status = ?, conversion_status = ? WHERE id = ?", (new_rej, 'unconverted', lead_id))
+            else:
+                cursor.execute("UPDATE b2b_leads SET rejection_status = ? WHERE id = ?", (new_rej, lead_id))
         conn.commit()
         cursor.close()
     finally:
@@ -1650,7 +1670,7 @@ async def reject_lead_action(lead_id: int, request: Request, auth: dict = Depend
     return {
         "status": "success",
         "rejection_status": new_rej,
-        "message": f"Lead rejection status updated to {new_rej}."
+        "message": "Lead rejection updated"
     }
 
 @app.post("/api/v1/leads/{lead_id}/ai-draft")
@@ -1703,7 +1723,7 @@ def submit_lead_feedback(
             c.execute(
                 "UPDATE b2b_leads SET conversion_status = %s WHERE id = %s",
                 (
-                    "converted" if status_val == "converted" else "active",
+                    "converted" if status_val == "converted" else "unconverted",
                     lead_id,
                 ),
             )
@@ -1711,7 +1731,7 @@ def submit_lead_feedback(
             c.execute(
                 "UPDATE b2b_leads SET conversion_status = ? WHERE id = ?",
                 (
-                    "converted" if status_val == "converted" else "active",
+                    "converted" if status_val == "converted" else "unconverted",
                     lead_id,
                 ),
             )
@@ -3040,8 +3060,8 @@ async def elite_hybrid_lead_search(
                            COALESCE(v.recent_news_trigger, t.recent_news_trigger) as recent_news_trigger,
                            COALESCE(v.decision_makers_json, t.decision_makers_json) as decision_makers_json,
                            COALESCE(v.sync_status, t.sync_status, 'unsynced') as sync_status,
-                           COALESCE(v.conversion_status, t.conversion_status, 'active') as conversion_status,
-                           COALESCE(v.rejection_status, t.rejection_status, 'normal') as rejection_status,
+                           COALESCE(v.conversion_status, t.conversion_status, 'unconverted') as conversion_status,
+                           COALESCE(v.rejection_status, t.rejection_status, 'active') as rejection_status,
                            COALESCE(v.timestamp, t.timestamp) as timestamp,
                            COALESCE(v.raw_sim, 0.4) as raw_sim,
                            (1.0 / (60.0 + COALESCE(v_rank, 999))) + (1.0 / (60.0 + COALESCE(t_rank, 999))) as rrf_score
