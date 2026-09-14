@@ -168,7 +168,7 @@ def call_gemini_rest(prompt: str, max_retries: int = 3) -> str:
         logger.error("GEMINI_API_KEY environment variable is missing or empty.")
         raise HTTPException(status_code=500, detail="GEMINI_API_KEY not configured")
      
-    models = ["gemini-3.6-flash", "gemini-3-flash-preview", "gemini-pro"]
+    models = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-3.6-flash"]
      
     for model_name in models:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={GEMINI_API_KEY}"
@@ -204,29 +204,8 @@ def call_gemini_rest(prompt: str, max_retries: int = 3) -> str:
 
             time.sleep((backoff_factor ** attempt) + random.uniform(0.1, 1.0))
             
-    # Ultimate fallback heuristic response if all API endpoints and models fail completely
-    logger.error("All Gemini model endpoints and fallback models failed. Returning synthetic fallback structure.")
-    return json.dumps({
-        "company_name": "Apex Fallback Systems",
-        "domain": "apexfallback.io",
-        "email": "contact@apexfallback.io",
-        "industry": "SaaS / Tech",
-        "employee_count": "10-50",
-        "linkedin_url": "https://linkedin.com/company/apexfallback",
-        "confidence_score": 0.85,
-        "trust_score": 80,
-        "tech_stack": "Python, PostgreSQL",
-        "funding_stage": "Series A",
-        "intent_signals": "Fallback generation triggered due to upstream AI provider outage.",
-        "verified_email": 1,
-        "decision_maker_title": "CTO",
-        "decision_maker_linkedin": "",
-        "acv_estimate": "$25,000",
-        "headcount_growth_pct": "+15% QoQ",
-        "open_hiring_roles": "Software Engineers",
-        "recent_news_trigger": "Infrastructure expansion",
-        "decision_makers_json": "[]"
-    })
+    logger.error("All Gemini model endpoints and fallback models failed. Raising upstream AI provider error.")
+    raise HTTPException(status_code=502, detail="Upstream AI provider error: All model endpoints failed.")
 
 def log_audit_event(email: str, action: str, details: str, ip_address: str = "127.0.0.1"):
     conn = get_db()
@@ -335,17 +314,9 @@ def send_magic_link_email(to_email: str, magic_url: str):
 # ==========================================
 
 class NexusAdvancedAgentSwarmOrchestrator:
-    """
-    Advanced Multi-Agent Consensus Orchestrator utilizing google-genai SDK.
-    Executes sequential consensus: 
-    1. Researcher Agent (Raw firmographic and DNS scraping)
-    2. Compliance & Risk Auditor Agent (Financial/compliance exposure review)
-    3. Trust Scoring & Consensus Agent (Weighted final confidence and trust calculation)
-    4. Outbound Copywriter & Multi-Channel Strategist Agent (Playbook generation)
-    """
     def __init__(self, client: genai.Client):
         self.client = client
-        self.model_id = "gemini-3.6-flash"
+        self.model_id = "gemini-1.5-flash"
 
     def execute_advanced_swarm(self, target_query: str) -> Dict[str, Any]:
         logger.info(f"Initializing Advanced Multi-Agent Consensus Swarm for: {target_query}")
@@ -2082,7 +2053,7 @@ async def lead_deep_scan(lead_id: int, request: Request, auth: dict = Depends(ve
 
 class OnDemandGeneratePayload(BaseModel):
     query: str
-    count: Optional[int] = 10
+    count: Optional[int] = Field(default=1, ge=1, le=25)
 
 async def background_on_demand_generation_task(query: str, count: int, user_email: str, tier: str):
     logger.info(f"Starting decoupled background worker generation for query: '{query}' (Requested by: {user_email})")
@@ -2133,7 +2104,7 @@ async def background_on_demand_generation_task(query: str, count: int, user_emai
             except ValidationError as val_err:
                 logger.warning(f"Skipping malformed lead item from Gemini: {val_err}")
     except Exception as e:
-        logger.warning(f"Background generation AI fallback triggered ({e}). Deploying Multi-Agent Consensus Swarm...")
+        logger.warning(f"Background generation AI failed ({e}). Deploying Multi-Agent Consensus Swarm...")
         if GEMINI_API_KEY:
             try:
                 swarm = NexusAdvancedAgentSwarmOrchestrator(genai.Client(api_key=GEMINI_API_KEY))
