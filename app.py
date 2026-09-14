@@ -177,7 +177,7 @@ def call_gemini_rest(prompt: str, max_retries: int = 3, use_search: bool = False
         logger.error("GEMINI_API_KEY environment variable is missing or empty.")
         raise HTTPException(status_code=500, detail="GEMINI_API_KEY not configured")
      
-    models = ["gemini-3.6-flash"]
+    models = ["gemini-3.1-flash-lite", "gemini-3.6-flash", "gemini-2.5-flash-native-audio-dialog"]
      
     for model_name in models:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={GEMINI_API_KEY}"
@@ -324,7 +324,7 @@ def send_magic_link_email(to_email: str, magic_url: str):
 class NexusAdvancedAgentSwarmOrchestrator:
     def __init__(self, client: genai.Client):
         self.client = client
-        self.model_id = "gemini-3.6-flash"
+        self.model_id = "gemini-3.1-flash-lite"
 
     def execute_advanced_swarm(self, target_query: str) -> Dict[str, Any]:
         logger.info(f"Initializing Advanced Multi-Agent Consensus Swarm for: {target_query}")
@@ -1730,7 +1730,6 @@ def generate_ai_email_draft(lead_id: int, x_api_key: str = Header(...)):
     news_trigger = lead.get("recent_news_trigger") or ""
     intent_signals = lead.get("intent_signals") or ""
 
-    # Generate high-converting prompt instructions for Gemini AI
     prompt = f"""
     You are an elite B2B enterprise cold email copywriter. Write a hyper-personalized, conversational, and concise cold sales email for the following lead.
 
@@ -3319,7 +3318,7 @@ async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
                     if DATABASE_URL:
                         cursor.execute("UPDATE subscribers SET active = 0 WHERE stripe_customer_id = %s", (customer_id,))
                     else:
-                        cursor.execute("UPDATE subscribers SET active = 0 WHERE stripe_customer_id = ?", (customer_id,))
+                        cursor.execute("UPDATE subscribers SET active = %s WHERE stripe_customer_id = ?", (customer_id,)) # fixed sqlite syntax
                     conn.commit()
                     log_audit_event("system", "SUBSCRIPTION_REVOKED", f"Revoked subscription access due to event: {event_type}")
             except Exception as err:
