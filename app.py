@@ -309,10 +309,6 @@ def send_magic_link_email(to_email: str, magic_url: str):
     except Exception as e:
         logger.error(f"Resend magic link error: {e}")
 
-# ==========================================
-# NEXUS ENTERPRISE APEX: ADVANCED MULTI-AGENT CONSENSUS & DATA MODEL EXTENSIONS
-# ==========================================
-
 class NexusAdvancedAgentSwarmOrchestrator:
     def __init__(self, client: genai.Client):
         self.client = client
@@ -653,7 +649,7 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS api_keys (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT, key_hash TEXT UNIQUE, key_name TEXT DEFAULT 'Default', scope TEXT DEFAULT 'full', role TEXT DEFAULT 'admin', active INTEGER DEFAULT 1, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS subscriber_credits (email TEXT PRIMARY KEY, credits_remaining INTEGER DEFAULT 500, credits_limit INTEGER DEFAULT 500, last_refill_date DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS subscriber_destinations (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT, destination_type TEXT NOT NULL, webhook_url TEXT NOT NULL, access_token TEXT DEFAULT '', mapping_rules TEXT DEFAULT '{}', active INTEGER DEFAULT 1, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
-        cursor.execute("CREATE TABLE IF NOT EXISTS b2b_leads (id INTEGER PRIMARY KEY AUTOINCREMENT, company_name TEXT, domain TEXT UNIQUE, email TEXT, industry TEXT DEFAULT 'SaaS / Tech', employee_count TEXT DEFAULT '10-50', linkedin_url TEXT DEFAULT '', confidence_score REAL DEFAULT 0.9, trust_score INTEGER DEFAULT 95, tech_stack TEXT DEFAULT 'Python, PostgreSQL', funding_stage TEXT DEFAULT 'Series A', intent_signals TEXT DEFAULT 'None', verified_email INTEGER DEFAULT 1, decision_maker_title TEXT DEFAULT 'VP of Engineering', decision_maker_linkedin TEXT DEFAULT '', acv_estimate TEXT DEFAULT '$25,000', headcount_growth_pct TEXT DEFAULT '+20% QoQ', open_hiring_roles TEXT DEFAULT 'Engineers', recent_news_trigger TEXT DEFAULT 'None', decision_makers_json TEXT DEFAULT '[]', sync_status TEXT DEFAULT 'unsynced', conversion_status TEXT DEFAULT 'unconverted', rejection_status TEXT DEFAULT 'active', timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)")
+        cursor.execute("CREATE TABLE IF NOT EXISTS b2b_leads (id INTEGER PRIMARY KEY AUTOINCREMENT, company_name TEXT, domain TEXT UNIQUE, email TEXT, industry TEXT DEFAULT 'SaaS / Tech', employee_count TEXT DEFAULT '10-50', linkedin_url TEXT DEFAULT '', confidence_score REAL DEFAULT 0.9, trust_score INTEGER DEFAULT 95, tech_stack TEXT DEFAULT 'Python, PostgreSQL', funding_stage TEXT DEFAULT 'Series A', intent_signals TEXT DEFAULT 'None', verified_integer INTEGER DEFAULT 1, decision_maker_title TEXT DEFAULT 'VP of Engineering', decision_maker_linkedin TEXT DEFAULT '', acv_estimate TEXT DEFAULT '$25,000', headcount_growth_pct TEXT DEFAULT '+20% QoQ', open_hiring_roles TEXT DEFAULT 'Engineers', recent_news_trigger TEXT DEFAULT 'None', decision_makers_json TEXT DEFAULT '[]', sync_status TEXT DEFAULT 'unsynced', conversion_status TEXT DEFAULT 'unconverted', rejection_status TEXT DEFAULT 'active', timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)")
         for col_def in [
             ("sync_status", "TEXT DEFAULT 'unsynced'"),
             ("conversion_status", "TEXT DEFAULT 'unconverted'"),
@@ -727,20 +723,24 @@ def fetch_advanced_enrichment_data(domain: str, industry: str = "SaaS / Tech") -
     clean_dom = domain.lower().replace("https://", "").replace("http://", "").rstrip("/")
     
     prompt = f"""
-    Act as an elite B2B Technographic & Financial Intelligence Agent. 
+    Act as an elite B2B Technographic, Financial, and Decision-Maker Intelligence Agent with real-time web discovery grounding.
     Analyze target domain: '{clean_dom}' in industry '{industry}'.
-    Provide verified, realistic company intelligence. Return strict JSON with keys:
-    - tech_stack (string, e.g. 'AWS, Snowflake, PostgreSQL, Python')
-    - funding_stage (string, e.g. 'Series B')
-    - intent_signals (string, e.g. 'Active zero-trust infrastructure expansion')
-    - verified_email (int, 1 or 0)
-    - decision_maker_title (string, e.g. 'VP of Engineering')
-    - decision_maker_linkedin (string)
-    - acv_estimate (string, e.g. '$65,000')
-    - headcount_growth_pct (string, e.g. '+34% QoQ')
-    - open_hiring_roles (string, e.g. 'Senior Security Engineer')
-    - recent_news_trigger (string, e.g. 'Closed $22M Series B funding round')
-    - decision_makers_json (stringified JSON list of dicts with name, title, email, phone, linkedin)
+    Perform a live search across corporate directories and public indexes to identify authentic executive decision-makers (e.g. CEO, CTO, VP of Engineering, Chief Information Officer, Head of Product).
+    Verify direct emails and LinkedIn profile URLs where available.
+    Return strict JSON matching this exact schema:
+    {{
+        "tech_stack": "string (e.g. 'AWS, Snowflake, PostgreSQL, Python')",
+        "funding_stage": "string (e.g. 'Series B')",
+        "intent_signals": "string (e.g. 'Active zero-trust infrastructure expansion')",
+        "verified_email": integer (1 or 0),
+        "decision_maker_title": "string (primary executive title, e.g. 'Chief Information Officer')",
+        "decision_maker_linkedin": "string (valid URL)",
+        "acv_estimate": "string (e.g. '$65,000')",
+        "headcount_growth_pct": "string (e.g. '+34% QoQ')",
+        "open_hiring_roles": "string (e.g. 'Senior Security Engineer')",
+        "recent_news_trigger": "string (e.g. 'Closed $22M Series B funding round')",
+        "decision_makers_json": "stringified JSON list of dicts with keys: name, title, email, phone, linkedin (e.g. '[{{\"name\": \"Jane Doe\", \"title\": \"CTO\", \"email\": \"jane@{clean_dom}\", \"phone\": \"+1-555-0199\", \"linkedin\": \"https://linkedin.com/in/janedoe\"}}]')"
+    }}
     """
     
     try:
@@ -1697,19 +1697,55 @@ def generate_ai_email_draft(lead_id: int, x_api_key: str = Header(...)):
     domain = lead["domain"]
     dm_title = lead.get("decision_maker_title") or "Engineering Leader"
     news_trigger = lead.get("recent_news_trigger") or ""
-    
-    subject = f"Scaling infrastructure resilience at {company}"
-    body = (
-        f"Hi there,\n\n"
-        f"I noticed recent milestones around {news_trigger} at {company} and was analyzing your technical architecture leveraging {tech_stack}. "
-        f"As a {dm_title} in the {industry} sector, maintaining low-latency webhook delivery and secure state synchronization is likely a top priority.\n\n"
-        f"We've built automated orchestration pipelines specifically designed for {industry} teams to eliminate timeout risks and streamline outbound syncs.\n\n"
-        f"Would you be open to a 10-minute technical walkthrough this week?\n\n"
-        f"Best,\n"
-        f"QuantCode Nexus Autopilot"
-    )
+    intent_signals = lead.get("intent_signals") or ""
 
-    return {"subject": subject, "body": body, "to_email": lead.get("email") or f"contact@{domain}"}
+    # Generate high-converting prompt instructions for Gemini AI
+    prompt = f"""
+    You are an elite B2B enterprise cold email copywriter. Write a hyper-personalized, conversational, and concise cold sales email for the following lead.
+
+    Lead Details:
+    - Company: {company}
+    - Industry: {industry}
+    - Decision-Maker Title: {dm_title}
+    - Tech Stack: {tech_stack}
+    - Intent Signal / News Trigger: {news_trigger if news_trigger and news_trigger != 'None' else intent_signals}
+
+    CRITICAL RULES FOR WRITING:
+    1. Tone: Conversational, peer-to-peer, direct, and zero fluff. No corporate buzzwords like "synergy," "cutting-edge," or "seamlessly."
+    2. Structure:
+       - Line 1: Hook them using their exact intent signal or regional distribution/expansion milestone if present.
+       - Line 2: Connect how companies running heavy infrastructure (like SAP ERP, modern cloud stacks, etc.) struggle with regional logistics, visibility, or asset tracking during expansion.
+       - Line 3: A low-friction, high-value call to action asking for a brief, 3-minute conversation or feedback on a specific workflow.
+    3. Length: Under 100 words total.
+
+    Return strict JSON with keys "subject" and "body".
+    """
+
+    try:
+        ai_raw = call_gemini_rest(prompt)
+        import re
+        json_match = re.search(r'\{.*\}', ai_raw, re.DOTALL)
+        if json_match:
+            ai_raw = json_match.group(0)
+        parsed_ai = json.loads(ai_raw)
+        return {
+            "subject": parsed_ai.get("subject", f"{company} & scaling technical workflows"),
+            "body": parsed_ai.get("body", "Hi there,\n\nOpen to a quick chat?"),
+            "to_email": lead.get("email") or f"contact@{domain}"
+        }
+    except Exception as e:
+        logger.warning(f"AI draft generation failed ({e}), falling back to deterministic template.")
+        subject = f"{company} regional expansion / workflows"
+        body = (
+            f"Hi there,\n\n"
+            f"Saw {company} is actively expanding its regional distribution footprint and updating infrastructure.\n\n"
+            f"Scaling operations while keeping technical workflows aligned across hubs usually creates massive administrative drag for leadership.\n\n"
+            f"We help {industry} teams automate tracking workflows to speed up regional rollouts.\n\n"
+            f"Open to seeing a quick 3-minute breakdown of how we handle this?\n\n"
+            f"Best,\n"
+            f"QuantCode Nexus Autopilot"
+        )
+        return {"subject": subject, "body": body, "to_email": lead.get("email") or f"contact@{domain}"}
 
 @app.post("/api/v1/leads/{lead_id}/feedback")
 def submit_lead_feedback(
