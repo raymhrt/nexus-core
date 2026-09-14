@@ -1329,7 +1329,7 @@ print(res.json())</code></pre>
             } catch (err) { showToast("Failed.", true); }
         }
 
-        // Updated renderLeadFeed supporting dynamic parsing of decision_makers_json array with corrected full-name LinkedIn search fallback links
+        // Updated renderLeadFeed supporting dynamic parsing of decision_makers_json array with Google direct profile search override links
         function renderLeadFeed(leads) {
             const container = document.getElementById('leadFeedContainer');
             if (!leads || leads.length === 0) {
@@ -1348,9 +1348,11 @@ print(res.json())</code></pre>
                 if (dmList.length > 0) {
                     dmList.forEach(dm => {
                         const stakeholderName = dm.name || dm.role || 'Stakeholder';
-                        // Fix: Include stakeholder full name and company in the query so LinkedIn successfully lands on the correct profile
-                        const encodedSearchQuery = encodeURIComponent(`${stakeholderName} ${dm.title || ''} ${lead.company_name} LinkedIn`);
-                        const linkedInUrl = (dm.linkedin && dm.linkedin.startsWith('http')) ? dm.linkedin : `https://www.linkedin.com/search/results/all/?keywords=${encodedSearchQuery}`;
+                        // Updated override: Use precision Google search targeting LinkedIn profiles directly to land on the correct executive page
+                        const cleanName = encodeURIComponent(`${stakeholderName} ${lead.company_name}`);
+                        const linkedInUrl = (dm.linkedin && dm.linkedin.startsWith('http')) 
+                            ? dm.linkedin 
+                            : `https://www.google.com/search?q=${cleanName}+site:linkedin.com/in/`;
                         const dmEmail = dm.email || '';
 
                         dmHtml += `
@@ -1378,7 +1380,7 @@ print(res.json())</code></pre>
                 const empCountStr = (lead.employee_count || '').toString();
                 if (empCountStr.includes('201') || empCountStr.includes('500') || empCountStr.includes('1000+')) {
                     if (displayStage.toLowerCase().includes('series a') || displayStage.toLowerCase().includes('seed')) {
-                        displayStage = 'Private / Established Mid-Market';
+                        displayStage = 'Private / Enterprise Subsidiary';
                     }
                 }
 
