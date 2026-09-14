@@ -94,7 +94,7 @@ You are an autonomous B2B lead intelligence extraction swarm. Your task is to cr
 CLASSIFICATION GUARDRAILS:
 1. Enterprise vs. Startup Check: Always cross-reference employee count and public status. 
 2. If employee_count > 500 or the company is publicly traded on any global stock exchange, funding_stage MUST be set to "Public / Enterprise". Do NOT label mature or public companies as "Series A", "Seed", or venture-backed.
-3. Ensure tech stack, buying committee committee roles, and headcount metrics match real-world telemetry.
+3. Ensure tech stack, buying committee roles, and headcount metrics match real-world telemetry.
 """
 
 # WebSocket Connection Manager for live feed streaming
@@ -172,7 +172,7 @@ def generate_hmac_signature(payload_json: str) -> str:
         hashlib.sha256
     ).hexdigest()
 
-def call_gemini_rest(prompt: str, max_retries: int = 3) -> str:
+def call_gemini_rest(prompt: str, max_retries: int = 3, use_search: bool = False) -> str:
     if not GEMINI_API_KEY:
         logger.error("GEMINI_API_KEY environment variable is missing or empty.")
         raise HTTPException(status_code=500, detail="GEMINI_API_KEY not configured")
@@ -187,6 +187,9 @@ def call_gemini_rest(prompt: str, max_retries: int = 3) -> str:
                 "parts": [{"text": GEMINI_LEAD_GENERATION_SYSTEM_PROMPT + "\n" + prompt}]
             }]
         }
+        
+        if use_search:
+            payload["tools"] = [{"google_search": {}}]
         
         backoff_factor = 2
         for attempt in range(1, max_retries + 1):
@@ -358,7 +361,10 @@ class NexusAdvancedAgentSwarmOrchestrator:
         response = self.client.models.generate_content(
             model=self.model_id,
             contents=GEMINI_LEAD_GENERATION_SYSTEM_PROMPT + "\n" + prompt,
-            config=types.GenerateContentConfig(response_mime_type="application/json")
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                tools=[types.Tool(google_search=types.GoogleSearch())]
+            )
         )
         return json.loads(response.text)
 
@@ -753,7 +759,7 @@ def fetch_advanced_enrichment_data(domain: str, industry: str = "SaaS / Tech") -
     """
     
     try:
-        raw_text = call_gemini_rest(prompt)
+        raw_text = call_gemini_rest(prompt, use_search=True)
         import re
         json_match = re.search(r'\{.*\}', raw_text, re.DOTALL)
         if json_match:
@@ -2164,7 +2170,7 @@ async def background_on_demand_generation_task(query: str, count: int, user_emai
     )
 
     try:
-        raw_text = await asyncio.to_thread(call_gemini_rest, prompt)
+        raw_text = await asyncio.to_thread(call_gemini_rest, prompt, 3, True)
         import re
         json_match = re.search(r'\[\s*\{.*?\}\s*\]', raw_text, re.DOTALL)
         if json_match:
