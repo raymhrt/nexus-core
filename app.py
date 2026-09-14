@@ -2142,8 +2142,8 @@ class OnDemandGeneratePayload(BaseModel):
     query: str
     count: Optional[int] = Field(default=1, ge=1, le=25)
 
-async def background_on_demand_generation_task(query: str, count: int, user_email: str, tier: str):
-    logger.info(f"Starting decoupled background worker generation for query: '{query}' (Requested by: {user_email})")
+async def execute_on_demand_generation(query: str, count: int, user_email: str, tier: str):
+    logger.info(f"Starting synchronous on-demand generation for query: '{query}' (Requested by: {user_email})")
     
     conn = get_db()
     try:
@@ -2169,6 +2169,7 @@ async def background_on_demand_generation_task(query: str, count: int, user_emai
         '[{"company_name": "...", "domain": "...", "email": "...", "industry": "...", "employee_count": "...", "linkedin_url": "...", "confidence_score": 0.95, "trust_score": 95}]'
     )
 
+    validated_leads = []
     try:
         raw_text = await asyncio.to_thread(call_gemini_rest, prompt, 3, True)
         import re
@@ -2182,7 +2183,6 @@ async def background_on_demand_generation_task(query: str, count: int, user_emai
                 raw_text = raw_text[3:-3].strip()
                 
         parsed_data = json.loads(raw_text)
-        validated_leads = []
         for item in parsed_data:
             try:
                 if item.get("company_name") in existing_companies:
@@ -2191,7 +2191,7 @@ async def background_on_demand_generation_task(query: str, count: int, user_emai
             except ValidationError as val_err:
                 logger.warning(f"Skipping malformed lead item from Gemini: {val_err}")
     except Exception as e:
-        logger.warning(f"Background generation AI failed ({e}). Deploying Multi-Agent Consensus Swarm...")
+        logger.warning(f"Generation AI failed ({e}). Deploying Multi-Agent Consensus Swarm...")
         if GEMINI_API_KEY:
             try:
                 swarm = NexusAdvancedAgentSwarmOrchestrator(genai.Client(api_key=GEMINI_API_KEY))
@@ -2217,9 +2217,9 @@ async def background_on_demand_generation_task(query: str, count: int, user_emai
                 validated_leads = []
 
     ins_conn = get_db()
+    new_leads = []
     try:
         cursor = ins_conn.cursor()
-        new_leads = []
         for lead in validated_leads:
             clean_domain = lead.domain.lower().strip().replace("https://", "").replace("http://", "").rstrip("/")
             conf_score = lead.confidence_score if lead.confidence_score is not None else 0.9
@@ -2233,21 +2233,31 @@ async def background_on_demand_generation_task(query: str, count: int, user_emai
                     ON CONFLICT (domain) DO UPDATE SET 
                         confidence_score = EXCLUDED.confidence_score,
                         trust_score = EXCLUDED.trust_score
-                    RETURNING id
+                    RETURNING id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals, timestamp
                     """,
                     (lead.company_name, clean_domain, lead.email, lead.industry, lead.employee_count, lead.linkedin_url, conf_score, trust_score)
                 )
                 r = cursor.fetchone()
-                l_id = r["id"] if r else None
+                if r:
+                    r_dict = dict(r)
+                    if r_dict.get("timestamp") and isinstance(r_dict["timestamp"], datetime):
+                        r_dict["timestamp"] = r_dict["timestamp"].isoformat()
+                    new_leads.append(r_dict)
+                    l_id = r_dict["id"]
             else:
                 cursor.execute(
                     "INSERT OR IGNORE INTO b2b_leads (company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                     (lead.company_name, clean_domain, lead.email, lead.industry, lead.employee_count, lead.linkedin_url, conf_score, trust_score)
                 )
                 l_id = cursor.lastrowid
+                if l_id:
+                    cursor.execute("SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals, timestamp FROM b2b_leads WHERE id = ?", (l_id,))
+                    row_item = cursor.fetchone()
+                    if row_item:
+                        r_dict = dict(row_item)
+                        new_leads.append(r_dict)
 
-            if l_id and cursor.rowcount > 0:
-                new_leads.append({"id": l_id, "company_name": lead.company_name, "domain": clean_domain})
+            if l_id:
                 asyncio.create_task(async_background_enrichment_worker(l_id, lead.company_name, clean_domain, lead.industry))
                 asyncio.create_task(
                     safe_dispatch_wrapper(
@@ -2272,11 +2282,11 @@ async def background_on_demand_generation_task(query: str, count: int, user_emai
     finally:
         release_db(ins_conn)
 
-    logger.info(f"Background worker completed generation of {len(new_leads)} leads for {user_email}")
-    await sse_broker.broadcast("background_generation_complete", {"user": user_email, "generated_count": len(new_leads)})
+    logger.info(f"Synchronous generation completed: {len(new_leads)} leads created for {user_email}")
+    return new_leads
 
 @app.post("/api/v1/leads/generate-on-demand")
-async def generate_leads_on_demand(payload: OnDemandGeneratePayload, request: Request, response: Response, background_tasks: BackgroundTasks, auth: dict = Depends(verify_api_key)):
+async def generate_leads_on_demand(payload: OnDemandGeneratePayload, request: Request, response: Response, auth: dict = Depends(verify_api_key)):
     if auth.get("role") == "viewer":
         raise HTTPException(status_code=403, detail="Viewer role is not authorized to generate on-demand leads.")
 
@@ -2341,11 +2351,12 @@ async def generate_leads_on_demand(payload: OnDemandGeneratePayload, request: Re
     finally:
         release_db(conn)
 
-    background_tasks.add_task(background_on_demand_generation_task, payload.query, payload.count, auth["email"], auth["tier"])
+    new_leads = await execute_on_demand_generation(payload.query, payload.count, auth["email"], auth["tier"])
 
     return {
         "status": "success", 
-        "message": "On-demand lead generation task successfully offloaded to decoupled background worker queue. Results will stream via SSE/WebSockets upon completion.",
+        "message": f"Successfully generated {len(new_leads)} fresh leads!",
+        "leads": new_leads,
         "credits_remaining": credits_left
     }
 
