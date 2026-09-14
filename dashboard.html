@@ -1209,7 +1209,7 @@ print(res.json())</code></pre>
         async function triggerOnDemandGeneration() {
             const apiKey = document.getElementById('apiKey').value.trim();
             const query = document.getElementById('onDemandQuery').value.trim();
-            const count = parseInt(document.getElementById('onDemandCount').value) || 10;
+            const count = parseInt(document.getElementById('onDemandCount').value) || 1;
             const resDiv = document.getElementById('onDemandResult');
 
             if (!apiKey || !query) { alert("Please authenticate and enter a query."); return; }
