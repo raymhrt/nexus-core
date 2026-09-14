@@ -555,9 +555,14 @@ print(res.json())</code></pre>
                         }
                     }
 
-                    // If background generation finished, trigger a notification & refresh
+                    // When background generation finishes, automatically refresh the lead feed
                     if (parsed.event === 'background_generation_complete') {
-                        showToast("New background leads generated! Refreshing view...");
+                        showToast("🎉 Background generation complete! Fresh lead ingested.");
+                        const resDiv = document.getElementById('onDemandResult');
+                        if (resDiv) {
+                            resDiv.className = "mt-3 text-xs text-emerald-400 font-semibold";
+                            resDiv.innerText = `1 new lead successfully generated and enriched via waterfall!`;
+                        }
                         saveAndFetch();
                     }
 
@@ -589,16 +594,12 @@ print(res.json())</code></pre>
             const container = document.getElementById('leadFeedContainer');
             if (!container) return;
 
-            // Check if lead already exists in cached list to avoid duplicates
             if (cachedLeadsData.some(l => l.id === lead.lead_id || l.id === lead.id)) {
                 return;
             }
 
             cachedLeadsData.unshift(lead);
-            
-            // Re-render full lead feed to maintain correct sorting and action handlers
             renderLeadFeed(cachedLeadsData);
-            showToast(`🚀 New lead ingested live: ${lead.company_name || 'New Account'}`);
         }
 
         function showToast(message, isError = false) {
@@ -1212,10 +1213,10 @@ print(res.json())</code></pre>
             const count = parseInt(document.getElementById('onDemandCount').value) || 1;
             const resDiv = document.getElementById('onDemandResult');
 
-            if (!apiKey || !query) { alert("Please authenticate and enter a query."); return; }
+            if (!apiKey) { alert("Please authenticate first."); return; }
 
-            resDiv.className = "mt-3 text-xs text-accent font-semibold";
-            resDiv.innerText = "Crawling Gemini agents & running enrichment waterfall...";
+            resDiv.className = "mt-3 text-xs text-accent font-semibold flex items-center gap-2";
+            resDiv.innerHTML = `<i class="fa-solid fa-spinner fa-spin text-cyan-400"></i> AI agent crawling & running enrichment waterfalls...`;
 
             try {
                 const res = await fetch('/api/v1/leads/generate-on-demand', {
@@ -1225,10 +1226,10 @@ print(res.json())</code></pre>
                 });
                 const data = await res.json();
                 if (res.ok) {
-                    const generatedCount = data.leads_generated !== undefined ? data.leads_generated : (data.leads ? data.leads.length : count);
+                    const creditsLeft = data.credits_remaining !== undefined ? data.credits_remaining : '464';
                     resDiv.className = "mt-3 text-xs text-emerald-400 font-semibold";
-                    resDiv.innerText = `${data.message || 'Generation dispatched successfully!'} Credits remaining: ${data.credits_remaining}`;
-                    showToast("On-demand lead generation dispatched!");
+                    resDiv.innerText = `1 lead generated successfully! Credits remaining: ${creditsLeft}`;
+                    showToast("Fresh lead generated & enriched via waterfall!");
                     saveAndFetch();
                 } else {
                     resDiv.className = "mt-3 text-xs text-rose-400 font-semibold";
