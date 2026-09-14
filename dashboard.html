@@ -1329,7 +1329,7 @@ print(res.json())</code></pre>
             } catch (err) { showToast("Failed.", true); }
         }
 
-        // Updated renderLeadFeed supporting dynamic parsing of decision_makers_json array & fallback logic for 200+ headcount stage classification
+        // Updated renderLeadFeed supporting dynamic parsing of decision_makers_json array with direct clickable anchors for domain and stakeholder LinkedIn/email
         function renderLeadFeed(leads) {
             const container = document.getElementById('leadFeedContainer');
             if (!leads || leads.length === 0) {
@@ -1344,23 +1344,28 @@ print(res.json())</code></pre>
                     dmList = JSON.parse(lead.decision_makers_json || '[]');
                 } catch (e) {}
 
-                // Guardrail/Mapping logic: Loop through multi-role Buying Committee JSON array if present with direct LinkedIn profile search links
                 let dmHtml = '';
                 if (dmList.length > 0) {
                     dmList.forEach(dm => {
                         const encodedSearchQuery = encodeURIComponent(`${dm.title || dm.role} ${lead.company_name} LinkedIn`);
-                        const linkedInUrl = `https://www.linkedin.com/search/results/all/?keywords=${encodedSearchQuery}`;
+                        const linkedInUrl = dm.linkedin || `https://www.linkedin.com/search/results/all/?keywords=${encodedSearchQuery}`;
+                        const dmEmail = dm.email || '';
 
-                        dmHtml += `<div class="mb-1.5 pb-1.5 border-b border-slate-800 last:border-0 last:mb-0 last:pb-0 flex items-center justify-between">
-                            <div>
-                                <span class="font-bold text-white">${escapeHtml(dm.role || 'Stakeholder')}:</span> 
-                                <span class="text-slate-200">${escapeHtml(dm.title || 'N/A')}</span> 
-                                <a href="mailto:${escapeHtml(dm.email || '')}" class="text-sky-400 text-[10px] ml-1 underline">${escapeHtml(dm.email || 'Direct Dial Available')}</a>
+                        dmHtml += `
+                            <div class="mb-2 pb-2 border-b border-slate-800 last:border-0 last:mb-0 last:pb-0 space-y-1">
+                                <div class="flex items-center justify-between">
+                                    <span class="font-semibold text-slate-200">${escapeHtml(dm.name || dm.role || 'Stakeholder')}</span>
+                                    <span class="text-[10px] px-2 py-0.5 rounded bg-sky-500/10 text-sky-400 font-medium">${escapeHtml(dm.role_type || dm.role || 'Leader')}</span>
+                                </div>
+                                <p class="text-[11px] text-slate-400">${escapeHtml(dm.title || 'Executive')}</p>
+                                <div class="flex items-center space-x-4 pt-0.5 text-[11px]">
+                                    ${dmEmail ? `<a href="mailto:${escapeHtml(dmEmail)}" class="text-sky-400 hover:underline flex items-center gap-1">📧 ${escapeHtml(dmEmail)}</a>` : ''}
+                                    <a href="${linkedInUrl}" target="_blank" rel="noopener noreferrer" class="text-sky-400 hover:underline flex items-center gap-1">
+                                        🔗 LinkedIn Profile ↗
+                                    </a>
+                                </div>
                             </div>
-                            <a href="${linkedInUrl}" target="_blank" rel="noopener noreferrer" class="text-[10px] text-cyan-400 hover:text-cyan-300 flex items-center gap-1 bg-sky-500/10 px-2 py-0.5 rounded border border-sky-500/20 whitespace-nowrap">
-                                <i class="fa-brands fa-linkedin"></i> Profile
-                            </a>
-                        </div>`;
+                        `;
                     });
                 } else {
                     dmHtml = `<div class="font-semibold text-slate-200">${escapeHtml(lead.decision_maker_title || 'VP of Engineering')}</div>`;
@@ -1375,7 +1380,8 @@ print(res.json())</code></pre>
                     }
                 }
 
-                const companyWebUrl = lead.domain ? `https://${lead.domain.replace(/^https?:\/\//, '')}` : '#';
+                const cleanDomain = (lead.domain || '').replace(/^https?:\/\//, '');
+                const companyWebUrl = cleanDomain ? `https://${cleanDomain}` : '#';
                 const trust = lead.trust_score || 90;
                 const emailStatus = lead.verified_email === 1 ? '✅ Verified Email' : '⚠️ Unverified';
                 const intent = lead.intent_signals || lead.recent_news_trigger || 'None (20% QoQ growth velocity)';
@@ -1398,8 +1404,8 @@ print(res.json())</code></pre>
                                 ${convBadge}
                                 ${rejBadge}
                             </span>
-                            <a href="${companyWebUrl}" target="_blank" rel="noopener noreferrer" class="text-accent text-xs font-semibold hover:underline flex items-center gap-1">
-                                <i class="fa-solid fa-globe"></i> ${escapeHtml(lead.domain)}
+                            <a href="${companyWebUrl}" target="_blank" rel="noopener noreferrer" class="text-sky-400 hover:underline text-xs font-semibold flex items-center gap-1">
+                                <i class="fa-solid fa-globe"></i> ${escapeHtml(cleanDomain)} ↗
                             </a>
                         </div>
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
@@ -1423,7 +1429,7 @@ print(res.json())</code></pre>
                         </div>
                         <div class="flex flex-wrap items-center justify-between mt-1">
                             <div class="flex flex-wrap gap-2">
-                                <button class="bg-sky-500/10 hover:bg-sky-500/20 text-accent border border-sky-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${disabledAttr}" onclick="draftAIEmail(${lead.id}, '${escapeHtml(lead.company_name)}', '${escapeHtml(lead.email || 'contact@' + lead.domain)}')">✨ AI Draft & Send</button>
+                                <button class="bg-sky-500/10 hover:bg-sky-500/20 text-accent border border-sky-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${disabledAttr}" onclick="draftAIEmail(${lead.id}, '${escapeHtml(lead.company_name)}', '${escapeHtml(lead.email || 'contact@' + cleanDomain)}')">✨ AI Draft & Send</button>
                                 <button class="bg-sky-500/10 hover:bg-sky-500/20 text-accent border border-sky-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${disabledAttr}" onclick="syncLeadToCRM(${lead.id})">🔗 ${lead.sync_status === 'synced' ? 'Unsync' : 'Sync'} CRM</button>
                                 <button class="bg-sky-500/10 hover:bg-sky-500/20 text-accent border border-sky-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${disabledAttr}" onclick="enrollSequence(${lead.id})">🚀 Enroll</button>
                                 <button class="bg-sky-500/10 hover:bg-sky-500/20 text-accent border border-sky-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition" onclick="triggerDeepScan(${lead.id})">🔍 Deep Scan</button>
