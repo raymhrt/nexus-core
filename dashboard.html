@@ -1329,7 +1329,7 @@ print(res.json())</code></pre>
             } catch (err) { showToast("Failed.", true); }
         }
 
-        // Updated renderLeadFeed supporting dynamic parsing of decision_makers_json array with Google direct profile search override links
+        // Updated renderLeadFeed featuring bulletproof LinkedIn search fallback override to prevent 404 "This page doesn’t exist" errors
         function renderLeadFeed(leads) {
             const container = document.getElementById('leadFeedContainer');
             if (!leads || leads.length === 0) {
@@ -1348,11 +1348,16 @@ print(res.json())</code></pre>
                 if (dmList.length > 0) {
                     dmList.forEach(dm => {
                         const stakeholderName = dm.name || dm.role || 'Stakeholder';
-                        // Updated override: Use precision Google search targeting LinkedIn profiles directly to land on the correct executive page
-                        const cleanName = encodeURIComponent(`${stakeholderName} ${lead.company_name}`);
-                        const linkedInUrl = (dm.linkedin && dm.linkedin.startsWith('http')) 
-                            ? dm.linkedin 
-                            : `https://www.google.com/search?q=${cleanName}+site:linkedin.com/in/`;
+                        
+                        // Bulletproof LinkedIn Link Check & Google Search Fallback Override
+                        let linkedInUrl = dm.linkedin;
+                        const isInvalidLink = !linkedInUrl || !linkedInUrl.startsWith('http') || linkedInUrl.includes('undefined') || linkedInUrl.includes('null');
+
+                        if (isInvalidLink) {
+                            const searchQuery = encodeURIComponent(`${stakeholderName} ${lead.company_name} LinkedIn`);
+                            linkedInUrl = `https://www.google.com/search?q=${searchQuery}`;
+                        }
+
                         const dmEmail = dm.email || '';
 
                         dmHtml += `
