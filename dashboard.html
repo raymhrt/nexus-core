@@ -1329,7 +1329,7 @@ print(res.json())</code></pre>
             } catch (err) { showToast("Failed.", true); }
         }
 
-        // Updated renderLeadFeed supporting dynamic parsing of decision_makers_json array with direct clickable anchors for domain and stakeholder LinkedIn/email
+        // Updated renderLeadFeed supporting dynamic parsing of decision_makers_json array with corrected full-name LinkedIn search fallback links
         function renderLeadFeed(leads) {
             const container = document.getElementById('leadFeedContainer');
             if (!leads || leads.length === 0) {
@@ -1347,14 +1347,16 @@ print(res.json())</code></pre>
                 let dmHtml = '';
                 if (dmList.length > 0) {
                     dmList.forEach(dm => {
-                        const encodedSearchQuery = encodeURIComponent(`${dm.title || dm.role} ${lead.company_name} LinkedIn`);
-                        const linkedInUrl = dm.linkedin || `https://www.linkedin.com/search/results/all/?keywords=${encodedSearchQuery}`;
+                        const stakeholderName = dm.name || dm.role || 'Stakeholder';
+                        // Fix: Include stakeholder full name and company in the query so LinkedIn successfully lands on the correct profile
+                        const encodedSearchQuery = encodeURIComponent(`${stakeholderName} ${dm.title || ''} ${lead.company_name} LinkedIn`);
+                        const linkedInUrl = (dm.linkedin && dm.linkedin.startsWith('http')) ? dm.linkedin : `https://www.linkedin.com/search/results/all/?keywords=${encodedSearchQuery}`;
                         const dmEmail = dm.email || '';
 
                         dmHtml += `
                             <div class="mb-2 pb-2 border-b border-slate-800 last:border-0 last:mb-0 last:pb-0 space-y-1">
                                 <div class="flex items-center justify-between">
-                                    <span class="font-semibold text-slate-200">${escapeHtml(dm.name || dm.role || 'Stakeholder')}</span>
+                                    <span class="font-semibold text-slate-200">${escapeHtml(stakeholderName)}</span>
                                     <span class="text-[10px] px-2 py-0.5 rounded bg-sky-500/10 text-sky-400 font-medium">${escapeHtml(dm.role_type || dm.role || 'Leader')}</span>
                                 </div>
                                 <p class="text-[11px] text-slate-400">${escapeHtml(dm.title || 'Executive')}</p>
