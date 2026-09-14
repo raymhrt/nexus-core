@@ -1344,13 +1344,22 @@ print(res.json())</code></pre>
                     dmList = JSON.parse(lead.decision_makers_json || '[]');
                 } catch (e) {}
 
-                // Guardrail/Mapping logic: Loop through multi-role Buying Committee JSON array if present
+                // Guardrail/Mapping logic: Loop through multi-role Buying Committee JSON array if present with direct LinkedIn profile search links
                 let dmHtml = '';
                 if (dmList.length > 0) {
                     dmList.forEach(dm => {
-                        dmHtml += `<div class="mb-1 pb-1 border-b border-slate-800 last:border-0 last:mb-0 last:pb-0">
-                            <span class="font-bold text-white">${escapeHtml(dm.role || 'Stakeholder')}:</span> ${escapeHtml(dm.title || 'N/A')} 
-                            <a href="mailto:${escapeHtml(dm.email || '')}" class="text-sky-400 text-[10px] ml-1 underline">${escapeHtml(dm.email || 'Direct Dial Available')}</a>
+                        const encodedSearchQuery = encodeURIComponent(`${dm.title || dm.role} ${lead.company_name} LinkedIn`);
+                        const linkedInUrl = `https://www.linkedin.com/search/results/all/?keywords=${encodedSearchQuery}`;
+
+                        dmHtml += `<div class="mb-1.5 pb-1.5 border-b border-slate-800 last:border-0 last:mb-0 last:pb-0 flex items-center justify-between">
+                            <div>
+                                <span class="font-bold text-white">${escapeHtml(dm.role || 'Stakeholder')}:</span> 
+                                <span class="text-slate-200">${escapeHtml(dm.title || 'N/A')}</span> 
+                                <a href="mailto:${escapeHtml(dm.email || '')}" class="text-sky-400 text-[10px] ml-1 underline">${escapeHtml(dm.email || 'Direct Dial Available')}</a>
+                            </div>
+                            <a href="${linkedInUrl}" target="_blank" rel="noopener noreferrer" class="text-[10px] text-cyan-400 hover:text-cyan-300 flex items-center gap-1 bg-sky-500/10 px-2 py-0.5 rounded border border-sky-500/20 whitespace-nowrap">
+                                <i class="fa-brands fa-linkedin"></i> Profile
+                            </a>
                         </div>`;
                     });
                 } else {
@@ -1366,6 +1375,7 @@ print(res.json())</code></pre>
                     }
                 }
 
+                const companyWebUrl = lead.domain ? `https://${lead.domain.replace(/^https?:\/\//, '')}` : '#';
                 const trust = lead.trust_score || 90;
                 const emailStatus = lead.verified_email === 1 ? '✅ Verified Email' : '⚠️ Unverified';
                 const intent = lead.intent_signals || lead.recent_news_trigger || 'None (20% QoQ growth velocity)';
@@ -1388,7 +1398,9 @@ print(res.json())</code></pre>
                                 ${convBadge}
                                 ${rejBadge}
                             </span>
-                            <span class="text-accent text-xs font-semibold">${escapeHtml(lead.domain)}</span>
+                            <a href="${companyWebUrl}" target="_blank" rel="noopener noreferrer" class="text-accent text-xs font-semibold hover:underline flex items-center gap-1">
+                                <i class="fa-solid fa-globe"></i> ${escapeHtml(lead.domain)}
+                            </a>
                         </div>
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
                             <div class="bg-darkbg border border-slate-800 p-2.5 rounded text-slate-300">
