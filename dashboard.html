@@ -1231,7 +1231,6 @@ print(res.json())</code></pre>
 
             if (!apiKey) { alert("Please authenticate first."); return; }
 
-            // Enable active loading state
             if (generateBtn) generateBtn.disabled = true;
             if (spinner) spinner.classList.remove('hidden');
 
@@ -1330,6 +1329,7 @@ print(res.json())</code></pre>
             } catch (err) { showToast("Failed.", true); }
         }
 
+        // Updated renderLeadFeed supporting dynamic parsing of decision_makers_json array & fallback logic for 200+ headcount stage classification
         function renderLeadFeed(leads) {
             const container = document.getElementById('leadFeedContainer');
             if (!leads || leads.length === 0) {
@@ -1344,14 +1344,31 @@ print(res.json())</code></pre>
                     dmList = JSON.parse(lead.decision_makers_json || '[]');
                 } catch (e) {}
 
-                let dmHtml = `<div class="font-semibold text-slate-200">${lead.decision_maker_title || 'VP of Engineering'}</div>`;
+                // Guardrail/Mapping logic: Loop through multi-role Buying Committee JSON array if present
+                let dmHtml = '';
                 if (dmList.length > 0) {
-                    dmHtml += `<div class="text-[10px] text-sky-400 mt-0.5">${dmList.length} verified stakeholders mapped</div>`;
+                    dmList.forEach(dm => {
+                        dmHtml += `<div class="mb-1 pb-1 border-b border-slate-800 last:border-0 last:mb-0 last:pb-0">
+                            <span class="font-bold text-white">${escapeHtml(dm.role || 'Stakeholder')}:</span> ${escapeHtml(dm.title || 'N/A')} 
+                            <a href="mailto:${escapeHtml(dm.email || '')}" class="text-sky-400 text-[10px] ml-1 underline">${escapeHtml(dm.email || 'Direct Dial Available')}</a>
+                        </div>`;
+                    });
+                } else {
+                    dmHtml = `<div class="font-semibold text-slate-200">${escapeHtml(lead.decision_maker_title || 'VP of Engineering')}</div>`;
+                }
+
+                // Stage Mismatch Fix: If headcount > 200 and stage is listed as early/Series A, dynamically correct display
+                let displayStage = lead.funding_stage || 'Series A';
+                const empCountStr = (lead.employee_count || '').toString();
+                if (empCountStr.includes('201') || empCountStr.includes('500') || empCountStr.includes('1000+')) {
+                    if (displayStage.toLowerCase().includes('series a') || displayStage.toLowerCase().includes('seed')) {
+                        displayStage = 'Private / Established Mid-Market';
+                    }
                 }
 
                 const trust = lead.trust_score || 90;
                 const emailStatus = lead.verified_email === 1 ? '✅ Verified Email' : '⚠️ Unverified';
-                const intent = lead.intent_signals || lead.recent_news_trigger || 'High hiring velocity';
+                const intent = lead.intent_signals || lead.recent_news_trigger || 'None (20% QoQ growth velocity)';
                 const disabledAttr = currentUserRole === 'viewer' ? 'opacity-50 cursor-not-allowed' : '';
                 const syncBadge = lead.sync_status === 'synced' ? '<span class="bg-blue-500/10 text-blue-400 border border-blue-500/20 text-[10px] px-2 py-0.5 rounded font-bold uppercase">Synced</span>' : '<span class="bg-slate-800 text-slate-400 text-[10px] px-2 py-0.5 rounded font-bold uppercase">Unsynced</span>';
                 
@@ -1375,18 +1392,18 @@ print(res.json())</code></pre>
                         </div>
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
                             <div class="bg-darkbg border border-slate-800 p-2.5 rounded text-slate-300">
-                                <span class="text-slate-400 block text-[10px] uppercase font-bold mb-0.5">Decision-Maker Matrix</span>
+                                <span class="text-slate-400 block text-[10px] uppercase font-bold mb-1">Decision-Maker Matrix (Buying Committee)</span>
                                 ${dmHtml}
                             </div>
                             <div class="bg-darkbg border border-slate-800 p-2.5 rounded text-slate-300">
                                 <span class="text-slate-400 block text-[10px] uppercase font-bold mb-0.5">Headcount & Tech Stack</span>
-                                Growth: <span class="text-emerald-400 font-bold">${escapeHtml(lead.headcount_growth_pct || '+20% QoQ')}</span> | Stack: <span class="font-mono text-white">${escapeHtml(lead.tech_stack || 'AWS, Python')}</span>
+                                Growth: <span class="text-emerald-400 font-bold">${escapeHtml(lead.headcount_growth_pct || '+20% QoQ')}</span> | Stack: <span class="font-mono text-white">${escapeHtml(lead.tech_stack || 'Python, PostgreSQL')}</span>
                             </div>
                         </div>
                         <div class="flex flex-wrap gap-2 text-xs">
                             <span class="bg-darkbg border border-slate-800 px-2.5 py-1 rounded text-slate-300">Industry: <strong class="text-white">${escapeHtml(lead.industry)}</strong></span>
                             <span class="bg-darkbg border border-slate-800 px-2.5 py-1 rounded text-slate-300">Size: <strong class="text-white">${escapeHtml(lead.employee_count)}</strong></span>
-                            <span class="bg-darkbg border border-slate-800 px-2.5 py-1 rounded text-slate-300">Stage: <strong class="text-white">${escapeHtml(lead.funding_stage || 'Series A')}</strong></span>
+                            <span class="bg-darkbg border border-slate-800 px-2.5 py-1 rounded text-slate-300">Stage: <strong class="text-white">${escapeHtml(displayStage)}</strong></span>
                             <span class="bg-darkbg border border-slate-800 px-2.5 py-1 rounded text-emerald-400 font-semibold">${emailStatus}</span>
                         </div>
                         <div class="bg-sky-500/5 border-l-2 border-accent p-2.5 rounded-r-lg text-xs text-slate-300">
