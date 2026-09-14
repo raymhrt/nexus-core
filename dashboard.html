@@ -1329,7 +1329,7 @@ print(res.json())</code></pre>
             } catch (err) { showToast("Failed.", true); }
         }
 
-        // Updated renderLeadFeed featuring bulletproof LinkedIn search fallback override to prevent 404 "This page doesn’t exist" errors
+        // Updated renderLeadFeed routing links through a live Google Search query to prevent 404 dead links
         function renderLeadFeed(leads) {
             const container = document.getElementById('leadFeedContainer');
             if (!leads || leads.length === 0) {
@@ -1349,14 +1349,9 @@ print(res.json())</code></pre>
                     dmList.forEach(dm => {
                         const stakeholderName = dm.name || dm.role || 'Stakeholder';
                         
-                        // Bulletproof LinkedIn Link Check & Google Search Fallback Override
-                        let linkedInUrl = dm.linkedin;
-                        const isInvalidLink = !linkedInUrl || !linkedInUrl.startsWith('http') || linkedInUrl.includes('undefined') || linkedInUrl.includes('null');
-
-                        if (isInvalidLink) {
-                            const searchQuery = encodeURIComponent(`${stakeholderName} ${lead.company_name} LinkedIn`);
-                            linkedInUrl = `https://www.google.com/search?q=${searchQuery}`;
-                        }
+                        // Force route through a live Google Search query to prevent 404 profile page errors
+                        const searchQuery = encodeURIComponent(`${stakeholderName} ${lead.company_name} LinkedIn`);
+                        const linkedInUrl = `https://www.google.com/search?q=${searchQuery}`;
 
                         const dmEmail = dm.email || '';
 
@@ -1369,8 +1364,8 @@ print(res.json())</code></pre>
                                 <p class="text-[11px] text-slate-400">${escapeHtml(dm.title || 'Executive')}</p>
                                 <div class="flex items-center space-x-4 pt-0.5 text-[11px]">
                                     ${dmEmail ? `<a href="mailto:${escapeHtml(dmEmail)}" class="text-sky-400 hover:underline flex items-center gap-1">📧 ${escapeHtml(dmEmail)}</a>` : ''}
-                                    <a href="${linkedInUrl}" target="_blank" rel="noopener noreferrer" class="text-sky-400 hover:underline flex items-center gap-1">
-                                        🔗 LinkedIn Profile ↗
+                                    <a href="${linkedInUrl}" target="_blank" rel="noopener noreferrer" class="text-sky-400 hover:underline flex items-center gap-1 font-semibold text-sky-300">
+                                        🔍 Find LinkedIn Profile ↗
                                     </a>
                                 </div>
                             </div>
