@@ -3173,7 +3173,6 @@ async def create_checkout_session(email: EmailStr, tier: str = "starter"):
             mode="subscription",
             success_url="https://nexus-core-yfou.onrender.com/success?session_id={CHECKOUT_SESSION_ID}",
             cancel_url="https://nexus-core-yfou.onrender.com/dashboard?canceled=true",
-            managed_payments={"enabled": False},
         )
         return {"checkout_url": checkout_session.url}
     except Exception as e:
