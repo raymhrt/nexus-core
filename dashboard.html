@@ -113,7 +113,16 @@
                             <input type="number" id="onDemandCount" value="1" min="1" max="25" class="bg-inputbg border border-slate-700 rounded-lg px-3 py-2.5 text-xs w-full focus:outline-none focus:border-accent font-mono">
                         </div>
                     </div>
-                    <button onclick="triggerOnDemandGeneration()" class="bg-accent hover:bg-accentHover text-slate-950 font-bold px-6 py-2.5 rounded-lg text-xs transition flex items-center gap-2"><i class="fa-solid fa-bolt text-amber-500"></i> Generate Fresh Leads Instantly</button>
+                    
+                    <!-- Action Bar with Loading Spinner -->
+                    <div class="flex items-center gap-3">
+                        <button id="generate-leads-btn" onclick="triggerOnDemandGeneration()" class="bg-accent hover:bg-accentHover text-slate-950 font-bold px-6 py-2.5 rounded-lg text-xs transition flex items-center gap-2">
+                            <i class="fa-solid fa-bolt text-amber-500"></i> Generate Fresh Leads Instantly
+                        </button>
+                        <div id="loading-spinner" class="hidden flex items-center gap-2 text-xs text-sky-400 font-semibold">
+                            <i class="fa-solid fa-spinner fa-spin text-cyan-400"></i> Autonomous AI Swarm generating leads...
+                        </div>
+                    </div>
                     <div id="onDemandResult" class="mt-3 text-xs text-slate-400"></div>
                 </div>
 
@@ -555,8 +564,13 @@ print(res.json())</code></pre>
                         }
                     }
 
-                    // When background generation finishes, automatically refresh the lead feed
+                    // When background generation finishes, automatically refresh the lead feed and reset loading spinner
                     if (parsed.event === 'background_generation_complete') {
+                        const generateBtn = document.getElementById('generate-leads-btn');
+                        const spinner = document.getElementById('loading-spinner');
+                        if (generateBtn) generateBtn.disabled = false;
+                        if (spinner) spinner.classList.add('hidden');
+
                         showToast("🎉 Background generation complete! Fresh lead ingested.");
                         const resDiv = document.getElementById('onDemandResult');
                         if (resDiv) {
@@ -1212,8 +1226,14 @@ print(res.json())</code></pre>
             const query = document.getElementById('onDemandQuery').value.trim();
             const count = parseInt(document.getElementById('onDemandCount').value) || 1;
             const resDiv = document.getElementById('onDemandResult');
+            const generateBtn = document.getElementById('generate-leads-btn');
+            const spinner = document.getElementById('loading-spinner');
 
             if (!apiKey) { alert("Please authenticate first."); return; }
+
+            // Enable active loading state
+            if (generateBtn) generateBtn.disabled = true;
+            if (spinner) spinner.classList.remove('hidden');
 
             resDiv.className = "mt-3 text-xs text-accent font-semibold flex items-center gap-2";
             resDiv.innerHTML = `<i class="fa-solid fa-spinner fa-spin text-cyan-400"></i> AI agent crawling & running enrichment waterfalls...`;
@@ -1228,14 +1248,17 @@ print(res.json())</code></pre>
                 if (res.ok) {
                     const creditsLeft = data.credits_remaining !== undefined ? data.credits_remaining : '464';
                     resDiv.className = "mt-3 text-xs text-emerald-400 font-semibold";
-                    resDiv.innerText = `1 lead generated successfully! Credits remaining: ${creditsLeft}`;
-                    showToast("Fresh lead generated & enriched via waterfall!");
-                    saveAndFetch();
+                    resDiv.innerText = `1 lead generated successfully! Credits remaining: ${creditsLeft}. Waiting for waterfall completion...`;
+                    showToast("Generation offloaded! Waiting for waterfall enrichment...");
                 } else {
+                    if (generateBtn) generateBtn.disabled = false;
+                    if (spinner) spinner.classList.add('hidden');
                     resDiv.className = "mt-3 text-xs text-rose-400 font-semibold";
                     resDiv.innerText = data.detail || "Generation failed.";
                 }
             } catch (err) {
+                if (generateBtn) generateBtn.disabled = false;
+                if (spinner) spinner.classList.add('hidden');
                 resDiv.className = "mt-3 text-xs text-rose-400 font-semibold";
                 resDiv.innerText = "Request failed.";
             }
@@ -1339,7 +1362,7 @@ print(res.json())</code></pre>
                 const rejBadge = isRejected ? '<span class="bg-rose-500/10 text-rose-400 border border-rose-500/20 text-[10px] px-2 py-0.5 rounded font-bold uppercase">Rejected</span>' : '';
 
                 html += `
-                    <div class="bg-inputbg border border-slate-800 p-4 rounded-xl flex flex-col gap-3 hover:border-sky-500/40 transition">
+                    <div id="lead-card-${lead.id}" class="bg-inputbg border border-slate-800 p-4 rounded-xl flex flex-col gap-3 hover:border-sky-500/40 transition animate-fade-in">
                         <div class="flex justify-between items-center">
                             <span class="font-bold text-sm text-white flex items-center gap-2">
                                 ${escapeHtml(lead.company_name)} 

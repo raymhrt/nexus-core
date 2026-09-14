@@ -88,6 +88,15 @@ if DATABASE_URL:
 
 webhook_semaphore = asyncio.Semaphore(10)
 
+GEMINI_LEAD_GENERATION_SYSTEM_PROMPT = """
+You are an autonomous B2B lead intelligence extraction swarm. Your task is to crawl web data and output accurate company profiles.
+
+CLASSIFICATION GUARDRAILS:
+1. Enterprise vs. Startup Check: Always cross-reference employee count and public status. 
+2. If employee_count > 500 or the company is publicly traded on any global stock exchange, funding_stage MUST be set to "Public / Enterprise". Do NOT label mature or public companies as "Series A", "Seed", or venture-backed.
+3. Ensure tech stack and headcount metrics match real-world telemetry.
+"""
+
 # WebSocket Connection Manager for live feed streaming
 class ConnectionManager:
     def __init__(self):
@@ -175,7 +184,7 @@ def call_gemini_rest(prompt: str, max_retries: int = 3) -> str:
         headers = {"Content-Type": "application/json"}
         payload = {
             "contents": [{
-                "parts": [{"text": prompt}]
+                "parts": [{"text": GEMINI_LEAD_GENERATION_SYSTEM_PROMPT + "\n" + prompt}]
             }]
         }
         
@@ -348,7 +357,7 @@ class NexusAdvancedAgentSwarmOrchestrator:
         """
         response = self.client.models.generate_content(
             model=self.model_id,
-            contents=prompt,
+            contents=GEMINI_LEAD_GENERATION_SYSTEM_PROMPT + "\n" + prompt,
             config=types.GenerateContentConfig(response_mime_type="application/json")
         )
         return json.loads(response.text)
@@ -364,7 +373,7 @@ class NexusAdvancedAgentSwarmOrchestrator:
         """
         response = self.client.models.generate_content(
             model=self.model_id,
-            contents=prompt,
+            contents=GEMINI_LEAD_GENERATION_SYSTEM_PROMPT + "\n" + prompt,
             config=types.GenerateContentConfig(response_mime_type="application/json")
         )
         return json.loads(response.text)
@@ -380,7 +389,7 @@ class NexusAdvancedAgentSwarmOrchestrator:
         """
         response = self.client.models.generate_content(
             model=self.model_id,
-            contents=prompt,
+            contents=GEMINI_LEAD_GENERATION_SYSTEM_PROMPT + "\n" + prompt,
             config=types.GenerateContentConfig(response_mime_type="application/json")
         )
         return json.loads(response.text)
@@ -396,7 +405,7 @@ class NexusAdvancedAgentSwarmOrchestrator:
         """
         response = self.client.models.generate_content(
             model=self.model_id,
-            contents=prompt,
+            contents=GEMINI_LEAD_GENERATION_SYSTEM_PROMPT + "\n" + prompt,
             config=types.GenerateContentConfig(response_mime_type="application/json")
         )
         return json.loads(response.text)
@@ -1091,7 +1100,15 @@ class GeminiLeadSchema(BaseModel):
     confidence_score: Optional[float] = 0.9
     trust_score: Optional[int] = 95
     tech_stack: Optional[str] = "Python, PostgreSQL"
-    funding_stage: Optional[str] = "Series A"
+    funding_stage: Optional[str] = Field(
+        "Series A",
+        description=(
+            "Funding stage or corporate structure type. "
+            "CRITICAL RULE: If the company headcount exceeds 500, OR if it is a publicly traded corporation "
+            "(e.g., listed on a stock exchange like JSE, NYSE, NASDAQ), you MUST classify this field as "
+            "'Public / Enterprise' or 'Public Corporation'. NEVER classify large enterprises or companies with >500 employees as 'Series A', 'Seed', or venture-backed startup stages."
+        )
+    )
     intent_signals: Optional[str] = "None"
     decision_maker_title: Optional[str] = "VP of Engineering"
     decision_maker_linkedin: Optional[str] = ""
