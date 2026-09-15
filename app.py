@@ -178,11 +178,10 @@ def call_gemini_rest(prompt: str, max_retries: int = 3, use_search: bool = False
         raise HTTPException(status_code=500, detail="GEMINI_API_KEY not configured")
      
     models = [
-        "gemini-3.7-flash",
-        "gemini-3.6-flash",
-        "gemini-3-flash",
-        "gemini-3.5-flash",
-        "gemini-3.8-flash"
+        "gemini-2.5-flash",
+        "gemini-2.0-flash",
+        "gemini-1.5-flash",
+        "gemini-1.5-pro"
     ]
      
     for model_name in models:
@@ -220,7 +219,7 @@ def call_gemini_rest(prompt: str, max_retries: int = 3, use_search: bool = False
                 if attempt == max_retries:
                     break
 
-            time.sleep((backoff_factor ** attempt) + random.uniform(0.1, 1.0))
+            time.sleep((backoff_factor ** attempt) + random.uniform(1.0, 3.0))
             
     logger.error("All Gemini model endpoints and fallback models failed. Raising upstream AI provider error.")
     raise HTTPException(status_code=502, detail="Upstream AI provider error: All model endpoints failed.")
@@ -330,7 +329,7 @@ def send_magic_link_email(to_email: str, magic_url: str):
 class NexusAdvancedAgentSwarmOrchestrator:
     def __init__(self, client: genai.Client):
         self.client = client
-        self.model_id = "gemini-3.7-flash"
+        self.model_id = "gemini-2.5-flash"
 
     def execute_advanced_swarm(self, target_query: str) -> Dict[str, Any]:
         logger.info(f"Initializing Advanced Multi-Agent Consensus Swarm for: {target_query}")
@@ -2221,6 +2220,9 @@ async def execute_on_demand_generation(query: str, count: int, user_email: str, 
             except Exception:
                 validated_leads = []
 
+    if not validated_leads:
+        raise HTTPException(status_code=502, detail="Upstream AI provider rate limited or failed. No leads generated.")
+
     ins_conn = get_db()
     new_leads = []
     try:
@@ -2297,6 +2299,12 @@ async def generate_leads_on_demand(payload: OnDemandGeneratePayload, request: Re
 
     requested_cost = payload.count
 
+    new_leads = await execute_on_demand_generation(payload.query, payload.count, auth["email"], auth["tier"])
+    actual_generated = len(new_leads)
+
+    if actual_generated == 0:
+        raise HTTPException(status_code=502, detail="Upstream AI provider rate limited. No leads generated. Credits were not charged.")
+
     conn = get_db()
     try:
         cursor = conn.cursor()
@@ -2308,7 +2316,7 @@ async def generate_leads_on_demand(payload: OnDemandGeneratePayload, request: Re
                 WHERE email = %s AND credits_remaining >= %s
                 RETURNING credits_remaining, credits_limit
                 """,
-                (requested_cost, auth["email"], requested_cost)
+                (actual_generated, auth["email"], actual_generated)
             )
             row = cursor.fetchone()
             if not row:
@@ -2325,7 +2333,7 @@ async def generate_leads_on_demand(payload: OnDemandGeneratePayload, request: Re
                         WHERE email = %s AND credits_remaining >= %s
                         RETURNING credits_remaining, credits_limit
                         """,
-                        (requested_cost, auth["email"], requested_cost)
+                        (actual_generated, auth["email"], actual_generated)
                     )
                     row = cursor.fetchone()
                 
@@ -2344,23 +2352,21 @@ async def generate_leads_on_demand(payload: OnDemandGeneratePayload, request: Re
             else:
                 credits_left = row["credits_remaining"] if isinstance(row, dict) else row[0]
 
-            if credits_left < requested_cost:
+            if credits_left < actual_generated:
                 cursor.close()
-                raise HTTPException(status_code=402, detail=f"Insufficient lead generation credits. Remaining: {credits_left}, Requested: {requested_cost}.")
+                raise HTTPException(status_code=402, detail=f"Insufficient lead generation credits. Remaining: {credits_left}, Requested: {actual_generated}.")
             
-            cursor.execute("UPDATE subscriber_credits SET credits_remaining = credits_remaining - ? WHERE email = ?", (requested_cost, auth["email"]))
+            cursor.execute("UPDATE subscriber_credits SET credits_remaining = credits_remaining - ? WHERE email = ?", (actual_generated, auth["email"]))
             conn.commit()
-            credits_left -= requested_cost
+            credits_left -= actual_generated
 
         cursor.close()
     finally:
         release_db(conn)
 
-    new_leads = await execute_on_demand_generation(payload.query, payload.count, auth["email"], auth["tier"])
-
     return {
         "status": "success", 
-        "message": f"Successfully generated {len(new_leads)} fresh leads!",
+        "message": f"Successfully generated {actual_generated} fresh leads!",
         "leads": new_leads,
         "credits_remaining": credits_left
     }

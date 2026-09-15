@@ -1238,26 +1238,38 @@ print(res.json())</code></pre>
             resDiv.innerHTML = `<i class="fa-solid fa-spinner fa-spin text-cyan-400"></i> AI agent crawling & running enrichment waterfalls...`;
 
             try {
-                const res = await fetch('/api/v1/leads/generate-on-demand', {
+                const response = await fetch('/api/v1/leads/generate-on-demand', {
                     method: 'POST',
                     headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
                     body: JSON.stringify({ query: query, count: count })
                 });
-                const data = await res.json();
-                if (res.ok) {
-                    const creditsLeft = data.credits_remaining !== undefined ? data.credits_remaining : '464';
-                    resDiv.className = "mt-3 text-xs text-emerald-400 font-semibold";
-                    resDiv.innerText = `1 lead generated successfully! Credits remaining: ${creditsLeft}. Waiting for waterfall completion...`;
-                    showToast("Generation offloaded! Waiting for waterfall enrichment...");
-                } else {
-                    if (generateBtn) generateBtn.disabled = false;
-                    if (spinner) spinner.classList.add('hidden');
+                const data = await response.json();
+
+                if (generateBtn) generateBtn.disabled = false;
+                if (spinner) spinner.classList.add('hidden');
+
+                if (!response.ok) {
+                    showToast(data.detail || "Generation failed.", true);
                     resDiv.className = "mt-3 text-xs text-rose-400 font-semibold";
                     resDiv.innerText = data.detail || "Generation failed.";
+                    return;
+                }
+
+                if (data.leads && data.leads.length === 0) {
+                    showToast("No leads found for that criteria.", true);
+                    resDiv.className = "mt-3 text-xs text-amber-400 font-semibold";
+                    resDiv.innerText = "No leads found for that criteria.";
+                } else {
+                    const leadCount = data.leads ? data.leads.length : 1;
+                    showToast(`${leadCount} lead(s) generated successfully! Credits remaining: ${data.credits_remaining}`);
+                    resDiv.className = "mt-3 text-xs text-emerald-400 font-semibold";
+                    resDiv.innerText = `${leadCount} lead(s) generated successfully! Credits remaining: ${data.credits_remaining}`;
+                    saveAndFetch();
                 }
             } catch (err) {
                 if (generateBtn) generateBtn.disabled = false;
                 if (spinner) spinner.classList.add('hidden');
+                showToast("Request failed: " + err.message, true);
                 resDiv.className = "mt-3 text-xs text-rose-400 font-semibold";
                 resDiv.innerText = "Request failed.";
             }
