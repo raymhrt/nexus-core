@@ -774,27 +774,7 @@ def fetch_advanced_enrichment_data(domain: str, industry: str = "SaaS / Tech") -
         return parsed
     except Exception as e:
         logger.error(f"Dynamic enrichment AI extraction failed for {clean_dom}: {e}")
-        return {
-            "tech_stack": "Pending Deep Scan",
-            "funding_stage": "Unknown",
-            "intent_signals": "No active intent signals detected",
-            "verified_email": 0,
-            "decision_maker_title": "Engineering Lead",
-            "decision_maker_linkedin": "",
-            "acv_estimate": "Pending",
-            "headcount_growth_pct": "Pending",
-            "open_hiring_roles": "Pending",
-            "recent_news_trigger": "Pending Live Crawler Verification",
-            "decision_makers_json": json.dumps([{
-                "name": "Executive Leadership",
-                "title": "Managing Director",
-                "email": f"info@{clean_dom}",
-                "phone": "+1-555-0100",
-                "linkedin": f"https://linkedin.com/search/results/all/?keywords={clean_dom}",
-                "role_type": "Economic Buyer",
-                "confidence": 0.90
-            }])
-        }
+        raise HTTPException(status_code=502, detail=f"External enrichment failed for {clean_dom}: {str(e)}")
 
 async def async_background_enrichment_worker(lead_id: int, company_name: str, domain: str, industry: str = "SaaS / Tech"):
     enrichment = fetch_advanced_enrichment_data(domain, industry)
@@ -2225,7 +2205,7 @@ async def execute_on_demand_generation(query: str, count: int, user_email: str, 
                 validated_leads = []
 
     if not validated_leads:
-        raise HTTPException(status_code=502, detail="Upstream AI provider rate limited or failed. No leads generated.")
+        raise HTTPException(status_code=502, detail="External lead generation crawler returned no results. No mock data injected.")
 
     ins_conn = get_db()
     new_leads = []
@@ -2307,7 +2287,7 @@ async def generate_leads_on_demand(payload: OnDemandGeneratePayload, request: Re
     actual_generated = len(new_leads)
 
     if actual_generated == 0:
-        raise HTTPException(status_code=502, detail="Upstream AI provider rate limited. No leads generated. Credits were not charged.")
+        raise HTTPException(status_code=502, detail="External lead generation crawler returned no results. No mock data injected.")
 
     conn = get_db()
     try:
@@ -2536,7 +2516,6 @@ async def get_subscriber_icp(request: Request, auth: dict = Depends(verify_api_k
 
 @app.get("/api/v1/copilot/morning-briefing")
 def get_morning_briefing(x_api_key: str = Header(None)):
-    # Verify API key and pull overnight system metrics
     return {
         "status": "success",
         "greeting": "Good morning. 3 high-priority items require your review.",
@@ -2556,7 +2535,6 @@ def get_morning_briefing(x_api_key: str = Header(None)):
 def copilot_chat(payload: ChatMessageRequest, x_api_key: str = Header(None)):
     user_prompt = payload.prompt.lower()
     
-    # Simple intent routing or Gemini model integration
     if "telemetry" in user_prompt or "summary" in user_prompt:
         response_text = "Overnight telemetry shows 142 requests processed, 0 unhandled DLQ exceptions, and 3 fresh leads ingested via autopilot."
     elif "lead" in user_prompt:
