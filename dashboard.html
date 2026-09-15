@@ -73,6 +73,11 @@
                     <button onclick="toggleCopilotModal()" class="bg-sky-500/10 hover:bg-sky-500/20 text-accent border border-sky-500/30 px-3.5 py-2 rounded-lg text-xs font-semibold transition flex items-center gap-2">
                         <i class="fa-solid fa-robot text-cyan-400"></i> AI Co-Pilot <span class="text-[10px] bg-sky-500/20 px-1.5 py-0.5 rounded text-sky-300 font-mono">Cmd+K</span>
                     </button>
+                    <!-- Credits Badge -->
+                    <div id="credit-badge" class="hidden sm:flex items-center space-x-2 bg-slate-800 border border-slate-700 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-200">
+                        <i class="fa-solid fa-coins text-amber-400"></i>
+                        <span id="credits-text">Loading credits...</span>
+                    </div>
                     <button onclick="openBillingPortal()" class="bg-slate-800 hover:bg-slate-700 text-accent border border-sky-500/30 px-4 py-2 rounded-lg text-xs font-semibold transition flex items-center gap-2">
                         <i class="fa-solid fa-credit-card text-cyan-400"></i> Manage Subscription
                     </button>
@@ -94,47 +99,73 @@
 
             <!-- Restructured Persona Navigation Tabs -->
             <div class="flex flex-wrap gap-2 border-b border-sky-500/20 pb-3">
-                <button id="btnTabLeads" onclick="switchTab('leads', this)" class="tab-btn px-4 py-2 rounded-lg text-xs font-bold transition bg-sky-500/15 text-accent border border-sky-500/40 flex items-center gap-2"><i class="fa-solid fa-bullseye text-cyan-400"></i> Lead Intelligence (SDR)</button>
-                <button id="btnTabRevOps" onclick="switchTab('revops', this)" class="tab-btn px-4 py-2 rounded-lg text-xs font-bold transition text-slate-400 hover:text-slate-200 flex items-center gap-2"><i class="fa-solid fa-plug text-purple-400"></i> RevOps & Autopilot</button>
-                <button id="btnTabAdmin" onclick="switchTab('admin', this)" class="tab-btn px-4 py-2 rounded-lg text-xs font-bold transition text-slate-400 hover:text-slate-200 flex items-center gap-2"><i class="fa-solid fa-chart-line text-emerald-400"></i> Telemetry & Audit</button>
+                <button id="btnTabOverview" onclick="switchTab('overview', this)" class="tab-btn px-4 py-2 rounded-lg text-xs font-bold transition bg-sky-500/15 text-accent border border-sky-500/40 flex items-center gap-2"><i class="fa-solid fa-chart-line text-cyan-400"></i> Overview & Telemetry</button>
+                <button id="btnTabLeads" onclick="switchTab('leads', this)" class="tab-btn px-4 py-2 rounded-lg text-xs font-bold transition text-slate-400 hover:text-slate-200 flex items-center gap-2"><i class="fa-solid fa-bullseye text-cyan-400"></i> Lead Intelligence (SDR)</button>
+                <button id="btnTabGenerator" onclick="switchTab('generator', this)" class="tab-btn px-4 py-2 rounded-lg text-xs font-bold transition text-slate-400 hover:text-slate-200 flex items-center gap-2"><i class="fa-solid fa-wand-magic-sparkles text-amber-400"></i> On-Demand Generator</button>
+                <button id="btnTabAutopilot" onclick="switchTab('autopilot', this)" class="tab-btn px-4 py-2 rounded-lg text-xs font-bold transition text-slate-400 hover:text-slate-200 flex items-center gap-2"><i class="fa-solid fa-robot text-purple-400"></i> Autonomous SDR Rules</button>
+                <button id="btnTabRevOps" onclick="switchTab('revops', this)" class="tab-btn px-4 py-2 rounded-lg text-xs font-bold transition text-slate-400 hover:text-slate-200 flex items-center gap-2"><i class="fa-solid fa-plug text-indigo-400"></i> RevOps & Webhooks</button>
+                <button id="btnTabAdmin" onclick="switchTab('admin', this)" class="tab-btn px-4 py-2 rounded-lg text-xs font-bold transition text-slate-400 hover:text-slate-200 flex items-center gap-2"><i class="fa-solid fa-shield-halved text-emerald-400"></i> Admin Audit & Canaries</button>
                 <button id="btnTabSandbox" onclick="switchTab('sandbox', this)" class="tab-btn px-4 py-2 rounded-lg text-xs font-bold transition text-slate-400 hover:text-slate-200 flex items-center gap-2"><i class="fa-solid fa-bolt text-amber-400"></i> Developer Sandbox</button>
             </div>
 
-            <!-- TAB 1: Lead Intelligence Hub (SDR Focus) -->
-            <div id="tabLeads" class="tab-content active mt-6 space-y-6">
-                <!-- On-Demand Generator -->
-                <div class="bg-sky-500/5 border border-sky-500/20 p-6 rounded-xl">
-                    <span class="block text-xs font-bold uppercase tracking-wider text-accent mb-1 flex items-center gap-2"><i class="fa-solid fa-wand-magic-sparkles text-cyan-400"></i> On-Demand Lead Generation Engine</span>
-                    <p class="text-xs text-slate-400 mb-4">Offload heavy LLM crawling & enrichment waterfalls to decoupled background workers.</p>
-                    
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-                        <div class="md:col-span-2">
-                            <label class="block text-xs font-bold uppercase text-slate-400 mb-2">Custom Lead Generation Query / Niche</label>
-                            <input type="text" id="onDemandQuery" value="" placeholder="e.g. Enterprise SaaS in San Francisco" class="bg-inputbg border border-slate-700 rounded-lg px-3 py-2.5 text-xs w-full focus:outline-none focus:border-accent">
-                        </div>
-                        <div>
-                            <label class="block text-xs font-bold uppercase text-slate-400 mb-2">Number of Leads (1-25)</label>
-                            <input type="number" id="onDemandCount" value="1" min="1" max="25" class="bg-inputbg border border-slate-700 rounded-lg px-3 py-2.5 text-xs w-full focus:outline-none focus:border-accent font-mono">
-                        </div>
+            <!-- TAB 0: OVERVIEW & TELEMETRY -->
+            <div id="tabOverview" class="tab-content active mt-6 space-y-6">
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div class="bg-slate-900 border border-slate-800 p-5 rounded-2xl">
+                        <p class="text-xs text-slate-400 font-bold uppercase tracking-wider">Total Active Leads</p>
+                        <h3 id="stat-total-leads" class="text-2xl font-black text-white mt-2">--</h3>
+                        <span class="text-[10px] text-emerald-400 font-semibold mt-1 block">Live vector index synchronized</span>
                     </div>
-                    
-                    <!-- Action Bar with Loading Spinner -->
-                    <div class="flex items-center gap-3">
-                        <button id="generate-leads-btn" onclick="triggerOnDemandGeneration()" class="bg-accent hover:bg-accentHover text-slate-950 font-bold px-6 py-2.5 rounded-lg text-xs transition flex items-center gap-2">
-                            <i class="fa-solid fa-bolt text-amber-500"></i> Generate Fresh Leads Instantly
-                        </button>
-                        <div id="loading-spinner" class="hidden flex items-center gap-2 text-xs text-sky-400 font-semibold">
-                            <i class="fa-solid fa-spinner fa-spin text-cyan-400"></i> Autonomous AI Swarm generating leads...
-                        </div>
+                    <div class="bg-slate-900 border border-slate-800 p-5 rounded-2xl">
+                        <p class="text-xs text-slate-400 font-bold uppercase tracking-wider">Credits Remaining</p>
+                        <h3 id="stat-credits" class="text-2xl font-black text-sky-400 mt-2">--</h3>
+                        <span class="text-[10px] text-slate-400 font-semibold mt-1 block">Refreshes monthly</span>
                     </div>
-                    <div id="onDemandResult" class="mt-3 text-xs text-slate-400"></div>
+                    <div class="bg-slate-900 border border-slate-800 p-5 rounded-2xl">
+                        <p class="text-xs text-slate-400 font-bold uppercase tracking-wider">Circuit Breaker Status</p>
+                        <h3 id="stat-circuit" class="text-2xl font-black text-emerald-400 mt-2">Optimal</h3>
+                        <span class="text-[10px] text-slate-400 font-semibold mt-1 block">All webhook endpoints healthy</span>
+                    </div>
+                    <div class="bg-slate-900 border border-slate-800 p-5 rounded-2xl">
+                        <p class="text-xs text-slate-400 font-bold uppercase tracking-wider">DLQ Exceptions</p>
+                        <h3 id="stat-dlq" class="text-2xl font-black text-white mt-2">0</h3>
+                        <span class="text-[10px] text-slate-400 font-semibold mt-1 block">Zero unhandled exceptions</span>
+                    </div>
                 </div>
 
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl flex flex-col">
+                        <h3 class="text-sm font-bold text-white mb-4 flex items-center gap-2">
+                            <i class="fa-solid fa-satellite-dish text-sky-400"></i> Live SSE Telemetry Stream
+                        </h3>
+                        <div id="telemetry-log" class="bg-slate-950 border border-slate-800 p-4 rounded-xl flex-1 h-64 overflow-y-auto font-mono text-xs text-slate-300 space-y-2">
+                            <p class="text-slate-500">Connecting to telemetry broker stream...</p>
+                        </div>
+                    </div>
+
+                    <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl flex flex-col justify-between">
+                        <div>
+                            <h3 class="text-sm font-bold text-white mb-2 flex items-center gap-2">
+                                <i class="fa-solid fa-mug-hot text-amber-400"></i> AI Morning Briefing & Copilot
+                            </h3>
+                            <p id="briefing-greeting" class="text-xs text-slate-400 mb-4">Loading morning briefing...</p>
+                            <div id="briefing-actions" class="space-y-2"></div>
+                        </div>
+                        <div class="mt-4 pt-4 border-t border-slate-800 flex gap-2">
+                            <input type="text" id="copilot-input" placeholder="Ask AI Copilot (e.g., 'Summarize high trust leads')..." class="flex-1 bg-slate-950 border border-slate-800 px-3 py-2 rounded-xl text-xs focus:outline-none focus:border-sky-500 text-white">
+                            <button onclick="sendCopilotChat()" class="bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold px-4 py-2 rounded-xl text-xs transition">Ask</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 1: Lead Intelligence Hub (SDR Focus) -->
+            <div id="tabLeads" class="tab-content hidden mt-6 space-y-6">
                 <!-- Semantic Search Bar -->
                 <div class="bg-inputbg border border-slate-800 p-6 rounded-xl">
                     <span class="block text-xs font-bold uppercase tracking-wider text-accent mb-2 flex items-center gap-2"><i class="fa-solid fa-brain text-purple-400"></i> Semantic Vector Search Explorer</span>
                     <div class="flex gap-2 mb-3">
-                        <input type="text" id="semanticQueryInput" placeholder="Describe your ideal company (e.g., cloud security platforms)..." class="bg-darkbg border border-slate-700 rounded-lg px-3 py-2.5 text-xs flex-grow focus:outline-none focus:border-accent">
+                        <input type="text" id="semanticQueryInput" placeholder="Describe your ideal company (e.g., cloud security platforms)..." class="bg-darkbg border border-slate-700 rounded-lg px-3 py-2.5 text-xs flex-grow focus:outline-none focus:border-accent text-white">
                         <button onclick="runSemanticSearch()" class="bg-accent hover:bg-accentHover text-slate-950 font-bold px-5 py-2.5 rounded-lg text-xs transition">Search AI</button>
                     </div>
                     <div id="semanticResultsContainer" class="hidden mt-4">
@@ -148,19 +179,19 @@
                     <div class="flex flex-wrap items-center gap-3 w-full md:w-auto">
                         <div>
                             <label class="block text-[10px] font-bold uppercase text-slate-400 mb-1">Min Trust</label>
-                            <input type="number" id="filterMinTrust" placeholder="e.g. 85" class="bg-darkbg border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs w-24 focus:outline-none focus:border-accent">
+                            <input type="number" id="filterMinTrust" placeholder="e.g. 85" class="bg-darkbg border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs w-24 focus:outline-none focus:border-accent text-white">
                         </div>
                         <div>
                             <label class="block text-[10px] font-bold uppercase text-slate-400 mb-1">Industry</label>
-                            <input type="text" id="filterIndustry" placeholder="Fintech, SaaS..." class="bg-darkbg border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs w-28 focus:outline-none focus:border-accent">
+                            <input type="text" id="filterIndustry" placeholder="Fintech, SaaS..." class="bg-darkbg border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs w-28 focus:outline-none focus:border-accent text-white">
                         </div>
                         <div>
                             <label class="block text-[10px] font-bold uppercase text-slate-400 mb-1">Funding</label>
-                            <input type="text" id="filterFunding" placeholder="Series A..." class="bg-darkbg border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs w-28 focus:outline-none focus:border-accent">
+                            <input type="text" id="filterFunding" placeholder="Series A..." class="bg-darkbg border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs w-28 focus:outline-none focus:border-accent text-white">
                         </div>
                         <div>
                             <label class="block text-[10px] font-bold uppercase text-slate-400 mb-1">Sort By</label>
-                            <select id="filterSort" class="bg-darkbg border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs w-32">
+                            <select id="filterSort" class="bg-darkbg border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs w-32 text-white">
                                 <option value="newest">Newest First</option>
                                 <option value="trust_desc">Trust (High to Low)</option>
                                 <option value="trust_asc">Trust (Low to High)</option>
@@ -188,66 +219,85 @@
                 </div>
             </div>
 
-            <!-- TAB 2: RevOps & Autonomous Autopilot -->
-            <div id="tabRevOps" class="tab-content hidden mt-6 space-y-6">
-                <!-- Autonomous SDR Autopilot Rules -->
-                <div class="bg-inputbg border border-slate-800 p-6 rounded-xl">
-                    <span class="block text-xs font-bold uppercase tracking-wider text-accent mb-1 flex items-center gap-2"><i class="fa-solid fa-robot text-amber-400"></i> Autonomous SDR Autopilot Rules</span>
-                    <p class="text-xs text-slate-400 mb-4">Multi-channel engagement playbooks, Slack triggers, and trust score filtering.</p>
-                    
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+            <!-- TAB 2: ON-DEMAND GENERATOR -->
+            <div id="tabGenerator" class="tab-content hidden mt-6 space-y-6">
+                <div class="max-w-2xl bg-slate-900 border border-slate-800 p-8 rounded-2xl space-y-6">
+                    <div>
+                        <h2 class="text-base font-black text-white flex items-center gap-2">
+                            <i class="fa-solid fa-wand-magic-sparkles text-sky-400"></i> Autonomous On-Demand Lead Generator
+                        </h2>
+                        <p class="text-xs text-slate-400 mt-1">Deploy Gemini AI swarms to crawl, verify, and enrich new B2B accounts on the fly.</p>
+                    </div>
+                    <div class="space-y-4">
                         <div>
-                            <label class="block text-xs font-bold uppercase text-slate-400 mb-2">Min Trust Score Threshold</label>
-                            <input type="number" id="autoMinTrust" value="85" min="0" max="100" class="bg-darkbg border border-slate-700 rounded-lg px-3 py-2.5 text-xs w-full">
+                            <label class="block text-xs font-bold text-slate-300 mb-1">Target Query / Niche</label>
+                            <input type="text" id="onDemandQuery" placeholder="e.g., 'Series B Fintech startups using Python and AWS in San Francisco'" class="w-full bg-slate-950 border border-slate-800 px-4 py-3 rounded-xl text-xs focus:outline-none focus:border-sky-500 text-white">
                         </div>
                         <div>
-                            <label class="block text-xs font-bold uppercase text-slate-400 mb-2">Auto-Sync to CRM</label>
-                            <select id="autoSyncCrm" class="bg-darkbg border border-slate-700 rounded-lg p-2.5 text-xs w-full">
-                                <option value="1">Enabled</option>
-                                <option value="0">Disabled</option>
-                            </select>
+                            <label class="block text-xs font-bold text-slate-300 mb-1">Quantity (1 - 25 leads)</label>
+                            <input type="number" id="onDemandCount" value="5" min="1" max="25" class="w-full bg-slate-950 border border-slate-800 px-4 py-3 rounded-xl text-xs focus:outline-none focus:border-sky-500 text-white font-mono">
                         </div>
-                        <div>
-                            <label class="block text-xs font-bold uppercase text-slate-400 mb-2">Auto-Enroll Sequence</label>
-                            <select id="autoEnrollSeq" class="bg-darkbg border border-slate-700 rounded-lg p-2.5 text-xs w-full">
-                                <option value="1">Enabled</option>
-                                <option value="0">Disabled</option>
-                            </select>
+                        <button id="generate-leads-btn" onclick="triggerOnDemandGeneration()" class="w-full bg-gradient-to-r from-sky-500 to-indigo-500 hover:opacity-90 text-slate-950 font-black py-3.5 rounded-xl text-xs transition shadow-lg shadow-sky-500/20">
+                            🚀 Launch Generation Swarm (1 Credit per lead)
+                        </button>
+                        <div id="loading-spinner" class="hidden flex items-center gap-2 text-xs text-sky-400 font-semibold mt-2">
+                            <i class="fa-solid fa-spinner fa-spin text-cyan-400"></i> Autonomous AI Swarm generating leads...
                         </div>
                     </div>
-                    <button class="bg-accent text-slate-950 font-bold px-5 py-2.5 rounded-lg text-xs transition" onclick="saveAutonomousRules()">Save Autopilot Rules</button>
+                    <div id="onDemandResult" class="hidden p-4 rounded-xl bg-slate-950 border border-slate-800 text-xs font-mono"></div>
+                </div>
+            </div>
+
+            <!-- TAB 3: AUTONOMOUS SDR RULES -->
+            <div id="tabAutopilot" class="tab-content hidden mt-6 space-y-6">
+                <div class="max-w-2xl bg-slate-900 border border-slate-800 p-8 rounded-2xl space-y-6">
+                    <div>
+                        <h2 class="text-base font-black text-white flex items-center gap-2">
+                            <i class="fa-solid fa-robot text-sky-400"></i> Autonomous SDR Autopilot Rules
+                        </h2>
+                        <p class="text-xs text-slate-400 mt-1">Configure automated CRM sync, Slack alerts, and multi-touch sequence enrollment rules for high-trust inbound leads.</p>
+                    </div>
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-xs font-bold text-slate-300 mb-1">Minimum Trust Score Threshold for Autopilot</label>
+                            <input type="number" id="autoMinTrust" value="85" min="50" max="100" class="w-full bg-slate-950 border border-slate-800 px-4 py-3 rounded-xl text-xs focus:outline-none focus:border-sky-500 text-white">
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-bold text-slate-300 mb-1">Auto-Sync to CRM</label>
+                                <select id="autoSyncCrm" class="w-full bg-slate-950 border border-slate-800 px-4 py-3 rounded-xl text-xs text-white">
+                                    <option value="1">Enabled</option>
+                                    <option value="0">Disabled</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-300 mb-1">Auto-Enroll Sequence</label>
+                                <select id="autoEnrollSeq" class="w-full bg-slate-950 border border-slate-800 px-4 py-3 rounded-xl text-xs text-white">
+                                    <option value="1">Enabled</option>
+                                    <option value="0">Disabled</option>
+                                </select>
+                            </div>
+                        </div>
+                        <button onclick="saveAutonomousRules()" class="bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold px-6 py-3 rounded-xl text-xs transition">
+                            Save Autopilot Rules
+                        </button>
+                    </div>
                 </div>
 
                 <!-- Telegram Notification Settings -->
-                <div class="bg-inputbg border border-slate-800 p-6 rounded-xl">
+                <div class="max-w-2xl bg-slate-900 border border-slate-800 p-8 rounded-2xl space-y-4">
                     <span class="block text-xs font-bold uppercase tracking-wider text-accent mb-1 flex items-center gap-2"><i class="fa-brands fa-telegram text-cyan-400"></i> Telegram Bot Notification Settings</span>
                     <p class="text-xs text-slate-400 mb-4">Receive autonomous autopilot high-trust lead sync alerts straight to your personal Telegram chat.</p>
-                    
-                    <div class="mb-4">
-                        <label class="block text-xs font-bold uppercase text-slate-400 mb-2">Telegram Chat ID</label>
-                        <input type="text" id="telegramChatId" placeholder="e.g. 123456789" class="bg-darkbg border border-slate-700 rounded-lg px-3 py-2.5 text-xs w-full focus:outline-none focus:border-accent font-mono">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-300 mb-2">Telegram Chat ID</label>
+                        <input type="text" id="telegramChatId" placeholder="e.g. 123456789" class="w-full bg-slate-950 border border-slate-800 px-4 py-3 rounded-xl text-xs font-mono text-white focus:outline-none focus:border-sky-500">
                     </div>
-                    <button class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-accent font-bold px-5 py-2.5 rounded-lg text-xs transition" onclick="saveTelegramSettings()">Save Telegram Settings</button>
+                    <button onclick="saveTelegramSettings()" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-accent font-bold px-5 py-2.5 rounded-lg text-xs transition">Save Telegram Settings</button>
                 </div>
+            </div>
 
-                <!-- Target ICP Settings -->
-                <div class="bg-inputbg border border-slate-800 p-6 rounded-xl">
-                    <span class="block text-xs font-bold uppercase tracking-wider text-accent mb-1 flex items-center gap-2"><i class="fa-solid fa-bullseye text-cyan-400"></i> Target ICP Profile Settings</span>
-                    <p class="text-xs text-slate-400 mb-4">Configure your custom Ideal Customer Profile parameters for tailored lead filtering.</p>
-                    
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                        <div>
-                            <label class="block text-xs font-bold uppercase text-slate-400 mb-2">Target Industries</label>
-                            <input type="text" id="targetIndustries" placeholder="e.g., Fintech, SaaS, AI" class="bg-darkbg border border-slate-700 rounded-lg px-3 py-2.5 text-xs w-full focus:outline-none focus:border-accent">
-                        </div>
-                        <div>
-                            <label class="block text-xs font-bold uppercase text-slate-400 mb-2">Minimum Trust Score (0-100)</label>
-                            <input type="number" id="minTrustScore" value="85" min="0" max="100" class="bg-darkbg border border-slate-700 rounded-lg px-3 py-2.5 text-xs w-full focus:outline-none focus:border-accent">
-                        </div>
-                    </div>
-                    <button class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-accent font-bold px-5 py-2.5 rounded-lg text-xs transition" onclick="saveICPProfile()">Save ICP Profile Configuration</button>
-                </div>
-
+            <!-- TAB 4: REVOPS & WEBHOOKS -->
+            <div id="tabRevOps" class="tab-content hidden mt-6 space-y-6">
                 <!-- CRM & Destinations -->
                 <div class="bg-inputbg border border-slate-800 p-6 rounded-xl">
                     <span class="block text-xs font-bold uppercase tracking-wider text-accent mb-1 flex items-center gap-2"><i class="fa-solid fa-cloud-arrow-up text-cyan-400"></i> Native CRM & Data Warehouse Destinations</span>
@@ -256,7 +306,7 @@
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                         <div>
                             <label class="block text-xs font-bold uppercase text-slate-400 mb-2">Outbound Warehouse Destination</label>
-                            <select id="destType" class="bg-darkbg border border-slate-700 rounded-lg p-2.5 text-xs w-full">
+                            <select id="destType" class="bg-darkbg border border-slate-700 rounded-lg p-2.5 text-xs w-full text-white">
                                 <option value="hubspot">HubSpot CRM</option>
                                 <option value="salesforce">Salesforce</option>
                                 <option value="snowflake">Snowflake Warehouse</option>
@@ -265,12 +315,12 @@
                         </div>
                         <div>
                             <label class="block text-xs font-bold uppercase text-slate-400 mb-2">Webhook / API Endpoint URL</label>
-                            <input type="text" id="destWebhookUrl" placeholder="https://api.hubspot.com/crm/v3/objects/contacts" class="bg-darkbg border border-slate-700 rounded-lg px-3 py-2.5 text-xs w-full focus:outline-none focus:border-accent">
+                            <input type="text" id="destWebhookUrl" placeholder="https://api.hubspot.com/crm/v3/objects/contacts" class="bg-darkbg border border-slate-700 rounded-lg px-3 py-2.5 text-xs w-full focus:outline-none focus:border-accent text-white">
                         </div>
                     </div>
                     <div class="mb-4">
                         <label class="block text-xs font-bold uppercase text-slate-400 mb-2">Access Token / Bearer Key (Optional)</label>
-                        <input type="password" id="destToken" placeholder="pat-na1-..." class="bg-darkbg border border-slate-700 rounded-lg px-3 py-2.5 text-xs w-full focus:outline-none focus:border-accent">
+                        <input type="password" id="destToken" placeholder="pat-na1-..." class="bg-darkbg border border-slate-700 rounded-lg px-3 py-2.5 text-xs w-full focus:outline-none focus:border-accent text-white">
                     </div>
                     <button class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-accent font-bold px-5 py-2.5 rounded-lg text-xs transition" onclick="registerDestination()">Connect Destination</button>
                     <div id="destinationList" class="mt-3 text-xs text-slate-400"></div>
@@ -284,11 +334,11 @@
                     <div class="space-y-4 mb-4">
                         <div>
                             <label class="block text-xs font-bold uppercase text-slate-400 mb-2">Destination URL</label>
-                            <input type="text" id="webhookUrl" placeholder="https://your-server.com/webhook-receiver" class="bg-darkbg border border-slate-700 rounded-lg px-3 py-2.5 text-xs w-full focus:outline-none focus:border-accent">
+                            <input type="text" id="webhookUrl" placeholder="https://your-server.com/webhook-receiver" class="bg-darkbg border border-slate-700 rounded-lg px-3 py-2.5 text-xs w-full focus:outline-none focus:border-accent text-white">
                         </div>
                         <div>
                             <label class="block text-xs font-bold uppercase text-slate-400 mb-2">Filter Rules (JSON)</label>
-                            <input type="text" id="webhookRules" value='{"min_trust_score": 85, "industries": ["Fintech"]}' class="bg-darkbg border border-slate-700 rounded-lg px-3 py-2.5 text-xs w-full focus:outline-none focus:border-accent font-mono">
+                            <input type="text" id="webhookRules" value='{"min_trust_score": 85, "industries": ["Fintech"]}' class="bg-darkbg border border-slate-700 rounded-lg px-3 py-2.5 text-xs w-full focus:outline-none focus:border-accent font-mono text-white">
                         </div>
                     </div>
                     <div class="flex gap-3">
@@ -298,53 +348,8 @@
                 </div>
             </div>
 
-            <!-- TAB 3: Telemetry & Audit (Usage, Quotas, Magic Links, DLQ, Audit Logs, Team Keys, Circuit Breaker) -->
+            <!-- TAB 5: ADMIN AUDIT & CANARIES -->
             <div id="tabAdmin" class="tab-content hidden mt-6 space-y-6">
-                <!-- Magic Link Box -->
-                <div class="bg-sky-500/5 border border-dashed border-sky-500/30 p-4 rounded-xl">
-                    <span class="text-xs font-bold uppercase tracking-wider text-accent block mb-1 flex items-center gap-2"><i class="fa-solid fa-key text-amber-400"></i> Zero-Friction Magic Link Sign-In</span>
-                    <p class="text-xs text-slate-400 mb-3">Request an instant passwordless sign-in link sent to your verified email.</p>
-                    <div class="flex gap-2">
-                        <input type="email" id="magicEmail" placeholder="your-email@company.com" class="bg-darkbg border border-slate-700 rounded-lg px-3 py-2 text-xs flex-grow focus:outline-none focus:border-accent">
-                        <button onclick="requestMagicLink()" class="bg-accent hover:bg-accentHover text-slate-950 font-bold px-4 py-2 rounded-lg text-xs transition whitespace-nowrap">Send Magic Link</button>
-                    </div>
-                </div>
-
-                <!-- Usage Quota & Telemetry -->
-                <div class="bg-inputbg border border-slate-800 p-6 rounded-xl">
-                    <div id="status" class="text-xs font-semibold text-accent mb-2">Authenticate above to load quotas.</div>
-                    <div class="bg-darkbg border border-slate-800 rounded-lg h-2.5 overflow-hidden mb-3">
-                        <div id="usageBar" class="bg-gradient-to-r from-sky-500 to-accent h-full w-0 transition-all duration-500"></div>
-                    </div>
-                    <div class="flex justify-between items-center text-xs text-slate-400">
-                        <div id="creditStatus">Lead Credits Remaining: -- / --</div>
-                        <div id="tierStatus" class="font-bold text-accent uppercase">Tier: --</div>
-                    </div>
-                </div>
-
-                <!-- Real-Time SSE Telemetry & DLQ Stream Drawer -->
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl">
-                        <h3 class="text-sm font-bold text-white flex items-center space-x-2 mb-4">
-                            <i data-lucide="activity" class="w-4 h-4 text-emerald-400"></i>
-                            <span>Real-Time SSE Telemetry Stream Feed</span>
-                        </h3>
-                        <div id="sse-telemetry-log" class="bg-slate-950 border border-slate-800 p-4 rounded-xl h-48 overflow-y-auto font-mono text-[11px] text-slate-300 space-y-2">
-                            <div class="text-slate-500">Connecting to /api/v1/stream/telemetry EventSource...</div>
-                        </div>
-                    </div>
-
-                    <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl">
-                        <h3 class="text-sm font-bold text-white flex items-center space-x-2 mb-4">
-                            <i data-lucide="alert-triangle" class="w-4 h-4 text-amber-400"></i>
-                            <span>Circuit Breakers & Dead Letter Queue (DLQ)</span>
-                        </h3>
-                        <div id="dlq-telemetry-log" class="bg-slate-950 border border-slate-800 p-4 rounded-xl h-48 overflow-y-auto font-mono text-[11px] text-slate-300 space-y-2">
-                            <div class="text-slate-500">Monitoring circuit breaker states & automated replay workers...</div>
-                        </div>
-                    </div>
-                </div>
-
                 <!-- Circuit Breaker & Canary Health Control Center -->
                 <div class="bg-inputbg border border-slate-800 p-6 rounded-xl">
                     <div class="flex justify-between items-center mb-3">
@@ -373,14 +378,6 @@
                         </div>
                     </div>
                     <button onclick="triggerCanaryHealing()" class="bg-accent hover:bg-accentHover text-slate-950 font-bold px-4 py-2 rounded-lg text-xs transition flex items-center gap-1.5"><i class="fa-solid fa-wand-magic-sparkles"></i> Run Canary Health Healing Worker</button>
-                </div>
-
-                <!-- 7-Day Chart -->
-                <div class="bg-inputbg border border-slate-800 p-6 rounded-xl">
-                    <span class="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-2"><i class="fa-solid fa-chart-line text-emerald-400"></i> 7-Day API Request History</span>
-                    <div class="h-56 relative">
-                        <canvas id="usageChart"></canvas>
-                    </div>
                 </div>
 
                 <!-- Dead Letter Queue (DLQ) Inspector & Replay Manager -->
@@ -420,11 +417,11 @@
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                         <div>
                             <label class="block text-xs font-bold uppercase text-slate-400 mb-2">Key Label / Member Email</label>
-                            <input type="text" id="newKeyName" placeholder="e.g. sdr-john@company.com" class="bg-darkbg border border-slate-700 rounded-lg px-3 py-2.5 text-xs w-full focus:outline-none focus:border-accent">
+                            <input type="text" id="newKeyName" placeholder="e.g. sdr-john@company.com" class="bg-darkbg border border-slate-700 rounded-lg px-3 py-2.5 text-xs w-full focus:outline-none focus:border-accent text-white">
                         </div>
                         <div>
                             <label class="block text-xs font-bold uppercase text-slate-400 mb-2">Workspace Role</label>
-                            <select id="newKeyRole" class="bg-darkbg border border-slate-700 rounded-lg p-2.5 text-xs w-full">
+                            <select id="newKeyRole" class="bg-darkbg border border-slate-700 rounded-lg p-2.5 text-xs w-full text-white">
                                 <option value="sdr">Role: SDR (Ingest & Train)</option>
                                 <option value="viewer">Role: Viewer (Read-Only)</option>
                                 <option value="admin">Role: Admin (Full Access)</option>
@@ -432,7 +429,7 @@
                         </div>
                         <div>
                             <label class="block text-xs font-bold uppercase text-slate-400 mb-2">Granular Scope</label>
-                            <select id="newKeyScope" class="bg-darkbg border border-slate-700 rounded-lg p-2.5 text-xs w-full">
+                            <select id="newKeyScope" class="bg-darkbg border border-slate-700 rounded-lg p-2.5 text-xs w-full text-white">
                                 <option value="full">Scope: Full (Read/Write/Admin)</option>
                                 <option value="read">Scope: Read (Read-Only)</option>
                             </select>
@@ -443,8 +440,20 @@
                 </div>
             </div>
 
-            <!-- TAB 4: Developer Sandbox (Live API Testing & Snippets) -->
+            <!-- TAB 6: Developer Sandbox (Live API Testing & Snippets) -->
             <div id="tabSandbox" class="tab-content hidden mt-6 space-y-6">
+                <!-- Usage Quota & Telemetry -->
+                <div class="bg-inputbg border border-slate-800 p-6 rounded-xl">
+                    <div id="status" class="text-xs font-semibold text-accent mb-2">Authenticate above to load quotas.</div>
+                    <div class="bg-darkbg border border-slate-800 rounded-lg h-2.5 overflow-hidden mb-3">
+                        <div id="usageBar" class="bg-gradient-to-r from-sky-500 to-accent h-full w-0 transition-all duration-500"></div>
+                    </div>
+                    <div class="flex justify-between items-center text-xs text-slate-400">
+                        <div id="creditStatus">Lead Credits Remaining: -- / --</div>
+                        <div id="tierStatus" class="font-bold text-accent uppercase">Tier: --</div>
+                    </div>
+                </div>
+
                 <div class="bg-inputbg border border-slate-800 p-6 rounded-xl">
                     <span class="block text-xs font-bold uppercase tracking-wider text-accent mb-1 flex items-center gap-2"><i class="fa-solid fa-code text-cyan-400"></i> Live API Testing & Snippet Generator</span>
                     <p class="text-xs text-slate-400 mb-4">Test your API key live in the browser, adjust parameters, and copy production-ready code snippets.</p>
@@ -452,7 +461,7 @@
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                         <div>
                             <label class="block text-xs font-bold uppercase text-slate-400 mb-2">API Endpoint</label>
-                            <select id="sandboxEndpoint" class="bg-darkbg border border-slate-700 rounded-lg p-2.5 text-xs w-full">
+                            <select id="sandboxEndpoint" class="bg-darkbg border border-slate-700 rounded-lg p-2.5 text-xs w-full text-white">
                                 <option value="/api/v1/leads">GET /api/v1/leads (List Leads)</option>
                                 <option value="/api/v1/credits">GET /api/v1/credits (Check Quota)</option>
                                 <option value="/api/v1/icp">GET /api/v1/icp (Get ICP Settings)</option>
@@ -460,7 +469,7 @@
                         </div>
                         <div>
                             <label class="block text-xs font-bold uppercase text-slate-400 mb-2">Query Limit</label>
-                            <input type="number" id="sandboxLimit" value="5" min="1" max="50" class="bg-darkbg border border-slate-700 rounded-lg p-2.5 text-xs w-full font-mono">
+                            <input type="number" id="sandboxLimit" value="5" min="1" max="50" class="bg-darkbg border border-slate-700 rounded-lg p-2.5 text-xs w-full font-mono text-white">
                         </div>
                     </div>
                     <button onclick="runSandboxRequest()" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-bold py-2.5 px-4 rounded-lg transition mb-4 text-accent">Execute Live Request</button>
@@ -480,6 +489,14 @@ print(res.json())</code></pre>
 
                     <span class="block text-xs font-bold uppercase text-slate-400 mb-1">Live Response Stream</span>
                     <pre class="bg-darkbg p-4 rounded-lg border border-slate-800 max-h-60 overflow-y-auto text-xs text-accent font-mono"><code id="sandboxResponseOutput">// Execute request above to view live JSON response...</code></pre>
+                </div>
+
+                <!-- 7-Day Chart -->
+                <div class="bg-inputbg border border-slate-800 p-6 rounded-xl">
+                    <span class="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-2"><i class="fa-solid fa-chart-line text-emerald-400"></i> 7-Day API Request History</span>
+                    <div class="h-56 relative">
+                        <canvas id="usageChart"></canvas>
+                    </div>
                 </div>
             </div>
         </div>
@@ -564,7 +581,6 @@ print(res.json())</code></pre>
             initSSETelemetry();
         };
 
-        // Global Keyboard Shortcut Listener for Cmd/Ctrl + K to open Co-Pilot
         window.addEventListener('keydown', function(e) {
             if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
                 e.preventDefault();
@@ -588,24 +604,29 @@ print(res.json())</code></pre>
                 const res = await fetch('/api/v1/copilot/morning-briefing', { headers: { 'x-api-key': apiKey } });
                 const data = await res.json();
                 if (res.ok && data.greeting) {
-                    const history = document.getElementById('copilotChatHistory');
-                    const briefingDiv = document.createElement('div');
-                    briefingDiv.className = "bg-sky-500/5 border border-sky-500/20 p-3 rounded-lg text-slate-200 text-xs space-y-1";
-                    briefingDiv.innerHTML = `<strong>☀️ Morning Briefing:</strong> ${data.greeting}<br><span class="text-slate-400">API Requests (24h): ${data.highlights.api_requests_24h} | New Leads: ${data.highlights.new_leads_ingested}</span>`;
-                    history.appendChild(briefingDiv);
+                    document.getElementById("briefing-greeting").innerText = data.greeting;
+                    if (data.suggested_actions) {
+                        document.getElementById("briefing-actions").innerHTML = data.suggested_actions.map(a => `
+                            <button onclick="alert('Executing action: ${a.label}')" class="w-full text-left bg-slate-950 hover:bg-slate-800 border border-slate-800 p-3 rounded-xl text-xs text-sky-400 font-semibold transition">
+                                <i class="fa-solid fa-arrow-right mr-2"></i> ${a.label}
+                            </button>
+                        `).join('');
+                    }
                 }
             } catch (e) { console.error(e); }
         }
 
-        async function sendCopilotMessage() {
-            const input = document.getElementById('copilotPromptInput');
+        async function sendCopilotChat() {
+            const input = document.getElementById('copilotPromptInput') || document.getElementById('copilot-input');
             const prompt = input.value.trim();
             const apiKey = document.getElementById('apiKey').value.trim();
             const history = document.getElementById('copilotChatHistory');
 
             if (!prompt || !apiKey) return;
 
-            history.innerHTML += `<div class="bg-darkbg p-3 rounded-lg border border-slate-800 text-white text-right"><strong>You:</strong> ${escapeHtml(prompt)}</div>`;
+            if (history) {
+                history.innerHTML += `<div class="bg-darkbg p-3 rounded-lg border border-slate-800 text-white text-right"><strong>You:</strong> ${escapeHtml(prompt)}</div>`;
+            }
             input.value = '';
 
             try {
@@ -615,24 +636,30 @@ print(res.json())</code></pre>
                     body: JSON.stringify({ prompt })
                 });
                 const data = await res.json();
+                const log = document.getElementById("telemetry-log");
                 if (res.ok) {
-                    history.innerHTML += `<div class="bg-darkbg p-3 rounded-lg border border-slate-800 text-accent"><strong>Co-Pilot:</strong> ${escapeHtml(data.response)}</div>`;
+                    if (history) {
+                        history.innerHTML += `<div class="bg-darkbg p-3 rounded-lg border border-slate-800 text-accent"><strong>Co-Pilot:</strong> ${escapeHtml(data.response)}</div>`;
+                        history.scrollTop = history.scrollHeight;
+                    }
+                    if (log) {
+                        log.innerHTML += `<p class="text-emerald-400"><i class="fa-solid fa-robot"></i> ${escapeHtml(data.response)}</p>`;
+                        log.scrollTop = log.scrollHeight;
+                    }
                 } else {
-                    history.innerHTML += `<div class="bg-rose-500/10 p-3 rounded-lg border border-rose-500/30 text-rose-400">Co-Pilot error processing request.</div>`;
+                    if (history) history.innerHTML += `<div class="bg-rose-500/10 p-3 rounded-lg border border-rose-500/30 text-rose-400">Co-Pilot error processing request.</div>`;
                 }
-                history.scrollTop = history.scrollHeight;
             } catch (err) {
-                history.innerHTML += `<div class="bg-rose-500/10 p-3 rounded-lg border border-rose-500/30 text-rose-400">Network fault connecting to Co-Pilot.</div>`;
+                console.error(err);
             }
         }
 
-        // Initialize EventSource for Server-Sent Events (SSE) Live Telemetry & Real-Time Lead Updates
         function initSSETelemetry() {
             const eventSource = new EventSource('/api/v1/stream/telemetry');
-            const sseLog = document.getElementById('sse-telemetry-log');
+            const sseLog = document.getElementById('sse-telemetry-log') || document.getElementById('telemetry-log');
             const dlqLog = document.getElementById('dlq-telemetry-log');
 
-            if (!sseLog || !dlqLog) return;
+            if (!sseLog) return;
 
             eventSource.onmessage = function(event) {
                 try {
@@ -640,10 +667,9 @@ print(res.json())</code></pre>
                     const timestamp = parsed.timestamp || new Date().toISOString();
                     
                     if (parsed.event === 'connected' || parsed.event === 'ping') {
-                        return; // Skip heartbeat clutter
+                        return;
                     }
 
-                    // Handle real-time lead ingestion and syncing events
                     if (parsed.event === 'lead.ingested' || parsed.event === 'lead.synced' || parsed.event === 'lead.sequence_enrolled') {
                         const lead = parsed.lead || parsed.data;
                         if (lead) {
@@ -651,7 +677,6 @@ print(res.json())</code></pre>
                         }
                     }
 
-                    // When background generation finishes, automatically refresh the lead feed and reset loading spinner
                     if (parsed.event === 'background_generation_complete') {
                         const generateBtn = document.getElementById('generate-leads-btn');
                         const spinner = document.getElementById('loading-spinner');
@@ -662,16 +687,16 @@ print(res.json())</code></pre>
                         const resDiv = document.getElementById('onDemandResult');
                         if (resDiv) {
                             resDiv.className = "mt-3 text-xs text-emerald-400 font-semibold";
-                            resDiv.innerText = `1 new lead successfully generated and enriched via waterfall!`;
+                            resDiv.innerText = `New lead successfully generated and enriched via waterfall!`;
                         }
                         saveAndFetch();
                     }
 
                     const entry = document.createElement('div');
                     entry.className = "border-b border-slate-900 pb-1";
-                    entry.innerHTML = `<span class="text-sky-400">[${timestamp.split('T')[1].split('.')[0]}]</span> <strong class="text-white">${parsed.event}:</strong> ${JSON.stringify(parsed.data || parsed)}`;
+                    entry.innerHTML = `<span class="text-sky-400">[${timestamp}]</span> <strong class="text-white">${parsed.event}:</strong> ${JSON.stringify(parsed.data || parsed)}`;
                     
-                    if (parsed.event === 'dlq_update' || parsed.event === 'circuit_breaker') {
+                    if (dlqLog && (parsed.event === 'dlq_update' || parsed.event === 'circuit_breaker')) {
                         dlqLog.prepend(entry);
                     } else {
                         sseLog.prepend(entry);
@@ -680,31 +705,20 @@ print(res.json())</code></pre>
                     console.error("SSE parse error:", e);
                 }
             };
-
-            eventSource.onerror = function(err) {
-                console.warn("SSE connection interrupted, reconnecting...", err);
-                const badge = document.getElementById('sse-status-badge');
-                if (badge) {
-                    badge.className = "flex items-center space-x-2 bg-amber-500/10 border border-amber-500/30 px-3 py-1.5 rounded-full text-xs font-semibold text-amber-400";
-                }
-            };
         }
 
-        // Real-time DOM prepender for live telemetry events
         function prependLeadToUI(lead) {
-            const container = document.getElementById('leadFeedContainer');
-            if (!container) return;
-
             if (cachedLeadsData.some(l => l.id === lead.lead_id || l.id === lead.id)) {
                 return;
             }
-
             cachedLeadsData.unshift(lead);
             renderLeadFeed(cachedLeadsData);
+            renderLeadsTable(cachedLeadsData);
         }
 
         function showToast(message, isError = false) {
             const container = document.getElementById('toastContainer');
+            if (!container) return;
             const toast = document.createElement('div');
             toast.className = `bg-cardbg border ${isError ? 'border-rose-500 text-rose-300' : 'border-sky-500 text-slate-100'} px-4 py-3 rounded-xl text-xs font-semibold shadow-2xl flex items-center gap-2 animate-fade-in`;
             toast.innerHTML = `<i class="fa-solid ${isError ? 'fa-triangle-exclamation text-rose-400' : 'fa-circle-check text-emerald-400'}"></i> <span>${message}</span>`;
@@ -724,15 +738,24 @@ print(res.json())</code></pre>
                 btnElement.classList.remove('text-slate-400');
             }
 
-            if (tabName === 'leads') document.getElementById('tabLeads').classList.remove('hidden');
-            else if (tabName === 'revops') document.getElementById('tabRevOps').classList.remove('hidden');
-            else if (tabName === 'admin') {
-                document.getElementById('tabAdmin').classList.remove('hidden');
+            const targetId = tabName === 'overview' ? 'tabOverview' : 
+                             tabName === 'leads' ? 'tabLeads' : 
+                             tabName === 'generator' ? 'tabGenerator' : 
+                             tabName === 'autopilot' ? 'tabAutopilot' : 
+                             tabName === 'revops' ? 'tabRevOps' : 
+                             tabName === 'admin' ? 'tabAdmin' : 'tabSandbox';
+
+            const targetEl = document.getElementById(targetId);
+            if (targetEl) targetEl.classList.remove('hidden');
+
+            if (tabName === 'admin') {
                 loadDLQEvents();
                 loadAuditLogs();
                 loadCircuitBreakers();
             }
-            else if (tabName === 'sandbox') document.getElementById('tabSandbox').classList.remove('hidden');
+            if (tabName === 'leads') {
+                fetchLeads();
+            }
         }
 
         async function requestMagicLink() {
@@ -901,15 +924,10 @@ print(res.json())</code></pre>
                 return;
             }
 
-            if (!confirm(`Are you sure you want to delete lead #${leadId}?`)) {
-                return;
-            }
+            if (!confirm(`Are you sure you want to delete lead #${leadId}?`)) return;
 
             const apiKey = document.getElementById('apiKey').value.trim();
-            if (!apiKey) {
-                alert("Please authenticate first.");
-                return;
-            }
+            if (!apiKey) { alert("Please authenticate first."); return; }
 
             try {
                 const res = await fetch(`/api/v1/leads/${leadId}`, {
@@ -917,7 +935,6 @@ print(res.json())</code></pre>
                     headers: { 'x-api-key': apiKey }
                 });
                 const data = await res.json();
-                
                 if (res.ok) {
                     showToast(data.message || `Lead #${leadId} deleted successfully.`);
                     saveAndFetch();
@@ -994,7 +1011,7 @@ print(res.json())</code></pre>
                         html += `
                             <div class="bg-darkbg border border-slate-800 p-3 rounded-lg flex justify-between items-center text-xs">
                                 <div>
-                                    <span class="text-rose-400 font-bold">Event: ${item.event_id}</span>
+                                    <span class="text-rose-400 font-bold">Event: ${item.event_id || item.id}</span>
                                     <div class="text-slate-300 text-[11px]">URL: ${escapeHtml(item.webhook_url)}</div>
                                     <div class="text-slate-400 text-[10px]">Error: ${escapeHtml(item.error_message)}</div>
                                 </div>
@@ -1003,12 +1020,13 @@ print(res.json())</code></pre>
                         `;
                     });
                     container.innerHTML = html;
+                    document.getElementById('stat-dlq').innerText = data.dlq_items.length;
                 } else {
                     container.innerHTML = '<p class="text-xs text-slate-400">No failed events in Dead Letter Queue.</p>';
+                    document.getElementById('stat-dlq').innerText = '0';
                 }
             } catch (e) {
-                container.innerHTML = '<p class="text-xs text-rose-400">Failed to load DLQ events.</p>';
-                console.error("DLQ polling network fault:", e);
+                if (container) container.innerHTML = '<p class="text-xs text-rose-400">Failed to load DLQ events.</p>';
             }
         }
 
@@ -1069,6 +1087,15 @@ print(res.json())</code></pre>
                     document.getElementById('cbAiState').innerText = ai.state;
                     document.getElementById('cbAiState').className = ai.state === 'OPEN' ? 'bg-rose-500/10 text-rose-400 border border-rose-500/30 px-2 py-0.5 rounded text-[10px] font-bold uppercase' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded text-[10px] font-bold uppercase';
                     document.getElementById('cbAiFailures').innerText = ai.failures;
+
+                    const statCircuit = document.getElementById('stat-circuit');
+                    if (wb.state === 'OPEN' || ai.state === 'OPEN') {
+                        statCircuit.innerText = 'Degraded';
+                        statCircuit.className = 'text-2xl font-black text-rose-400 mt-2';
+                    } else {
+                        statCircuit.innerText = 'Optimal';
+                        statCircuit.className = 'text-2xl font-black text-emerald-400 mt-2';
+                    }
                 }
             } catch (e) {
                 console.error("Failed to load circuit breakers:", e);
@@ -1134,8 +1161,7 @@ print(res.json())</code></pre>
                     container.innerHTML = '<p class="text-xs text-slate-400">No audit logs recorded.</p>';
                 }
             } catch (e) {
-                container.innerHTML = '<p class="text-xs text-rose-400">Failed to load audit logs.</p>';
-                console.error("Audit log polling network fault:", e);
+                if (container) container.innerHTML = '<p class="text-xs text-rose-400">Failed to load audit logs.</p>';
             }
         }
 
@@ -1161,7 +1187,8 @@ print(res.json())</code></pre>
                 const res = await fetch('/api/v1/user/telegram', { headers: { 'x-api-key': apiKey } });
                 const data = await res.json();
                 if (res.ok && data.telegram_chat_id) {
-                    document.getElementById('telegramChatId').value = data.telegram_chat_id;
+                    const el = document.getElementById('telegramChatId');
+                    if (el) el.value = data.telegram_chat_id;
                 }
             } catch (e) { console.error(e); }
         }
@@ -1178,8 +1205,8 @@ print(res.json())</code></pre>
             if (!apiKey) { alert("Please enter a valid API key."); return; }
 
             localStorage.setItem('nexus_api_key', apiKey);
-            leadFeedContainer.innerHTML = '<div class="bg-slate-900 border border-slate-800 p-4 rounded-xl animate-pulse h-20"></div>';
-            statusDiv.innerText = "Syncing with cluster...";
+            if (leadFeedContainer) leadFeedContainer.innerHTML = '<div class="bg-slate-900 border border-slate-800 p-4 rounded-xl animate-pulse h-20"></div>';
+            if (statusDiv) statusDiv.innerText = "Syncing with cluster...";
 
             const minTrust = document.getElementById('filterMinTrust').value.trim();
             const industry = document.getElementById('filterIndustry').value.trim();
@@ -1203,15 +1230,15 @@ print(res.json())</code></pre>
                 const used = limit - remaining;
                 const percentage = Math.min(100, Math.max(0, (used / limit) * 100));
 
-                usageBar.style.width = percentage + '%';
-                statusDiv.innerText = `Rate Limit Quota: ${remaining} / ${limit} requests remaining this minute.`;
+                if (usageBar) usageBar.style.width = percentage + '%';
+                if (statusDiv) statusDiv.innerText = `Rate Limit Quota: ${remaining} / ${limit} requests remaining this minute.`;
 
                 const data = await response.json();
                 if (!response.ok) {
                     if (response.status === 429) {
                         showToast("Rate limit exceeded (429). Please wait before retrying.", true);
                     }
-                    leadFeedContainer.innerHTML = `<pre class="text-rose-400">Error (${response.status}):\n` + JSON.stringify(data, null, 2) + `</pre>`;
+                    if (leadFeedContainer) leadFeedContainer.innerHTML = `<pre class="text-rose-400">Error (${response.status}):\n` + JSON.stringify(data, null, 2) + `</pre>`;
                     return;
                 }
 
@@ -1224,6 +1251,7 @@ print(res.json())</code></pre>
                 }
 
                 cachedLeadsData = data.leads || [];
+                document.getElementById('stat-total-leads').innerText = cachedLeadsData.length;
                 renderLeadFeed(cachedLeadsData);
                 loadKeys(apiKey);
                 loadUserRoleBadge(apiKey);
@@ -1235,9 +1263,13 @@ print(res.json())</code></pre>
                 loadTelegramSettings(apiKey);
                 showToast("Successfully authenticated & telemetry loaded!");
             } catch (err) {
-                leadFeedContainer.innerHTML = `<p class="text-rose-400">Request failed: ${err.message}</p>`;
+                if (leadFeedContainer) leadFeedContainer.innerHTML = `<p class="text-rose-400">Request failed: ${err.message}</p>`;
                 showToast("Network sync fault detected.", true);
             }
+        }
+
+        async function fetchLeads() {
+            saveAndFetch();
         }
 
         async function loadUserRoleBadge(apiKey) {
@@ -1248,9 +1280,6 @@ print(res.json())</code></pre>
                     const activeKey = data.keys.find(k => k.active === 1) || data.keys[0];
                     currentUserRole = (activeKey.role || 'admin').toLowerCase();
                     document.getElementById('badgeRole').innerText = `Role: ${currentUserRole.toUpperCase()}`;
-                    if (currentUserRole === 'viewer') {
-                        showToast("Logged in as VIEWER (Read-Only Mode)");
-                    }
                 }
             } catch (e) { console.error(e); }
         }
@@ -1304,7 +1333,11 @@ print(res.json())</code></pre>
             try {
                 const res = await fetch('/api/v1/credits', { headers: { 'x-api-key': apiKey } });
                 const data = await res.json();
-                if (res.ok) document.getElementById('creditStatus').innerText = `Lead Credits Remaining: ${data.credits_remaining} / ${data.credits_limit}`;
+                if (res.ok) {
+                    document.getElementById('creditStatus').innerText = `Lead Credits Remaining: ${data.credits_remaining} / ${data.credits_limit}`;
+                    document.getElementById('credits-text').innerText = `${data.credits_remaining} / ${data.credits_limit} Credits`;
+                    document.getElementById('stat-credits').innerText = data.credits_remaining;
+                }
             } catch (e) { console.error(e); }
         }
 
@@ -1321,6 +1354,7 @@ print(res.json())</code></pre>
             if (generateBtn) generateBtn.disabled = true;
             if (spinner) spinner.classList.remove('hidden');
 
+            resDiv.classList.remove("hidden");
             resDiv.className = "mt-3 text-xs text-accent font-semibold flex items-center gap-2";
             resDiv.innerHTML = `<i class="fa-solid fa-spinner fa-spin text-cyan-400"></i> AI agent crawling & running enrichment waterfalls...`;
 
@@ -1402,9 +1436,12 @@ print(res.json())</code></pre>
                 const res = await fetch('/api/v1/autonomous/rules', { headers: { 'x-api-key': apiKey } });
                 const data = await res.json();
                 if (res.ok && data.rules) {
-                    document.getElementById('autoMinTrust').value = data.rules.min_trust;
-                    document.getElementById('autoSyncCrm').value = data.rules.auto_sync;
-                    document.getElementById('autoEnrollSeq').value = data.rules.auto_enroll;
+                    const elTrust = document.getElementById('autoMinTrust');
+                    const elSync = document.getElementById('autoSyncCrm');
+                    const elEnroll = document.getElementById('autoEnrollSeq');
+                    if (elTrust) elTrust.value = data.rules.min_trust;
+                    if (elSync) elSync.value = data.rules.auto_sync;
+                    if (elEnroll) elEnroll.value = data.rules.auto_enroll;
                 }
             } catch (e) { console.error(e); }
         }
@@ -1428,7 +1465,6 @@ print(res.json())</code></pre>
             } catch (err) { showToast("Failed.", true); }
         }
 
-        // Updated renderLeadFeed routing links through a live Google Search query to prevent 404 dead links
         function renderLeadFeed(leads) {
             const container = document.getElementById('leadFeedContainer');
             if (!leads || leads.length === 0) {
@@ -1447,11 +1483,8 @@ print(res.json())</code></pre>
                 if (dmList.length > 0) {
                     dmList.forEach(dm => {
                         const stakeholderName = dm.name || dm.role || 'Stakeholder';
-                        
-                        // Force route through a live Google Search query to prevent 404 profile page errors
                         const searchQuery = encodeURIComponent(`${stakeholderName} ${lead.company_name} LinkedIn`);
                         const linkedInUrl = `https://www.google.com/search?q=${searchQuery}`;
-
                         const dmEmail = dm.email || '';
 
                         dmHtml += `
@@ -1474,7 +1507,6 @@ print(res.json())</code></pre>
                     dmHtml = `<div class="font-semibold text-slate-200">${escapeHtml(lead.decision_maker_title || 'VP of Engineering')}</div>`;
                 }
 
-                // Stage Mismatch Fix: If headcount > 200 and stage is listed as early/Series A, dynamically correct display
                 let displayStage = lead.funding_stage || 'Series A';
                 const empCountStr = (lead.employee_count || '').toString();
                 if (empCountStr.includes('201') || empCountStr.includes('500') || empCountStr.includes('1000+')) {
@@ -1556,8 +1588,10 @@ print(res.json())</code></pre>
                 const res = await fetch('/api/v1/icp', { headers: { 'x-api-key': apiKey } });
                 const data = await res.json();
                 if (res.ok && data.icp) {
-                    document.getElementById('targetIndustries').value = data.icp.target_industries || 'Fintech, SaaS, AI';
-                    document.getElementById('minTrustScore').value = data.icp.min_trust_score || 85;
+                    const elInd = document.getElementById('targetIndustries');
+                    const elMin = document.getElementById('minTrustScore');
+                    if (elInd) elInd.value = data.icp.target_industries || 'Fintech, SaaS, AI';
+                    if (elMin) elMin.value = data.icp.min_trust_score || 85;
                 }
             } catch (e) { console.error(e); }
         }
@@ -1626,7 +1660,9 @@ print(res.json())</code></pre>
                 const labels = history.map(item => item.day);
                 const counts = history.map(item => item.request_count);
 
-                const ctx = document.getElementById('usageChart').getContext('2d');
+                const canvas = document.getElementById('usageChart');
+                if (!canvas) return;
+                const ctx = canvas.getContext('2d');
                 if (usageChartInstance) usageChartInstance.destroy();
 
                 usageChartInstance = new Chart(ctx, {
@@ -1662,6 +1698,7 @@ print(res.json())</code></pre>
                 const res = await fetch('/api/v1/keys', { headers: { 'x-api-key': apiKey } });
                 const data = await res.json();
                 const keyListContainer = document.getElementById('keyList');
+                if (!keyListContainer) return;
                 
                 if (data.keys && data.keys.length > 0) {
                     let html = '';
@@ -1725,7 +1762,7 @@ print(res.json())</code></pre>
 
         async function registerWebhook() {
             const apiKey = document.getElementById('apiKey').value.trim();
-            const webhookUrl = document.getElementById('webhookUrl').value.trim();
+            const webhookUrl = document.getElementById('webhookUrl').value.trim() || document.getElementById('wh-url').value.trim();
             const filterRules = document.getElementById('webhookRules').value.trim();
 
             if (!apiKey || !webhookUrl) return;

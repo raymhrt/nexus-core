@@ -66,7 +66,6 @@ SENDER_EMAIL = os.getenv("SENDER_EMAIL", "onboarding@resend.dev")
 DATABASE_URL = os.getenv("DATABASE_URL")
 REDIS_URL = os.getenv("REDIS_URL")
 
-# Production CORS & Trusted Hosts configuration via environment variable
 TRUSTED_ORIGINS = [origin.strip() for origin in os.getenv("TRUSTED_ORIGINS", "https://nexus-core-yfou.onrender.com,http://localhost:3000,http://127.0.0.1:8000").split(",") if origin.strip()]
 
 redis_client = None
@@ -89,7 +88,7 @@ if DATABASE_URL:
 webhook_semaphore = asyncio.Semaphore(10)
 
 GEMINI_LEAD_GENERATION_SYSTEM_PROMPT = """
-You are an autonomous B2B lead intelligence extraction swarm. Your task is to crawl web data and output accurate company profiles with comprehensive, granular buying committee breakdowns.
+You are an autonomous B2B forensic intelligence extraction and revenue profiling swarm. Your task is to crawl web data and output accurate company profiles with granular buying committee breakdowns, hidden technical pain points, regulatory vulnerabilities, budget capacities, and bespoke psychological sales hooks.
 
 CLASSIFICATION GUARDRAILS:
 1. Enterprise vs. Startup Check: Always cross-reference employee count and public status. 
@@ -97,7 +96,6 @@ CLASSIFICATION GUARDRAILS:
 3. Ensure tech stack, buying committee roles, and headcount metrics match real-world telemetry.
 """
 
-# WebSocket Connection Manager for live feed streaming
 class ConnectionManager:
     def __init__(self):
         self.active_connections: List[WebSocket] = []
@@ -119,7 +117,6 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
-# SSE Telemetry Broker for Real-Time Event Streams
 class SSETelemetryBroker:
     def __init__(self):
         self.subscribers: List[asyncio.Queue] = []
@@ -524,6 +521,10 @@ def init_db():
                 open_hiring_roles TEXT DEFAULT 'Engineers',
                 recent_news_trigger TEXT DEFAULT 'None',
                 decision_makers_json TEXT DEFAULT '[]',
+                hidden_pain_points TEXT DEFAULT 'None',
+                regulatory_vulnerability TEXT DEFAULT 'None',
+                budget_estimation_rationale TEXT DEFAULT 'None',
+                killer_hook_angle TEXT DEFAULT 'None',
                 sync_status TEXT DEFAULT 'unsynced',
                 conversion_status TEXT DEFAULT 'unconverted',
                 rejection_status TEXT DEFAULT 'active',
@@ -532,20 +533,21 @@ def init_db():
             )
         """
         )
-        cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS tech_stack TEXT DEFAULT 'Python, PostgreSQL';")
-        cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS funding_stage TEXT DEFAULT 'Series A';")
-        cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS intent_signals TEXT DEFAULT 'None';")
-        cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS verified_email INT DEFAULT 1;")
-        cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS decision_maker_title TEXT DEFAULT 'VP of Engineering';")
-        cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS decision_maker_linkedin TEXT DEFAULT '';")
-        cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS acv_estimate TEXT DEFAULT '$25,000';")
-        cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS headcount_growth_pct TEXT DEFAULT '+20% QoQ';")
-        cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS open_hiring_roles TEXT DEFAULT 'Engineers';")
-        cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS recent_news_trigger TEXT DEFAULT 'None';")
-        cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS decision_makers_json TEXT DEFAULT '[]';")
-        cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS sync_status TEXT DEFAULT 'unsynced';")
-        cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS conversion_status TEXT DEFAULT 'unconverted';")
-        cursor.execute("ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS rejection_status TEXT DEFAULT 'active';")
+        for col_def in [
+            ("hidden_pain_points", "TEXT DEFAULT 'None'"),
+            ("regulatory_vulnerability", "TEXT DEFAULT 'None'"),
+            ("budget_estimation_rationale", "TEXT DEFAULT 'None'"),
+            ("killer_hook_angle", "TEXT DEFAULT 'None'"),
+            ("sync_status", "TEXT DEFAULT 'unsynced'"),
+            ("conversion_status", "TEXT DEFAULT 'unconverted'"),
+            ("rejection_status", "TEXT DEFAULT 'active'"),
+            ("headcount_growth_pct", "TEXT DEFAULT '+20% QoQ'"),
+            ("open_hiring_roles", "TEXT DEFAULT 'Engineers'"),
+            ("recent_news_trigger", "TEXT DEFAULT 'None'"),
+            ("decision_makers_json", "TEXT DEFAULT '[]'")
+        ]:
+            cursor.execute(f"ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS {col_def[0]} {col_def[1]};")
+
         cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_b2b_leads_domain_unique ON b2b_leads (domain);")
         cursor.execute("CREATE INDEX IF NOT EXISTS b2b_leads_hnsw_idx ON b2b_leads USING hnsw (embedding vector_cosine_ops);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_b2b_leads_filter_sort ON b2b_leads (industry, funding_stage, trust_score, timestamp DESC);")
@@ -670,8 +672,13 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS api_keys (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT, key_hash TEXT UNIQUE, key_name TEXT DEFAULT 'Default', scope TEXT DEFAULT 'full', role TEXT DEFAULT 'admin', active INTEGER DEFAULT 1, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS subscriber_credits (email TEXT PRIMARY KEY, credits_remaining INTEGER DEFAULT 500, credits_limit INTEGER DEFAULT 500, last_refill_date DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS subscriber_destinations (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT, destination_type TEXT NOT NULL, webhook_url TEXT NOT NULL, access_token TEXT DEFAULT '', mapping_rules TEXT DEFAULT '{}', active INTEGER DEFAULT 1, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
-        cursor.execute("CREATE TABLE IF NOT EXISTS b2b_leads (id INTEGER PRIMARY KEY AUTOINCREMENT, company_name TEXT, domain TEXT UNIQUE, email TEXT, industry TEXT DEFAULT 'SaaS / Tech', employee_count TEXT DEFAULT '10-50', linkedin_url TEXT DEFAULT '', confidence_score REAL DEFAULT 0.9, trust_score INTEGER DEFAULT 95, tech_stack TEXT DEFAULT 'Python, PostgreSQL', funding_stage TEXT DEFAULT 'Series A', intent_signals TEXT DEFAULT 'None', verified_integer INTEGER DEFAULT 1, decision_maker_title TEXT DEFAULT 'VP of Engineering', decision_maker_linkedin TEXT DEFAULT '', acv_estimate TEXT DEFAULT '$25,000', headcount_growth_pct TEXT DEFAULT '+20% QoQ', open_hiring_roles TEXT DEFAULT 'Engineers', recent_news_trigger TEXT DEFAULT 'None', decision_makers_json TEXT DEFAULT '[]', sync_status TEXT DEFAULT 'unsynced', conversion_status TEXT DEFAULT 'unconverted', rejection_status TEXT DEFAULT 'active', timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)")
+        cursor.execute("CREATE TABLE IF NOT EXISTS b2b_leads (id INTEGER PRIMARY KEY AUTOINCREMENT, company_name TEXT, domain TEXT UNIQUE, email TEXT, industry TEXT DEFAULT 'SaaS / Tech', employee_count TEXT DEFAULT '10-50', linkedin_url TEXT DEFAULT '', confidence_score REAL DEFAULT 0.9, trust_score INTEGER DEFAULT 95, tech_stack TEXT DEFAULT 'Python, PostgreSQL', funding_stage TEXT DEFAULT 'Series A', intent_signals TEXT DEFAULT 'None', verified_integer INTEGER DEFAULT 1, decision_maker_title TEXT DEFAULT 'VP of Engineering', decision_maker_linkedin TEXT DEFAULT '', acv_estimate TEXT DEFAULT '$25,000', headcount_growth_pct TEXT DEFAULT '+20% QoQ', open_hiring_roles TEXT DEFAULT 'Engineers', recent_news_trigger TEXT DEFAULT 'None', decision_makers_json TEXT DEFAULT '[]', hidden_pain_points TEXT DEFAULT 'None', regulatory_vulnerability TEXT DEFAULT 'None', budget_estimation_rationale TEXT DEFAULT 'None', killer_hook_angle TEXT DEFAULT 'None', sync_status TEXT DEFAULT 'unsynced', conversion_status TEXT DEFAULT 'unconverted', rejection_status TEXT DEFAULT 'active', timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)")
+        
         for col_def in [
+            ("hidden_pain_points", "TEXT DEFAULT 'None'"),
+            ("regulatory_vulnerability", "TEXT DEFAULT 'None'"),
+            ("budget_estimation_rationale", "TEXT DEFAULT 'None'"),
+            ("killer_hook_angle", "TEXT DEFAULT 'None'"),
             ("sync_status", "TEXT DEFAULT 'unsynced'"),
             ("conversion_status", "TEXT DEFAULT 'unconverted'"),
             ("rejection_status", "TEXT DEFAULT 'active'"),
@@ -744,23 +751,27 @@ def fetch_advanced_enrichment_data(domain: str, industry: str = "SaaS / Tech") -
     clean_dom = domain.lower().replace("https://", "").replace("http://", "").rstrip("/")
     
     prompt = f"""
-    Act as an elite B2B Technographic, Financial, and Decision-Maker Intelligence Agent with real-time web discovery grounding.
+    Act as an elite Enterprise Revenue Intelligence & Forensic B2B Profiler with real-time web search grounding.
     Analyze target domain: '{clean_dom}' in industry '{industry}'.
-    Perform a live search across corporate directories and public indexes to identify authentic executive decision-makers mapped across the complete buying committee (Economic Buyer, Champion, Technical Gatekeeper, Blocker / Risk Assuror).
-    Verify direct emails, phone numbers, and LinkedIn profile URLs.
+    Perform a deep discovery search to uncover ultra-valuable, high-conversion intelligence.
+    
     Return strict JSON matching this exact schema:
     {{
-        "tech_stack": "string (e.g. 'AWS, Snowflake, PostgreSQL, Python')",
-        "funding_stage": "string (e.g. 'Series B')",
-        "intent_signals": "string (e.g. 'Active zero-trust infrastructure expansion')",
+        "tech_stack": "string (granular infrastructure, e.g. 'AWS, Snowflake, Datadog, Kubernetes')",
+        "funding_stage": "string",
+        "intent_signals": "string",
         "verified_email": integer (1 or 0),
-        "decision_maker_title": "string (primary executive title, e.g. 'Chief Information Officer')",
-        "decision_maker_linkedin": "string (valid URL)",
-        "acv_estimate": "string (e.g. '$65,000')",
-        "headcount_growth_pct": "string (e.g. '+34% QoQ')",
-        "open_hiring_roles": "string (e.g. 'Senior Security Engineer')",
-        "recent_news_trigger": "string (e.g. 'Closed $22M Series B funding round')",
-        "decision_makers_json": "stringified JSON list of dicts with keys: name, title, email, phone, linkedin, role_type [e.g. 'Economic Buyer', 'Champion', 'Technical Gatekeeper', 'Blocker / Risk Assuror'], confidence, direct_dial (e.g. '[{{\"name\": \"Jane Doe\", \"title\": \"CTO\", \"email\": \"jane@{clean_dom}\", \"phone\": \"+1-555-0199\", \"linkedin\": \"https://linkedin.com/in/janedoe\", \"role_type\": \"Technical Gatekeeper\", \"confidence\": 0.95}}]')"
+        "decision_maker_title": "string",
+        "decision_maker_linkedin": "string",
+        "acv_estimate": "string",
+        "headcount_growth_pct": "string",
+        "open_hiring_roles": "string",
+        "recent_news_trigger": "string",
+        "decision_makers_json": "stringified JSON list of buying committee members",
+        "hidden_pain_points": "string (Deep proprietary insight: what specific engineering, scaling, or operational bottleneck are they experiencing based on their current growth rate and tech stack?)",
+        "regulatory_vulnerability": "string (Forensic compliance angle: what SOC2, GDPR, HIPAA, or security audit pressure do they likely face right now?)",
+        "budget_estimation_rationale": "string (Financial analysis: estimated software budget allocation based on headcount and funding stage)",
+        "killer_hook_angle": "string (A ready-to-use, hyper-personalized opening line for a cold email or sales call that immediately proves you've done deep research on them)"
     }}
     """
     
@@ -779,20 +790,50 @@ def fetch_advanced_enrichment_data(domain: str, industry: str = "SaaS / Tech") -
 async def async_background_enrichment_worker(lead_id: int, company_name: str, domain: str, industry: str = "SaaS / Tech"):
     enrichment = fetch_advanced_enrichment_data(domain, industry)
     
-    vec = await asyncio.to_thread(generate_lead_embedding, f"{company_name} {domain} {enrichment['tech_stack']} {enrichment['funding_stage']} {enrichment['intent_signals']} {enrichment['decision_maker_title']}")
+    vec = await asyncio.to_thread(generate_lead_embedding, f"{company_name} {domain} {enrichment.get('tech_stack')} {enrichment.get('hidden_pain_points')} {enrichment.get('killer_hook_angle')}")
 
     conn = get_db()
     try:
         cursor = conn.cursor()
         if DATABASE_URL:
             cursor.execute(
-                "UPDATE b2b_leads SET tech_stack = %s, funding_stage = %s, intent_signals = %s, verified_email = %s, decision_maker_title = %s, decision_maker_linkedin = %s, acv_estimate = %s, headcount_growth_pct = %s, open_hiring_roles = %s, recent_news_trigger = %s, decision_makers_json = %s, embedding = %s WHERE id = %s",
-                (enrichment["tech_stack"], enrichment["funding_stage"], enrichment["intent_signals"], enrichment["verified_email"], enrichment["decision_maker_title"], enrichment["decision_maker_linkedin"], enrichment["acv_estimate"], enrichment["headcount_growth_pct"], enrichment["open_hiring_roles"], enrichment["recent_news_trigger"], enrichment["decision_makers_json"], str(vec) if vec else None, lead_id)
+                """
+                UPDATE b2b_leads SET 
+                    tech_stack = %s, funding_stage = %s, intent_signals = %s, verified_email = %s, 
+                    decision_maker_title = %s, decision_maker_linkedin = %s, acv_estimate = %s, 
+                    headcount_growth_pct = %s, open_hiring_roles = %s, recent_news_trigger = %s, 
+                    decision_makers_json = %s, hidden_pain_points = %s, regulatory_vulnerability = %s, 
+                    budget_estimation_rationale = %s, killer_hook_angle = %s, embedding = %s 
+                WHERE id = %s
+                """,
+                (
+                    enrichment.get("tech_stack"), enrichment.get("funding_stage"), enrichment.get("intent_signals"), 
+                    enrichment.get("verified_email"), enrichment.get("decision_maker_title"), enrichment.get("decision_maker_linkedin"), 
+                    enrichment.get("acv_estimate"), enrichment.get("headcount_growth_pct"), enrichment.get("open_hiring_roles"), 
+                    enrichment.get("recent_news_trigger"), enrichment.get("decision_makers_json"), enrichment.get("hidden_pain_points"), 
+                    enrichment.get("regulatory_vulnerability"), enrichment.get("budget_estimation_rationale"), 
+                    enrichment.get("killer_hook_angle"), str(vec) if vec else None, lead_id
+                )
             )
         else:
             cursor.execute(
-                "UPDATE b2b_leads SET tech_stack = ?, funding_stage = ?, intent_signals = ?, verified_email = ?, decision_maker_title = ?, decision_maker_linkedin = ?, acv_estimate = ?, headcount_growth_pct = ?, open_hiring_roles = ?, recent_news_trigger = ?, decision_makers_json = ?, embedding = ? WHERE id = ?",
-                (enrichment["tech_stack"], enrichment["funding_stage"], enrichment["intent_signals"], enrichment["verified_email"], enrichment["decision_maker_title"], enrichment["decision_maker_linkedin"], enrichment["acv_estimate"], enrichment["headcount_growth_pct"], enrichment["open_hiring_roles"], enrichment["recent_news_trigger"], enrichment["decision_makers_json"], str(vec) if vec else None, lead_id)
+                """
+                UPDATE b2b_leads SET 
+                    tech_stack = ?, funding_stage = ?, intent_signals = ?, verified_email = ?, 
+                    decision_maker_title = ?, decision_maker_linkedin = ?, acv_estimate = ?, 
+                    headcount_growth_pct = ?, open_hiring_roles = ?, recent_news_trigger = ?, 
+                    decision_makers_json = ?, hidden_pain_points = ?, regulatory_vulnerability = ?, 
+                    budget_estimation_rationale = ?, killer_hook_angle = ?, embedding = ? 
+                WHERE id = ?
+                """,
+                (
+                    enrichment.get("tech_stack"), enrichment.get("funding_stage"), enrichment.get("intent_signals"), 
+                    enrichment.get("verified_email"), enrichment.get("decision_maker_title"), enrichment.get("decision_maker_linkedin"), 
+                    enrichment.get("acv_estimate"), enrichment.get("headcount_growth_pct"), enrichment.get("open_hiring_roles"), 
+                    enrichment.get("recent_news_trigger"), enrichment.get("decision_makers_json"), enrichment.get("hidden_pain_points"), 
+                    enrichment.get("regulatory_vulnerability"), enrichment.get("budget_estimation_rationale"), 
+                    enrichment.get("killer_hook_angle"), str(vec) if vec else None, lead_id
+                )
             )
         conn.commit()
         cursor.close()
@@ -1117,6 +1158,10 @@ class GeminiLeadSchema(BaseModel):
     open_hiring_roles: Optional[str] = "Engineers"
     recent_news_trigger: Optional[str] = "None"
     decision_makers_json: Optional[str] = "[]"
+    hidden_pain_points: Optional[str] = Field("None", description="Deep technical or operational bottlenecks unique to their scale")
+    regulatory_vulnerability: Optional[str] = Field("None", description="Specific compliance, data residency, or security risks they face right now")
+    budget_estimation_rationale: Optional[str] = Field("None", description="Financial capacity breakdown and estimated annual software/infrastructure spend")
+    killer_hook_angle: Optional[str] = Field("None", description="A personalized, high-conversion psychological hook tailored to their recent triggers")
 
 class WebhookRegistrationResponse(BaseModel):
     status: str
