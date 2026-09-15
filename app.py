@@ -178,10 +178,11 @@ def call_gemini_rest(prompt: str, max_retries: int = 3, use_search: bool = False
         raise HTTPException(status_code=500, detail="GEMINI_API_KEY not configured")
      
     models = [
-        "gemini-2.5-flash",
-        "gemini-2.0-flash",
-        "gemini-1.5-flash",
-        "gemini-1.5-pro"
+        "gemini-3.7-flash",
+        "gemini-3.8-flash",
+        "gemini-3.6-flash",
+        "gemini-3-flash",
+        "gemini-3.5-flash"
     ]
      
     for model_name in models:
@@ -329,7 +330,7 @@ def send_magic_link_email(to_email: str, magic_url: str):
 class NexusAdvancedAgentSwarmOrchestrator:
     def __init__(self, client: genai.Client):
         self.client = client
-        self.model_id = "gemini-2.5-flash"
+        self.model_id = "gemini-3.7-flash"
 
     def execute_advanced_swarm(self, target_query: str) -> Dict[str, Any]:
         logger.info(f"Initializing Advanced Multi-Agent Consensus Swarm for: {target_query}")
@@ -3330,7 +3331,7 @@ async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
                     if DATABASE_URL:
                         cursor.execute("UPDATE subscribers SET active = 0 WHERE stripe_customer_id = %s", (customer_id,))
                     else:
-                        cursor.execute("UPDATE subscribers SET active = %s WHERE stripe_customer_id = ?", (customer_id,)) # fixed sqlite syntax
+                        cursor.execute("UPDATE subscribers SET active = 0 WHERE stripe_customer_id = ?", (customer_id,))
                     conn.commit()
                     log_audit_event("system", "SUBSCRIPTION_REVOKED", f"Revoked subscription access due to event: {event_type}")
             except Exception as err:
