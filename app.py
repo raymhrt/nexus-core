@@ -177,7 +177,13 @@ def call_gemini_rest(prompt: str, max_retries: int = 3, use_search: bool = False
         logger.error("GEMINI_API_KEY environment variable is missing or empty.")
         raise HTTPException(status_code=500, detail="GEMINI_API_KEY not configured")
      
-    models = ["gemini-3.1-flash-lite", "gemini-3.6-flash", "gemini-2.5-flash-native-audio-dialog"]
+    models = [
+        "gemini-3.7-flash",
+        "gemini-3.6-flash",
+        "gemini-3-flash",
+        "gemini-3.5-flash",
+        "gemini-3.8-flash"
+    ]
      
     for model_name in models:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={GEMINI_API_KEY}"
@@ -198,7 +204,7 @@ def call_gemini_rest(prompt: str, max_retries: int = 3, use_search: bool = False
                 if res.status_code == 200:
                     data = res.json()
                     return data["candidates"][0]["content"]["parts"][0]["text"]
-                elif res.status_code in [503, 429, 502, 504, 500]:
+                elif res.status_code in [503, 429, 502, 504, 404, 500]:
                     logger.warning(f"Model {model_name} returned status {res.status_code} on attempt {attempt}/{max_retries}. Retrying...")
                     if attempt == max_retries:
                         break
@@ -324,7 +330,7 @@ def send_magic_link_email(to_email: str, magic_url: str):
 class NexusAdvancedAgentSwarmOrchestrator:
     def __init__(self, client: genai.Client):
         self.client = client
-        self.model_id = "gemini-3.1-flash-lite"
+        self.model_id = "gemini-3.7-flash"
 
     def execute_advanced_swarm(self, target_query: str) -> Dict[str, Any]:
         logger.info(f"Initializing Advanced Multi-Agent Consensus Swarm for: {target_query}")
