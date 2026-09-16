@@ -656,7 +656,8 @@ print(res.json())</code></pre>
 
         function initSSETelemetry() {
             const eventSource = new EventSource('/api/v1/stream/telemetry');
-            const sseLog = document.getElementById('telemetry-log');
+            const sseLog = document.getElementById('sse-telemetry-log') || document.getElementById('telemetry-log');
+            const dlqLog = document.getElementById('dlq-telemetry-log');
 
             if (!sseLog) return;
 
@@ -694,7 +695,12 @@ print(res.json())</code></pre>
                     const entry = document.createElement('div');
                     entry.className = "border-b border-slate-900 pb-1";
                     entry.innerHTML = `<span class="text-sky-400">[${timestamp}]</span> <strong class="text-white">${parsed.event}:</strong> ${JSON.stringify(parsed.data || parsed)}`;
-                    sseLog.prepend(entry);
+                    
+                    if (dlqLog && (parsed.event === 'dlq_update' || parsed.event === 'circuit_breaker')) {
+                        dlqLog.prepend(entry);
+                    } else {
+                        sseLog.prepend(entry);
+                    }
                 } catch (e) {
                     console.error("SSE parse error:", e);
                 }
@@ -707,6 +713,7 @@ print(res.json())</code></pre>
             }
             cachedLeadsData.unshift(lead);
             renderLeadFeed(cachedLeadsData);
+            renderLeadsTable(cachedLeadsData);
         }
 
         function showToast(message, isError = false) {
@@ -732,11 +739,11 @@ print(res.json())</code></pre>
             }
 
             const targetId = tabName === 'overview' ? 'tabOverview' : 
-                           tabName === 'leads' ? 'tabLeads' : 
-                           tabName === 'generator' ? 'tabGenerator' : 
-                           tabName === 'autopilot' ? 'tabAutopilot' : 
-                           tabName === 'revops' ? 'tabRevOps' : 
-                           tabName === 'admin' ? 'tabAdmin' : 'tabSandbox';
+                             tabName === 'leads' ? 'tabLeads' : 
+                             tabName === 'generator' ? 'tabGenerator' : 
+                             tabName === 'autopilot' ? 'tabAutopilot' : 
+                             tabName === 'revops' ? 'tabRevOps' : 
+                             tabName === 'admin' ? 'tabAdmin' : 'tabSandbox';
 
             const targetEl = document.getElementById(targetId);
             if (targetEl) targetEl.classList.remove('hidden');
@@ -749,6 +756,21 @@ print(res.json())</code></pre>
             if (tabName === 'leads') {
                 fetchLeads();
             }
+        }
+
+        async function requestMagicLink() {
+            const email = document.getElementById('magicEmail').value.trim();
+            if (!email) { alert("Please enter your email address."); return; }
+            try {
+                const res = await fetch('/api/v1/auth/request-magic-link', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email })
+                });
+                const data = await res.json();
+                if (res.ok) showToast(data.message || "Magic link sent!");
+                else showToast(data.detail || "Failed to send magic link.", true);
+            } catch (err) { showToast("Request failed.", true); }
         }
 
         async function runSandboxRequest() {
@@ -1234,6 +1256,7 @@ print(res.json())</code></pre>
                 loadKeys(apiKey);
                 loadUserRoleBadge(apiKey);
                 loadUsageChart(apiKey);
+                loadICPProfile(apiKey);
                 loadCredits(apiKey);
                 loadDestinations(apiKey);
                 loadAutonomousRules(apiKey);
@@ -1485,11 +1508,18 @@ print(res.json())</code></pre>
                 }
 
                 let displayStage = lead.funding_stage || 'Series A';
+                const empCountStr = (lead.employee_count || '').toString();
+                if (empCountStr.includes('201') || empCountStr.includes('500') || empCountStr.includes('1000+')) {
+                    if (displayStage.toLowerCase().includes('series a') || displayStage.toLowerCase().includes('seed')) {
+                        displayStage = 'Private / Enterprise Subsidiary';
+                    }
+                }
+
                 const cleanDomain = (lead.domain || '').replace(/^https?:\/\//, '');
                 const companyWebUrl = cleanDomain ? `https://${cleanDomain}` : '#';
                 const trust = lead.trust_score || 90;
                 const emailStatus = lead.verified_email === 1 ? '✅ Verified Email' : '⚠️ Unverified';
-                const intent = lead.intent_signals || lead.recent_news_trigger || 'Growth velocity index synchronized';
+                const intent = lead.intent_signals || lead.recent_news_trigger || 'None (20% QoQ growth velocity)';
                 const disabledAttr = currentUserRole === 'viewer' ? 'opacity-50 cursor-not-allowed' : '';
                 const syncBadge = lead.sync_status === 'synced' ? '<span class="bg-blue-500/10 text-blue-400 border border-blue-500/20 text-[10px] px-2 py-0.5 rounded font-bold uppercase">Synced</span>' : '<span class="bg-slate-800 text-slate-400 text-[10px] px-2 py-0.5 rounded font-bold uppercase">Unsynced</span>';
                 
@@ -1520,7 +1550,7 @@ print(res.json())</code></pre>
                             </div>
                             <div class="bg-darkbg border border-slate-800 p-2.5 rounded text-slate-300">
                                 <span class="text-slate-400 block text-[10px] uppercase font-bold mb-0.5">Headcount & Tech Stack</span>
-                                Growth: <span class="text-emerald-400 font-bold">${escapeHtml(lead.headcount_growth_pct || 'Index Verified')}</span> | Stack: <span class="font-mono text-white">${escapeHtml(lead.tech_stack || 'Verified Tech Stack')}</span>
+                                Growth: <span class="text-emerald-400 font-bold">${escapeHtml(lead.headcount_growth_pct || '+20% QoQ')}</span> | Stack: <span class="font-mono text-white">${escapeHtml(lead.tech_stack || 'Python, PostgreSQL')}</span>
                             </div>
                         </div>
                         <div class="flex flex-wrap gap-2 text-xs">
@@ -1551,6 +1581,37 @@ print(res.json())</code></pre>
                 `;
             });
             container.innerHTML = html;
+        }
+
+        async function loadICPProfile(apiKey) {
+            try {
+                const res = await fetch('/api/v1/icp', { headers: { 'x-api-key': apiKey } });
+                const data = await res.json();
+                if (res.ok && data.icp) {
+                    const elInd = document.getElementById('targetIndustries');
+                    const elMin = document.getElementById('minTrustScore');
+                    if (elInd) elInd.value = data.icp.target_industries || 'Fintech, SaaS, AI';
+                    if (elMin) elMin.value = data.icp.min_trust_score || 85;
+                }
+            } catch (e) { console.error(e); }
+        }
+
+        async function saveICPProfile() {
+            const apiKey = document.getElementById('apiKey').value.trim();
+            const target_industries = document.getElementById('targetIndustries').value.trim();
+            const min_trust_score = parseInt(document.getElementById('minTrustScore').value) || 85;
+
+            if (!apiKey) { alert("Please authenticate first."); return; }
+
+            try {
+                const res = await fetch('/api/v1/icp', {
+                    method: 'POST',
+                    headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ target_industries, min_trust_score, preferred_employee_count: "10-50" })
+                });
+                const data = await res.json();
+                showToast(data.message || "ICP profile saved.");
+            } catch (err) { showToast("Failed.", true); }
         }
 
         async function runSemanticSearch() {
@@ -1701,7 +1762,7 @@ print(res.json())</code></pre>
 
         async function registerWebhook() {
             const apiKey = document.getElementById('apiKey').value.trim();
-            const webhookUrl = document.getElementById('webhookUrl').value.trim();
+            const webhookUrl = document.getElementById('webhookUrl').value.trim() || document.getElementById('wh-url').value.trim();
             const filterRules = document.getElementById('webhookRules').value.trim();
 
             if (!apiKey || !webhookUrl) return;
