@@ -226,7 +226,7 @@ def call_gemini_rest(prompt: str, max_retries: int = 5, use_search: bool = False
         logger.info("Serving AI response from local smart cache.")
         return cached_res
 
-    models = ["gemini-2.5-flash", "gemini-3.5-flash", "gemini-3.7-flash"]
+    models = ["gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash"]
     base_delay = 2.0
      
     for model_name in models:
@@ -368,16 +368,16 @@ def send_magic_link_email(to_email: str, magic_url: str):
 class NexusAdvancedAgentSwarmOrchestrator:
     def __init__(self, client: genai.Client):
         self.client = client
-        self.model_id = "gemini-3.5-flash"
+        self.model_id = "gemini-3.8-flash"
 
     def execute_advanced_swarm(self, target_query: str) -> Dict[str, Any]:
         logger.info(f"Initializing Advanced Multi-Agent Consensus Swarm for: {target_query}")
-        
+         
         research_data = self._run_researcher_agent(target_query)
         compliance_data = self._run_compliance_agent(research_data)
         consensus_data = self._run_consensus_trust_agent(research_data, compliance_data)
         strategy_data = self._run_strategy_agent(research_data, consensus_data)
-        
+         
         synthesized_lead = {
             **research_data,
             **compliance_data,
@@ -477,14 +477,14 @@ async def background_signal_monitor_job():
 def init_db():
     conn = get_db()
     cursor = conn.cursor()
-    
+     
     if DATABASE_URL:
         try:
             cursor.execute("CREATE EXTENSION IF NOT EXISTS vector;")
             cursor.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm;")
         except Exception:
             pass
-            
+             
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS ai_response_cache (
                 cache_key TEXT PRIMARY KEY,
@@ -1013,7 +1013,7 @@ async def job_scouting_swarm_worker():
     for user in users:
         u_dict = dict(user) if not isinstance(user, dict) and not hasattr(user, "keys") else user
         email = u_dict["email"] if isinstance(u_dict, dict) else user[0]
-        
+         
         prompt_job_discovery = f"""
         Act as an expert job market scraper. Using Google Search, find 2 live, current senior executive job listings matching the user profile niche: {u_dict.get('profile_json')}.
         Return strict JSON list containing objects with keys: company_name, job_title, location, job_description.
@@ -1033,12 +1033,12 @@ async def job_scouting_swarm_worker():
             prompt = f"""
             Act as an elite Career Matchmaking and Executive Recruiting Agent.
             Evaluate the fit between the candidate profile and the open job description.
-            
+             
             Candidate Profile: {u_dict.get('profile_json')}
             Job Title: {job.get('job_title')}
             Company: {job.get('company_name')}
             Description: {job.get('job_description')}
-            
+             
             Return strict JSON with keys:
             - fit_score (integer 0 to 100)
             - match_rationale (string explaining why this is a strong or weak match)
@@ -1177,7 +1177,7 @@ async def dispatch_outbound_webhooks(lead_data: dict, trigger_action: str = "lea
         cursor = conn.cursor()
         cursor.execute("SELECT id, email, webhook_url, consecutive_failures, circuit_status, last_failure_time, filter_rules FROM subscriber_webhooks WHERE active = 1")
         webhooks = cursor.fetchall()
-        
+         
         cursor.execute("SELECT email, destination_type, webhook_url, access_token, mapping_rules FROM subscriber_destinations WHERE active = 1")
         native_destinations = cursor.fetchall()
         cursor.close()
@@ -1209,7 +1209,7 @@ async def dispatch_outbound_webhooks(lead_data: dict, trigger_action: str = "lea
                 rules = json.loads(raw_rules) if raw_rules else {}
                 min_trust = rules.get("min_trust_score", 0)
                 target_ind = rules.get("industries", [])
-                
+                 
                 if lead_data.get("trust_score", 0) < min_trust:
                     continue
                 if target_ind and lead_data.get("industry") not in target_ind:
@@ -1225,7 +1225,7 @@ async def dispatch_outbound_webhooks(lead_data: dict, trigger_action: str = "lea
                         last_failure_dt = last_failure
                     if last_failure_dt.tzinfo is None:
                         last_failure_dt = last_failure_dt.replace(tzinfo=timezone.utc)
-                    
+                     
                     if datetime.now(timezone.utc) - last_failure_dt > timedelta(minutes=15):
                         circuit_status = "HALF_OPEN"
                     else:
@@ -1263,7 +1263,7 @@ async def dispatch_outbound_webhooks(lead_data: dict, trigger_action: str = "lea
                 except Exception as e:
                     error_msg = str(e)
                     status_code = 500
-                
+                 
                 await asyncio.sleep((base_backoff ** attempt) + random.uniform(0.1, 1.0))
 
             log_conn = get_db()
@@ -1403,7 +1403,7 @@ class CareerCriteriaRequest(BaseModel):
 class DispatchOutreachInput(BaseModel):
     subject: str
     body: str
-    
+     
 class ResumeInput(BaseModel):
     resume_content: str
 
@@ -1601,10 +1601,10 @@ async def save_career_resume(payload: ResumeInput, x_api_key: str = Header(None)
 
     prompt = f"""
     Act as an elite Executive Resume Parser and Technical Recruiter. Parse the following resume text and extract structured profile attributes in strict JSON format.
-    
+     
     Resume Text:
     {payload.resume_content}
-    
+     
     Return strict JSON with keys:
     - skills (list of strings)
     - seniority (string, e.g., 'Senior', 'Director', 'Lead')
@@ -1625,7 +1625,7 @@ async def save_career_resume(payload: ResumeInput, x_api_key: str = Header(None)
         raise HTTPException(status_code=502, detail="Upstream AI provider error during resume parsing.")
 
     embedding = await asyncio.to_thread(generate_lead_embedding, payload.resume_content)
-    
+     
     conn = get_db()
     try:
         cursor = conn.cursor()
@@ -1716,7 +1716,7 @@ async def match_jobs_endpoint(request: JobHuntRequest, background_tasks: Backgro
         else:
             cursor.execute("SELECT credits_remaining FROM subscriber_credits WHERE email = ?", (request.user_id,))
         row = cursor.fetchone()
-        
+         
         user_balance = row["credits_remaining"] if row else 500
         if row and user_balance < credits_required:
             cursor.close()
@@ -1724,7 +1724,7 @@ async def match_jobs_endpoint(request: JobHuntRequest, background_tasks: Backgro
                 status_code=status.HTTP_402_PAYMENT_REQUIRED,
                 detail="Insufficient credits. Please top up via the billing portal."
             )
-        
+         
         if DATABASE_URL:
             cursor.execute("UPDATE subscriber_credits SET credits_remaining = credits_remaining - %s WHERE email = %s", (credits_required, request.user_id))
         else:
@@ -1852,7 +1852,7 @@ async def request_magic_link(payload: MagicLinkRequestPayload, background_tasks:
         else:
             cursor.execute("SELECT active FROM subscribers WHERE email = ?", (payload.email,))
         row = cursor.fetchone()
-        
+         
         if not row:
             raw_key = f"qcn_{secrets.token_hex(16)}"
             hashed_key = hash_api_key(raw_key)
@@ -1899,7 +1899,7 @@ async def verify_magic_link(token: str):
             raise HTTPException(status_code=400, detail="Invalid or expired magic link.")
 
         email = row["email"] if isinstance(row, dict) or hasattr(row, "__keys__") else row[0]
-        
+         
         if DATABASE_URL:
             cursor.execute("UPDATE subscribers SET magic_token = NULL, magic_expires_at = NULL WHERE email = %s", (email,))
         else:
@@ -2073,7 +2073,7 @@ async def sync_leads_batch(background_tasks: BackgroundTasks, auth: dict = Depen
         else:
             cursor.execute("SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals FROM b2b_leads WHERE sync_status = 'unsynced' AND trust_score >= 85 LIMIT 10")
         rows = cursor.fetchall()
-        
+         
         synced_ids = []
         for r in rows:
             lead_data = dict(r) if hasattr(r, "keys") else {
@@ -2084,19 +2084,19 @@ async def sync_leads_batch(background_tasks: BackgroundTasks, auth: dict = Depen
             }
             l_id = lead_data.get("lead_id") or lead_data.get("id")
             synced_ids.append(l_id)
-            
+             
             if DATABASE_URL:
                 cursor.execute("UPDATE b2b_leads SET sync_status = 'synced' WHERE id = %s", (l_id,))
             else:
                 cursor.execute("UPDATE b2b_leads SET sync_status = 'synced' WHERE id = ?", (l_id,))
-            
+             
             background_tasks.add_task(safe_dispatch_wrapper, lead_data, "lead.synced")
-            
+             
         conn.commit()
         cursor.close()
     finally:
         release_db(conn)
-        
+         
     log_audit_event(auth["email"], "BATCH_SYNC_LEADS", f"Batch synced {len(synced_ids)} high-trust leads", auth["ip"])
     return {"status": "success", "synced_count": len(synced_ids), "message": f"Successfully batch synced {len(synced_ids)} high-trust leads!"}
 
@@ -2299,10 +2299,10 @@ async def get_lead_lookalikes(lead_id: int, request: Request, auth: dict = Depen
         else:
             cursor.execute("SELECT embedding, industry FROM b2b_leads WHERE id = ?", (lead_id,))
         row = cursor.fetchone()
-        
+         
         if not row:
             raise HTTPException(status_code=404, detail="Lead not found.")
-        
+         
         emb = row["embedding"] if isinstance(row, dict) else row[0]
         ind = row["industry"] if isinstance(row, dict) else row[1]
 
@@ -2513,10 +2513,10 @@ async def render_lead_microsite(domain: str):
         cursor.close()
     finally:
         release_db(conn)
-        
+         
     if not row:
         raise HTTPException(status_code=404, detail="Audit microsite not found.")
-    
+     
     lead = dict(row)
     html_content = f"""<!DOCTYPE html>
     <html lang="en" class="dark">
@@ -2806,7 +2806,7 @@ async def generate_leads_on_demand(payload: OnDemandGeneratePayload, request: Re
             if credits_left < actual_generated:
                 cursor.close()
                 raise HTTPException(status_code=402, detail=f"Insufficient lead generation credits. Remaining: {credits_left}, Requested: {actual_generated}.")
-            
+             
             cursor.execute("UPDATE subscriber_credits SET credits_remaining = credits_remaining - ? WHERE email = ?", (actual_generated, auth["email"]))
             conn.commit()
             credits_left -= actual_generated
@@ -3098,14 +3098,14 @@ async def claim_session_key(session_id: str):
                 cursor.execute("SELECT k.key_name FROM api_keys k JOIN subscribers s ON k.email = s.email WHERE s.email = %s LIMIT 1", (customer_email,))
             else:
                 cursor.execute("SELECT k.key_name FROM api_keys k JOIN subscribers s ON k.email = s.email WHERE s.email = ? LIMIT 1", (customer_email,))
-            
+             
             row = cursor.fetchone()
             if not row:
                 raw_api_key = f"qcn_{secrets.token_hex(16)}"
                 hashed_key = hash_api_key(raw_api_key)
                 tier = session.metadata.get("tier", "starter") if session.metadata else "starter"
                 initial_credits = 2500 if tier == "pro" else 500
-                
+                 
                 if DATABASE_URL:
                     cursor.execute("INSERT INTO subscribers (email, active, stripe_customer_id, tier) VALUES (%s, 1, %s, %s) ON CONFLICT (email) DO UPDATE SET active = 1", (customer_email, session.customer, tier))
                     cursor.execute("INSERT INTO api_keys (email, key_hash, key_name, scope, role) VALUES (%s, %s, 'Primary Key', 'full', 'admin')", (customer_email, hashed_key))
@@ -3131,13 +3131,13 @@ async def confirm_key_reset(token: str, background_tasks: BackgroundTasks, reque
     try:
         cursor = conn.cursor()
         now = datetime.now(timezone.utc)
-        
+         
         if DATABASE_URL:
             cursor.execute("SELECT email FROM subscribers WHERE reset_token = %s AND reset_expires_at > %s", (token, now))
         else:
             cursor.execute("SELECT email FROM subscribers WHERE reset_token = ? AND reset_expires_at > ?", (token, now))
         row = cursor.fetchone()
-        
+         
         if not row:
             raise HTTPException(status_code=400, detail="Invalid or expired reset token.")
 
@@ -3176,7 +3176,7 @@ async def request_key_reset(
         else:
             cursor.execute("SELECT active FROM subscribers WHERE email = ?", (email,))
         row = cursor.fetchone()
-        
+         
         if not row or (row["active"] if isinstance(row, dict) or hasattr(row, "__keys__") else row[0]) == 0:
             cursor.close()
             return {"status": "success", "message": f"API key reset link sent to {email}."}
@@ -3209,7 +3209,7 @@ async def list_subscriber_keys(request: Request, auth: dict = Depends(verify_api
             cursor.execute("SELECT id, key_name, scope, role, active, created_at FROM api_keys WHERE email = %s", (auth["email"],))
         else:
             cursor.execute("SELECT id, key_name, scope, role, active, created_at FROM api_keys WHERE email = ?", (auth["email"],))
-        
+         
         rows = cursor.fetchall()
         keys = []
         for r in rows:
@@ -3426,7 +3426,7 @@ async def admin_upload_leads(
                     (lead.company_name, clean_domain, lead.email, lead.industry, lead.employee_count, lead.linkedin_url, conf_score, trust_score, lead.tech_stack, lead.funding_stage, lead.intent_signals, lead.decision_maker_title, lead.decision_maker_linkedin, lead.acv_estimate, lead.headcount_growth_pct, lead.open_hiring_roles, lead.recent_news_trigger, lead.decision_makers_json)
                 )
                 lead_id = cursor.lastrowid
-            
+             
             if lead_id and cursor.rowcount > 0:
                 count += 1
                 background_tasks.add_task(async_background_enrichment_worker, lead_id, lead.company_name, clean_domain, lead.industry)
@@ -3757,7 +3757,7 @@ async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
             cursor.execute("SELECT event_id FROM webhook_events WHERE event_id = %s", (event_id,))
         else:
             cursor.execute("SELECT event_id FROM webhook_events WHERE event_id = ?", (event_id,))
-        
+         
         if cursor.fetchone():
             cursor.close()
             return {"status": "success", "note": "event already processed"}
@@ -3787,7 +3787,7 @@ async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
                 if customer_email:
                     raw_api_key = f"qcn_{secrets.token_hex(16)}"
                     hashed_key = hash_api_key(raw_api_key)
-                    
+                     
                     if DATABASE_URL:
                         cursor.execute("INSERT INTO subscribers (email, active, stripe_customer_id, tier) VALUES (%s, 1, %s, %s) ON CONFLICT (email) DO UPDATE SET active = 1, stripe_customer_id = EXCLUDED.stripe_customer_id, tier = EXCLUDED.tier", (customer_email, customer_id, tier))
                         cursor.execute("INSERT INTO api_keys (email, key_hash, key_name, scope, role) VALUES (%s, %s, 'Primary Key', 'full', 'admin')", (customer_email, hashed_key))
