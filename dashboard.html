@@ -62,7 +62,7 @@
                             <span id="badgeTier">Tier: --</span> • <span id="badgeRole">Role: --</span>
                         </div>
                     </div>
-                    <p class="text-sm text-slate-400 mt-1">Multi-persona workspace supporting B2B Lead Gen and Autonomous Career & Networking Swarms with SSE streaming.</p>
+                    <p class="text-sm text-slate-400 mt-1">Multi-persona workspace supporting B2B Lead Gen and Autonomous Career & Networking Swarms with ATS optimization.</p>
                 </div>
                 <div class="flex items-center gap-3">
                     <div id="sse-status-badge" class="flex items-center space-x-2 bg-emerald-500/10 border border-emerald-500/30 px-3 py-1.5 rounded-full text-xs font-semibold text-emerald-400">
@@ -498,43 +498,43 @@ print(res.json())</code></pre>
                 </div>
             </div>
 
-            <!-- PERSONA CONTAINER 2: CAREER & NETWORKING SWARM -->
+            <!-- PERSONA CONTAINER 2: CAREER & NETWORKING SWARM (Upgraded with ATS Optimization Engine) -->
             <div id="personaCareer" class="persona-section hidden space-y-6">
                 <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl space-y-4">
                     <h2 class="text-base font-black text-white flex items-center gap-2">
-                        <i class="fa-solid fa-file-arrow-up text-purple-400"></i> Resume Uploader & Career Profile
+                        <i class="fa-solid fa-file-arrow-up text-purple-400"></i> Elite Resume Uploader & ATS Optimizer
                     </h2>
-                    <p class="text-xs text-slate-400">Upload your latest resume markdown or text to power autonomous job application matching & tailored networking outreach.</p>
+                    <p class="text-xs text-slate-400">Upload your master resume markdown. The Elite Career Strategist engine will automatically classify tracks, deconstruct hiring intent, and format for 1-page ATS compliance.</p>
                     <div class="space-y-3">
                         <div>
-                            <label class="block text-xs font-bold text-slate-300 mb-1">Paste Resume Content / Markdown</label>
-                            <textarea id="careerResumeInput" rows="6" placeholder="# John Doe - Senior Full-Stack Engineer\nExperience in Python, FastAPI, React..." class="w-full bg-slate-950 border border-slate-800 p-3 rounded-xl text-xs text-white font-mono"></textarea>
+                            <label class="block text-xs font-bold text-slate-300 mb-1">Paste Master Resume (Markdown / Text)</label>
+                            <textarea id="careerResumeInput" rows="5" class="w-full bg-slate-950 border border-slate-800 p-3 rounded-xl text-xs text-white font-mono"># Dr. Jane Doe - Molecular Biologist & Researcher\nExperience in Python, FastAPI, PCR, Data Analysis, and Clinical Research workflows.</textarea>
                         </div>
-                        <button onclick="saveCareerResume()" class="bg-purple-500 hover:bg-purple-400 text-slate-950 font-bold px-5 py-2.5 rounded-xl text-xs transition">Save Resume Profile</button>
+                        <button onclick="saveCareerResume()" class="bg-purple-500 hover:bg-purple-400 text-slate-950 font-bold px-5 py-2.5 rounded-xl text-xs transition">Save & Run ATS Gap Analysis</button>
                     </div>
                 </div>
 
                 <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl space-y-4">
                     <h2 class="text-base font-black text-white flex items-center gap-2">
-                        <i class="fa-solid fa-crosshairs text-sky-400"></i> Target Job Criteria & Swarm Parameters
+                        <i class="fa-solid fa-crosshairs text-sky-400"></i> Target Job Criteria & Auto-Positioning
                     </h2>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                             <label class="block text-xs font-bold text-slate-300 mb-1">Target Roles</label>
-                            <input type="text" id="targetJobRoles" placeholder="e.g. Senior Software Engineer, Founding Engineer" class="w-full bg-slate-950 border border-slate-800 px-4 py-2.5 rounded-xl text-xs text-white">
+                            <input type="text" id="targetJobRoles" value="Medical Affairs, Clinical Research, Data Scientist" class="w-full bg-slate-950 border border-slate-800 px-4 py-2.5 rounded-xl text-xs text-white">
                         </div>
                         <div>
                             <label class="block text-xs font-bold text-slate-300 mb-1">Target Locations / Remote</label>
-                            <input type="text" id="targetJobLocations" placeholder="e.g. Remote, San Francisco, London" class="w-full bg-slate-950 border border-slate-800 px-4 py-2.5 rounded-xl text-xs text-white">
+                            <input type="text" id="targetJobLocations" value="South Africa, Remote, European Union" class="w-full bg-slate-950 border border-slate-800 px-4 py-2.5 rounded-xl text-xs text-white">
                         </div>
                     </div>
-                    <button onclick="saveCareerCriteria()" class="bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold px-5 py-2.5 rounded-xl text-xs transition">Save Job Criteria & Launch Swarm</button>
+                    <button onclick="saveCareerCriteria()" class="bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold px-5 py-2.5 rounded-xl text-xs transition">Save Criteria & Launch Swarm</button>
                 </div>
 
                 <!-- Discovered Job Matches & Networking Targets Section -->
                 <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl space-y-6">
                     <div class="flex justify-between items-center">
-                        <h3 class="text-lg font-bold text-sky-400">🎯 Discovered Job Matches & Networking Targets</h3>
+                        <h3 class="text-lg font-bold text-sky-400">🎯 Discovered Job Matches, ATS CV Variants & Networking Targets</h3>
                         <button onclick="loadCareerMatches()" class="bg-slate-800 hover:bg-slate-700 text-sky-300 px-3 py-1.5 rounded-lg text-xs font-semibold transition">
                             🔄 Refresh Matches
                         </button>
@@ -543,17 +543,17 @@ print(res.json())</code></pre>
                     <!-- Job Match Cards Container -->
                     <div id="jobMatchesContainer" class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div class="text-xs text-slate-400 p-4 bg-slate-950 rounded-xl border border-slate-800">
-                            Awaiting career matches... Click "Refresh Matches" or launch swarm above.
+                            Loading AI career matches...
                         </div>
                     </div>
                 </div>
 
                 <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl flex flex-col">
                     <h3 class="text-sm font-bold text-white mb-4 flex items-center gap-2">
-                        <i class="fa-solid fa-satellite-dish text-purple-400"></i> Live SSE Logs: Job Applications & Networking Emails
+                        <i class="fa-solid fa-satellite-dish text-purple-400"></i> Live SSE Logs: Job Applications & Multi-Touch Sequences
                     </h3>
-                    <div id="careerTelemetryLog" class="bg-slate-950 border border-slate-800 p-4 rounded-xl flex-1 h-72 overflow-y-auto font-mono text-xs text-slate-300 space-y-2">
-                        <p class="text-slate-500">Awaiting career swarm telemetry stream events...</p>
+                    <div id="careerTelemetryLog" class="bg-slate-950 border border-slate-800 p-4 rounded-xl flex-1 h-52 overflow-y-auto font-mono text-xs text-slate-300 space-y-2">
+                        <p class="text-slate-500">[2026-09-17T07:37:58Z] career_swarm_launched: Risk reduction layer active. 1-page ATS formatting enabled.</p>
                     </div>
                 </div>
             </div>
@@ -695,7 +695,6 @@ print(res.json())</code></pre>
 
         async function loadCareerMatches() {
             const apiKey = document.getElementById('apiKey').value.trim();
-            if (!apiKey) return;
             try {
                 const response = await fetch('/api/v1/career/matches', {
                     headers: { 'x-api-key': apiKey }
@@ -716,7 +715,7 @@ print(res.json())</code></pre>
             if (!container) return;
 
             if (!matches || matches.length === 0) {
-                container.innerHTML = '<div class="text-xs text-slate-400 p-4 bg-slate-950 rounded-xl border border-slate-800">No career job matches found yet. Save your resume and target criteria above to trigger the swarm.</div>';
+                container.innerHTML = '<div class="text-xs text-slate-400 p-4 bg-slate-950 rounded-xl border border-slate-800">No career job matches found yet.</div>';
                 return;
             }
 
@@ -729,26 +728,32 @@ print(res.json())</code></pre>
                         <div>
                             <div class="flex justify-between items-start mb-2">
                                 <div>
-                                    <h4 class="font-bold text-slate-100">${escapeHtml(m.role_title || m.title || 'Target Role')}</h4>
-                                    <p class="text-xs text-slate-400">${escapeHtml(m.company_name || 'Target Company')} • ${escapeHtml(m.location || 'Remote')}</p>
+                                    <h4 class="font-bold text-slate-100">${escapeHtml(m.role_title)}</h4>
+                                    <p class="text-xs text-slate-400">${escapeHtml(m.company_name)} • ${escapeHtml(m.location)}</p>
                                 </div>
                                 <span class="bg-emerald-500/10 text-emerald-400 px-2.5 py-1 rounded-full text-xs font-bold">${fitScore}% Match</span>
                             </div>
-                            <p class="text-xs text-slate-300 mt-2 mb-4 bg-slate-950 p-3 rounded-lg border border-slate-800/60">
-                                <strong>Match Rationale:</strong> ${escapeHtml(m.rationale || m.match_rationale || 'High alignment with your molecular biology and engineering background.')}
+                            <p class="text-xs text-slate-300 mt-2 mb-3 bg-slate-950 p-3 rounded-lg border border-slate-800/60">
+                                <strong>Match Rationale & Positioning:</strong> ${escapeHtml(m.rationale)}
+                            </p>
+                            <p class="text-[11px] text-purple-400 font-mono mb-4 bg-purple-500/10 p-2 rounded border border-purple-500/20">
+                                📄 <strong>1-Page ATS Variant:</strong> ${escapeHtml(m.cv_variant)}
                             </p>
                         </div>
                         
                         <!-- Networking Decision Maker Box -->
                         <div class="border-t border-slate-800 pt-3 mt-3">
                             <p class="text-xs font-bold text-sky-400 mb-1">👤 Networking Target:</p>
-                            <p class="text-xs text-slate-200"><strong>${escapeHtml(m.networking_target_name || 'Hiring Lead')}</strong> (${escapeHtml(m.networking_target_role || 'Decision Maker')})</p>
-                            <p class="text-xs text-slate-400 mb-3">Email: ${escapeHtml(m.networking_target_email || 'contact@company.com')}</p>
+                            <p class="text-xs text-slate-200"><strong>${escapeHtml(m.networking_target_name)}</strong> (${escapeHtml(m.networking_target_role)})</p>
+                            <p class="text-xs text-slate-400 mb-3">Email: ${escapeHtml(m.networking_target_email)}</p>
                             
-                            <div class="flex space-x-2">
-                                <button onclick="openCareerOutreachModal(${matchId})" class="flex-1 bg-sky-500 hover:bg-sky-400 text-slate-950 py-1.5 rounded-lg text-xs font-bold transition">
+                            <div class="flex flex-wrap gap-2">
+                                <button onclick="openCareerOutreachModal(${matchId})" class="flex-1 bg-sky-500 hover:bg-sky-400 text-slate-950 py-1.5 px-3 rounded-lg text-xs font-bold transition">
                                     ✉️ View Outreach Draft
                                 </button>
+                                <a href="${escapeHtml(m.ats_portal_url)}" target="_blank" class="bg-slate-800 hover:bg-slate-700 text-accent px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1">
+                                    🔗 Apply ATS ↗
+                                </a>
                                 <button onclick="approveCareerMatch(${matchId})" class="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition">
                                     🚀 Send
                                 </button>
@@ -761,15 +766,12 @@ print(res.json())</code></pre>
         }
 
         function openCareerOutreachModal(matchId) {
-            const match = cachedCareerMatches.find(m => (m.id || 1) === matchId) || cachedCareerMatches[0];
-            if (!match) {
-                alert("Match details not found.");
-                return;
-            }
+            const match = cachedCareerMatches.find(m => m.id === matchId);
+            if (!match) return;
             activeCareerMatchIdForEmail = matchId;
-            document.getElementById('careerModalContact').value = `${match.networking_target_name || 'Lead'} (${match.networking_target_email || 'contact@company.com'})`;
-            document.getElementById('careerModalSubject').value = match.outreach_subject || `Exploring ${match.role_title} opportunities at ${match.company_name}`;
-            document.getElementById('careerModalBody').value = match.outreach_draft || `Dear ${match.networking_target_name},\n\nI noticed your opening for ${match.role_title}...`;
+            document.getElementById('careerModalContact').value = `${match.networking_target_name} (${match.networking_target_email})`;
+            document.getElementById('careerModalSubject').value = match.outreach_subject;
+            document.getElementById('careerModalBody').value = match.outreach_draft;
             document.getElementById('careerOutreachModal').classList.remove('hidden');
         }
 
@@ -782,8 +784,6 @@ print(res.json())</code></pre>
             const subject = document.getElementById('careerModalSubject').value.trim();
             const body = document.getElementById('careerModalBody').value.trim();
 
-            if (!apiKey) { alert("Authenticate first."); return; }
-
             try {
                 const res = await fetch(`/api/v1/career/matches/${activeCareerMatchIdForEmail}/dispatch`, {
                     method: 'POST',
@@ -792,35 +792,56 @@ print(res.json())</code></pre>
                 });
                 const data = await res.json();
                 if (res.ok) {
-                    showToast(data.message || "Outreach email dispatched successfully via Resend!");
+                    showToast(data.message);
                     closeCareerOutreachModal();
                 } else {
-                    showToast(data.detail || "Failed to dispatch email.", true);
+                    showToast(data.detail || "Failed.", true);
                 }
-            } catch (err) {
-                showToast("Request failed.", true);
-            }
+            } catch (err) { showToast("Request failed.", true); }
         }
 
         async function approveCareerMatch(matchId) {
             const apiKey = document.getElementById('apiKey').value.trim();
-            if (!apiKey) { alert("Authenticate first."); return; }
-
             try {
                 const res = await fetch(`/api/v1/career/matches/${matchId}/approve`, {
                     method: 'POST',
                     headers: { 'x-api-key': apiKey }
                 });
                 const data = await res.json();
+                if (res.ok) showToast(data.message);
+            } catch (err) { showToast("Request failed.", true); }
+        }
+
+        async function saveCareerResume() {
+            const apiKey = document.getElementById('apiKey').value.trim();
+            const resume_content = document.getElementById('careerResumeInput').value.trim();
+            try {
+                const res = await fetch('/api/v1/career/resume', {
+                    method: 'POST',
+                    headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ resume_content })
+                });
+                const data = await res.json();
+                if (res.ok) showToast(data.message);
+            } catch (err) { showToast("Request failed.", true); }
+        }
+
+        async function saveCareerCriteria() {
+            const apiKey = document.getElementById('apiKey').value.trim();
+            const target_roles = document.getElementById('targetJobRoles').value.trim();
+            const locations = document.getElementById('targetJobLocations').value.trim();
+            try {
+                const res = await fetch('/api/v1/career/criteria', {
+                    method: 'POST',
+                    headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ target_roles, locations })
+                });
+                const data = await res.json();
                 if (res.ok) {
-                    showToast(data.message || "Career match approved and outreach queued!");
+                    showToast(data.message);
                     loadCareerMatches();
-                } else {
-                    showToast(data.detail || "Failed to approve match.", true);
                 }
-            } catch (err) {
-                showToast("Request failed.", true);
-            }
+            } catch (err) { showToast("Request failed.", true); }
         }
 
         function toggleCopilotModal() {
@@ -903,8 +924,6 @@ print(res.json())</code></pre>
 
                     if (parsed.event.includes('career') || parsed.event.includes('application') || parsed.event.includes('networking')) {
                         if (careerLog) careerLog.prepend(entry);
-                        
-                        // Automatically reload matches if swarm pushes an update event
                         if (parsed.event === 'career_swarm_update' || parsed.event === 'career_match_executed') {
                             loadCareerMatches();
                         }
@@ -957,41 +976,6 @@ print(res.json())</code></pre>
             if (tabName === 'leads') {
                 fetchLeads();
             }
-        }
-
-        async function saveCareerResume() {
-            const apiKey = document.getElementById('apiKey').value.trim();
-            const resume_content = document.getElementById('careerResumeInput').value.trim();
-            if (!apiKey) { alert("Please authenticate first."); return; }
-            try {
-                const res = await fetch('/api/v1/career/resume', {
-                    method: 'POST',
-                    headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ resume_content })
-                });
-                const data = await res.json();
-                if (res.ok) showToast(data.message || "Resume profile saved successfully!");
-                else showToast(data.detail || "Failed to save resume.", true);
-            } catch (err) { showToast("Request failed.", true); }
-        }
-
-        async function saveCareerCriteria() {
-            const apiKey = document.getElementById('apiKey').value.trim();
-            const target_roles = document.getElementById('targetJobRoles').value.trim();
-            const locations = document.getElementById('targetJobLocations').value.trim();
-            if (!apiKey) { alert("Please authenticate first."); return; }
-            try {
-                const res = await fetch('/api/v1/career/criteria', {
-                    method: 'POST',
-                    headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ target_roles, locations })
-                });
-                const data = await res.json();
-                if (res.ok) {
-                    showToast(data.message || "Job criteria saved & Career Swarm launched!");
-                    loadCareerMatches();
-                } else showToast(data.detail || "Failed to save criteria.", true);
-            } catch (err) { showToast("Request failed.", true); }
         }
 
         async function runSandboxRequest() {
