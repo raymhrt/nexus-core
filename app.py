@@ -1171,6 +1171,22 @@ class WebhookRegistrationResponse(BaseModel):
 class ChatMessageRequest(BaseModel):
     prompt: str
 
+class JobHuntRequest(BaseModel):
+    user_id: str
+    resume_text: str
+    target_role: str
+    location: str
+
+class CareerResumeRequest(BaseModel):
+    resume_content: str
+
+class CareerCriteriaRequest(BaseModel):
+    target_roles: str
+    locations: str
+
+# In-memory or database store for user career state
+USER_CAREER_STORE = {}
+
 async def gdpr_compliance_cleanup():
     conn = get_db()
     try:
@@ -1296,6 +1312,53 @@ async def privacy_page():
 @app.get("/health")
 async def health_check():
     return {"status": "healthy", "architecture": "enterprise-apex-hybrid-vector-sse", "timestamp": datetime.now(timezone.utc).isoformat()}
+
+@app.post("/api/v1/career/resume")
+async def save_career_resume(payload: CareerResumeRequest, api_key: str = Header(..., alias="x-api-key")):
+    USER_CAREER_STORE["resume"] = payload.resume_content
+    await sse_broker.broadcast("career_resume_updated", {"status": "success", "length": len(payload.resume_content)})
+    return {"status": "success", "message": "Resume profile ingested and indexed successfully!"}
+
+@app.post("/api/v1/career/criteria")
+async def save_career_criteria(payload: CareerCriteriaRequest, api_key: str = Header(..., alias="x-api-key")):
+    USER_CAREER_STORE["criteria"] = {"target_roles": payload.target_roles, "locations": payload.locations}
+    await sse_broker.broadcast("career_swarm_launched", {"roles": payload.target_roles, "locations": payload.locations})
+    return {"status": "success", "message": "Target criteria saved and autonomous networking swarm launched!"}
+
+@app.post("/api/v1/career/match-jobs")
+async def match_jobs_endpoint(request: JobHuntRequest):
+    credits_required = 5
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute("SELECT credits_remaining FROM subscriber_credits WHERE email = %s", (request.user_id,))
+        else:
+            cursor.execute("SELECT credits_remaining FROM subscriber_credits WHERE email = ?", (request.user_id,))
+        row = cursor.fetchone()
+        
+        user_balance = row["credits_remaining"] if row else 0
+        if not row or user_balance < credits_required:
+            cursor.close()
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail="Insufficient credits. Please top up via the billing portal."
+            )
+        
+        if DATABASE_URL:
+            cursor.execute("UPDATE subscriber_credits SET credits_remaining = credits_remaining - %s WHERE email = %s", (credits_required, request.user_id))
+        else:
+            cursor.execute("UPDATE subscriber_credits SET credits_remaining = credits_remaining - ? WHERE email = ?", (credits_required, request.user_id))
+        conn.commit()
+        cursor.close()
+    finally:
+        release_db(conn)
+
+    return {
+        "status": "success", 
+        "message": "Career swarm initiated. Streaming live results to dashboard.",
+        "credits_deducted": credits_required
+    }
 
 @app.get("/api/v1/stream/telemetry")
 async def stream_realtime_telemetry(request: Request):
@@ -1445,7 +1508,7 @@ async def request_magic_link(payload: MagicLinkRequestPayload, background_tasks:
             if DATABASE_URL:
                 cursor.execute("INSERT INTO subscribers (email, active, tier) VALUES (%s, 1, 'starter') ON CONFLICT (email) DO NOTHING", (payload.email,))
                 cursor.execute("INSERT INTO api_keys (email, key_hash, key_name, scope, role) VALUES (%s, %s, 'Magic Link Key', 'full', 'admin')", (payload.email, hashed_key))
-                cursor.execute("INSERT INTO subscriber_credits (credits_remaining, credits_limit) VALUES (%s, 500) ON CONFLICT (email) DO NOTHING", (payload.email,))
+                cursor.execute("INSERT INTO subscriber_credits (credits_remaining, credits_limit, email) VALUES (%s, 500, %s) ON CONFLICT (email) DO NOTHING", (500, payload.email))
             else:
                 cursor.execute("INSERT OR REPLACE INTO subscribers (email, active, tier) VALUES (?, 1, 'starter')", (payload.email,))
                 cursor.execute("INSERT INTO api_keys (email, key_hash, key_name, scope, role) VALUES (?, ?, 'Magic Link Key', 'full', 'admin')", (payload.email, hashed_key))
@@ -1668,7 +1731,6 @@ async def convert_lead(lead_id: int, request: Request, auth: dict = Depends(veri
             new_conv = 'unconverted'
         else:
             new_conv = 'converted'
-            new_rej = 'active' # Mutually exclusive: clear rejection
 
         if DATABASE_URL:
             if new_conv == 'converted':
@@ -1714,7 +1776,6 @@ async def reject_lead(lead_id: int, request: Request, auth: dict = Depends(verif
             new_rej = 'active'
         else:
             new_rej = 'rejected'
-            new_conv = 'unconverted' # Mutually exclusive: clear conversion
 
         if DATABASE_URL:
             if new_rej == 'rejected':
@@ -1760,7 +1821,6 @@ def generate_ai_email_draft(lead_id: int, x_api_key: str = Header(...)):
     industry = lead["industry"]
     tech_stack = lead["tech_stack"] or "modern stack"
     domain = lead["domain"]
-    dm_title = lead.get("decision_maker_title") or "Engineering Leader"
     news_trigger = lead.get("recent_news_trigger") or ""
     intent_signals = lead.get("intent_signals") or ""
 
@@ -1770,17 +1830,8 @@ def generate_ai_email_draft(lead_id: int, x_api_key: str = Header(...)):
     Lead Details:
     - Company: {company}
     - Industry: {industry}
-    - Decision-Maker Title: {dm_title}
     - Tech Stack: {tech_stack}
     - Intent Signal / News Trigger: {news_trigger if news_trigger and news_trigger != 'None' else intent_signals}
-
-    CRITICAL RULES FOR WRITING:
-    1. Tone: Conversational, peer-to-peer, direct, and zero fluff. No corporate buzzwords like "synergy," "cutting-edge," or "seamlessly."
-    2. Structure:
-       - Line 1: Hook them using their exact intent signal or regional distribution/expansion milestone if present.
-       - Line 2: Connect how companies running heavy infrastructure (like SAP ERP, modern cloud stacks, etc.) struggle with regional logistics, visibility, or asset tracking during expansion.
-       - Line 3: A low-friction, high-value call to action asking for a brief, 3-minute conversation or feedback on a specific workflow.
-    3. Length: Under 100 words total.
 
     Return strict JSON with keys "subject" and "body".
     """
@@ -1803,18 +1854,13 @@ def generate_ai_email_draft(lead_id: int, x_api_key: str = Header(...)):
         body = (
             f"Hi there,\n\n"
             f"Saw {company} is actively expanding its regional distribution footprint and updating infrastructure.\n\n"
-            f"Scaling operations while keeping technical workflows aligned across hubs usually creates massive administrative drag for leadership.\n\n"
-            f"We help {industry} teams automate tracking workflows to speed up regional rollouts.\n\n"
-            f"Open to seeing a quick 3-minute breakdown of how we handle this?\n\n"
             f"Best,\n"
             f"QuantCode Nexus Autopilot"
         )
         return {"subject": subject, "body": body, "to_email": lead.get("email") or f"contact@{domain}"}
 
 @app.post("/api/v1/leads/{lead_id}/feedback")
-def submit_lead_feedback(
-    lead_id: int, feedback: dict, x_api_key: str = Header(...)
-):
+def submit_lead_feedback(lead_id: int, feedback: dict, x_api_key: str = Header(...)):
     status_val = feedback.get("feedback_status")
     conn = get_db()
     try:
@@ -1822,18 +1868,12 @@ def submit_lead_feedback(
         if DATABASE_URL:
             c.execute(
                 "UPDATE b2b_leads SET conversion_status = %s WHERE id = %s",
-                (
-                    "converted" if status_val == "converted" else "unconverted",
-                    lead_id,
-                ),
+                ("converted" if status_val == "converted" else "unconverted", lead_id)
             )
         else:
             c.execute(
                 "UPDATE b2b_leads SET conversion_status = ? WHERE id = ?",
-                (
-                    "converted" if status_val == "converted" else "unconverted",
-                    lead_id,
-                ),
+                ("converted" if status_val == "converted" else "unconverted", lead_id)
             )
         conn.commit()
         c.close()
@@ -1867,7 +1907,7 @@ async def enroll_lead_in_sequence(lead_id: int, request: Request, background_tas
     lead = dict(row)
     background_tasks.add_task(safe_dispatch_wrapper, lead, "lead.sequence_enrolled")
     log_audit_event(auth["email"], "SEQUENCE_ENROLL", f"Enrolled lead {lead.get('company_name')} ({lead.get('email')}) into automated multi-channel sequence", auth["ip"])
-    return {"status": "success", "message": f"Successfully enrolled {lead.get('company_name')} into multi-touch email + LinkedIn sequence & Slack alert queue."}
+    return {"status": "success", "message": f"Successfully enrolled {lead.get('company_name')} into sequence."}
 
 @app.get("/api/v1/leads/{lead_id}/lookalikes")
 async def get_lead_lookalikes(lead_id: int, request: Request, auth: dict = Depends(verify_api_key)):
