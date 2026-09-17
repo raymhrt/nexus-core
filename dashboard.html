@@ -508,9 +508,9 @@ print(res.json())</code></pre>
                     <div class="space-y-3">
                         <div>
                             <label class="block text-xs font-bold text-slate-300 mb-1">Paste Master Resume (Markdown / Text)</label>
-                            <textarea id="careerResumeInput" rows="5" class="w-full bg-slate-950 border border-slate-800 p-3 rounded-xl text-xs text-white font-mono"># Dr. Jane Doe - Molecular Biologist & Researcher\nExperience in Python, FastAPI, PCR, Data Analysis, and Clinical Research workflows.</textarea>
+                            <textarea id="careerResumeInput" rows="5" placeholder="# e.g. Dr. Jane Doe - Molecular Biologist & Researcher&#10;Experience in Python, FastAPI, PCR, Data Analysis..." class="w-full bg-slate-950 border border-slate-800 p-3 rounded-xl text-xs text-white font-mono"></textarea>
                         </div>
-                        <button onclick="saveCareerResume()" class="bg-purple-500 hover:bg-purple-400 text-slate-950 font-bold px-5 py-2.5 rounded-xl text-xs transition">Save & Run ATS Gap Analysis</button>
+                        <button id="save-resume-btn" onclick="saveCareerResume()" class="bg-purple-500 hover:bg-purple-400 text-slate-950 font-bold px-5 py-2.5 rounded-xl text-xs transition">Save & Run ATS Gap Analysis</button>
                     </div>
                 </div>
 
@@ -521,14 +521,14 @@ print(res.json())</code></pre>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                             <label class="block text-xs font-bold text-slate-300 mb-1">Target Roles</label>
-                            <input type="text" id="targetJobRoles" value="Medical Affairs, Clinical Research, Data Scientist" class="w-full bg-slate-950 border border-slate-800 px-4 py-2.5 rounded-xl text-xs text-white">
+                            <input type="text" id="targetJobRoles" placeholder="e.g. Medical Affairs, Clinical Research, Data Scientist" class="w-full bg-slate-950 border border-slate-800 px-4 py-2.5 rounded-xl text-xs text-white">
                         </div>
                         <div>
                             <label class="block text-xs font-bold text-slate-300 mb-1">Target Locations / Remote</label>
-                            <input type="text" id="targetJobLocations" value="South Africa, Remote, European Union" class="w-full bg-slate-950 border border-slate-800 px-4 py-2.5 rounded-xl text-xs text-white">
+                            <input type="text" id="targetJobLocations" placeholder="e.g. South Africa, Remote, European Union" class="w-full bg-slate-950 border border-slate-800 px-4 py-2.5 rounded-xl text-xs text-white">
                         </div>
                     </div>
-                    <button onclick="saveCareerCriteria()" class="bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold px-5 py-2.5 rounded-xl text-xs transition">Save Criteria & Launch Swarm</button>
+                    <button id="save-criteria-btn" onclick="saveCareerCriteria()" class="bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold px-5 py-2.5 rounded-xl text-xs transition">Save Criteria & Launch Swarm</button>
                 </div>
 
                 <!-- Discovered Job Matches & Networking Targets Section -->
@@ -813,10 +813,15 @@ print(res.json())</code></pre>
         }
 
         async function saveCareerResume() {
+            const btn = document.getElementById('save-resume-btn');
+            const originalText = btn.innerHTML;
+            
+            // Set to Loading State
+            btn.disabled = true;
+            btn.innerHTML = `<svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white inline" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Parsing & Optimizing...`;
+
             const apiKey = document.getElementById('apiKey').value.trim();
             const resume_content = document.getElementById('careerResumeInput').value.trim();
-            
-            showToast("Analyzing resume & running ATS gap analysis swarm...");
             
             try {
                 const res = await fetch('/api/v1/career/resume', {
@@ -826,23 +831,40 @@ print(res.json())</code></pre>
                 });
                 const data = await res.json();
                 if (res.ok) {
+                    btn.innerHTML = `✅ Completed!`;
+                    btn.classList.add('bg-emerald-600');
                     showToast(data.message || "Resume optimized successfully!");
                     loadCareerMatches();
+                    setTimeout(() => {
+                        btn.innerHTML = originalText;
+                        btn.classList.remove('bg-emerald-600');
+                        btn.disabled = false;
+                    }, 3000);
                 } else {
-                    showToast(data.detail || "Failed to analyze resume.", true);
+                    throw new Error(data.detail || 'Failed to analyze resume.');
                 }
             } catch (err) { 
-                showToast("Network request failed.", true); 
+                btn.innerHTML = `❌ Error`;
+                showToast(err.message || "Network request failed.", true); 
+                setTimeout(() => {
+                    btn.innerHTML = originalText;
+                    btn.disabled = false;
+                }, 3000);
             }
         }
 
         async function saveCareerCriteria() {
+            const btn = document.getElementById('save-criteria-btn');
+            const originalText = btn.innerHTML;
+            
+            // Set to Loading State
+            btn.disabled = true;
+            btn.innerHTML = `<svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white inline" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Launching Swarm...`;
+
             const apiKey = document.getElementById('apiKey').value.trim();
             const target_roles = document.getElementById('targetJobRoles').value.trim();
             const locations = document.getElementById('targetJobLocations').value.trim();
             
-            showToast("Launching career search swarm across live job portals...");
-
             try {
                 const res = await fetch('/api/v1/career/criteria', {
                     method: 'POST',
@@ -851,13 +873,25 @@ print(res.json())</code></pre>
                 });
                 const data = await res.json();
                 if (res.ok) {
+                    btn.innerHTML = `✅ Completed!`;
+                    btn.classList.add('bg-emerald-600');
                     showToast(data.message || "Criteria saved & swarm deployed!");
                     loadCareerMatches();
+                    setTimeout(() => {
+                        btn.innerHTML = originalText;
+                        btn.classList.remove('bg-emerald-600');
+                        btn.disabled = false;
+                    }, 3000);
                 } else {
-                    showToast(data.detail || "Failed to launch swarm.", true);
+                    throw new Error(data.detail || 'Failed to launch swarm.');
                 }
             } catch (err) { 
-                showToast("Network request failed.", true); 
+                btn.innerHTML = `❌ Error`;
+                showToast(err.message || "Network request failed.", true); 
+                setTimeout(() => {
+                    btn.innerHTML = originalText;
+                    btn.disabled = false;
+                }, 3000);
             }
         }
 
