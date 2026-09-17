@@ -58,7 +58,21 @@ if not WEBHOOK_SIGNING_SECRET:
 ADMIN_SECRET_KEY = os.getenv("ADMIN_SECRET_KEY")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+# Multi-Key Round-Robin & Circuit-Breaker Rotation Loading
+GEMINI_API_KEYS_RAW = os.getenv("GEMINI_API_KEYS", os.getenv("GEMINI_API_KEY", ""))
+GEMINI_API_KEYS = [k.strip() for k in GEMINI_API_KEYS_RAW.split(",") if k.strip()]
+_gemini_key_index = 0
+_key_lock = asyncio.Lock()
+
+async def get_next_gemini_key() -> str:
+    global _gemini_key_index
+    if not GEMINI_API_KEYS:
+        raise HTTPException(status_code=500, detail="No Gemini API keys configured.")
+    async with _key_lock:
+        key = GEMINI_API_KEYS[_gemini_key_index % len(GEMINI_API_KEYS)]
+        _gemini_key_index += 1
+        return key
 
 RESEND_API_KEY = os.getenv("RESEND_API_KEY")
 SENDER_EMAIL = os.getenv("SENDER_EMAIL", "onboarding@resend.dev")
@@ -169,68 +183,85 @@ def generate_hmac_signature(payload_json: str) -> str:
         hashlib.sha256
     ).hexdigest()
 
+# Smart Caching Layers
+def get_cached_ai_response(cache_key: str) -> Optional[str]:
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute("SELECT response_text FROM ai_response_cache WHERE cache_key = %s AND created_at >= NOW() - INTERVAL '24 hours'", (cache_key,))
+        else:
+            cursor.execute("SELECT response_text FROM ai_response_cache WHERE cache_key = ? AND created_at >= datetime('now', '-24 hours')", (cache_key,))
+        row = cursor.fetchone()
+        cursor.close()
+        return row["response_text"] if row and isinstance(row, dict) else (row[0] if row else None)
+    except Exception:
+        return None
+    finally:
+        release_db(conn)
+
+def set_cached_ai_response(cache_key: str, response_text: str):
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute("INSERT INTO ai_response_cache (cache_key, response_text) VALUES (%s, %s) ON CONFLICT (cache_key) DO UPDATE SET response_text = EXCLUDED.response_text, created_at = NOW()", (cache_key, response_text))
+        else:
+            cursor.execute("INSERT OR REPLACE INTO ai_response_cache (cache_key, response_text, created_at) VALUES (?, ?, datetime('now'))", (cache_key, response_text))
+        conn.commit()
+        cursor.close()
+    except Exception:
+        pass
+    finally:
+        release_db(conn)
+
 def call_gemini_rest(prompt: str, max_retries: int = 5, use_search: bool = False) -> str:
-    if not GEMINI_API_KEY:
-        logger.error("GEMINI_API_KEY environment variable is missing or empty.")
+    if not GEMINI_API_KEYS:
+        logger.error("GEMINI_API_KEYS environment variables are missing or empty.")
         raise HTTPException(status_code=500, detail="GEMINI_API_KEY not configured")
      
-    # Global cooldown/circuit breaker check using Redis if available
-    circuit_key = "gemini_global_circuit_breaker"
-    if redis_client:
-        if redis_client.get(circuit_key):
-            logger.warning("Gemini global circuit breaker is active. Fast-failing request.")
-            raise HTTPException(status_code=503, detail="AI provider is temporarily cooling down due to rate limits. Please try again shortly.")
+    cache_key = hashlib.sha256((prompt + str(use_search)).encode("utf-8")).hexdigest()
+    cached_res = get_cached_ai_response(cache_key)
+    if cached_res:
+        logger.info("Serving AI response from local smart cache.")
+        return cached_res
 
-    models = [
-        "gemini-3.5-flash",
-        "gemini-3.7-flash",
-        "gemini-3.8-flash"
-    ]
+    models = ["gemini-2.5-flash", "gemini-3.5-flash", "gemini-3.7-flash"]
+    base_delay = 2.0
      
     for model_name in models:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={GEMINI_API_KEY}"
-        headers = {"Content-Type": "application/json"}
-        payload = {
-            "contents": [{
-                "parts": [{"text": GEMINI_LEAD_GENERATION_SYSTEM_PROMPT + "\n" + prompt}]
-            }]
-        }
-        
-        if use_search:
-            payload["tools"] = [{"google_search": {}}]
-        
-        base_delay = 2.0
         for attempt in range(1, max_retries + 1):
+            current_key = GEMINI_API_KEYS[random.randint(0, len(GEMINI_API_KEYS) - 1)]
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={current_key}"
+            headers = {"Content-Type": "application/json"}
+            payload = {
+                "contents": [{
+                    "parts": [{"text": GEMINI_LEAD_GENERATION_SYSTEM_PROMPT + "\n" + prompt}]
+                }]
+            }
+            if use_search:
+                payload["tools"] = [{"google_search": {}}]
+          
             try:
                 res = requests.post(url, json=payload, headers=headers, timeout=30)
                 if res.status_code == 200:
                     data = res.json()
-                    return data["candidates"][0]["content"]["parts"][0]["text"]
-                elif res.status_code in [429, 503, 502, 504, 404, 500]:
-                    logger.warning(f"Model {model_name} returned status {res.status_code} on attempt {attempt}/{max_retries}. Retrying with exponential backoff...")
-                    if res.status_code == 429 and redis_client:
-                        # Trip circuit breaker for 60 seconds on rate limit hit
-                        redis_client.setex(circuit_key, 60, "tripped")
-                    if attempt == max_retries:
-                        break
+                    text_output = data["candidates"][0]["content"]["parts"][0]["text"]
+                    set_cached_ai_response(cache_key, text_output)
+                    return text_output
+                elif res.status_code in [429, 503, 502, 504]:
+                    logger.warning(f"Model {model_name} hit rate limit/status {res.status_code} on attempt {attempt}. Rotating API key & backing off...")
                 else:
                     logger.error(f"Model {model_name} error status {res.status_code}: {res.text}")
                     break
-            except (requests.exceptions.Timeout, requests.exceptions.ConnectionError, requests.exceptions.RequestException) as net_err:
+            except Exception as net_err:
                 logger.warning(f"Network error on model {model_name} attempt {attempt}: {net_err}")
-                if attempt == max_retries:
-                    break
-            except Exception as unhandled_err:
-                logger.warning(f"Unexpected error on model {model_name} attempt {attempt}: {unhandled_err}")
-                if attempt == max_retries:
-                    break
 
-            # Updated resilient backoff logic with randomized jitter and global circuit breaking considerations
             sleep_time = (base_delay ** attempt) + random.uniform(0.5, 2.0)
             time.sleep(sleep_time)
           
-    logger.error("All Gemini model endpoints and fallback models failed. Raising upstream AI provider error.")
-    raise HTTPException(status_code=502, detail="Upstream AI provider error: All model endpoints failed due to rate limits or capacity constraints.")
+    logger.error("All Gemini model endpoints, keys, and fallback rotations failed.")
+    raise HTTPException(status_code=502, detail="Upstream AI provider rate limit exhausted across all project keys. Please retry shortly.")
 
 def log_audit_event(email: str, action: str, details: str, ip_address: str = "127.0.0.1"):
     conn = get_db()
@@ -453,6 +484,14 @@ def init_db():
             cursor.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm;")
         except Exception:
             pass
+            
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS ai_response_cache (
+                cache_key TEXT PRIMARY KEY,
+                response_text TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
         cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS subscribers (
@@ -687,6 +726,13 @@ def init_db():
         """
         )
     else:
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS ai_response_cache (
+                cache_key TEXT PRIMARY KEY,
+                response_text TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
         cursor.execute("CREATE TABLE IF NOT EXISTS subscribers (email TEXT PRIMARY KEY, active INTEGER DEFAULT 1, stripe_customer_id TEXT, tier TEXT DEFAULT 'starter', reset_token TEXT, reset_expires_at DATETIME, magic_token TEXT, magic_expires_at DATETIME, telegram_chat_id TEXT)")
         cursor.execute("CREATE TABLE IF NOT EXISTS api_keys (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT, key_hash TEXT UNIQUE, key_name TEXT DEFAULT 'Default', scope TEXT DEFAULT 'full', role TEXT DEFAULT 'admin', active INTEGER DEFAULT 1, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS subscriber_credits (email TEXT PRIMARY KEY, credits_remaining INTEGER DEFAULT 500, credits_limit INTEGER DEFAULT 500, last_refill_date DATETIME DEFAULT CURRENT_TIMESTAMP)")
@@ -805,11 +851,12 @@ def record_usage_hit(email: str):
         release_db(conn)
 
 def generate_lead_embedding(text_content: str):
-    if not GEMINI_API_KEY:
-        logger.error("GEMINI_API_KEY missing during embedding generation.")
+    if not GEMINI_API_KEYS:
+        logger.error("GEMINI_API_KEYS missing during embedding generation.")
         return None
     try:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key={GEMINI_API_KEY}"
+        current_key = GEMINI_API_KEYS[0]
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key={current_key}"
         payload = {
             "model": "models/gemini-embedding-001",
             "content": {
@@ -1386,7 +1433,6 @@ async def gdpr_compliance_cleanup():
 async def async_gdpr_cleanup():
     await asyncio.to_thread(gdpr_compliance_cleanup)
 
-# Adjusted APScheduler intervals (e.g., job scouting swarm worker adjusted to run less frequently to avoid rate limits)
 scheduler = AsyncIOScheduler()
 scheduler.add_job(async_gdpr_cleanup, "interval", hours=24, id="gdpr_cleanup", replace_existing=True)
 scheduler.add_job(webhook_canary_healing_worker, "interval", minutes=1, id="canary_healing", replace_existing=True)
@@ -2601,9 +2647,9 @@ async def execute_on_demand_generation(query: str, count: int, user_email: str, 
                 logger.warning(f"Skipping malformed lead item from Gemini: {val_err}")
     except Exception as e:
         logger.warning(f"Generation AI failed ({e}). Deploying Multi-Agent Consensus Swarm...")
-        if GEMINI_API_KEY:
+        if GEMINI_API_KEYS:
             try:
-                swarm = NexusAdvancedAgentSwarmOrchestrator(genai.Client(api_key=GEMINI_API_KEY))
+                swarm = NexusAdvancedAgentSwarmOrchestrator(genai.Client(api_key=GEMINI_API_KEYS[0]))
                 swarm_res = swarm.execute_advanced_swarm(query)
                 validated_leads = [GeminiLeadSchema(
                     company_name=swarm_res.get("company_name", "Apex Cloud Systems"),
