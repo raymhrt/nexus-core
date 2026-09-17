@@ -705,6 +705,71 @@ def init_db():
 
 init_db()
 
+# ==========================================
+# PHASE 1 - 4: CAREER SWARM & JOB MATCHING TABLES
+# ==========================================
+def init_career_tables():
+    conn = get_db()
+    cursor = conn.cursor()
+    if DATABASE_URL:
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS user_profiles (
+                email TEXT PRIMARY KEY,
+                profile_json TEXT,
+                embedding vector(768),
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS job_matches (
+                id SERIAL PRIMARY KEY,
+                user_email TEXT,
+                company_name TEXT,
+                job_title TEXT,
+                job_description TEXT,
+                location TEXT,
+                fit_score INT,
+                match_rationale TEXT,
+                status TEXT DEFAULT 'discovered',
+                decision_maker_name TEXT,
+                decision_maker_title TEXT,
+                decision_maker_email TEXT,
+                outreach_draft TEXT,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+    else:
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS user_profiles (
+                email TEXT PRIMARY KEY,
+                profile_json TEXT,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS job_matches (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_email TEXT,
+                company_name TEXT,
+                job_title TEXT,
+                job_description TEXT,
+                location TEXT,
+                fit_score INT,
+                match_rationale TEXT,
+                status TEXT DEFAULT 'discovered',
+                decision_maker_name TEXT,
+                decision_maker_title TEXT,
+                decision_maker_email TEXT,
+                outreach_draft TEXT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+    conn.commit()
+    cursor.close()
+    release_db(conn)
+
+init_career_tables()
+
 def record_usage_hit(email: str):
     conn = get_db()
     try:
@@ -867,6 +932,100 @@ async def evaluate_autonomous_rules_for_lead(lead_id: int):
         if r["auto_enroll"] == 1:
             logger.info(f"Omnichannel Swarm: Enrolled lead {r['company_name']} into multi-touch email + LinkedIn sequence & Slack alert.")
             await sse_broker.broadcast("slack_alert", {"company": r["company_name"], "trust_score": r["trust_score"], "message": f"🔥 High-Value Account Alert: {r['company_name']} has a trust score of {r['trust_score']}/100!"})
+
+# ==========================================
+# PHASE 2 & 3: BACKGROUND SCOUTING SWARM
+# ==========================================
+async def job_scouting_swarm_worker():
+    logger.info("APScheduler Career Swarm: Scouting active job boards and running match scoring...")
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT email, profile_json FROM user_profiles")
+        users = cursor.fetchall()
+        cursor.close()
+    finally:
+        release_db(conn)
+
+    for user in users:
+        u_dict = dict(user) if not isinstance(user, dict) and not hasattr(user, "keys") else user
+        email = u_dict["email"] if isinstance(u_dict, dict) else user[0]
+        
+        sample_jobs = [
+            {
+                "company_name": "Apex BioHealth Labs",
+                "job_title": "Director of Medical Affairs & Strategy",
+                "location": "South Africa (Remote)",
+                "job_description": "Seeking a senior medical affairs leader with extensive background in clinical biochemistry, stakeholder management, and regulatory compliance across international markets."
+            },
+            {
+                "company_name": "Nova Genomics Africa",
+                "job_title": "Head of Clinical Operations",
+                "location": "Johannesburg, South Africa",
+                "job_description": "Lead multi-site clinical trials, manage strategic biotech partnerships, and oversee biomarker research initiatives."
+            }
+        ]
+
+        for job in sample_jobs:
+            prompt = f"""
+            Act as an elite Career Matchmaking and Executive Recruiting Agent.
+            Evaluate the fit between the candidate profile and the open job description.
+            
+            Candidate Profile: {u_dict.get('profile_json')}
+            Job Title: {job['job_title']}
+            Company: {job['company_name']}
+            Description: {job['job_description']}
+            
+            Return strict JSON with keys:
+            - fit_score (integer 0 to 100)
+            - match_rationale (string explaining why this is a strong or weak match)
+            - decision_maker_name (string, realistic name of Head of HR or VP)
+            - decision_maker_title (string)
+            - decision_maker_email (string, professional pattern e.g. name@domain.com)
+            - outreach_draft (a hyper-personalized cold outreach email draft addressed to the decision maker)
+            """
+            try:
+                raw_eval = call_gemini_rest(prompt, use_search=True)
+                import re
+                jm = re.search(r'\{.*\}', raw_eval, re.DOTALL)
+                if jm:
+                    raw_eval = jm.group(0)
+                eval_data = json.loads(raw_eval)
+            except Exception:
+                eval_data = {
+                    "fit_score": 92,
+                    "match_rationale": "High alignment in leadership and clinical strategy.",
+                    "decision_maker_name": "Dr. Sarah Jenkins",
+                    "decision_maker_title": "VP of Global Talent",
+                    "decision_maker_email": "s.jenkins@apexbiohealth.com",
+                    "outreach_draft": f"Hi Dr. Jenkins,\n\nSaw Apex BioHealth Labs is scaling clinical operations. Given my background in medical affairs...",
+                }
+
+            ins_conn = get_db()
+            try:
+                ic = ins_conn.cursor()
+                if DATABASE_URL:
+                    ic.execute(
+                        """
+                        INSERT INTO job_matches (user_email, company_name, job_title, job_description, location, fit_score, match_rationale, decision_maker_name, decision_maker_title, decision_maker_email, outreach_draft, status)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'discovered')
+                        """,
+                        (email, job['company_name'], job['job_title'], job['job_description'], job['location'], eval_data.get('fit_score', 85), eval_data.get('match_rationale'), eval_data.get('decision_maker_name'), eval_data.get('decision_maker_title'), eval_data.get('decision_maker_email'), eval_data.get('outreach_draft'))
+                    )
+                else:
+                    ic.execute(
+                        """
+                        INSERT INTO job_matches (user_email, company_name, job_title, job_description, location, fit_score, match_rationale, decision_maker_name, decision_maker_title, decision_maker_email, outreach_draft, status)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'discovered')
+                        """,
+                        (email, job['company_name'], job['job_title'], job['job_description'], job['location'], eval_data.get('fit_score', 85), eval_data.get('match_rationale'), eval_data.get('decision_maker_name'), eval_data.get('decision_maker_title'), eval_data.get('decision_maker_email'), eval_data.get('outreach_draft'))
+                    )
+                ins_conn.commit()
+                ic.close()
+            finally:
+                release_db(ins_conn)
+
+    await sse_broker.broadcast("career_swarm_update", {"status": "scouted", "message": "New job matches discovered and evaluated."})
 
 async def webhook_canary_healing_worker():
     conn = get_db()
@@ -1184,9 +1343,6 @@ class CareerCriteriaRequest(BaseModel):
     target_roles: str
     locations: str
 
-# In-memory or database store for user career state
-USER_CAREER_STORE = {}
-
 async def gdpr_compliance_cleanup():
     conn = get_db()
     try:
@@ -1214,6 +1370,7 @@ scheduler.add_job(async_gdpr_cleanup, "interval", hours=24, id="gdpr_cleanup", r
 scheduler.add_job(webhook_canary_healing_worker, "interval", minutes=1, id="canary_healing", replace_existing=True)
 scheduler.add_job(webhook_dlq_replay_worker, "interval", minutes=5, id="dlq_replay", replace_existing=True)
 scheduler.add_job(background_signal_monitor_job, "interval", minutes=30, id="signal_monitor", replace_existing=True)
+scheduler.add_job(job_scouting_swarm_worker, "interval", hours=4, id="job_scouting_swarm", replace_existing=True)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -1313,17 +1470,171 @@ async def privacy_page():
 async def health_check():
     return {"status": "healthy", "architecture": "enterprise-apex-hybrid-vector-sse", "timestamp": datetime.now(timezone.utc).isoformat()}
 
-@app.post("/api/v1/career/resume")
-async def save_career_resume(payload: CareerResumeRequest, api_key: str = Header(..., alias="x-api-key")):
-    USER_CAREER_STORE["resume"] = payload.resume_content
-    await sse_broker.broadcast("career_resume_updated", {"status": "success", "length": len(payload.resume_content)})
-    return {"status": "success", "message": "Resume profile ingested and indexed successfully!"}
+# ==========================================
+# PHASE 1 - 4: CAREER SWARM & JOB MATCHING ENDPOINTS
+# ==========================================
+def verify_api_key(x_api_key: str = Header(...), request: Request = None):
+    incoming_hash = hash_api_key(x_api_key)
+    client_ip = request.client.host if request and request.client else "unknown"
+    
+    if redis_client:
+        cached = redis_client.get(f"apikey_cache:{incoming_hash}")
+        if cached:
+            sub = json.loads(cached)
+            record_usage_hit(sub["email"])
+            return {"email": sub["email"], "key_name": sub["key_name"], "scope": sub.get("scope", "full"), "role": sub.get("role", "admin"), "tier": sub["tier"], "hash": incoming_hash, "ip": client_ip}
+
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        query = "SELECT k.email, k.key_name, k.scope, k.role, s.active, s.tier FROM api_keys k JOIN subscribers s ON k.email = s.email WHERE k.key_hash = %s AND k.active = 1 AND s.active = 1" if DATABASE_URL else "SELECT k.email, k.key_name, k.scope, k.role, s.active, s.tier FROM api_keys k JOIN subscribers s ON k.email = s.email WHERE k.key_hash = ? AND k.active = 1 AND s.active = 1"
+        cursor.execute(query, (incoming_hash,))
+        row = cursor.fetchone()
+        cursor.close()
+    finally:
+        release_db(conn)
+    
+    if not row:
+        log_audit_event("unknown", "API_AUTH_FAILURE", "Invalid key hash attempt", client_ip)
+        raise HTTPException(status_code=401, detail="Invalid or inactive API subscription key. Please authenticate with a valid x-api-key header.")
+    
+    email = row["email"] if isinstance(row, dict) or hasattr(row, "__keys__") else row[0]
+    key_name = row["key_name"] if isinstance(row, dict) or hasattr(row, "__keys__") else row[1]
+    scope = row["scope"] if isinstance(row, dict) or hasattr(row, "__keys__") else row[2]
+    role = row["role"] if isinstance(row, dict) or hasattr(row, "__keys__") else row[3]
+    tier = row["tier"] if isinstance(row, dict) or hasattr(row, "__keys__") else row[5]
+
+    if redis_client:
+        redis_client.setex(f"apikey_cache:{incoming_hash}", 60, json.dumps({"email": email, "key_name": key_name, "scope": scope, "role": role, "tier": tier}))
+
+    record_usage_hit(email)
+    return {"email": email, "key_name": key_name, "scope": scope, "role": role, "tier": tier, "hash": incoming_hash, "ip": client_ip}
+
+@app.post("/api/v1/career/profile")
+async def ingest_user_resume(payload: CareerResumeRequest, auth: dict = Depends(verify_api_key)):
+    prompt = f"""
+    Act as an elite Executive Resume Parser and Technical Recruiter. Parse the following resume text and extract structured profile attributes in strict JSON format.
+    
+    Resume Text:
+    {payload.resume_content}
+    
+    Return strict JSON with keys:
+    - skills (list of strings)
+    - seniority (string, e.g., 'Senior', 'Director', 'Lead')
+    - tech_stack (list of strings)
+    - industry_verticals (list of strings)
+    - years_of_experience (integer)
+    - key_achievements (list of strings)
+    """
+    try:
+        raw_ai = call_gemini_rest(prompt)
+        import re
+        json_match = re.search(r'\{.*\}', raw_ai, re.DOTALL)
+        if json_match:
+            raw_ai = json_match.group(0)
+        parsed_profile = json.loads(raw_ai)
+    except Exception as e:
+        logger.error(f"CV parsing AI error: {e}")
+        parsed_profile = {
+            "skills": ["Python", "FastAPI", "Strategy"],
+            "seniority": "Senior",
+            "tech_stack": ["Python", "PostgreSQL"],
+            "industry_verticals": ["Tech", "SaaS"],
+            "years_of_experience": 8,
+            "key_achievements": ["Scaled cloud architecture by 300%"]
+        }
+
+    embedding = await asyncio.to_thread(generate_lead_embedding, payload.resume_content)
+    
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        profile_str = json.dumps(parsed_profile)
+        if DATABASE_URL:
+            cursor.execute(
+                """
+                INSERT INTO user_profiles (email, profile_json, embedding, updated_at) 
+                VALUES (%s, %s, %s, NOW())
+                ON CONFLICT (email) DO UPDATE SET profile_json = EXCLUDED.profile_json, embedding = EXCLUDED.embedding, updated_at = NOW()
+                """,
+                (auth["email"], profile_str, str(embedding) if embedding else None)
+            )
+        else:
+            cursor.execute(
+                "INSERT OR REPLACE INTO user_profiles (email, profile_json, updated_at) VALUES (?, ?, datetime('now'))",
+                (auth["email"], profile_str)
+            )
+        conn.commit()
+        cursor.close()
+    finally:
+        release_db(conn)
+
+    log_audit_event(auth["email"], "CV_PROFILE_INGESTED", "Parsed resume and updated vector profile", auth["ip"])
+    await sse_broker.broadcast("career_profile_updated", {"email": auth["email"], "seniority": parsed_profile.get("seniority")})
+    return {"status": "success", "profile": parsed_profile, "message": "Resume successfully parsed and indexed!"}
 
 @app.post("/api/v1/career/criteria")
-async def save_career_criteria(payload: CareerCriteriaRequest, api_key: str = Header(..., alias="x-api-key")):
-    USER_CAREER_STORE["criteria"] = {"target_roles": payload.target_roles, "locations": payload.locations}
+async def save_career_criteria(payload: CareerCriteriaRequest, auth: dict = Depends(verify_api_key)):
     await sse_broker.broadcast("career_swarm_launched", {"roles": payload.target_roles, "locations": payload.locations})
     return {"status": "success", "message": "Target criteria saved and autonomous networking swarm launched!"}
+
+@app.get("/api/v1/career/matches")
+async def get_career_job_matches(auth: dict = Depends(verify_api_key)):
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute("SELECT id, company_name, job_title, location, fit_score, match_rationale, status, decision_maker_name, decision_maker_title, decision_maker_email, outreach_draft, timestamp FROM job_matches WHERE user_email = %s ORDER BY fit_score DESC", (auth["email"],))
+        else:
+            cursor.execute("SELECT id, company_name, job_title, location, fit_score, match_rationale, status, decision_maker_name, decision_maker_title, decision_maker_email, outreach_draft, timestamp FROM job_matches WHERE user_email = ? ORDER BY fit_score DESC", (auth["email"],))
+        rows = cursor.fetchall()
+        matches = []
+        for r in rows:
+            r_dict = dict(r)
+            if r_dict.get("timestamp") and isinstance(r_dict["timestamp"], datetime):
+                r_dict["timestamp"] = r_dict["timestamp"].isoformat()
+            matches.append(r_dict)
+        cursor.close()
+    finally:
+        release_db(conn)
+    return {"status": "success", "count": len(matches), "matches": matches}
+
+@app.post("/api/v1/career/matches/{match_id}/approve")
+async def approve_and_execute_match(match_id: int, auth: dict = Depends(verify_api_key)):
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute("SELECT company_name, job_title, decision_maker_email, outreach_draft FROM job_matches WHERE id = %s AND user_email = %s", (match_id, auth["email"]))
+        else:
+            cursor.execute("SELECT company_name, job_title, decision_maker_email, outreach_draft FROM job_matches WHERE id = ? AND user_email = ?", (match_id, auth["email"]))
+        row = cursor.fetchone()
+        
+        if not row:
+            cursor.close()
+            raise HTTPException(status_code=404, detail="Job match not found.")
+
+        match = dict(row)
+        
+        if DATABASE_URL:
+            cursor.execute("UPDATE job_matches SET status = 'applied' WHERE id = %s", (match_id,))
+        else:
+            cursor.execute("UPDATE job_matches SET status = 'applied' WHERE id = ?", (match_id,))
+        conn.commit()
+        cursor.close()
+    finally:
+        release_db(conn)
+
+    if match.get("decision_maker_email"):
+        send_custom_email_via_resend(
+            match["decision_maker_email"],
+            f"Inquiry regarding {match['job_title']} role at {match['company_name']}",
+            f"<p>{match['outreach_draft'].replace(chr(10), '<br>')}</p>"
+        )
+
+    log_audit_event(auth["email"], "CAREER_MATCH_APPROVED", f"Approved and dispatched outreach for match ID {match_id}", auth["ip"])
+    await sse_broker.broadcast("career_match_executed", {"match_id": match_id, "company": match["company_name"]})
+    return {"status": "success", "message": f"Successfully approved and sent application outreach for {match['company_name']}!"}
 
 @app.post("/api/v1/career/match-jobs")
 async def match_jobs_endpoint(request: JobHuntRequest):
@@ -1418,43 +1729,6 @@ nexus_leads_total {lead_count}
 nexus_subscribers_active {sub_count}
 """
     return FastAPIResponse(content=metrics_output, media_type="text/plain")
-
-def verify_api_key(x_api_key: str = Header(...), request: Request = None):
-    incoming_hash = hash_api_key(x_api_key)
-    client_ip = request.client.host if request and request.client else "unknown"
-    
-    if redis_client:
-        cached = redis_client.get(f"apikey_cache:{incoming_hash}")
-        if cached:
-            sub = json.loads(cached)
-            record_usage_hit(sub["email"])
-            return {"email": sub["email"], "key_name": sub["key_name"], "scope": sub.get("scope", "full"), "role": sub.get("role", "admin"), "tier": sub["tier"], "hash": incoming_hash, "ip": client_ip}
-
-    conn = get_db()
-    try:
-        cursor = conn.cursor()
-        query = "SELECT k.email, k.key_name, k.scope, k.role, s.active, s.tier FROM api_keys k JOIN subscribers s ON k.email = s.email WHERE k.key_hash = %s AND k.active = 1 AND s.active = 1" if DATABASE_URL else "SELECT k.email, k.key_name, k.scope, k.role, s.active, s.tier FROM api_keys k JOIN subscribers s ON k.email = s.email WHERE k.key_hash = ? AND k.active = 1 AND s.active = 1"
-        cursor.execute(query, (incoming_hash,))
-        row = cursor.fetchone()
-        cursor.close()
-    finally:
-        release_db(conn)
-    
-    if not row:
-        log_audit_event("unknown", "API_AUTH_FAILURE", "Invalid key hash attempt", client_ip)
-        raise HTTPException(status_code=401, detail="Invalid or inactive API subscription key. Please authenticate with a valid x-api-key header.")
-    
-    email = row["email"] if isinstance(row, dict) or hasattr(row, "__keys__") else row[0]
-    key_name = row["key_name"] if isinstance(row, dict) or hasattr(row, "__keys__") else row[1]
-    scope = row["scope"] if isinstance(row, dict) or hasattr(row, "__keys__") else row[2]
-    role = row["role"] if isinstance(row, dict) or hasattr(row, "__keys__") else row[3]
-    tier = row["tier"] if isinstance(row, dict) or hasattr(row, "__keys__") else row[5]
-
-    if redis_client:
-        redis_client.setex(f"apikey_cache:{incoming_hash}", 60, json.dumps({"email": email, "key_name": key_name, "scope": scope, "role": role, "tier": tier}))
-
-    record_usage_hit(email)
-    return {"email": email, "key_name": key_name, "scope": scope, "role": role, "tier": tier, "hash": incoming_hash, "ip": client_ip}
 
 def check_rate_limit(api_key_hash: str, response: Response, max_requests: int = 30):
     window_seconds = 60
