@@ -200,7 +200,7 @@ def call_gemini_rest(prompt: str, max_retries: int = 5, use_search: bool = False
                     data = res.json()
                     return data["candidates"][0]["content"]["parts"][0]["text"]
                 elif res.status_code in [429, 503, 502, 504, 404, 500]:
-                    logger.warning(f"Model {model_name} returned status {res.status_code} on attempt {attempt}/{max_retries}. Retrying...")
+                    logger.warning(f"Model {model_name} returned status {res.status_code} on attempt {attempt}/{max_retries}. Retrying with exponential backoff...")
                     if attempt == max_retries:
                         break
                 else:
@@ -215,6 +215,7 @@ def call_gemini_rest(prompt: str, max_retries: int = 5, use_search: bool = False
                 if attempt == max_retries:
                     break
 
+            # Updated resilient backoff logic with randomized jitter
             sleep_time = (base_delay ** attempt) + random.uniform(0.5, 2.0)
             time.sleep(sleep_time)
           
@@ -1206,7 +1207,7 @@ async def dispatch_outbound_webhooks(lead_data: dict, trigger_action: str = "lea
                     error_msg = str(e)
                     status_code = 500
                 
-                await asyncio.sleep(base_backoff ** attempt)
+                await asyncio.sleep((base_backoff ** attempt) + random.uniform(0.1, 1.0))
 
             log_conn = get_db()
             try:
@@ -1274,7 +1275,7 @@ async def dispatch_outbound_webhooks(lead_data: dict, trigger_action: str = "lea
                     if attempt == max_retries:
                         logger.error(f"Max retries reached for destination dispatch: {net_err}")
                         raise
-                await asyncio.sleep(backoff_factor ** attempt)
+                await asyncio.sleep((backoff_factor ** attempt) + random.uniform(0.1, 1.0))
         except Exception as crm_err:
             logger.error(f"Native CRM / Warehouse dispatch error for {dest_type}: {crm_err}")
 
@@ -1601,7 +1602,6 @@ async def save_career_resume(payload: ResumeInput, x_api_key: str = Header(None)
 async def save_career_criteria(payload: CareerCriteriaInput, background_tasks: BackgroundTasks, x_api_key: str = Header(None), request: Request = None):
     auth = verify_api_key(x_api_key, request)
 
-    # Immediately trigger the scouting worker in the background
     background_tasks.add_task(job_scouting_swarm_worker)
 
     await sse_broker.broadcast("career_swarm_launched", {"roles": payload.target_roles, "locations": payload.locations})
@@ -1681,7 +1681,6 @@ async def match_jobs_endpoint(request: JobHuntRequest, background_tasks: Backgro
     finally:
         release_db(conn)
 
-    # Trigger the live job scouting worker immediately
     background_tasks.add_task(job_scouting_swarm_worker)
 
     return {
