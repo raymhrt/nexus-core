@@ -174,6 +174,13 @@ def call_gemini_rest(prompt: str, max_retries: int = 5, use_search: bool = False
         logger.error("GEMINI_API_KEY environment variable is missing or empty.")
         raise HTTPException(status_code=500, detail="GEMINI_API_KEY not configured")
      
+    # Global cooldown/circuit breaker check using Redis if available
+    circuit_key = "gemini_global_circuit_breaker"
+    if redis_client:
+        if redis_client.get(circuit_key):
+            logger.warning("Gemini global circuit breaker is active. Fast-failing request.")
+            raise HTTPException(status_code=503, detail="AI provider is temporarily cooling down due to rate limits. Please try again shortly.")
+
     models = [
         "gemini-3.5-flash",
         "gemini-3.7-flash",
@@ -201,6 +208,9 @@ def call_gemini_rest(prompt: str, max_retries: int = 5, use_search: bool = False
                     return data["candidates"][0]["content"]["parts"][0]["text"]
                 elif res.status_code in [429, 503, 502, 504, 404, 500]:
                     logger.warning(f"Model {model_name} returned status {res.status_code} on attempt {attempt}/{max_retries}. Retrying with exponential backoff...")
+                    if res.status_code == 429 and redis_client:
+                        # Trip circuit breaker for 60 seconds on rate limit hit
+                        redis_client.setex(circuit_key, 60, "tripped")
                     if attempt == max_retries:
                         break
                 else:
@@ -215,7 +225,7 @@ def call_gemini_rest(prompt: str, max_retries: int = 5, use_search: bool = False
                 if attempt == max_retries:
                     break
 
-            # Updated resilient backoff logic with randomized jitter
+            # Updated resilient backoff logic with randomized jitter and global circuit breaking considerations
             sleep_time = (base_delay ** attempt) + random.uniform(0.5, 2.0)
             time.sleep(sleep_time)
           
@@ -242,7 +252,7 @@ def log_audit_event(email: str, action: str, details: str, ip_address: str = "12
         logger.error(f"Audit log error: {e}")
     finally:
         release_db(conn)
-    
+     
     try:
         loop = asyncio.get_running_loop()
         loop.create_task(sse_broker.broadcast("audit_log", {"email": email, "action": action, "details": details}))
@@ -1376,12 +1386,13 @@ async def gdpr_compliance_cleanup():
 async def async_gdpr_cleanup():
     await asyncio.to_thread(gdpr_compliance_cleanup)
 
+# Adjusted APScheduler intervals (e.g., job scouting swarm worker adjusted to run less frequently to avoid rate limits)
 scheduler = AsyncIOScheduler()
 scheduler.add_job(async_gdpr_cleanup, "interval", hours=24, id="gdpr_cleanup", replace_existing=True)
 scheduler.add_job(webhook_canary_healing_worker, "interval", minutes=1, id="canary_healing", replace_existing=True)
 scheduler.add_job(webhook_dlq_replay_worker, "interval", minutes=5, id="dlq_replay", replace_existing=True)
 scheduler.add_job(background_signal_monitor_job, "interval", minutes=30, id="signal_monitor", replace_existing=True)
-scheduler.add_job(job_scouting_swarm_worker, "interval", hours=4, id="job_scouting_swarm", replace_existing=True)
+scheduler.add_job(job_scouting_swarm_worker, "interval", hours=12, id="job_scouting_swarm", replace_existing=True)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -1484,7 +1495,7 @@ async def health_check():
 def verify_api_key(x_api_key: str = Header(...), request: Request = None):
     incoming_hash = hash_api_key(x_api_key)
     client_ip = request.client.host if request and request.client else "unknown"
-    
+     
     if redis_client:
         cached = redis_client.get(f"apikey_cache:{incoming_hash}")
         if cached:
@@ -1501,11 +1512,11 @@ def verify_api_key(x_api_key: str = Header(...), request: Request = None):
         cursor.close()
     finally:
         release_db(conn)
-    
+     
     if not row:
         log_audit_event("unknown", "API_AUTH_FAILURE", "Invalid key hash attempt", client_ip)
         raise HTTPException(status_code=401, detail="Invalid or inactive API subscription key. Please authenticate with a valid x-api-key header.")
-    
+     
     email = row["email"] if isinstance(row, dict) or hasattr(row, "__keys__") else row[0]
     key_name = row["key_name"] if isinstance(row, dict) or hasattr(row, "__keys__") else row[1]
     scope = row["scope"] if isinstance(row, dict) or hasattr(row, "__keys__") else row[2]
@@ -1753,7 +1764,7 @@ nexus_subscribers_active {sub_count}
 def check_rate_limit(api_key_hash: str, response: Response, max_requests: int = 30):
     window_seconds = 60
     current_time = time.time()
-    
+     
     if redis_client:
         try:
             redis_key = f"rate_limit_sliding:{api_key_hash}"
@@ -1988,7 +1999,7 @@ async def sync_lead_crm(lead_id: int, request: Request, background_tasks: Backgr
 
     lead_data = dict(lead_row)
     lead_data["lead_id"] = lead_id
-    
+     
     if new_sync == "synced":
         background_tasks.add_task(safe_dispatch_wrapper, lead_data, "lead.synced")
         log_audit_event(auth["email"], "LEAD_SYNC_CRM", f"Dispatched background CRM sync for lead ID {lead_id} ({lead_data.get('company_name')})", auth["ip"])
@@ -2007,7 +2018,7 @@ async def sync_lead_crm(lead_id: int, request: Request, background_tasks: Backgr
 async def sync_leads_batch(background_tasks: BackgroundTasks, auth: dict = Depends(verify_api_key)):
     if auth.get("role") == "viewer":
         raise HTTPException(status_code=403, detail="Viewer role is restricted from batch syncing leads.")
-    
+     
     conn = get_db()
     try:
         cursor = conn.cursor()
@@ -2915,7 +2926,7 @@ async def get_subscriber_icp(request: Request, auth: dict = Depends(verify_api_k
         cursor.close()
     finally:
         release_db(conn)
-    
+     
     if DATABASE_URL and row and hasattr(row, 'keys'):
         icp_dict = dict(row)
         if icp_dict.get("updated_at") and isinstance(icp_dict["updated_at"], datetime):
@@ -2946,7 +2957,7 @@ def get_morning_briefing(x_api_key: str = Header(None)):
 @app.post("/api/v1/copilot/chat")
 def copilot_chat(payload: ChatMessageRequest, x_api_key: str = Header(None)):
     user_prompt = payload.prompt.lower()
-    
+     
     if "telemetry" in user_prompt or "summary" in user_prompt:
         response_text = "Telemetry fetched from live event streams."
     elif "lead" in user_prompt:
