@@ -215,10 +215,9 @@ def call_gemini_rest(prompt: str, max_retries: int = 5, use_search: bool = False
                 if attempt == max_retries:
                     break
 
-            # Exponential backoff with random jitter to prevent rate limit collisions
             sleep_time = (base_delay ** attempt) + random.uniform(0.5, 2.0)
             time.sleep(sleep_time)
-            
+          
     logger.error("All Gemini model endpoints and fallback models failed. Raising upstream AI provider error.")
     raise HTTPException(status_code=502, detail="Upstream AI provider error: All model endpoints failed due to rate limits or capacity constraints.")
 
@@ -1599,8 +1598,11 @@ async def save_career_resume(payload: ResumeInput, x_api_key: str = Header(None)
     return {"status": "success", "profile": parsed_profile, "message": "Resume profile saved and indexed for elite ATS positioning."}
 
 @app.post("/api/v1/career/criteria")
-async def save_career_criteria(payload: CareerCriteriaInput, x_api_key: str = Header(None), request: Request = None):
+async def save_career_criteria(payload: CareerCriteriaInput, background_tasks: BackgroundTasks, x_api_key: str = Header(None), request: Request = None):
     auth = verify_api_key(x_api_key, request)
+
+    # Immediately trigger the scouting worker in the background
+    background_tasks.add_task(job_scouting_swarm_worker)
 
     await sse_broker.broadcast("career_swarm_launched", {"roles": payload.target_roles, "locations": payload.locations})
     return {"status": "success", "message": "Target criteria saved & Career Swarm launched with elite risk-reduction filters."}
@@ -1647,7 +1649,7 @@ def dispatch_career_outreach(match_id: int, payload: DispatchOutreachInput, user
     return {"status": "success", "message": f"Outreach successfully dispatched to {target_email} via Resend!"}
 
 @app.post("/api/v1/career/match-jobs")
-async def match_jobs_endpoint(request: JobHuntRequest):
+async def match_jobs_endpoint(request: JobHuntRequest, background_tasks: BackgroundTasks):
     credits_required = 5
     conn = get_db()
     try:
@@ -1679,9 +1681,12 @@ async def match_jobs_endpoint(request: JobHuntRequest):
     finally:
         release_db(conn)
 
+    # Trigger the live job scouting worker immediately
+    background_tasks.add_task(job_scouting_swarm_worker)
+
     return {
         "status": "success", 
-        "message": "Career swarm initiated. Streaming live results to dashboard.",
+        "message": "Career swarm initiated and scouting worker triggered. Check your dashboard shortly.",
         "credits_deducted": credits_required
     }
 
