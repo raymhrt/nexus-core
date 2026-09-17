@@ -652,16 +652,37 @@ print(res.json())</code></pre>
         let activeCareerMatchIdForEmail = null;
 
         window.onload = function() {
+            // Restore API Key
             const savedKey = localStorage.getItem('nexus_api_key');
-            const savedRules = localStorage.getItem('nexus_webhook_rules');
-            if (savedRules) {
-                document.getElementById('webhookRules').value = savedRules;
-            }
             if (savedKey) {
                 document.getElementById('apiKey').value = savedKey;
                 saveAndFetch();
                 loadCareerMatches();
             }
+
+            // Restore Career Resume Markdown
+            const savedResume = localStorage.getItem('nexus_master_resume');
+            if (savedResume) {
+                document.getElementById('careerResumeInput').value = savedResume;
+            }
+
+            // Restore Target Job Criteria
+            const savedRoles = localStorage.getItem('nexus_target_roles');
+            if (savedRoles) {
+                document.getElementById('targetJobRoles').value = savedRoles;
+            }
+
+            const savedLocations = localStorage.getItem('nexus_target_locations');
+            if (savedLocations) {
+                document.getElementById('targetJobLocations').value = savedLocations;
+            }
+
+            // Restore Webhook Rules
+            const savedRules = localStorage.getItem('nexus_webhook_rules');
+            if (savedRules) {
+                document.getElementById('webhookRules').value = savedRules;
+            }
+
             initSSETelemetry();
         };
 
@@ -842,6 +863,9 @@ print(res.json())</code></pre>
             const apiKey = document.getElementById('apiKey').value.trim();
             const resume_content = document.getElementById('careerResumeInput').value.trim();
             
+            // Save to local storage immediately
+            localStorage.setItem('nexus_master_resume', resume_content);
+            
             try {
                 const res = await fetch('/api/v1/career/resume', {
                     method: 'POST',
@@ -882,6 +906,10 @@ print(res.json())</code></pre>
             const apiKey = document.getElementById('apiKey').value.trim();
             const target_roles = document.getElementById('targetJobRoles').value.trim();
             const locations = document.getElementById('targetJobLocations').value.trim();
+            
+            // Save criteria to local storage
+            localStorage.setItem('nexus_target_roles', target_roles);
+            localStorage.setItem('nexus_target_locations', locations);
             
             try {
                 const res = await fetch('/api/v1/career/criteria', {
