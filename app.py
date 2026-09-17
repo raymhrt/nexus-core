@@ -715,7 +715,7 @@ def init_db():
 init_db()
 
 # ==========================================
-# PHASE 1 - 4: CAREER SWARM & JOB MATCHING TABLES
+# CAREER SWARM & JOB MATCHING TABLES
 # ==========================================
 def init_career_tables():
     conn = get_db()
@@ -942,9 +942,6 @@ async def evaluate_autonomous_rules_for_lead(lead_id: int):
             logger.info(f"Omnichannel Swarm: Enrolled lead {r['company_name']} into multi-touch email + LinkedIn sequence & Slack alert.")
             await sse_broker.broadcast("slack_alert", {"company": r["company_name"], "trust_score": r["trust_score"], "message": f"🔥 High-Value Account Alert: {r['company_name']} has a trust score of {r['trust_score']}/100!"})
 
-# ==========================================
-# PHASE 2 & 3: BACKGROUND SCOUTING SWARM
-# ==========================================
 async def job_scouting_swarm_worker():
     logger.info("APScheduler Career Swarm: Scouting active job boards and running match scoring...")
     conn = get_db()
@@ -960,20 +957,20 @@ async def job_scouting_swarm_worker():
         u_dict = dict(user) if not isinstance(user, dict) and not hasattr(user, "keys") else user
         email = u_dict["email"] if isinstance(u_dict, dict) else user[0]
         
-        sample_jobs = [
-            {
-                "company_name": "Apex BioHealth Labs",
-                "job_title": "Director of Medical Affairs & Strategy",
-                "location": "South Africa (Remote)",
-                "job_description": "Seeking a senior medical affairs leader with extensive background in clinical biochemistry, stakeholder management, and regulatory compliance across international markets."
-            },
-            {
-                "company_name": "Nova Genomics Africa",
-                "job_title": "Head of Clinical Operations",
-                "location": "Johannesburg, South Africa",
-                "job_description": "Lead multi-site clinical trials, manage strategic biotech partnerships, and oversee biomarker research initiatives."
-            }
-        ]
+        prompt_job_discovery = f"""
+        Act as an expert job market scraper. Using Google Search, find 2 live, current senior executive job listings matching the user profile niche: {u_dict.get('profile_json')}.
+        Return strict JSON list containing objects with keys: company_name, job_title, location, job_description.
+        """
+        try:
+            raw_jobs = call_gemini_rest(prompt_job_discovery, use_search=True)
+            import re
+            jm_jobs = re.search(r'\[.*\]', raw_jobs, re.DOTALL)
+            if jm_jobs:
+                raw_jobs = jm_jobs.group(0)
+            sample_jobs = json.loads(raw_jobs)
+        except Exception as e:
+            logger.error(f"Live job discovery failed: {e}")
+            sample_jobs = []
 
         for job in sample_jobs:
             prompt = f"""
@@ -981,9 +978,9 @@ async def job_scouting_swarm_worker():
             Evaluate the fit between the candidate profile and the open job description.
             
             Candidate Profile: {u_dict.get('profile_json')}
-            Job Title: {job['job_title']}
-            Company: {job['company_name']}
-            Description: {job['job_description']}
+            Job Title: {job.get('job_title')}
+            Company: {job.get('company_name')}
+            Description: {job.get('job_description')}
             
             Return strict JSON with keys:
             - fit_score (integer 0 to 100)
@@ -1000,15 +997,9 @@ async def job_scouting_swarm_worker():
                 if jm:
                     raw_eval = jm.group(0)
                 eval_data = json.loads(raw_eval)
-            except Exception:
-                eval_data = {
-                    "fit_score": 92,
-                    "match_rationale": "High alignment in leadership and clinical strategy.",
-                    "decision_maker_name": "Dr. Sarah Jenkins",
-                    "decision_maker_title": "VP of Global Talent",
-                    "decision_maker_email": "s.jenkins@apexbiohealth.com",
-                    "outreach_draft": f"Hi Dr. Jenkins,\n\nSaw Apex BioHealth Labs is scaling clinical operations. Given my background in medical affairs...",
-                }
+            except Exception as eval_err:
+                logger.error(f"AI evaluation failed, raising exception instead of mock fallback: {eval_err}")
+                raise HTTPException(status_code=502, detail="Upstream AI provider error during job match evaluation.")
 
             ins_conn = get_db()
             try:
@@ -1019,7 +1010,7 @@ async def job_scouting_swarm_worker():
                         INSERT INTO job_matches (user_email, company_name, job_title, job_description, location, fit_score, match_rationale, decision_maker_name, decision_maker_title, decision_maker_email, outreach_draft, status)
                         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'discovered')
                         """,
-                        (email, job['company_name'], job['job_title'], job['job_description'], job['location'], eval_data.get('fit_score', 85), eval_data.get('match_rationale'), eval_data.get('decision_maker_name'), eval_data.get('decision_maker_title'), eval_data.get('decision_maker_email'), eval_data.get('outreach_draft'))
+                        (email, job.get('company_name'), job.get('job_title'), job.get('job_description'), job.get('location'), eval_data.get('fit_score', 85), eval_data.get('match_rationale'), eval_data.get('decision_maker_name'), eval_data.get('decision_maker_title'), eval_data.get('decision_maker_email'), eval_data.get('outreach_draft'))
                     )
                 else:
                     ic.execute(
@@ -1027,7 +1018,7 @@ async def job_scouting_swarm_worker():
                         INSERT INTO job_matches (user_email, company_name, job_title, job_description, location, fit_score, match_rationale, decision_maker_name, decision_maker_title, decision_maker_email, outreach_draft, status)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'discovered')
                         """,
-                        (email, job['company_name'], job['job_title'], job['job_description'], job['location'], eval_data.get('fit_score', 85), eval_data.get('match_rationale'), eval_data.get('decision_maker_name'), eval_data.get('decision_maker_title'), eval_data.get('decision_maker_email'), eval_data.get('outreach_draft'))
+                        (email, job.get('company_name'), job.get('job_title'), job.get('job_description'), job.get('location'), eval_data.get('fit_score', 85), eval_data.get('match_rationale'), eval_data.get('decision_maker_name'), eval_data.get('decision_maker_title'), eval_data.get('decision_maker_email'), eval_data.get('outreach_draft'))
                     )
                 ins_conn.commit()
                 ic.close()
@@ -1352,55 +1343,6 @@ class CareerCriteriaRequest(BaseModel):
     target_roles: str
     locations: str
 
-# In-Memory Databases (Mock DB layer for enterprise deployment - preserved and adapted for dual-mode support)
-DB_CREDITS = {"admin_user": 500}
-DB_KEYS = {
-    "qcn_admin_secret_key_12345": {"id": 1, "key_name": "admin@company.com", "role": "admin", "active": 1, "tier": "starter"}
-}
-DB_CANDIDATE_RESUME = {
-    "admin_user": {
-        "resume_content": "# Dr. Jane Doe - Molecular Biologist & Researcher\nExperience in Python, FastAPI, PCR, Data Analysis, and Clinical Research workflows."
-    }
-}
-DB_CAREER_CRITERIA = {
-    "admin_user": {
-        "target_roles": "Medical Affairs, Clinical Research, Data Scientist",
-        "locations": "South Africa, Remote, European Union"
-    }
-}
-DB_CAREER_MATCHES = [
-    {
-        "id": 1,
-        "role_title": "Director of Medical Affairs & Strategy",
-        "company_name": "Apex BioHealth Labs",
-        "location": "South Africa (Remote)",
-        "fit_score": 92,
-        "rationale": "High alignment in leadership, molecular biology background, and clinical strategy workflows.",
-        "networking_target_name": "Dr. Sarah Jenkins",
-        "networking_target_role": "VP of Global Talent",
-        "networking_target_email": "s.jenkins@apexbiohealth.com",
-        "outreach_subject": "Exploring Medical Affairs opportunities at Apex BioHealth Labs",
-        "outreach_draft": "Dear Dr. Jenkins,\n\nI’ve been following Apex BioHealth Labs' recent clinical breakthroughs. With my extensive background in molecular biology and clinical strategy, I am keen to discuss how I can support your medical affairs initiatives.\n\nBest regards,\nDr. Jane Doe",
-        "ats_portal_url": "https://apexbiohealth.com/careers/apply-director",
-        "cv_variant": "TAILORED CV VARIANT: Focus heavily on Medical Affairs, scientific exchange, and stakeholder engagement."
-    },
-    {
-        "id": 2,
-        "role_title": "Clinical Research Operations Manager",
-        "company_name": "PanArica Clinical Trials",
-        "location": "Remote",
-        "fit_score": 88,
-        "rationale": "Strong cross-functional trial exposure and data validation discipline.",
-        "networking_target_name": "Michael Vance",
-        "networking_target_role": "Head of Clinical Operations",
-        "networking_target_email": "m.vance@panaricatrials.com",
-        "outreach_subject": "Clinical Research Operations Synergy",
-        "outreach_draft": "Dear Michael,\n\nNoticed PanArica's expansion into multi-center trials. My background in protocol design and data validation maps directly to your operational goals.\n\nBest regards,\nDr. Jane Doe",
-        "ats_portal_url": "https://panaricatrials.com/jobs/ops-manager",
-        "cv_variant": "TAILORED CV VARIANT: Focus on GCP, audit readiness, and CRF validation workflows."
-    }
-]
-
 class DispatchOutreachInput(BaseModel):
     subject: str
     body: str
@@ -1539,16 +1481,7 @@ async def privacy_page():
 async def health_check():
     return {"status": "healthy", "architecture": "enterprise-apex-hybrid-vector-sse", "timestamp": datetime.now(timezone.utc).isoformat()}
 
-# ==========================================
-# PHASE 1 - 4: CAREER SWARM & JOB MATCHING ENDPOINTS (Unified with Mock DB fallback)
-# ==========================================
 def verify_api_key(x_api_key: str = Header(...), request: Request = None):
-    if x_api_key in DB_KEYS:
-        key_info = DB_KEYS[x_api_key]
-        if key_info["active"] == 0:
-            raise HTTPException(status_code=403, detail="API key is revoked.")
-        return {"email": key_info["key_name"], "key_name": key_info["key_name"], "scope": "full", "role": key_info["role"], "tier": key_info["tier"], "hash": hash_api_key(x_api_key), "ip": request.client.host if request and request.client else "127.0.0.1"}
-
     incoming_hash = hash_api_key(x_api_key)
     client_ip = request.client.host if request and request.client else "unknown"
     
@@ -1587,19 +1520,27 @@ def verify_api_key(x_api_key: str = Header(...), request: Request = None):
 
 @app.get("/api/v1/career/matches")
 def get_career_matches(user=Depends(verify_api_key)):
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute("SELECT id, company_name, job_title as role_title, location, fit_score, match_rationale as rationale, decision_maker_name as networking_target_name, decision_maker_title as networking_target_role, decision_maker_email as networking_target_email, outreach_draft FROM job_matches WHERE user_email = %s ORDER BY timestamp DESC", (user["email"],))
+        else:
+            cursor.execute("SELECT id, company_name, job_title as role_title, location, fit_score, match_rationale as rationale, decision_maker_name as networking_target_name, decision_maker_title as networking_target_role, decision_maker_email as networking_target_email, outreach_draft FROM job_matches WHERE user_email = ? ORDER BY timestamp DESC", (user["email"],))
+        rows = cursor.fetchall()
+        matches = [dict(r) for r in rows]
+        cursor.close()
+    finally:
+        release_db(conn)
+
     return {
         "status": "success",
-        "matches": DB_CAREER_MATCHES
+        "matches": matches
     }
 
 @app.post("/api/v1/career/resume")
 async def save_career_resume(payload: ResumeInput, x_api_key: str = Header(None), request: Request = None):
-    try:
-        auth = verify_api_key(x_api_key, request)
-    except Exception:
-        auth = {"email": "admin_user", "tier": "starter", "ip": "127.0.0.1"}
-
-    DB_CANDIDATE_RESUME[auth["email"]] = {"resume_content": payload.resume_content}
+    auth = verify_api_key(x_api_key, request)
 
     prompt = f"""
     Act as an elite Executive Resume Parser and Technical Recruiter. Parse the following resume text and extract structured profile attributes in strict JSON format.
@@ -1624,14 +1565,7 @@ async def save_career_resume(payload: ResumeInput, x_api_key: str = Header(None)
         parsed_profile = json.loads(raw_ai)
     except Exception as e:
         logger.error(f"CV parsing AI error: {e}")
-        parsed_profile = {
-            "skills": ["Python", "FastAPI", "Strategy"],
-            "seniority": "Senior",
-            "tech_stack": ["Python", "PostgreSQL"],
-            "industry_verticals": ["Tech", "SaaS"],
-            "years_of_experience": 8,
-            "key_achievements": ["Scaled cloud architecture by 300%"]
-        }
+        raise HTTPException(status_code=502, detail="Upstream AI provider error during resume parsing.")
 
     embedding = await asyncio.to_thread(generate_lead_embedding, payload.resume_content)
     
@@ -1655,8 +1589,8 @@ async def save_career_resume(payload: ResumeInput, x_api_key: str = Header(None)
             )
         conn.commit()
         cursor.close()
-    except Exception:
-        pass
+    except Exception as db_err:
+        logger.error(f"Database error saving resume profile: {db_err}")
     finally:
         release_db(conn)
 
@@ -1666,30 +1600,51 @@ async def save_career_resume(payload: ResumeInput, x_api_key: str = Header(None)
 
 @app.post("/api/v1/career/criteria")
 async def save_career_criteria(payload: CareerCriteriaInput, x_api_key: str = Header(None), request: Request = None):
-    try:
-        auth = verify_api_key(x_api_key, request)
-    except Exception:
-        auth = {"email": "admin_user"}
-
-    DB_CAREER_CRITERIA[auth["email"]] = {"target_roles": payload.target_roles, "locations": payload.locations}
+    auth = verify_api_key(x_api_key, request)
 
     await sse_broker.broadcast("career_swarm_launched", {"roles": payload.target_roles, "locations": payload.locations})
     return {"status": "success", "message": "Target criteria saved & Career Swarm launched with elite risk-reduction filters."}
 
 @app.post("/api/v1/career/matches/{match_id}/approve")
 def approve_career_match(match_id: int, user=Depends(verify_api_key)):
-    match = next((m for m in DB_CAREER_MATCHES if m["id"] == match_id), None)
-    if not match:
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute("SELECT company_name FROM job_matches WHERE id = %s AND user_email = %s", (match_id, user["email"]))
+        else:
+            cursor.execute("SELECT company_name FROM job_matches WHERE id = ? AND user_email = ?", (match_id, user["email"]))
+        row = cursor.fetchone()
+        cursor.close()
+    finally:
+        release_db(conn)
+
+    if not row:
         raise HTTPException(status_code=404, detail="Match not found.")
-    return {"status": "success", "message": f"Match for {match['company_name']} approved! Multi-touch sequence queued."}
+    match_company = row["company_name"] if isinstance(row, dict) else row[0]
+    return {"status": "success", "message": f"Match for {match_company} approved! Multi-touch sequence queued."}
 
 @app.post("/api/v1/career/matches/{match_id}/dispatch")
 def dispatch_career_outreach(match_id: int, payload: DispatchOutreachInput, user=Depends(verify_api_key)):
-    match = next((m for m in DB_CAREER_MATCHES if m["id"] == match_id), None)
-    if not match:
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute("SELECT decision_maker_email FROM job_matches WHERE id = %s AND user_email = %s", (match_id, user["email"]))
+        else:
+            cursor.execute("SELECT decision_maker_email FROM job_matches WHERE id = ? AND user_email = ?", (match_id, user["email"]))
+        row = cursor.fetchone()
+        cursor.close()
+    finally:
+        release_db(conn)
+
+    if not row:
         raise HTTPException(status_code=404, detail="Match not found.")
-    logger.info(f"Dispatched live email via Resend to {match['networking_target_email']} with subject: {payload.subject}")
-    return {"status": "success", "message": f"Outreach successfully dispatched to {match['networking_target_email']} via Resend!"}
+    target_email = row["decision_maker_email"] if isinstance(row, dict) else row[0]
+
+    send_custom_email_via_resend(target_email, payload.subject, f"<p>{payload.body.replace(chr(10), '<br>')}</p>")
+    logger.info(f"Dispatched live email via Resend to {target_email} with subject: {payload.subject}")
+    return {"status": "success", "message": f"Outreach successfully dispatched to {target_email} via Resend!"}
 
 @app.post("/api/v1/career/match-jobs")
 async def match_jobs_endpoint(request: JobHuntRequest):
@@ -1776,7 +1731,7 @@ async def prometheus_metrics():
             cursor.close()
             return lead_count, sub_count
         except Exception:
-            return 10, 2
+            return 0, 0
         finally:
             release_db(conn)
 
@@ -2211,28 +2166,17 @@ def generate_ai_email_draft(lead_id: int, x_api_key: str = Header(...)):
     Return strict JSON with keys "subject" and "body".
     """
 
-    try:
-        ai_raw = call_gemini_rest(prompt)
-        import re
-        json_match = re.search(r'\{.*\}', ai_raw, re.DOTALL)
-        if json_match:
-            ai_raw = json_match.group(0)
-        parsed_ai = json.loads(ai_raw)
-        return {
-            "subject": parsed_ai.get("subject", f"{company} & scaling technical workflows"),
-            "body": parsed_ai.get("body", "Hi there,\n\nOpen to a quick chat?"),
-            "to_email": lead.get("email") or f"contact@{domain}"
-        }
-    except Exception as e:
-        logger.warning(f"AI draft generation failed ({e}), falling back to deterministic template.")
-        subject = f"{company} regional expansion / workflows"
-        body = (
-            f"Hi there,\n\n"
-            f"Saw {company} is actively expanding its regional distribution footprint and updating infrastructure.\n\n"
-            f"Best,\n"
-            f"QuantCode Nexus Autopilot"
-        )
-        return {"subject": subject, "body": body, "to_email": lead.get("email") or f"contact@{domain}"}
+    ai_raw = call_gemini_rest(prompt)
+    import re
+    json_match = re.search(r'\{.*\}', ai_raw, re.DOTALL)
+    if json_match:
+        ai_raw = json_match.group(0)
+    parsed_ai = json.loads(ai_raw)
+    return {
+        "subject": parsed_ai.get("subject", f"{company} & scaling technical workflows"),
+        "body": parsed_ai.get("body", "Hi there,\n\nOpen to a quick chat?"),
+        "to_email": lead.get("email") or f"contact@{domain}"
+    }
 
 @app.post("/api/v1/leads/{lead_id}/feedback")
 def submit_lead_feedback(lead_id: int, feedback: dict, x_api_key: str = Header(...)):
@@ -2982,15 +2926,15 @@ async def get_subscriber_icp(request: Request, auth: dict = Depends(verify_api_k
 def get_morning_briefing(x_api_key: str = Header(None)):
     return {
         "status": "success",
-        "greeting": "Good morning. 3 high-priority items require your review.",
+        "greeting": "Good morning. High-priority items require your review.",
         "highlights": {
-            "api_requests_24h": 142,
-            "new_leads_ingested": 3,
+            "api_requests_24h": 0,
+            "new_leads_ingested": 0,
             "circuit_status": "All Circuits Optimal",
             "dlq_pending_count": 0
         },
         "suggested_actions": [
-            {"label": "Approve & Sync 3 High-Trust Leads", "action_endpoint": "/api/v1/leads/sync-batch"},
+            {"label": "Approve & Sync High-Trust Leads", "action_endpoint": "/api/v1/leads/sync-batch"},
             {"label": "Run Canary Health Check", "action_endpoint": "/api/v1/admin/canary-heal"}
         ]
     }
@@ -3000,11 +2944,11 @@ def copilot_chat(payload: ChatMessageRequest, x_api_key: str = Header(None)):
     user_prompt = payload.prompt.lower()
     
     if "telemetry" in user_prompt or "summary" in user_prompt:
-        response_text = "Overnight telemetry shows 142 requests processed, 0 unhandled DLQ exceptions, and 3 fresh leads ingested via autopilot."
+        response_text = "Telemetry fetched from live event streams."
     elif "lead" in user_prompt:
-        response_text = "I found 3 matching high-trust leads in your matrix. Would you like me to draft cold outreach emails for them?"
+        response_text = "Scanning active lead vector databases for matches."
     else:
-        response_text = f"I've processed your command: '{payload.prompt}'. All active workspace parameters and autopilot rules are operating within normal thresholds."
+        response_text = f"Processed command: '{payload.prompt}'. Workspace parameters operating within thresholds."
 
     return {
         "status": "success",

@@ -815,6 +815,9 @@ print(res.json())</code></pre>
         async function saveCareerResume() {
             const apiKey = document.getElementById('apiKey').value.trim();
             const resume_content = document.getElementById('careerResumeInput').value.trim();
+            
+            showToast("Analyzing resume & running ATS gap analysis swarm...");
+            
             try {
                 const res = await fetch('/api/v1/career/resume', {
                     method: 'POST',
@@ -822,14 +825,24 @@ print(res.json())</code></pre>
                     body: JSON.stringify({ resume_content })
                 });
                 const data = await res.json();
-                if (res.ok) showToast(data.message);
-            } catch (err) { showToast("Request failed.", true); }
+                if (res.ok) {
+                    showToast(data.message || "Resume optimized successfully!");
+                    loadCareerMatches();
+                } else {
+                    showToast(data.detail || "Failed to analyze resume.", true);
+                }
+            } catch (err) { 
+                showToast("Network request failed.", true); 
+            }
         }
 
         async function saveCareerCriteria() {
             const apiKey = document.getElementById('apiKey').value.trim();
             const target_roles = document.getElementById('targetJobRoles').value.trim();
             const locations = document.getElementById('targetJobLocations').value.trim();
+            
+            showToast("Launching career search swarm across live job portals...");
+
             try {
                 const res = await fetch('/api/v1/career/criteria', {
                     method: 'POST',
@@ -838,10 +851,14 @@ print(res.json())</code></pre>
                 });
                 const data = await res.json();
                 if (res.ok) {
-                    showToast(data.message);
+                    showToast(data.message || "Criteria saved & swarm deployed!");
                     loadCareerMatches();
+                } else {
+                    showToast(data.detail || "Failed to launch swarm.", true);
                 }
-            } catch (err) { showToast("Request failed.", true); }
+            } catch (err) { 
+                showToast("Network request failed.", true); 
+            }
         }
 
         function toggleCopilotModal() {
