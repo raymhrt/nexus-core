@@ -531,6 +531,23 @@ print(res.json())</code></pre>
                     <button onclick="saveCareerCriteria()" class="bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold px-5 py-2.5 rounded-xl text-xs transition">Save Job Criteria & Launch Swarm</button>
                 </div>
 
+                <!-- Discovered Job Matches & Networking Targets Section -->
+                <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl space-y-6">
+                    <div class="flex justify-between items-center">
+                        <h3 class="text-lg font-bold text-sky-400">🎯 Discovered Job Matches & Networking Targets</h3>
+                        <button onclick="loadCareerMatches()" class="bg-slate-800 hover:bg-slate-700 text-sky-300 px-3 py-1.5 rounded-lg text-xs font-semibold transition">
+                            🔄 Refresh Matches
+                        </button>
+                    </div>
+
+                    <!-- Job Match Cards Container -->
+                    <div id="jobMatchesContainer" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div class="text-xs text-slate-400 p-4 bg-slate-950 rounded-xl border border-slate-800">
+                            Awaiting career matches... Click "Refresh Matches" or launch swarm above.
+                        </div>
+                    </div>
+                </div>
+
                 <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl flex flex-col">
                     <h3 class="text-sm font-bold text-white mb-4 flex items-center gap-2">
                         <i class="fa-solid fa-satellite-dish text-purple-400"></i> Live SSE Logs: Job Applications & Networking Emails
@@ -564,6 +581,31 @@ print(res.json())</code></pre>
             <div class="flex gap-3">
                 <button onclick="sendLiveEmailViaResend()" class="bg-accent hover:bg-accentHover text-slate-950 font-bold px-4 py-2 rounded-lg text-xs transition flex items-center gap-1.5"><i class="fa-solid fa-rocket text-emerald-700"></i> Send Live Email via Resend</button>
                 <button class="bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold px-4 py-2 rounded-lg text-xs transition" onclick="closeEmailModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Career Swarm Outreach & Approval Modal -->
+    <div id="careerOutreachModal" class="hidden fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex justify-center items-center p-4">
+        <div class="bg-cardbg border border-purple-500/40 p-6 rounded-2xl max-w-xl w-full shadow-2xl">
+            <span class="text-xs font-bold uppercase tracking-wider text-purple-400 block mb-3 flex items-center gap-2"><i class="fa-solid fa-paper-plane text-purple-400"></i> Career Networking Outreach Draft</span>
+            <div class="space-y-3 mb-4">
+                <div>
+                    <label class="block text-[10px] font-bold uppercase text-slate-400 mb-1">Target Contact</label>
+                    <input type="text" id="careerModalContact" readonly class="bg-inputbg border border-slate-700 rounded-lg px-3 py-2 text-xs w-full text-white font-mono">
+                </div>
+                <div>
+                    <label class="block text-[10px] font-bold uppercase text-slate-400 mb-1">Email Subject</label>
+                    <input type="text" id="careerModalSubject" class="bg-inputbg border border-slate-700 rounded-lg px-3 py-2 text-xs w-full text-white">
+                </div>
+                <div>
+                    <label class="block text-[10px] font-bold uppercase text-slate-400 mb-1">Outreach Email Body</label>
+                    <textarea id="careerModalBody" rows="8" class="bg-inputbg border border-slate-700 rounded-lg p-3 text-xs w-full text-white font-mono"></textarea>
+                </div>
+            </div>
+            <div class="flex gap-3">
+                <button onclick="dispatchCareerOutreach()" class="bg-purple-500 hover:bg-purple-400 text-slate-950 font-bold px-4 py-2 rounded-lg text-xs transition flex items-center gap-1.5"><i class="fa-solid fa-rocket"></i> Send Outreach via Resend</button>
+                <button class="bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold px-4 py-2 rounded-lg text-xs transition" onclick="closeCareerOutreachModal()">Close</button>
             </div>
         </div>
     </div>
@@ -604,8 +646,10 @@ print(res.json())</code></pre>
 
         let usageChartInstance = null;
         let cachedLeadsData = [];
+        let cachedCareerMatches = [];
         let currentUserRole = 'admin';
         let activeLeadIdForEmail = null;
+        let activeCareerMatchIdForEmail = null;
 
         window.onload = function() {
             const savedKey = localStorage.getItem('nexus_api_key');
@@ -616,6 +660,7 @@ print(res.json())</code></pre>
             if (savedKey) {
                 document.getElementById('apiKey').value = savedKey;
                 saveAndFetch();
+                loadCareerMatches();
             }
             initSSETelemetry();
         };
@@ -642,6 +687,140 @@ print(res.json())</code></pre>
             const targetId = personaName === 'b2b' ? 'personaB2B' : 'personaCareer';
             const targetEl = document.getElementById(targetId);
             if (targetEl) targetEl.classList.remove('hidden');
+
+            if (personaName === 'career') {
+                loadCareerMatches();
+            }
+        }
+
+        async function loadCareerMatches() {
+            const apiKey = document.getElementById('apiKey').value.trim();
+            if (!apiKey) return;
+            try {
+                const response = await fetch('/api/v1/career/matches', {
+                    headers: { 'x-api-key': apiKey }
+                });
+                const data = await response.json();
+                
+                if (response.ok && data.matches) {
+                    cachedCareerMatches = data.matches;
+                    renderJobMatches(data.matches);
+                }
+            } catch (err) {
+                console.error('Failed to load career matches:', err);
+            }
+        }
+
+        function renderJobMatches(matches) {
+            const container = document.getElementById('jobMatchesContainer');
+            if (!container) return;
+
+            if (!matches || matches.length === 0) {
+                container.innerHTML = '<div class="text-xs text-slate-400 p-4 bg-slate-950 rounded-xl border border-slate-800">No career job matches found yet. Save your resume and target criteria above to trigger the swarm.</div>';
+                return;
+            }
+
+            let html = '';
+            matches.forEach((m, idx) => {
+                const fitScore = m.fit_score || 90;
+                const matchId = m.id || idx + 1;
+                html += `
+                    <div class="bg-slate-900 border border-slate-800 p-5 rounded-xl shadow-lg flex flex-col justify-between">
+                        <div>
+                            <div class="flex justify-between items-start mb-2">
+                                <div>
+                                    <h4 class="font-bold text-slate-100">${escapeHtml(m.role_title || m.title || 'Target Role')}</h4>
+                                    <p class="text-xs text-slate-400">${escapeHtml(m.company_name || 'Target Company')} • ${escapeHtml(m.location || 'Remote')}</p>
+                                </div>
+                                <span class="bg-emerald-500/10 text-emerald-400 px-2.5 py-1 rounded-full text-xs font-bold">${fitScore}% Match</span>
+                            </div>
+                            <p class="text-xs text-slate-300 mt-2 mb-4 bg-slate-950 p-3 rounded-lg border border-slate-800/60">
+                                <strong>Match Rationale:</strong> ${escapeHtml(m.rationale || m.match_rationale || 'High alignment with your molecular biology and engineering background.')}
+                            </p>
+                        </div>
+                        
+                        <!-- Networking Decision Maker Box -->
+                        <div class="border-t border-slate-800 pt-3 mt-3">
+                            <p class="text-xs font-bold text-sky-400 mb-1">👤 Networking Target:</p>
+                            <p class="text-xs text-slate-200"><strong>${escapeHtml(m.networking_target_name || 'Hiring Lead')}</strong> (${escapeHtml(m.networking_target_role || 'Decision Maker')})</p>
+                            <p class="text-xs text-slate-400 mb-3">Email: ${escapeHtml(m.networking_target_email || 'contact@company.com')}</p>
+                            
+                            <div class="flex space-x-2">
+                                <button onclick="openCareerOutreachModal(${matchId})" class="flex-1 bg-sky-500 hover:bg-sky-400 text-slate-950 py-1.5 rounded-lg text-xs font-bold transition">
+                                    ✉️ View Outreach Draft
+                                </button>
+                                <button onclick="approveCareerMatch(${matchId})" class="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition">
+                                    🚀 Send
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+            container.innerHTML = html;
+        }
+
+        function openCareerOutreachModal(matchId) {
+            const match = cachedCareerMatches.find(m => (m.id || 1) === matchId) || cachedCareerMatches[0];
+            if (!match) {
+                alert("Match details not found.");
+                return;
+            }
+            activeCareerMatchIdForEmail = matchId;
+            document.getElementById('careerModalContact').value = `${match.networking_target_name || 'Lead'} (${match.networking_target_email || 'contact@company.com'})`;
+            document.getElementById('careerModalSubject').value = match.outreach_subject || `Exploring ${match.role_title} opportunities at ${match.company_name}`;
+            document.getElementById('careerModalBody').value = match.outreach_draft || `Dear ${match.networking_target_name},\n\nI noticed your opening for ${match.role_title}...`;
+            document.getElementById('careerOutreachModal').classList.remove('hidden');
+        }
+
+        function closeCareerOutreachModal() {
+            document.getElementById('careerOutreachModal').classList.add('hidden');
+        }
+
+        async function dispatchCareerOutreach() {
+            const apiKey = document.getElementById('apiKey').value.trim();
+            const subject = document.getElementById('careerModalSubject').value.trim();
+            const body = document.getElementById('careerModalBody').value.trim();
+
+            if (!apiKey) { alert("Authenticate first."); return; }
+
+            try {
+                const res = await fetch(`/api/v1/career/matches/${activeCareerMatchIdForEmail}/dispatch`, {
+                    method: 'POST',
+                    headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ subject, body })
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    showToast(data.message || "Outreach email dispatched successfully via Resend!");
+                    closeCareerOutreachModal();
+                } else {
+                    showToast(data.detail || "Failed to dispatch email.", true);
+                }
+            } catch (err) {
+                showToast("Request failed.", true);
+            }
+        }
+
+        async function approveCareerMatch(matchId) {
+            const apiKey = document.getElementById('apiKey').value.trim();
+            if (!apiKey) { alert("Authenticate first."); return; }
+
+            try {
+                const res = await fetch(`/api/v1/career/matches/${matchId}/approve`, {
+                    method: 'POST',
+                    headers: { 'x-api-key': apiKey }
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    showToast(data.message || "Career match approved and outreach queued!");
+                    loadCareerMatches();
+                } else {
+                    showToast(data.detail || "Failed to approve match.", true);
+                }
+            } catch (err) {
+                showToast("Request failed.", true);
+            }
         }
 
         function toggleCopilotModal() {
@@ -724,6 +903,11 @@ print(res.json())</code></pre>
 
                     if (parsed.event.includes('career') || parsed.event.includes('application') || parsed.event.includes('networking')) {
                         if (careerLog) careerLog.prepend(entry);
+                        
+                        // Automatically reload matches if swarm pushes an update event
+                        if (parsed.event === 'career_swarm_update' || parsed.event === 'career_match_executed') {
+                            loadCareerMatches();
+                        }
                     } else {
                         if (sseLog) sseLog.prepend(entry);
                     }
@@ -731,12 +915,6 @@ print(res.json())</code></pre>
                     console.error("SSE parse error:", e);
                 }
             };
-        }
-
-        function prependLeadToUI(lead) {
-            if (cachedLeadsData.some(l => l.id === lead.lead_id || l.id === lead.id)) return;
-            cachedLeadsData.unshift(lead);
-            renderLeadFeed(cachedLeadsData);
         }
 
         function showToast(message, isError = false) {
@@ -809,8 +987,10 @@ print(res.json())</code></pre>
                     body: JSON.stringify({ target_roles, locations })
                 });
                 const data = await res.json();
-                if (res.ok) showToast(data.message || "Job criteria saved & Career Swarm launched!");
-                else showToast(data.detail || "Failed to save criteria.", true);
+                if (res.ok) {
+                    showToast(data.message || "Job criteria saved & Career Swarm launched!");
+                    loadCareerMatches();
+                } else showToast(data.detail || "Failed to save criteria.", true);
             } catch (err) { showToast("Request failed.", true); }
         }
 
@@ -1307,6 +1487,7 @@ print(res.json())</code></pre>
                 loadDestinations(apiKey);
                 loadAutonomousRules(apiKey);
                 loadTelegramSettings(apiKey);
+                loadCareerMatches();
                 showToast("Successfully authenticated & telemetry loaded!");
             } catch (err) {
                 if (leadFeedContainer) leadFeedContainer.innerHTML = `<p class="text-rose-400">Request failed: ${err.message}</p>`;
