@@ -1983,6 +1983,46 @@ async def sync_lead_crm(lead_id: int, request: Request, background_tasks: Backgr
         "message": msg
     }
 
+@app.post("/api/v1/leads/sync-batch")
+async def sync_leads_batch(background_tasks: BackgroundTasks, auth: dict = Depends(verify_api_key)):
+    if auth.get("role") == "viewer":
+        raise HTTPException(status_code=403, detail="Viewer role is restricted from batch syncing leads.")
+    
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute("SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals FROM b2b_leads WHERE sync_status = 'unsynced' AND trust_score >= 85 LIMIT 10")
+        else:
+            cursor.execute("SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals FROM b2b_leads WHERE sync_status = 'unsynced' AND trust_score >= 85 LIMIT 10")
+        rows = cursor.fetchall()
+        
+        synced_ids = []
+        for r in rows:
+            lead_data = dict(r) if hasattr(r, "keys") else {
+                "lead_id": r[0], "company_name": r[1], "domain": r[2], "email": r[3],
+                "industry": r[4], "employee_count": r[5], "linkedin_url": r[6],
+                "confidence_score": r[7], "trust_score": r[8], "tech_stack": r[9],
+                "funding_stage": r[10], "intent_signals": r[11]
+            }
+            l_id = lead_data.get("lead_id") or lead_data.get("id")
+            synced_ids.append(l_id)
+            
+            if DATABASE_URL:
+                cursor.execute("UPDATE b2b_leads SET sync_status = 'synced' WHERE id = %s", (l_id,))
+            else:
+                cursor.execute("UPDATE b2b_leads SET sync_status = 'synced' WHERE id = ?", (l_id,))
+            
+            background_tasks.add_task(safe_dispatch_wrapper, lead_data, "lead.synced")
+            
+        conn.commit()
+        cursor.close()
+    finally:
+        release_db(conn)
+        
+    log_audit_event(auth["email"], "BATCH_SYNC_LEADS", f"Batch synced {len(synced_ids)} high-trust leads", auth["ip"])
+    return {"status": "success", "synced_count": len(synced_ids), "message": f"Successfully batch synced {len(synced_ids)} high-trust leads!"}
+
 @app.post("/api/v1/leads/{lead_id}/convert")
 async def convert_lead(lead_id: int, request: Request, auth: dict = Depends(verify_api_key)):
     if auth.get("role") == "viewer":

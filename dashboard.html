@@ -1218,9 +1218,14 @@ print(res.json())</code></pre>
                     body: JSON.stringify({ telegram_chat_id })
                 });
                 const data = await res.json();
-                if (res.ok) showToast(data.message || "Telegram settings saved!");
-                else showToast(data.detail || "Failed to save Telegram settings.", true);
-            } catch (err) { showToast("Request failed.", true); }
+                if (res.ok) {
+                    showToast(data.message || "Telegram settings saved!", "success");
+                } else {
+                    showToast(data.detail || "Failed to save Telegram settings.", "error");
+                }
+            } catch (err) {
+                showToast("Network error saving Telegram settings.", "error");
+            }
         }
 
         async function loadTelegramSettings(apiKey) {
@@ -1502,8 +1507,14 @@ print(res.json())</code></pre>
                     body: JSON.stringify({ min_trust, auto_sync, auto_enroll })
                 });
                 const data = await res.json();
-                showToast(data.message || "Rules saved!");
-            } catch (err) { showToast("Failed.", true); }
+                if (res.ok) {
+                    showToast(data.message || "Autopilot rules saved successfully!", "success");
+                } else {
+                    showToast(data.detail || "Failed to save rules.", "error");
+                }
+            } catch (err) {
+                showToast("Network error saving autopilot rules.", "error");
+            }
         }
 
         function renderLeadFeed(leads) {
