@@ -175,11 +175,9 @@ def call_gemini_rest(prompt: str, max_retries: int = 3, use_search: bool = False
         raise HTTPException(status_code=500, detail="GEMINI_API_KEY not configured")
      
     models = [
-        "gemini-3.7-flash",
-        "gemini-3.8-flash",
-        "gemini-3.6-flash",
-        "gemini-3-flash",
-        "gemini-3.5-flash"
+        "gemini-1.5-flash",
+        "gemini-1.5-pro",
+        "gemini-2.5-flash"
     ]
      
     for model_name in models:
@@ -327,7 +325,7 @@ def send_magic_link_email(to_email: str, magic_url: str):
 class NexusAdvancedAgentSwarmOrchestrator:
     def __init__(self, client: genai.Client):
         self.client = client
-        self.model_id = "gemini-3.7-flash"
+        self.model_id = "gemini-1.5-flash"
 
     def execute_advanced_swarm(self, target_query: str) -> Dict[str, Any]:
         logger.info(f"Initializing Advanced Multi-Agent Consensus Swarm for: {target_query}")
@@ -823,12 +821,12 @@ def generate_lead_embedding(text_content: str):
 
 def fetch_advanced_enrichment_data(domain: str, industry: str = "SaaS / Tech") -> dict:
     clean_dom = domain.lower().replace("https://", "").replace("http://", "").rstrip("/")
-    
+     
     prompt = f"""
     Act as an elite Enterprise Revenue Intelligence & Forensic B2B Profiler with real-time web search grounding.
     Analyze target domain: '{clean_dom}' in industry '{industry}'.
     Perform a deep discovery search to uncover ultra-valuable, high-conversion intelligence.
-    
+     
     Return strict JSON matching this exact schema:
     {{
         "tech_stack": "string (granular infrastructure, e.g. 'AWS, Snowflake, Datadog, Kubernetes')",
@@ -848,7 +846,7 @@ def fetch_advanced_enrichment_data(domain: str, industry: str = "SaaS / Tech") -
         "killer_hook_angle": "string (A ready-to-use, hyper-personalized opening line for a cold email or sales call that immediately proves you've done deep research on them)"
     }}
     """
-    
+     
     try:
         raw_text = call_gemini_rest(prompt, use_search=True)
         import re
@@ -863,7 +861,7 @@ def fetch_advanced_enrichment_data(domain: str, industry: str = "SaaS / Tech") -
 
 async def async_background_enrichment_worker(lead_id: int, company_name: str, domain: str, industry: str = "SaaS / Tech"):
     enrichment = fetch_advanced_enrichment_data(domain, industry)
-    
+     
     vec = await asyncio.to_thread(generate_lead_embedding, f"{company_name} {domain} {enrichment.get('tech_stack')} {enrichment.get('hidden_pain_points')} {enrichment.get('killer_hook_angle')}")
 
     conn = get_db()
@@ -2536,7 +2534,7 @@ class OnDemandGeneratePayload(BaseModel):
 
 async def execute_on_demand_generation(query: str, count: int, user_email: str, tier: str):
     logger.info(f"Starting synchronous on-demand generation for query: '{query}' (Requested by: {user_email})")
-    
+     
     conn = get_db()
     try:
         cursor = conn.cursor()
