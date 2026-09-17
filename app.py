@@ -169,12 +169,11 @@ def generate_hmac_signature(payload_json: str) -> str:
         hashlib.sha256
     ).hexdigest()
 
-def call_gemini_rest(prompt: str, max_retries: int = 3, use_search: bool = False) -> str:
+def call_gemini_rest(prompt: str, max_retries: int = 5, use_search: bool = False) -> str:
     if not GEMINI_API_KEY:
         logger.error("GEMINI_API_KEY environment variable is missing or empty.")
         raise HTTPException(status_code=500, detail="GEMINI_API_KEY not configured")
      
-    # Updated to active Gemini 3.x Flash endpoints to prevent 404 errors
     models = [
         "gemini-3.5-flash",
         "gemini-3.7-flash",
@@ -193,14 +192,14 @@ def call_gemini_rest(prompt: str, max_retries: int = 3, use_search: bool = False
         if use_search:
             payload["tools"] = [{"google_search": {}}]
         
-        backoff_factor = 2
+        base_delay = 2.0
         for attempt in range(1, max_retries + 1):
             try:
                 res = requests.post(url, json=payload, headers=headers, timeout=30)
                 if res.status_code == 200:
                     data = res.json()
                     return data["candidates"][0]["content"]["parts"][0]["text"]
-                elif res.status_code in [503, 429, 502, 504, 404, 500]:
+                elif res.status_code in [429, 503, 502, 504, 404, 500]:
                     logger.warning(f"Model {model_name} returned status {res.status_code} on attempt {attempt}/{max_retries}. Retrying...")
                     if attempt == max_retries:
                         break
@@ -216,10 +215,12 @@ def call_gemini_rest(prompt: str, max_retries: int = 3, use_search: bool = False
                 if attempt == max_retries:
                     break
 
-            time.sleep((backoff_factor ** attempt) + random.uniform(1.0, 3.0))
+            # Exponential backoff with random jitter to prevent rate limit collisions
+            sleep_time = (base_delay ** attempt) + random.uniform(0.5, 2.0)
+            time.sleep(sleep_time)
             
     logger.error("All Gemini model endpoints and fallback models failed. Raising upstream AI provider error.")
-    raise HTTPException(status_code=502, detail="Upstream AI provider error: All model endpoints failed.")
+    raise HTTPException(status_code=502, detail="Upstream AI provider error: All model endpoints failed due to rate limits or capacity constraints.")
 
 def log_audit_event(email: str, action: str, details: str, ip_address: str = "127.0.0.1"):
     conn = get_db()
