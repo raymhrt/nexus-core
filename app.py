@@ -865,7 +865,7 @@ def fetch_advanced_enrichment_data(domain: str, industry: str = "SaaS / Tech") -
     Act as an elite Enterprise Revenue Intelligence & Forensic B2B Profiler.
     Analyze target domain: '{clean_dom}' in industry '{industry}'.
      
-    Return strict JSON matching this exact schema:
+    CRITICAL: Output ONLY valid JSON matching this exact schema without markdown backticks, code blocks, or conversational text:
     {{
         "tech_stack": "string (granular infrastructure, e.g. 'AWS, Snowflake, Datadog, Kubernetes')",
         "funding_stage": "string",
@@ -887,11 +887,23 @@ def fetch_advanced_enrichment_data(domain: str, industry: str = "SaaS / Tech") -
      
     try:
         raw_text = call_gemini_rest(prompt)
+        
+        # Clean and extract valid JSON block using regex
+        cleaned_text = raw_text.strip()
+        if cleaned_text.startswith("```json"):
+            cleaned_text = cleaned_text[7:]
+        elif cleaned_text.startswith("```"):
+            cleaned_text = cleaned_text[3:]
+        if cleaned_text.endswith("```"):
+            cleaned_text = cleaned_text[:-3]
+        cleaned_text = cleaned_text.strip()
+        
         import re
-        json_match = re.search(r'\{.*\}', raw_text, re.DOTALL)
+        json_match = re.search(r'\{.*\}', cleaned_text, re.DOTALL)
         if json_match:
-            raw_text = json_match.group(0)
-        parsed = json.loads(raw_text)
+            cleaned_text = json_match.group(0)
+            
+        parsed = json.loads(cleaned_text)
         return parsed
     except Exception as e:
         logger.error(f"Dynamic enrichment AI extraction failed for {clean_dom}: {e}")
@@ -1892,7 +1904,7 @@ async def request_magic_link(payload: MagicLinkRequestPayload, background_tasks:
     finally:
         release_db(conn)
 
-    magic_url = f"https://nexus-core-yfou.onrender.com/auth/verify-magic?token={magic_token}"
+    magic_url = f"[https://nexus-core-yfou.onrender.com/auth/verify-magic?token=](https://nexus-core-yfou.onrender.com/auth/verify-magic?token=){magic_token}"
     background_tasks.add_task(send_magic_link_email, payload.email, magic_url)
     log_audit_event(payload.email, "MAGIC_LINK_REQUESTED", "Magic link sign-in requested", request.client.host if request.client else "unknown")
     return {"status": "success", "message": f"Magic link sent to {payload.email}. Check your inbox."}
@@ -2536,7 +2548,7 @@ async def render_lead_microsite(domain: str):
     <html lang="en" class="dark">
     <head>
         <meta charset="UTF-8"><title>Audit: {lead['company_name']}</title>
-        <script src="https://cdn.tailwindcss.com"></script>
+        <script src="[https://cdn.tailwindcss.com](https://cdn.tailwindcss.com)"></script>
     </head>
     <body class="bg-slate-950 text-slate-100 p-8 font-sans">
         <div class="max-w-3xl mx-auto bg-slate-900 border border-sky-500/30 p-8 rounded-2xl shadow-2xl">
@@ -2671,7 +2683,7 @@ async def execute_on_demand_generation(query: str, count: int, user_email: str, 
                     email=f"contact@{swarm_res.get('domain', 'apexcloud.io')}",
                     industry=swarm_res.get("industry", "Cloud Infrastructure"),
                     employee_count=swarm_res.get("employee_count", "100-500"),
-                    linkedin_url="https://linkedin.com/company/apexcloud",
+                    linkedin_url="[https://linkedin.com/company/apexcloud](https://linkedin.com/company/apexcloud)",
                     confidence_score=swarm_res.get("confidence_score", 0.95),
                     trust_score=swarm_res.get("trust_score", 94),
                     tech_stack=swarm_res.get("technographic_stack", "Python, AWS"),
@@ -3209,7 +3221,7 @@ async def request_key_reset(
 
     client_ip = request.client.host if request and request.client else "unknown"
     log_audit_event(email, "KEY_RESET_REQUEST", "Requested password/key reset link", client_ip)
-    reset_url = f"https://nexus-core-yfou.onrender.com/reset-confirm?token={reset_token}"
+    reset_url = f"[https://nexus-core-yfou.onrender.com/reset-confirm?token=](https://nexus-core-yfou.onrender.com/reset-confirm?token=){reset_token}"
     if background_tasks:
         background_tasks.add_task(send_password_reset_email, email, reset_url)
     return {"status": "success", "message": f"API key reset link sent to {email}."}
