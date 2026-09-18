@@ -227,7 +227,7 @@ def call_gemini_rest(prompt: str, max_retries: int = 5, use_search: bool = False
         return cached_res
 
     models = ["gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash"]
-    base_delay = 2.0
+    base_delay = 4.0  # Increased base delay for safe rate-limit pacing
      
     for model_name in models:
         for attempt in range(1, max_retries + 1):
@@ -248,6 +248,8 @@ def call_gemini_rest(prompt: str, max_retries: int = 5, use_search: bool = False
                     data = res.json()
                     text_output = data["candidates"][0]["content"]["parts"][0]["text"]
                     set_cached_ai_response(cache_key, text_output)
+                    # Add a mandatory polite breathing pause between successful calls
+                    time.sleep(6.0)
                     return text_output
                 elif res.status_code in [429, 503, 502, 504]:
                     logger.warning(f"Model {model_name} hit rate limit/status {res.status_code} on attempt {attempt}. Rotating API key & backing off...")
@@ -257,7 +259,9 @@ def call_gemini_rest(prompt: str, max_retries: int = 5, use_search: bool = False
             except Exception as net_err:
                 logger.warning(f"Network error on model {model_name} attempt {attempt}: {net_err}")
 
-            sleep_time = (base_delay ** attempt) + random.uniform(0.5, 2.0)
+            # Enforce robust exponential backoff with jitter to respect free-tier RPM limits
+            sleep_time = (base_delay ** attempt) + random.uniform(2.0, 5.0)
+            logger.info(f"Backing off for {sleep_time:.2f} seconds due to rate limit or retry condition...")
             time.sleep(sleep_time)
           
     logger.error("All Gemini model endpoints, keys, and fallback rotations failed.")
@@ -374,8 +378,11 @@ class NexusAdvancedAgentSwarmOrchestrator:
         logger.info(f"Initializing Advanced Multi-Agent Consensus Swarm for: {target_query}")
          
         research_data = self._run_researcher_agent(target_query)
+        time.sleep(3.0)
         compliance_data = self._run_compliance_agent(research_data)
+        time.sleep(3.0)
         consensus_data = self._run_consensus_trust_agent(research_data, compliance_data)
+        time.sleep(3.0)
         strategy_data = self._run_strategy_agent(research_data, consensus_data)
          
         synthesized_lead = {
@@ -1030,6 +1037,8 @@ async def job_scouting_swarm_worker():
             sample_jobs = []
 
         for job in sample_jobs:
+            # Polite pause to prevent 429 rate limit spikes during batch evaluation loops
+            await asyncio.sleep(5.0)
             prompt = f"""
             Act as an elite Career Matchmaking and Executive Recruiting Agent.
             Evaluate the fit between the candidate profile and the open job description.
@@ -2787,7 +2796,7 @@ async def generate_leads_on_demand(payload: OnDemandGeneratePayload, request: Re
                         (actual_generated, auth["email"], actual_generated)
                     )
                     row = cursor.fetchone()
-                
+                 
                 if not row:
                     cursor.close()
                     raise HTTPException(status_code=402, detail="Insufficient lead generation credits remaining.")
