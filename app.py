@@ -57,7 +57,6 @@ ADMIN_SECRET_KEY = os.getenv("ADMIN_SECRET_KEY")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-# Groq Integration Configuration
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 if not GROQ_API_KEY:
     logger.warning("WARNING: GROQ_API_KEY is not set. AI generation endpoints will fail unless configured.")
@@ -171,7 +170,6 @@ def generate_hmac_signature(payload_json: str) -> str:
         hashlib.sha256
     ).hexdigest()
 
-# Smart Caching Layers
 def get_cached_ai_response(cache_key: str) -> Optional[str]:
     conn = get_db()
     try:
@@ -455,13 +453,6 @@ class NexusAdvancedAgentSwarmOrchestrator:
             raw_text = jm.group(0)
         return json.loads(raw_text)
 
-class ClosedLoopLearningEngine:
-    @staticmethod
-    def calculate_adaptive_trust_score(base_score: int, historical_conversions_in_industry: float) -> int:
-        adjustment = int(historical_conversions_in_industry * 10)
-        optimized_score = min(100, max(0, base_score + adjustment))
-        return optimized_score
-
 async def background_signal_monitor_job():
     logger.info("APScheduler Autonomous Sentinel: Scanning live webhook feeds and repository velocity spikes...")
     try:
@@ -732,7 +723,38 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS api_keys (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT, key_hash TEXT UNIQUE, key_name TEXT DEFAULT 'Default', scope TEXT DEFAULT 'full', role TEXT DEFAULT 'admin', active INTEGER DEFAULT 1, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS subscriber_credits (email TEXT PRIMARY KEY, credits_remaining INTEGER DEFAULT 500, credits_limit INTEGER DEFAULT 500, last_refill_date DATETIME DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("CREATE TABLE IF NOT EXISTS subscriber_destinations (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT, destination_type TEXT NOT NULL, webhook_url TEXT NOT NULL, access_token TEXT DEFAULT '', mapping_rules TEXT DEFAULT '{}', active INTEGER DEFAULT 1, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
-        cursor.execute("CREATE TABLE IF NOT EXISTS b2b_leads (id INTEGER PRIMARY KEY AUTOINCREMENT, company_name TEXT, domain TEXT UNIQUE, email TEXT, industry TEXT DEFAULT 'SaaS / Tech', employee_count TEXT DEFAULT '10-50', linkedin_url TEXT DEFAULT '', confidence_score REAL DEFAULT 0.9, trust_score INTEGER DEFAULT 95, tech_stack TEXT DEFAULT 'Python, PostgreSQL', funding_stage TEXT DEFAULT 'Series A', intent_signals TEXT DEFAULT 'None', verified_integer INTEGER DEFAULT 1, decision_maker_title TEXT DEFAULT 'VP of Engineering', decision_maker_linkedin TEXT DEFAULT '', acv_estimate TEXT DEFAULT '$25,000', headcount_growth_pct TEXT DEFAULT '+20% QoQ', open_hiring_roles TEXT DEFAULT 'Engineers', recent_news_trigger TEXT DEFAULT 'None', decision_makers_json TEXT DEFAULT '[]', hidden_pain_points TEXT DEFAULT 'None', regulatory_vulnerability TEXT DEFAULT 'None', budget_estimation_rationale TEXT DEFAULT 'None', killer_hook_angle TEXT DEFAULT 'None', sync_status TEXT DEFAULT 'unsynced', conversion_status TEXT DEFAULT 'unconverted', rejection_status TEXT DEFAULT 'active', timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)")
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS b2b_leads (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, 
+                company_name TEXT, 
+                domain TEXT UNIQUE, 
+                email TEXT, 
+                industry TEXT DEFAULT 'SaaS / Tech', 
+                employee_count TEXT DEFAULT '10-50', 
+                linkedin_url TEXT DEFAULT '', 
+                confidence_score REAL DEFAULT 0.9, 
+                trust_score INTEGER DEFAULT 95, 
+                tech_stack TEXT DEFAULT 'Python, PostgreSQL', 
+                funding_stage TEXT DEFAULT 'Series A', 
+                intent_signals TEXT DEFAULT 'None', 
+                verified_email INTEGER DEFAULT 1, 
+                decision_maker_title TEXT DEFAULT 'VP of Engineering', 
+                decision_maker_linkedin TEXT DEFAULT '', 
+                acv_estimate TEXT DEFAULT '$25,000', 
+                headcount_growth_pct TEXT DEFAULT '+20% QoQ', 
+                open_hiring_roles TEXT DEFAULT 'Engineers', 
+                recent_news_trigger TEXT DEFAULT 'None', 
+                decision_makers_json TEXT DEFAULT '[]', 
+                hidden_pain_points TEXT DEFAULT 'None', 
+                regulatory_vulnerability TEXT DEFAULT 'None', 
+                budget_estimation_rationale TEXT DEFAULT 'None', 
+                killer_hook_angle TEXT DEFAULT 'None', 
+                sync_status TEXT DEFAULT 'unsynced', 
+                conversion_status TEXT DEFAULT 'unconverted', 
+                rejection_status TEXT DEFAULT 'active', 
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
         
         for col_def in [
             ("hidden_pain_points", "TEXT DEFAULT 'None'"),
@@ -765,9 +787,6 @@ def init_db():
 
 init_db()
 
-# ==========================================
-# CAREER SWARM & JOB MATCHING TABLES
-# ==========================================
 def init_career_tables():
     conn = get_db()
     cursor = conn.cursor()
@@ -1475,7 +1494,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="QuantCode Nexus Enterprise Apex API",
-    version="4.0.0",
+    version="4.1.0",
     description="Enterprise B2B Lead Intelligence, Decoupled Background Workers, SSE Telemetry, and Distributed Groq Backing.",
     lifespan=lifespan
 )
@@ -1527,7 +1546,7 @@ async def custom_http_exception_handler(request: Request, exc: HTTPException):
 async def read_index():
     if os.path.exists("index.html"):
         return FileResponse("index.html")
-    return {"status": "online", "system": "QuantCode Nexus Enterprise Apex", "version": "4.0.0"}
+    return {"status": "online", "system": "QuantCode Nexus Enterprise Apex", "version": "4.1.0"}
 
 @app.get("/success")
 async def success_page():
@@ -1771,9 +1790,6 @@ async def match_jobs_endpoint(request: JobHuntRequest, background_tasks: Backgro
         "credits_deducted": credits_required
     }
 
-# ==========================================
-# MISSING LEADS ENDPOINT RESTORED
-# ==========================================
 @app.get("/api/v1/leads")
 async def list_leads(
     search: Optional[str] = Query(None),
@@ -1789,7 +1805,7 @@ async def list_leads(
     try:
         cursor = conn.cursor()
         
-        base_query = "SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals, sync_status, conversion_status, rejection_status, timestamp FROM b2b_leads WHERE trust_score >= %s" if DATABASE_URL else "SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals, sync_status, conversion_status, rejection_status, timestamp FROM b2b_leads WHERE trust_score >= ?"
+        base_query = "SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals, sync_status, conversion_status, rejection_status, hidden_pain_points, regulatory_vulnerability, budget_estimation_rationale, killer_hook_angle, decision_makers_json, timestamp FROM b2b_leads WHERE trust_score >= %s" if DATABASE_URL else "SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals, sync_status, conversion_status, rejection_status, hidden_pain_points, regulatory_vulnerability, budget_estimation_rationale, killer_hook_angle, decision_makers_json, timestamp FROM b2b_leads WHERE trust_score >= ?"
         params = [min_trust]
         
         if search:
@@ -1899,38 +1915,6 @@ nexus_leads_total {lead_count}
 nexus_subscribers_active {sub_count}
 """
     return FastAPIResponse(content=metrics_output, media_type="text/plain")
-
-def check_rate_limit(api_key_hash: str, response: Response, max_requests: int = 30):
-    window_seconds = 60
-    current_time = time.time()
-     
-    if redis_client:
-        try:
-            redis_key = f"rate_limit_sliding:{api_key_hash}"
-            pipe = redis_client.pipeline()
-            pipe.zremrangebyscore(redis_key, 0, current_time - window_seconds)
-            pipe.zadd(redis_key, {str(uuid.uuid4()): current_time})
-            pipe.zcard(redis_key)
-            pipe.expire(redis_key, window_seconds)
-            _, _, count, _ = pipe.execute()
-
-            remaining = max(0, max_requests - count)
-            reset_time = int(current_time + window_seconds)
-
-            response.headers["X-RateLimit-Limit"] = str(max_requests)
-            response.headers["X-RateLimit-Remaining"] = str(remaining)
-            response.headers["X-RateLimit-Reset"] = str(reset_time)
-
-            if count > max_requests:
-                raise HTTPException(status_code=429, detail=f"Rate limit exceeded. Maximum {max_requests} requests per minute allowed.")
-            return
-        except redis.RedisError as e:
-            logger.warning(f"Redis rate limit sliding window error: {e}")
-
-    current_minute = int(current_time) // window_seconds
-    response.headers["X-RateLimit-Limit"] = str(max_requests)
-    response.headers["X-RateLimit-Remaining"] = str(max_requests)
-    response.headers["X-RateLimit-Reset"] = str((current_minute + 1) * window_seconds)
 
 class MagicLinkRequestPayload(BaseModel):
     email: EmailStr
