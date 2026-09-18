@@ -888,7 +888,6 @@ def fetch_advanced_enrichment_data(domain: str, industry: str = "SaaS / Tech") -
     try:
         raw_text = call_gemini_rest(prompt)
         
-        # Clean and extract valid JSON block using regex
         cleaned_text = raw_text.strip()
         if cleaned_text.startswith("```json"):
             cleaned_text = cleaned_text[7:]
@@ -1770,6 +1769,74 @@ async def match_jobs_endpoint(request: JobHuntRequest, background_tasks: Backgro
         "status": "success", 
         "message": "Career swarm initiated and scouting worker triggered. Check your dashboard shortly.",
         "credits_deducted": credits_required
+    }
+
+# ==========================================
+# MISSING LEADS ENDPOINT RESTORED
+# ==========================================
+@app.get("/api/v1/leads")
+async def list_leads(
+    search: Optional[str] = Query(None),
+    industry: Optional[str] = Query(None),
+    min_trust: Optional[int] = Query(0),
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    sort_by: str = Query("newest"),
+    request: Request = None,
+    auth: dict = Depends(verify_api_key)
+):
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        
+        base_query = "SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals, sync_status, conversion_status, rejection_status, timestamp FROM b2b_leads WHERE trust_score >= %s" if DATABASE_URL else "SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals, sync_status, conversion_status, rejection_status, timestamp FROM b2b_leads WHERE trust_score >= ?"
+        params = [min_trust]
+        
+        if search:
+            if DATABASE_URL:
+                base_query += " AND (company_name ILIKE %s OR domain ILIKE %s)"
+            else:
+                base_query += " AND (company_name LIKE ? OR domain LIKE ?)"
+            params.extend([f"%{search}%", f"%{search}%"])
+            
+        if industry and industry != "All":
+            if DATABASE_URL:
+                base_query += " AND industry = %s"
+            else:
+                base_query += " AND industry = ?"
+            params.append(industry)
+            
+        if sort_by == "trust":
+            base_query += " ORDER BY trust_score DESC"
+        elif sort_by == "oldest":
+            base_query += " ORDER BY timestamp ASC"
+        else:
+            base_query += " ORDER BY timestamp DESC"
+            
+        if DATABASE_URL:
+            base_query += " LIMIT %s OFFSET %s"
+        else:
+            base_query += " LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
+        
+        cursor.execute(base_query, tuple(params))
+        rows = cursor.fetchall()
+        
+        leads = []
+        for r in rows:
+            r_dict = dict(r)
+            if r_dict.get("timestamp") and isinstance(r_dict["timestamp"], datetime):
+                r_dict["timestamp"] = r_dict["timestamp"].isoformat()
+            leads.append(r_dict)
+            
+        cursor.close()
+    finally:
+        release_db(conn)
+        
+    return {
+        "status": "success",
+        "count": len(leads),
+        "leads": leads
     }
 
 @app.get("/api/v1/stream/telemetry")
