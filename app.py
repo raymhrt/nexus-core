@@ -849,7 +849,6 @@ def generate_lead_embedding(text_content: str):
     if not GROQ_API_KEY:
         return None
     try:
-        # Generate a synthetic embedding or mock vector via Groq/hash fallback to maintain vector table functionality cleanly
         h = hashlib.sha256(text_content.encode("utf-8")).digest()
         np.random.seed(int.from_bytes(h[:4], "big"))
         vec = np.random.normal(0, 1, 768)
@@ -997,15 +996,26 @@ async def job_scouting_swarm_worker():
         await asyncio.sleep(4.0)
         prompt_job_discovery = f"""
         Act as an expert job market scraper. Find 2 live, current senior executive job listings matching the user profile niche: {u_dict.get('profile_json')}.
-        Return strict JSON list containing objects with keys: company_name, job_title, location, job_description.
+        Return ONLY a raw JSON list containing objects with keys: company_name, job_title, location, job_description. Do not include markdown code blocks or conversational text.
         """
         try:
             raw_jobs = call_gemini_rest(prompt_job_discovery)
+            
+            cleaned_text = raw_jobs.strip()
+            if cleaned_text.startswith("```json"):
+                cleaned_text = cleaned_text[7:]
+            elif cleaned_text.startswith("```"):
+                cleaned_text = cleaned_text[3:]
+            if cleaned_text.endswith("```"):
+                cleaned_text = cleaned_text[:-3]
+            cleaned_text = cleaned_text.strip()
+            
             import re
-            jm_jobs = re.search(r'\[.*\]', raw_jobs, re.DOTALL)
+            jm_jobs = re.search(r'\[.*\]', cleaned_text, re.DOTALL)
             if jm_jobs:
-                raw_jobs = jm_jobs.group(0)
-            sample_jobs = json.loads(raw_jobs)
+                cleaned_text = jm_jobs.group(0)
+                
+            sample_jobs = json.loads(cleaned_text)
         except Exception as e:
             logger.error(f"Live job discovery failed: {e}")
             sample_jobs = []
@@ -1021,7 +1031,7 @@ async def job_scouting_swarm_worker():
             Company: {job.get('company_name')}
             Description: {job.get('job_description')}
              
-            Return strict JSON with keys:
+            Return ONLY a raw JSON object with keys:
             - fit_score (integer 0 to 100)
             - match_rationale (string explaining why this is a strong or weak match)
             - decision_maker_name (string, realistic name of Head of HR or VP)
@@ -1031,11 +1041,22 @@ async def job_scouting_swarm_worker():
             """
             try:
                 raw_eval = call_gemini_rest(prompt)
+                
+                cleaned_eval = raw_eval.strip()
+                if cleaned_eval.startswith("```json"):
+                    cleaned_eval = cleaned_eval[7:]
+                elif cleaned_eval.startswith("```"):
+                    cleaned_eval = cleaned_eval[3:]
+                if cleaned_eval.endswith("```"):
+                    cleaned_eval = cleaned_eval[:-3]
+                cleaned_eval = cleaned_eval.strip()
+                
                 import re
-                jm = re.search(r'\{.*\}', raw_eval, re.DOTALL)
+                jm = re.search(r'\{.*\}', cleaned_eval, re.DOTALL)
                 if jm:
-                    raw_eval = jm.group(0)
-                eval_data = json.loads(raw_eval)
+                    cleaned_eval = jm.group(0)
+                    
+                eval_data = json.loads(cleaned_eval)
             except Exception as eval_err:
                 logger.error(f"AI evaluation failed, raising exception: {eval_err}")
                 raise HTTPException(status_code=502, detail="Upstream AI provider error during job match evaluation.")
