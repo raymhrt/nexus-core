@@ -433,33 +433,6 @@
                             <p class="text-xs text-slate-400 font-sans">Authenticate to load audit logs.</p>
                         </div>
                     </div>
-
-                    <div class="bg-inputbg border border-slate-800 p-6 rounded-xl">
-                        <span class="block text-xs font-bold uppercase tracking-wider text-accent mb-3 flex items-center gap-2"><i class="fa-solid fa-users-gear text-purple-400"></i> Multi-Key Management & Team Workspaces</span>
-                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-                            <div>
-                                <label class="block text-xs font-bold uppercase text-slate-400 mb-2">Key Label / Member Email</label>
-                                <input type="text" id="newKeyName" placeholder="e.g. sdr-john@company.com" class="bg-darkbg border border-slate-700 rounded-lg px-3 py-2.5 text-xs w-full focus:outline-none focus:border-accent text-white">
-                            </div>
-                            <div>
-                                <label class="block text-xs font-bold uppercase text-slate-400 mb-2">Workspace Role</label>
-                                <select id="newKeyRole" class="bg-darkbg border border-slate-700 rounded-lg p-2.5 text-xs w-full text-white">
-                                    <option value="sdr">Role: SDR (Ingest & Train)</option>
-                                    <option value="viewer">Role: Viewer (Read-Only)</option>
-                                    <option value="admin">Role: Admin (Full Access)</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label class="block text-xs font-bold uppercase text-slate-400 mb-2">Granular Scope</label>
-                                <select id="newKeyScope" class="bg-darkbg border border-slate-700 rounded-lg p-2.5 text-xs w-full text-white">
-                                    <option value="full">Scope: Full (Read/Write/Admin)</option>
-                                    <option value="read">Scope: Read (Read-Only)</option>
-                                </select>
-                            </div>
-                        </div>
-                        <button class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-accent font-bold px-5 py-2.5 rounded-lg text-xs transition mb-4 flex items-center gap-2" onclick="createNewKey()"><i class="fa-solid fa-user-plus text-cyan-400"></i> Invite Team Member & Generate Key</button>
-                        <div id="keyList" class="text-xs text-slate-400">Authenticate to load active API keys.</div>
-                    </div>
                 </div>
 
                 <!-- TAB 6: Developer Sandbox -->
@@ -700,24 +673,32 @@ print(res.json())</code></pre>
         let activeCareerMatchIdForEmail = null;
 
         window.onload = function() {
-            const savedKey = localStorage.getItem('nexus_api_key');
+            let savedKey = '';
+            try {
+                savedKey = localStorage.getItem('nexus_api_key') || '';
+            } catch (e) {
+                console.warn('localStorage restricted by browser privacy settings.');
+            }
+
             if (savedKey) {
                 document.getElementById('apiKey').value = savedKey;
                 saveAndFetch();
                 loadCareerMatches();
             }
 
-            const savedResume = localStorage.getItem('nexus_master_resume');
-            if (savedResume) document.getElementById('careerResumeInput').value = savedResume;
+            try {
+                const savedResume = localStorage.getItem('nexus_master_resume');
+                if (savedResume) document.getElementById('careerResumeInput').value = savedResume;
 
-            const savedRoles = localStorage.getItem('nexus_target_roles');
-            if (savedRoles) document.getElementById('targetJobRoles').value = savedRoles;
+                const savedRoles = localStorage.getItem('nexus_target_roles');
+                if (savedRoles) document.getElementById('targetJobRoles').value = savedRoles;
 
-            const savedLocations = localStorage.getItem('nexus_target_locations');
-            if (savedLocations) document.getElementById('targetJobLocations').value = savedLocations;
+                const savedLocations = localStorage.getItem('nexus_target_locations');
+                if (savedLocations) document.getElementById('targetJobLocations').value = savedLocations;
 
-            const savedRules = localStorage.getItem('nexus_webhook_rules');
-            if (savedRules) document.getElementById('webhookRules').value = savedRules;
+                const savedRules = localStorage.getItem('nexus_webhook_rules');
+                if (savedRules) document.getElementById('webhookRules').value = savedRules;
+            } catch (e) {}
 
             initSSETelemetry();
         };
@@ -1613,14 +1594,23 @@ print(res.json())</code></pre>
         function closeDeepScanModal() { document.getElementById('deepScanModal').classList.add('hidden'); }
 
         async function saveAndFetch() {
-            const apiKey = document.getElementById('apiKey').value.trim();
+            const apiKeyInput = document.getElementById('apiKey');
+            const apiKey = apiKeyInput ? apiKeyInput.value.trim() : '';
             const leadFeedContainer = document.getElementById('leadFeedContainer');
             const statusDiv = document.getElementById('status');
             const usageBar = document.getElementById('usageBar');
 
-            if (!apiKey) { alert("Please enter a valid API key."); return; }
+            if (!apiKey) {
+                alert("Please enter a valid API key.");
+                return;
+            }
 
-            localStorage.setItem('nexus_api_key', apiKey);
+            try {
+                localStorage.setItem('nexus_api_key', apiKey);
+            } catch (e) {
+                console.warn('Could not save API key to localStorage due to browser policy.');
+            }
+
             if (leadFeedContainer) leadFeedContainer.innerHTML = '<div class="bg-slate-900 border border-slate-800 p-4 rounded-xl animate-pulse h-20"></div>';
             if (statusDiv) statusDiv.innerText = "Syncing with cluster...";
 
@@ -1980,25 +1970,20 @@ print(res.json())</code></pre>
                             <span class="bg-darkbg border border-slate-800 px-2.5 py-1 rounded text-slate-300">Industry: <strong class="text-white">${escapeHtml(lead.industry)}</strong></span>
                             <span class="bg-darkbg border border-slate-800 px-2.5 py-1 rounded text-slate-300">Size: <strong class="text-white">${escapeHtml(lead.employee_count)}</strong></span>
                             <span class="bg-darkbg border border-slate-800 px-2.5 py-1 rounded text-slate-300">Stage: <strong class="text-white">${escapeHtml(displayStage)}</strong></span>
-                            <span class="bg-darkbg border border-slate-800 px-2.5 py-1 rounded text-emerald-400 font-semibold">${emailStatus}</span>
+                            <span class="bg-darkbg border border-slate-800 px-2.5 py-1 rounded text-slate-300">Intent: <strong class="text-white">${escapeHtml(intent)}</strong></span>
                         </div>
-                        <div class="bg-sky-500/5 border-l-2 border-accent p-2.5 rounded-r-lg text-xs text-slate-300">
-                            🔥 <strong class="text-white">Intent Signal / News Trigger:</strong> ${escapeHtml(intent)}
-                        </div>
-                        <div class="flex flex-wrap items-center justify-between mt-1">
-                            <div class="flex flex-wrap gap-2">
-                                <button class="bg-sky-500/10 hover:bg-sky-500/20 text-accent border border-sky-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${disabledAttr}" onclick="draftAIEmail(${lead.id}, '${escapeHtml(lead.company_name)}', '${escapeHtml(lead.email || 'contact@' + cleanDomain)}')">✨ AI Draft & Send</button>
-                                <button class="bg-sky-500/10 hover:bg-sky-500/20 text-accent border border-sky-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${disabledAttr}" onclick="syncLeadToCRM(${lead.id})">🔗 ${lead.sync_status === 'synced' ? 'Unsync' : 'Sync'} CRM</button>
-                                <button class="bg-sky-500/10 hover:bg-sky-500/20 text-accent border border-sky-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${disabledAttr}" onclick="enrollSequence(${lead.id})">🚀 Enroll</button>
-                                <button class="bg-sky-500/10 hover:bg-sky-500/20 text-accent border border-sky-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition" onclick="triggerDeepScan(${lead.id})">🔍 Deep Scan</button>
-                                <button class="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${disabledAttr}" onclick="convertLeadAction(${lead.id})">
-                                    👍 ${isConverted ? 'Unconvert' : 'Convert'}
-                                </button>
-                                <button class="bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${disabledAttr}" onclick="rejectLeadAction(${lead.id})">
-                                    👎 ${isRejected ? 'Unreject' : 'Reject'}
-                                </button>
+                        <div class="flex flex-wrap items-center justify-between pt-2 border-t border-slate-800 gap-2">
+                            <div class="flex items-center gap-2">
+                                <button onclick="draftAIEmail(${lead.id}, '${escapeHtml(lead.company_name)}')" class="bg-sky-500/10 hover:bg-sky-500/20 text-accent border border-sky-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1">✉️ Draft AI Email</button>
+                                <button onclick="syncLeadToCRM(${lead.id})" class="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1">🔄 Sync CRM</button>
+                                <button onclick="enrollSequence(${lead.id})" class="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1">⚡ Sequence</button>
+                                <button onclick="triggerDeepScan(${lead.id})" class="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1">🔍 Deep Scan</button>
                             </div>
-                            <button class="bg-rose-500/10 hover:bg-rose-500 text-rose-400 hover:text-white border border-rose-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${disabledAttr}" onclick="deleteLeadCard(${lead.id})">🗑️ Delete</button>
+                            <div class="flex items-center gap-2">
+                                <button onclick="convertLeadAction(${lead.id})" class="text-emerald-400 hover:underline text-xs font-semibold">Convert</button>
+                                <button onclick="rejectLeadAction(${lead.id})" class="text-rose-400 hover:underline text-xs font-semibold">Reject</button>
+                                <button onclick="deleteLeadCard(${lead.id})" class="text-slate-500 hover:text-rose-400 text-xs transition p-1" title="Delete lead"><i class="fa-solid fa-trash"></i></button>
+                            </div>
                         </div>
                     </div>
                 `;
@@ -2006,61 +1991,14 @@ print(res.json())</code></pre>
             container.innerHTML = html;
         }
 
-        async function loadICPProfile(apiKey) {
-            try {
-                const res = await fetch('/api/v1/icp', { headers: { 'x-api-key': apiKey } });
-                const data = await res.json();
-                if (res.ok && data.icp) {
-                    const elInd = document.getElementById('targetIndustries');
-                    const elMin = document.getElementById('minTrustScore');
-                    if (elInd) elInd.value = data.icp.target_industries || 'Fintech, SaaS, AI';
-                    if (elMin) elMin.value = data.icp.min_trust_score || 85;
-                }
-            } catch (e) { console.error(e); }
-        }
-
-        async function runSemanticSearch() {
-            const query = document.getElementById('semanticQueryInput').value.trim();
-            const apiKey = document.getElementById('apiKey').value.trim();
-            if (!apiKey || !query) { alert("Authenticate and enter query."); return; }
-
-            try {
-                const response = await fetch(`/api/v1/leads/semantic-search?query=${encodeURIComponent(query)}&limit=5`, {
-                    headers: { 'x-api-key': apiKey }
-                });
-                const data = await response.json();
-                const container = document.getElementById('semanticResultsContainer');
-                const list = document.getElementById('semanticResultsList');
-                list.innerHTML = '';
-
-                if (data.status === 'success' && data.leads && data.leads.length > 0) {
-                    container.classList.remove('hidden');
-                    data.leads.forEach((lead) => {
-                        const sim = lead.similarity !== undefined ? lead.similarity : 90;
-                        list.innerHTML += `
-                            <div class="bg-darkbg border border-slate-800 p-3 rounded-lg flex justify-between items-center text-xs">
-                                <div>
-                                    <span class="text-white font-bold">${escapeHtml(lead.company_name)}</span>
-                                    <span class="text-slate-400 text-[11px] ml-1.5">(${escapeHtml(lead.industry)})</span>
-                                </div>
-                                <span class="text-emerald-400 font-mono">${Math.round(sim * 100)}% Match</span>
-                            </div>
-                        `;
-                    });
-                } else {
-                    container.classList.remove('hidden');
-                    list.innerHTML = '<p class="text-slate-400 text-xs">No matching vector leads found.</p>';
-                }
-            } catch (e) {
-                showToast("Semantic search failed.", true);
-            }
-        }
-
         function escapeHtml(str) {
             if (!str) return '';
-            return str.replace(/[&<>'"]/g, 
-                tag => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[tag] || tag)
-            );
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
         }
     </script>
 </body>
