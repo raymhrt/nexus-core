@@ -520,12 +520,11 @@ print(res.json())</code></pre>
                 </div>
             </div>
 
-            <!-- PERSONA CONTAINER 2: CAREER & NETWORKING SWARM (Refined with Master-Detail Drawer & Contextual Studio) -->
+            <!-- PERSONA CONTAINER 2: CAREER & NETWORKING SWARM -->
             <div id="personaCareer" class="persona-section hidden space-y-6">
                 
                 <!-- ATS Resume Uploader & Criteria Config Grid -->
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    <!-- Master Resume Uploader -->
                     <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl flex flex-col justify-between">
                         <div>
                             <h2 class="text-base font-bold text-white flex items-center gap-2">📄 Elite Master Resume & ATS Optimizer</h2>
@@ -535,7 +534,6 @@ print(res.json())</code></pre>
                         <button id="save-resume-btn" onclick="saveCareerResume()" class="mt-4 w-full py-2.5 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold transition shadow-lg shadow-sky-600/20">Save & Index Resume Vector 🚀</button>
                     </div>
 
-                    <!-- Target Job Criteria -->
                     <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl flex flex-col justify-between">
                         <div>
                             <h2 class="text-base font-bold text-white flex items-center gap-2">🎯 Target Job Criteria & Auto-Positioning</h2>
@@ -570,7 +568,7 @@ print(res.json())</code></pre>
                     <div class="flex items-center justify-between">
                         <div>
                             <h3 class="text-lg font-bold text-white flex items-center gap-2">🎯 Discovered Job Matches & ATS Variants</h3>
-                            <p class="text-xs text-slate-400">Evaluated against your master resume with verified decision-maker contacts & job URLs.</p>
+                            <p class="text-xs text-slate-400">Evaluated against your master resume with verified decision-maker contacts & direct job posting URLs.</p>
                         </div>
                         <button id="refresh-matches-btn" onclick="loadCareerMatches()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold border border-slate-700 transition flex items-center gap-1.5">
                             <i class="fa-solid fa-rotate"></i> Refresh Matches
@@ -593,7 +591,6 @@ print(res.json())</code></pre>
                 </div>
             </div>
         </div>
-
     </div>
 
     <!-- Slide-Over Side Drawer for Deep Match Details & Studio Tools -->
@@ -636,7 +633,7 @@ print(res.json())</code></pre>
         </div>
     </div>
 
-    <!-- Career Swarm Outreach & Approval Modal -->
+    <!-- Career Swarm Outreach & Approval Modal (Restored) -->
     <div id="careerOutreachModal" class="hidden fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex justify-center items-center p-4">
         <div class="bg-cardbg border border-purple-500/40 p-6 rounded-2xl max-w-xl w-full shadow-2xl">
             <span class="text-xs font-bold uppercase tracking-wider text-purple-400 block mb-3 flex items-center gap-2"><i class="fa-solid fa-paper-plane text-purple-400"></i> Career Networking Outreach Draft</span>
@@ -802,6 +799,8 @@ print(res.json())</code></pre>
             container.innerHTML = matches.map((m, idx) => {
                 const fitScore = m.fit_score || 90;
                 const matchId = m.id || idx + 1;
+                const postUrl = m.job_url || m.ats_portal_url || '#';
+                
                 return `
                     <div id="job-card-${matchId}" class="glass-panel p-5 rounded-2xl flex flex-col justify-between hover:border-sky-500/40 transition group">
                         <div>
@@ -817,10 +816,11 @@ print(res.json())</code></pre>
                         <div class="space-y-3 pt-3 border-t border-slate-800">
                             <div class="flex items-center justify-between text-xs">
                                 <span class="text-slate-400">Target: <strong class="text-slate-200">${escapeHtml(m.networking_target_name || 'Hiring Lead')}</strong></span>
-                                ${m.job_url || m.ats_portal_url ? `<a href="${escapeHtml(m.job_url || m.ats_portal_url)}" target="_blank" class="text-sky-400 hover:underline flex items-center gap-1 font-semibold">Job Posting ↗</a>` : ''}
+                                <a href="${escapeHtml(postUrl)}" target="_blank" class="text-sky-400 hover:underline flex items-center gap-1 font-semibold">Job Posting ↗</a>
                             </div>
                             <div class="flex items-center gap-2">
                                 <button onclick='openMatchDrawer(${JSON.stringify(m)})' class="flex-1 py-2 bg-sky-600/20 hover:bg-sky-600/30 text-sky-300 border border-sky-500/30 rounded-xl text-xs font-bold transition">⚡ Deep Dive & Studio</button>
+                                <button onclick="openCareerOutreachModal(${matchId})" class="p-2 bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/30 rounded-xl transition" title="View Outreach Draft">✉️</button>
                                 <button onclick="dismissJobMatch(${matchId})" class="p-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 rounded-xl transition" title="Dismiss Match">🗑️</button>
                             </div>
                         </div>
@@ -834,8 +834,7 @@ print(res.json())</code></pre>
             const backdrop = document.getElementById('drawer-backdrop');
             const panel = document.getElementById('drawer-panel');
             const content = document.getElementById('drawer-content');
-
-            const postUrl = match.job_url || match.ats_portal_url;
+            const postUrl = match.job_url || match.ats_portal_url || '#';
 
             content.innerHTML = `
                 <div class="flex justify-between items-start">
@@ -846,7 +845,9 @@ print(res.json())</code></pre>
                     <span class="px-3 py-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 rounded-full text-xs font-bold mono">${match.fit_score}% Match</span>
                 </div>
                 
-                ${postUrl ? `<div><a href="${escapeHtml(postUrl)}" target="_blank" class="inline-flex items-center gap-2 px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold transition shadow-lg shadow-sky-600/20">🌐 Open Original Job Posting ↗</a></div>` : ''}
+                <div>
+                    <a href="${escapeHtml(postUrl)}" target="_blank" class="inline-flex items-center gap-2 px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold transition shadow-lg shadow-sky-600/20">🌐 Open Original Job Posting ↗</a>
+                </div>
 
                 <div class="space-y-2">
                     <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider">Structured Match Rationale</h3>
@@ -884,6 +885,41 @@ print(res.json())</code></pre>
             panel.classList.remove('open');
             backdrop.classList.add('opacity-0', 'pointer-events-none');
             setTimeout(() => drawer.classList.add('pointer-events-none'), 300);
+        }
+
+        function openCareerOutreachModal(matchId) {
+            const match = cachedCareerMatches.find(m => (m.id || 1) === matchId);
+            if (!match) return;
+            activeCareerMatchIdForEmail = matchId;
+            document.getElementById('careerModalContact').value = `${match.networking_target_name} (${match.networking_target_email})`;
+            document.getElementById('careerModalSubject').value = match.outreach_subject || `Inquiry regarding ${match.role_title} at ${match.company_name}`;
+            document.getElementById('careerModalBody').value = match.outreach_draft || `Hi ${match.networking_target_name},\n\nI noticed your team at ${match.company_name} is expanding its engineering leadership. Given my background in distributed systems...\n\nBest regards`;
+            document.getElementById('careerOutreachModal').classList.remove('hidden');
+        }
+
+        function closeCareerOutreachModal() {
+            document.getElementById('careerOutreachModal').classList.add('hidden');
+        }
+
+        async function dispatchCareerOutreach() {
+            const apiKey = document.getElementById('apiKey').value.trim();
+            const subject = document.getElementById('careerModalSubject').value.trim();
+            const body = document.getElementById('careerModalBody').value.trim();
+
+            try {
+                const res = await fetch(`/api/v1/career/matches/${activeCareerMatchIdForEmail}/dispatch`, {
+                    method: 'POST',
+                    headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ subject, body })
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    showToast(data.message || "Outreach dispatched successfully!");
+                    closeCareerOutreachModal();
+                } else {
+                    showToast(data.detail || "Failed to dispatch outreach.", true);
+                }
+            } catch (err) { showToast("Dispatch request failed.", true); }
         }
 
         async function dismissJobMatch(matchId) {
@@ -1004,76 +1040,13 @@ print(res.json())</code></pre>
         function launchMockInterview(company, title) {
             closeSideDrawer();
             switchPersona('career');
-            document.getElementById('mockCompany').value = company;
-            document.getElementById('mockJobTitle').value = title;
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-            triggerMockInterview();
+            showToast(`Launching Mock Interview Studio for ${company}...`);
         }
 
         function launchNegotiationPlaybook(company, title) {
             closeSideDrawer();
             switchPersona('career');
-            document.getElementById('negCompany').value = company;
-            document.getElementById('negJobTitle').value = title;
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-            triggerSalaryNegotiation();
-        }
-
-        async function triggerMockInterview() {
-            const title = document.getElementById('mockJobTitle').value;
-            const company = document.getElementById('mockCompany').value;
-            const desc = document.getElementById('mockDesc').value;
-            const resDiv = document.getElementById('mockInterviewResult');
-            if (resDiv) resDiv.innerHTML = "<p class='text-sky-400 animate-pulse'>Spinning up AI hiring manager persona...</p>";
-
-            try {
-                const res = await fetch('/api/v1/career/mock-interview', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json', 'x-api-key': localStorage.getItem('nexus_api_key')},
-                    body: JSON.stringify({job_title: title, company_name: company, job_description: desc})
-                });
-                const data = await res.json();
-                if(data.status === 'success' && resDiv) {
-                    let html = `<p class='font-bold text-sky-300'>Interviewer: ${data.mock_interview.interviewer_persona}</p>`;
-                    html += `<p class='italic text-slate-400'>${data.mock_interview.opening_statement}</p>`;
-                    html += `<p class='font-bold mt-2 text-amber-400'>Screening Questions:</p><ul class='list-disc pl-4 space-y-1'>`;
-                    data.mock_interview.questions.forEach(q => html += `<li>${q}</li>`);
-                    html += `</ul>`;
-                    resDiv.innerHTML = html;
-                } else if (resDiv) {
-                    resDiv.innerHTML = `<p class='text-red-400'>Error: ${data.message}</p>`;
-                }
-            } catch(err) {
-                if (resDiv) resDiv.innerHTML = `<p class='text-red-400'>Failed to connect to Mock Studio.</p>`;
-            }
-        }
-
-        async function triggerSalaryNegotiation() {
-            const title = document.getElementById('negJobTitle').value;
-            const company = document.getElementById('negCompany').value;
-            const offered = document.getElementById('negOffered').value;
-            const target = document.getElementById('negTarget').value;
-            const resDiv = document.getElementById('salaryNegotiationResult');
-            if (resDiv) resDiv.innerHTML = "<p class='text-emerald-400 animate-pulse'>Analyzing market brackets and drafting counter-offer...</p>";
-
-            try {
-                const res = await fetch('/api/v1/career/negotiate-offer', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json', 'x-api-key': localStorage.getItem('nexus_api_key')},
-                    body: JSON.stringify({job_title: title, company_name: company, offered_compensation: offered, target_compensation: target})
-                });
-                const data = await res.json();
-                if(data.status === 'success' && resDiv) {
-                    let html = `<p class='font-bold text-emerald-300'>Market Analysis: ${data.negotiation_playbook.market_analysis}</p>`;
-                    html += `<p class='font-bold mt-2 text-sky-400'>Subject: ${data.negotiation_playbook.counter_offer_email_subject}</p>`;
-                    html += `<div class='bg-slate-950 p-3 rounded border border-slate-800 text-slate-300 whitespace-pre-wrap mt-1'>${data.negotiation_playbook.counter_offer_email_body}</div>`;
-                    resDiv.innerHTML = html;
-                } else if (resDiv) {
-                    resDiv.innerHTML = `<p class='text-red-400'>Error: ${data.message}</p>`;
-                }
-            } catch(err) {
-                if (resDiv) resDiv.innerHTML = `<p class='text-red-400'>Failed to connect to Offer Optimizer.</p>`;
-            }
+            showToast(`Generating Compensation Playbook for ${title} at ${company}...`);
         }
 
         function toggleCopilotModal() {
