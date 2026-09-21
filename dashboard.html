@@ -498,8 +498,40 @@ print(res.json())</code></pre>
                 </div>
             </div>
 
-            <!-- PERSONA CONTAINER 2: CAREER & NETWORKING SWARM (Upgraded with ATS Optimization Engine) -->
+            <!-- PERSONA CONTAINER 2: CAREER & NETWORKING SWARM (Upgraded with ATS Optimization Engine & Elite Additions) -->
             <div id="personaCareer" class="persona-section hidden space-y-6">
+                <!-- Elite Career Additions: Interview Studio & Salary Agent -->
+                <div class="mt-8 grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <!-- Mock Interview Studio Card -->
+                    <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl">
+                        <h3 class="text-lg font-bold text-sky-400 mb-2">🎙️ Live Interview Co-Pilot & Mock Studio</h3>
+                        <p class="text-xs text-slate-400 mb-4">Spin up a custom AI hiring manager persona tailored to your exact target job description.</p>
+                        <div class="space-y-3">
+                            <input type="text" id="mockJobTitle" placeholder="Job Title (e.g., Principal Architect)" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200">
+                            <input type="text" id="mockCompany" placeholder="Company Name (e.g., Google / FinTech)" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200">
+                            <textarea id="mockDesc" placeholder="Paste job description highlights..." class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 h-20"></textarea>
+                            <button onclick="triggerMockInterview()" class="w-full bg-sky-600 hover:bg-sky-500 text-slate-950 font-bold py-2 rounded-lg text-sm transition">Launch Mock Interviewer 🚀</button>
+                        </div>
+                        <div id="mockInterviewResult" class="mt-4 text-xs text-slate-300 space-y-2 max-h-48 overflow-y-auto"></div>
+                    </div>
+
+                    <!-- Salary Negotiation Agent Card -->
+                    <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl">
+                        <h3 class="text-lg font-bold text-emerald-400 mb-2">💰 Salary Negotiation & Offer Optimizer</h3>
+                        <p class="text-xs text-slate-400 mb-4">Leverage market benchmarks and strategic counter-offer templates to maximize total compensation.</p>
+                        <div class="space-y-3">
+                            <input type="text" id="negJobTitle" placeholder="Role Title" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200">
+                            <input type="text" id="negCompany" placeholder="Company Name" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200">
+                            <div class="grid grid-cols-2 gap-2">
+                                <input type="text" id="negOffered" placeholder="Offered ($120k)" class="bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200">
+                                <input type="text" id="negTarget" placeholder="Target ($150k)" class="bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200">
+                            </div>
+                            <button onclick="triggerSalaryNegotiation()" class="w-full bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold py-2 rounded-lg text-sm transition">Generate Counter-Offer Playbook 📈</button>
+                        </div>
+                        <div id="salaryNegotiationResult" class="mt-4 text-xs text-slate-300 space-y-2 max-h-48 overflow-y-auto"></div>
+                    </div>
+                </div>
+
                 <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl space-y-4">
                     <h2 class="text-base font-black text-white flex items-center gap-2">
                         <i class="fa-solid fa-file-arrow-up text-purple-400"></i> Elite Resume Uploader & ATS Optimizer
@@ -823,7 +855,6 @@ print(res.json())</code></pre>
             container.innerHTML = html;
         }
 
-        // PHASE 2: Delete / Dismiss job match card
         async function dismissJobMatch(matchId) {
             const apiKey = document.getElementById('apiKey').value.trim();
             if (!apiKey) { alert("Please authenticate first."); return; }
@@ -908,7 +939,6 @@ print(res.json())</code></pre>
             const apiKey = document.getElementById('apiKey').value.trim();
             const resume_content = document.getElementById('careerResumeInput').value.trim();
             
-            // Save to local storage immediately
             localStorage.setItem('nexus_master_resume', resume_content);
             
             try {
@@ -953,7 +983,6 @@ print(res.json())</code></pre>
             const locations = document.getElementById('targetJobLocations').value.trim();
             const job_quantity = parseInt(document.getElementById('jobQuantitySelect').value) || 5;
             
-            // Save criteria to local storage
             localStorage.setItem('nexus_target_roles', target_roles);
             localStorage.setItem('nexus_target_locations', locations);
             localStorage.setItem('nexus_job_quantity', job_quantity);
@@ -985,6 +1014,64 @@ print(res.json())</code></pre>
                     btn.innerHTML = originalText;
                     btn.disabled = false;
                 }, 3000);
+            }
+        }
+
+        // Elite Career Additions Scripts
+        async function triggerMockInterview() {
+            const title = document.getElementById('mockJobTitle').value;
+            const company = document.getElementById('mockCompany').value;
+            const desc = document.getElementById('mockDesc').value;
+            const resDiv = document.getElementById('mockInterviewResult');
+            resDiv.innerHTML = "<p class='text-sky-400 animate-pulse'>Spinning up AI hiring manager persona...</p>";
+
+            try {
+                const res = await fetch('/api/v1/career/mock-interview', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json', 'x-api-key': localStorage.getItem('nexus_api_key')},
+                    body: JSON.stringify({job_title: title, company_name: company, job_description: desc})
+                });
+                const data = await res.json();
+                if(data.status === 'success') {
+                    let html = `<p class='font-bold text-sky-300'>Interviewer: ${data.mock_interview.interviewer_persona}</p>`;
+                    html += `<p class='italic text-slate-400'>${data.mock_interview.opening_statement}</p>`;
+                    html += `<p class='font-bold mt-2 text-amber-400'>Screening Questions:</p><ul class='list-disc pl-4 space-y-1'>`;
+                    data.mock_interview.questions.forEach(q => html += `<li>${q}</li>`);
+                    html += `</ul>`;
+                    resDiv.innerHTML = html;
+                } else {
+                    resDiv.innerHTML = `<p class='text-red-400'>Error: ${data.message}</p>`;
+                }
+            } catch(err) {
+                resDiv.innerHTML = `<p class='text-red-400'>Failed to connect to Mock Studio.</p>`;
+            }
+        }
+
+        async function triggerSalaryNegotiation() {
+            const title = document.getElementById('negJobTitle').value;
+            const company = document.getElementById('negCompany').value;
+            const offered = document.getElementById('negOffered').value;
+            const target = document.getElementById('negTarget').value;
+            const resDiv = document.getElementById('salaryNegotiationResult');
+            resDiv.innerHTML = "<p class='text-emerald-400 animate-pulse'>Analyzing market brackets and drafting counter-offer...</p>";
+
+            try {
+                const res = await fetch('/api/v1/career/negotiate-offer', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json', 'x-api-key': localStorage.getItem('nexus_api_key')},
+                    body: JSON.stringify({job_title: title, company_name: company, offered_compensation: offered, target_compensation: target})
+                });
+                const data = await res.json();
+                if(data.status === 'success') {
+                    let html = `<p class='font-bold text-emerald-300'>Market Analysis: ${data.negotiation_playbook.market_analysis}</p>`;
+                    html += `<p class='font-bold mt-2 text-sky-400'>Subject: ${data.negotiation_playbook.counter_offer_email_subject}</p>`;
+                    html += `<div class='bg-slate-950 p-3 rounded border border-slate-800 text-slate-300 whitespace-pre-wrap mt-1'>${data.negotiation_playbook.counter_offer_email_body}</div>`;
+                    resDiv.innerHTML = html;
+                } else {
+                    resDiv.innerHTML = `<p class='text-red-400'>Error: ${data.message}</p>`;
+                }
+            } catch(err) {
+                resDiv.innerHTML = `<p class='text-red-400'>Failed to connect to Offer Optimizer.</p>`;
             }
         }
 

@@ -814,6 +814,9 @@ def init_career_tables():
                 decision_maker_title TEXT,
                 decision_maker_email TEXT,
                 outreach_draft TEXT,
+                salary_benchmark TEXT DEFAULT 'Competitive Market Rate',
+                recruiter_verified INT DEFAULT 0,
+                negotiation_strategy TEXT DEFAULT '',
                 timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
@@ -840,6 +843,9 @@ def init_career_tables():
                 decision_maker_title TEXT,
                 decision_maker_email TEXT,
                 outreach_draft TEXT,
+                salary_benchmark TEXT DEFAULT 'Competitive Market Rate',
+                recruiter_verified INTEGER DEFAULT 0,
+                negotiation_strategy TEXT DEFAULT '',
                 timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         """)
@@ -1103,7 +1109,6 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
                 continue
 
             await asyncio.sleep(1.5)
-            # PROMPT UPGRADE: Direct second-person narrative ("You") and executive networking draft
             prompt = f"""
             Act as an elite Career Matchmaking and Executive Recruiting Agent.
             Evaluate the fit between the candidate profile and the open job description. 
@@ -1122,6 +1127,9 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
             - decision_maker_title (string)
             - decision_maker_email (string)
             - outreach_draft (string - a polished, professional first-person networking note from the candidate to the decision maker)
+            - salary_benchmark (string, e.g., '$140k - $175k Base + Equity')
+            - recruiter_verified (integer, 1 if direct verified email, else 0)
+            - negotiation_strategy (string, brief tactical advice on how to secure top-band compensation for this role)
             No markdown backticks or commentary.
             """
             try:
@@ -1151,18 +1159,34 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
                 if DATABASE_URL:
                     ic.execute(
                         """
-                        INSERT INTO job_matches (user_email, company_name, job_title, job_description, location, fit_score, match_rationale, decision_maker_name, decision_maker_title, decision_maker_email, outreach_draft, status)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'discovered')
+                        INSERT INTO job_matches (user_email, company_name, job_title, job_description, location, fit_score, match_rationale, decision_maker_name, decision_maker_title, decision_maker_email, outreach_draft, salary_benchmark, recruiter_verified, negotiation_strategy, status)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'discovered')
                         """,
-                        (email, c_name, j_title, job.get('job_description'), job.get('location'), eval_data.get('fit_score', 85), eval_data.get('match_rationale'), eval_data.get('decision_maker_name'), eval_data.get('decision_maker_title'), eval_data.get('decision_maker_email'), eval_data.get('outreach_draft'))
+                        (
+                            email, c_name, j_title, job.get('job_description'), job.get('location'), 
+                            eval_data.get('fit_score', 85), eval_data.get('match_rationale'), 
+                            eval_data.get('decision_maker_name'), eval_data.get('decision_maker_title'), 
+                            eval_data.get('decision_maker_email'), eval_data.get('outreach_draft'),
+                            eval_data.get('salary_benchmark', 'Competitive Market Rate'),
+                            eval_data.get('recruiter_verified', 1),
+                            eval_data.get('negotiation_strategy', 'Emphasize past scale and unique domain expertise.'),
+                        )
                     )
                 else:
                     ic.execute(
                         """
-                        INSERT INTO job_matches (user_email, company_name, job_title, job_description, location, fit_score, match_rationale, decision_maker_name, decision_maker_title, decision_maker_email, outreach_draft, status)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'discovered')
+                        INSERT INTO job_matches (user_email, company_name, job_title, job_description, location, fit_score, match_rationale, decision_maker_name, decision_maker_title, decision_maker_email, outreach_draft, salary_benchmark, recruiter_verified, negotiation_strategy, status)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'discovered')
                         """,
-                        (email, c_name, j_title, job.get('job_description'), job.get('location'), eval_data.get('fit_score', 85), eval_data.get('match_rationale'), eval_data.get('decision_maker_name'), eval_data.get('decision_maker_title'), eval_data.get('decision_maker_email'), eval_data.get('outreach_draft'))
+                        (
+                            email, c_name, j_title, job.get('job_description'), job.get('location'), 
+                            eval_data.get('fit_score', 85), eval_data.get('match_rationale'), 
+                            eval_data.get('decision_maker_name'), eval_data.get('decision_maker_title'), 
+                            eval_data.get('decision_maker_email'), eval_data.get('outreach_draft'),
+                            eval_data.get('salary_benchmark', 'Competitive Market Rate'),
+                            eval_data.get('recruiter_verified', 1),
+                            eval_data.get('negotiation_strategy', 'Emphasize past scale and unique domain expertise.'),
+                        )
                     )
                 ins_conn.commit()
                 ic.close()
@@ -1500,6 +1524,18 @@ class CareerCriteriaInput(BaseModel):
     target_roles: str
     locations: str
 
+class MockInterviewRequest(BaseModel):
+    job_title: str
+    company_name: str
+    job_description: str
+    candidate_focus: Optional[str] = "Technical & Behavioral"
+
+class SalaryNegotiationRequest(BaseModel):
+    job_title: str
+    company_name: str
+    offered_compensation: str
+    target_compensation: str
+
 async def gdpr_compliance_cleanup():
     conn = get_db()
     try:
@@ -1670,9 +1706,9 @@ def get_career_matches(user=Depends(verify_api_key)):
     try:
         cursor = conn.cursor()
         if DATABASE_URL:
-            cursor.execute("SELECT id, company_name, job_title as role_title, location, fit_score, match_rationale as rationale, decision_maker_name as networking_target_name, decision_maker_title as networking_target_role, decision_maker_email as networking_target_email, outreach_draft FROM job_matches WHERE user_email = %s ORDER BY timestamp DESC", (user["email"],))
+            cursor.execute("SELECT id, company_name, job_title as role_title, location, fit_score, match_rationale as rationale, decision_maker_name as networking_target_name, decision_maker_title as networking_target_role, decision_maker_email as networking_target_email, outreach_draft, salary_benchmark, recruiter_verified, negotiation_strategy FROM job_matches WHERE user_email = %s ORDER BY timestamp DESC", (user["email"],))
         else:
-            cursor.execute("SELECT id, company_name, job_title as role_title, location, fit_score, match_rationale as rationale, decision_maker_name as networking_target_name, decision_maker_title as networking_target_role, decision_maker_email as networking_target_email, outreach_draft FROM job_matches WHERE user_email = ? ORDER BY timestamp DESC", (user["email"],))
+            cursor.execute("SELECT id, company_name, job_title as role_title, location, fit_score, match_rationale as rationale, decision_maker_name as networking_target_name, decision_maker_title as networking_target_role, decision_maker_email as networking_target_email, outreach_draft, salary_benchmark, recruiter_verified, negotiation_strategy FROM job_matches WHERE user_email = ? ORDER BY timestamp DESC", (user["email"],))
         rows = cursor.fetchall()
         matches = [dict(r) for r in rows]
         cursor.close()
@@ -1752,6 +1788,61 @@ async def save_career_criteria(payload: CareerCriteriaInput, background_tasks: B
 
     await sse_broker.broadcast("career_swarm_launched", {"roles": payload.target_roles, "locations": payload.locations})
     return {"status": "success", "message": "Target criteria saved & Career Swarm launched with elite risk-reduction filters."}
+
+@app.post("/api/v1/career/mock-interview")
+async def generate_mock_interview(payload: MockInterviewRequest, x_api_key: str = Header(None), request: Request = None):
+    auth = verify_api_key(x_api_key, request)
+    prompt = f"""
+    Act as an elite technical hiring manager and behavioral psychologist at {payload.company_name}.
+    Conduct a rigorous mock interview screening for the position: {payload.job_title}.
+    Job Description: {payload.job_description}
+    Focus: {payload.candidate_focus}
+    
+    Return strict JSON with keys:
+    - interviewer_persona (string, name and style)
+    - opening_statement (string)
+    - questions (list of strings, 4 rigorous technical/behavioral questions)
+    - evaluation_rubric (string, what the hiring manager looks for in top responses)
+    No markdown backticks.
+    """
+    try:
+        raw_ai = call_gemini_rest(prompt)
+        import re
+        jm = re.search(r'\{.*\}', raw_ai, re.DOTALL)
+        if jm:
+            raw_ai = jm.group(0)
+        parsed = json.loads(raw_ai)
+    except Exception as e:
+        logger.error(f"Mock interview generation error: {e}")
+        raise HTTPException(status_code=502, detail="AI mock interview generation failed.")
+    return {"status": "success", "mock_interview": parsed}
+
+@app.post("/api/v1/career/negotiate-offer")
+async def generate_salary_negotiation(payload: SalaryNegotiationRequest, x_api_key: str = Header(None), request: Request = None):
+    auth = verify_api_key(x_api_key, request)
+    prompt = f"""
+    Act as an elite executive compensation advisor and career negotiator.
+    Company: {payload.company_name} | Role: {payload.job_title}
+    Offered Comp: {payload.offered_compensation} | Target Comp: {payload.target_compensation}
+    
+    Draft a persuasive, highly professional counter-offer email emphasizing leverage, market rates, and unique value propositions.
+    Return strict JSON with keys:
+    - market_analysis (string, real-time benchmark summary)
+    - counter_offer_email_subject (string)
+    - counter_offer_email_body (string)
+    No markdown backticks.
+    """
+    try:
+        raw_ai = call_gemini_rest(prompt)
+        import re
+        jm = re.search(r'\{.*\}', raw_ai, re.DOTALL)
+        if jm:
+            raw_ai = jm.group(0)
+        parsed = json.loads(raw_ai)
+    except Exception as e:
+        logger.error(f"Salary negotiation generation error: {e}")
+        raise HTTPException(status_code=502, detail="AI negotiation generator failed.")
+    return {"status": "success", "negotiation_playbook": parsed}
 
 @app.post("/api/v1/career/matches/{match_id}/approve")
 def approve_career_match(match_id: int, user=Depends(verify_api_key)):
@@ -1871,51 +1962,51 @@ async def list_leads(
     conn = get_db()
     try:
         cursor = conn.cursor()
-        
+         
         base_query = "SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals, sync_status, conversion_status, rejection_status, hidden_pain_points, regulatory_vulnerability, budget_estimation_rationale, killer_hook_angle, decision_makers_json, timestamp FROM b2b_leads WHERE trust_score >= %s" if DATABASE_URL else "SELECT id, company_name, domain, email, industry, employee_count, linkedin_url, confidence_score, trust_score, tech_stack, funding_stage, intent_signals, sync_status, conversion_status, rejection_status, hidden_pain_points, regulatory_vulnerability, budget_estimation_rationale, killer_hook_angle, decision_makers_json, timestamp FROM b2b_leads WHERE trust_score >= ?"
         params = [min_trust]
-        
+         
         if search:
             if DATABASE_URL:
                 base_query += " AND (company_name ILIKE %s OR domain ILIKE %s)"
             else:
                 base_query += " AND (company_name LIKE ? OR domain LIKE ?)"
             params.extend([f"%{search}%", f"%{search}%"])
-            
+             
         if industry and industry != "All":
             if DATABASE_URL:
                 base_query += " AND industry = %s"
             else:
                 base_query += " AND industry = ?"
             params.append(industry)
-            
+             
         if sort_by == "trust":
             base_query += " ORDER BY trust_score DESC"
         elif sort_by == "oldest":
             base_query += " ORDER BY timestamp ASC"
         else:
             base_query += " ORDER BY timestamp DESC"
-            
+             
         if DATABASE_URL:
             base_query += " LIMIT %s OFFSET %s"
         else:
             base_query += " LIMIT ? OFFSET ?"
         params.extend([limit, offset])
-        
+         
         cursor.execute(base_query, tuple(params))
         rows = cursor.fetchall()
-        
+         
         leads = []
         for r in rows:
             r_dict = dict(r)
             if r_dict.get("timestamp") and isinstance(r_dict["timestamp"], datetime):
                 r_dict["timestamp"] = r_dict["timestamp"].isoformat()
             leads.append(r_dict)
-            
+             
         cursor.close()
     finally:
         release_db(conn)
-        
+         
     return {
         "status": "success",
         "count": len(leads),
