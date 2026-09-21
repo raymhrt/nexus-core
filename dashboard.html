@@ -30,6 +30,12 @@
         }
     </script>
     <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+        body { font-family: 'Plus Jakarta Sans', sans-serif; }
+        .mono { font-family: 'JetBrains Mono', monospace; }
+        .glass-panel { background: rgba(15, 23, 42, 0.75); backdrop-filter: blur(16px); border: 1px solid rgba(56, 189, 248, 0.15); }
+        .slide-over { transform: translateX(100%); transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+        .slide-over.open { transform: translateX(0); }
         @keyframes pulse-slow { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
         .animate-pulse-slow { animation: pulse-slow 3s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
@@ -40,11 +46,27 @@
         ::-webkit-scrollbar-thumb:hover { background: #334155; }
     </style>
 </head>
-<body class="bg-darkbg text-slate-100 min-h-screen font-sans p-4 md:p-8 flex flex-col items-center selection:bg-sky-500 selection:text-slate-950">
+<body class="bg-darkbg text-slate-100 min-h-screen flex flex-col antialiased selection:bg-sky-500 selection:text-slate-950">
+
+    <!-- Sticky Real-Time Swarm Status Bar -->
+    <header class="sticky top-0 z-40 glass-panel border-b border-slate-800/80 px-6 py-3 flex items-center justify-between">
+        <div class="flex items-center space-x-4">
+            <div class="flex items-center space-x-2">
+                <div class="h-3 w-3 rounded-full bg-emerald-500 animate-pulse"></div>
+                <span class="text-xs font-bold uppercase tracking-wider text-emerald-400">Swarm Active</span>
+            </div>
+            <div class="h-4 w-[1px] bg-slate-800"></div>
+            <p id="swarm-status-text" class="text-xs text-slate-400 font-medium">Autonomous agents actively indexing European & Global ATS job feeds...</p>
+        </div>
+        <div class="flex items-center space-x-4">
+            <span id="credits-badge" class="px-3 py-1 bg-sky-500/10 border border-sky-500/30 text-sky-400 rounded-full text-xs font-bold mono">460 / 500 Credits</span>
+            <button onclick="triggerManualSwarm()" class="px-3 py-1.5 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-bold transition shadow-lg shadow-sky-500/20">⚡ Run Swarm</button>
+        </div>
+    </header>
 
     <div id="toastContainer" class="fixed bottom-6 right-6 z-50 flex flex-col gap-3"></div>
 
-    <div class="w-full max-w-6xl flex flex-col gap-6">
+    <div class="w-full max-w-6xl mx-auto flex flex-col gap-6 p-4 md:p-8">
 
         <!-- Persistent Header & Global Auth Bar -->
         <div class="bg-cardbg/85 backdrop-blur-xl border border-sky-500/20 p-6 md:p-8 rounded-2xl shadow-2xl relative overflow-hidden">
@@ -89,7 +111,7 @@
             <div class="bg-inputbg border border-slate-700/80 p-4 rounded-xl flex flex-col md:flex-row items-center gap-4 mb-6">
                 <div class="w-full md:w-auto flex-grow flex items-center gap-3">
                     <span class="text-xs font-bold uppercase tracking-wider text-accent whitespace-nowrap"><i class="fa-solid fa-key text-amber-400 mr-1"></i> API Key:</span>
-                    <input type="password" id="apiKey" placeholder="Enter your x-api-key (e.g. qcn_...)" class="w-full bg-darkbg border border-slate-700 rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:border-accent">
+                    <input type="password" id="apiKey" placeholder="Enter your x-api-key (e.g. qcn_...)" class="w-full bg-darkbg border border-slate-700 rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:border-accent text-white">
                 </div>
                 <div class="flex items-center gap-2 w-full md:w-auto justify-end">
                     <button onclick="saveAndFetch()" class="bg-accent hover:bg-accentHover text-slate-950 font-bold px-5 py-2 rounded-lg text-xs transition shadow-lg shadow-sky-500/10 whitespace-nowrap">Authenticate & Load</button>
@@ -498,109 +520,92 @@ print(res.json())</code></pre>
                 </div>
             </div>
 
-            <!-- PERSONA CONTAINER 2: CAREER & NETWORKING SWARM (Upgraded with ATS Optimization Engine & Elite Additions) -->
+            <!-- PERSONA CONTAINER 2: CAREER & NETWORKING SWARM (Refined with Master-Detail Drawer & Contextual Studio) -->
             <div id="personaCareer" class="persona-section hidden space-y-6">
-                <!-- Elite Career Additions: Interview Studio & Salary Agent -->
-                <div class="mt-8 grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <!-- Mock Interview Studio Card -->
-                    <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl">
-                        <h3 class="text-lg font-bold text-sky-400 mb-2">🎙️ Live Interview Co-Pilot & Mock Studio</h3>
-                        <p class="text-xs text-slate-400 mb-4">Spin up a custom AI hiring manager persona tailored to your exact target job description.</p>
-                        <div class="space-y-3">
-                            <input type="text" id="mockJobTitle" placeholder="Job Title (e.g., Principal Architect)" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200">
-                            <input type="text" id="mockCompany" placeholder="Company Name (e.g., Google / FinTech)" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200">
-                            <textarea id="mockDesc" placeholder="Paste job description highlights..." class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 h-20"></textarea>
-                            <button onclick="triggerMockInterview()" class="w-full bg-sky-600 hover:bg-sky-500 text-slate-950 font-bold py-2 rounded-lg text-sm transition">Launch Mock Interviewer 🚀</button>
+                
+                <!-- ATS Resume Uploader & Criteria Config Grid -->
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <!-- Master Resume Uploader -->
+                    <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl flex flex-col justify-between">
+                        <div>
+                            <h2 class="text-base font-bold text-white flex items-center gap-2">📄 Elite Master Resume & ATS Optimizer</h2>
+                            <p class="text-xs text-slate-400 mt-1 mb-4">Paste your master resume markdown. The Career Swarm parses your stack, deconstructs hiring intent, and maps structural gaps.</p>
+                            <textarea id="careerResumeInput" rows="6" class="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs mono text-slate-200 focus:outline-none focus:border-sky-500 transition" placeholder="Paste your master resume markdown or text here..."></textarea>
                         </div>
-                        <div id="mockInterviewResult" class="mt-4 text-xs text-slate-300 space-y-2 max-h-48 overflow-y-auto"></div>
+                        <button id="save-resume-btn" onclick="saveCareerResume()" class="mt-4 w-full py-2.5 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold transition shadow-lg shadow-sky-600/20">Save & Index Resume Vector 🚀</button>
                     </div>
 
-                    <!-- Salary Negotiation Agent Card -->
-                    <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl">
-                        <h3 class="text-lg font-bold text-emerald-400 mb-2">💰 Salary Negotiation & Offer Optimizer</h3>
-                        <p class="text-xs text-slate-400 mb-4">Leverage market benchmarks and strategic counter-offer templates to maximize total compensation.</p>
-                        <div class="space-y-3">
-                            <input type="text" id="negJobTitle" placeholder="Role Title" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200">
-                            <input type="text" id="negCompany" placeholder="Company Name" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200">
-                            <div class="grid grid-cols-2 gap-2">
-                                <input type="text" id="negOffered" placeholder="Offered ($120k)" class="bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200">
-                                <input type="text" id="negTarget" placeholder="Target ($150k)" class="bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200">
+                    <!-- Target Job Criteria -->
+                    <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl flex flex-col justify-between">
+                        <div>
+                            <h2 class="text-base font-bold text-white flex items-center gap-2">🎯 Target Job Criteria & Auto-Positioning</h2>
+                            <p class="text-xs text-slate-400 mt-1 mb-4">Define your target roles and geographic regions. The swarm will continuously scout matching openings.</p>
+                            <div class="space-y-3">
+                                <div>
+                                    <label class="text-xs text-slate-400 font-semibold">Target Roles (comma separated)</label>
+                                    <input type="text" id="targetJobRoles" class="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-slate-200 focus:outline-none focus:border-sky-500" placeholder="e.g. Principal Engineer, Head of Protein Engineering">
+                                </div>
+                                <div class="grid grid-cols-2 gap-3">
+                                    <div>
+                                        <label class="text-xs text-slate-400 font-semibold">Locations / Remote</label>
+                                        <input type="text" id="targetJobLocations" class="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-slate-200 focus:outline-none focus:border-sky-500" placeholder="e.g. Berlin, Remote (UK/EU)">
+                                    </div>
+                                    <div>
+                                        <label class="text-xs text-slate-400 font-semibold">Jobs Per Batch</label>
+                                        <select id="jobQuantitySelect" class="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-slate-200 focus:outline-none focus:border-sky-500 font-mono">
+                                            <option value="3">3 Jobs per batch</option>
+                                            <option value="5" selected>5 Jobs per batch</option>
+                                            <option value="10">10 Jobs per batch</option>
+                                        </select>
+                                    </div>
+                                </div>
                             </div>
-                            <button onclick="triggerSalaryNegotiation()" class="w-full bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold py-2 rounded-lg text-sm transition">Generate Counter-Offer Playbook 📈</button>
                         </div>
-                        <div id="salaryNegotiationResult" class="mt-4 text-xs text-slate-300 space-y-2 max-h-48 overflow-y-auto"></div>
+                        <button id="save-criteria-btn" onclick="saveCareerCriteria()" class="mt-4 w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition shadow-lg shadow-emerald-600/20">Save Criteria & Launch Swarm ⚡</button>
                     </div>
                 </div>
 
-                <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl space-y-4">
-                    <h2 class="text-base font-black text-white flex items-center gap-2">
-                        <i class="fa-solid fa-file-arrow-up text-purple-400"></i> Elite Resume Uploader & ATS Optimizer
-                    </h2>
-                    <p class="text-xs text-slate-400">Upload your master resume markdown. The Elite Career Strategist engine will automatically classify tracks, deconstruct hiring intent, and format for 1-page ATS compliance.</p>
-                    <div class="space-y-3">
-                        <div>
-                            <label class="block text-xs font-bold text-slate-300 mb-1">Paste Master Resume (Markdown / Text)</label>
-                            <textarea id="careerResumeInput" rows="5" placeholder="# e.g. Dr. Jane Doe - Molecular Biologist & Researcher&#10;Experience in Python, FastAPI, PCR, Data Analysis..." class="w-full bg-slate-950 border border-slate-800 p-3 rounded-xl text-xs text-white font-mono"></textarea>
-                        </div>
-                        <button id="save-resume-btn" onclick="saveCareerResume()" class="bg-purple-500 hover:bg-purple-400 text-slate-950 font-bold px-5 py-2.5 rounded-xl text-xs transition">Save & Run ATS Gap Analysis</button>
-                    </div>
-                </div>
-
-                <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl space-y-4">
-                    <h2 class="text-base font-black text-white flex items-center gap-2">
-                        <i class="fa-solid fa-crosshairs text-sky-400"></i> Target Job Criteria & Auto-Positioning
-                    </h2>
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                            <label class="block text-xs font-bold text-slate-300 mb-1">Target Roles</label>
-                            <input type="text" id="targetJobRoles" placeholder="e.g. Medical Affairs, Clinical Research, Data Scientist" class="w-full bg-slate-950 border border-slate-800 px-4 py-2.5 rounded-xl text-xs text-white">
-                        </div>
-                        <div>
-                            <label class="block text-xs font-bold text-slate-300 mb-1">Target Locations / Remote</label>
-                            <input type="text" id="targetJobLocations" placeholder="e.g. South Africa, Remote, European Union" class="w-full bg-slate-950 border border-slate-800 px-4 py-2.5 rounded-xl text-xs text-white">
-                        </div>
-                    </div>
-                    <!-- PHASE 2: Job Quantity Selector Added Here -->
-                    <div class="flex flex-col sm:flex-row items-start sm:items-center gap-4 pt-2">
-                        <div class="flex-1 w-full sm:w-auto">
-                            <label class="block text-xs font-bold text-slate-300 mb-1">Jobs Per Batch</label>
-                            <select id="jobQuantitySelect" class="bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white w-full sm:w-48 focus:outline-none focus:border-sky-500 font-mono">
-                                <option value="3">3 Jobs per batch</option>
-                                <option value="5" selected>5 Jobs per batch</option>
-                                <option value="10">10 Jobs per batch</option>
-                                <option value="15">15 Jobs per batch</option>
-                            </select>
-                        </div>
-                        <div class="w-full sm:w-auto self-end">
-                            <button id="save-criteria-btn" onclick="saveCareerCriteria()" class="bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold px-6 py-2.5 rounded-xl text-xs transition whitespace-nowrap">Save Criteria & Launch Swarm</button>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Discovered Job Matches & Networking Targets Section -->
+                <!-- Discovered Job Matches Feed -->
                 <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl space-y-6">
-                    <div class="flex justify-between items-center">
-                        <h3 class="text-lg font-bold text-sky-400">🎯 Discovered Job Matches, ATS CV Variants & Networking Targets</h3>
-                        <button id="refresh-matches-btn" onclick="loadCareerMatches()" class="bg-slate-800 hover:bg-slate-700 text-sky-300 px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h3 class="text-lg font-bold text-white flex items-center gap-2">🎯 Discovered Job Matches & ATS Variants</h3>
+                            <p class="text-xs text-slate-400">Evaluated against your master resume with verified decision-maker contacts & job URLs.</p>
+                        </div>
+                        <button id="refresh-matches-btn" onclick="loadCareerMatches()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold border border-slate-700 transition flex items-center gap-1.5">
                             <i class="fa-solid fa-rotate"></i> Refresh Matches
                         </button>
                     </div>
 
-                    <!-- Job Match Cards Container -->
-                    <div id="jobMatchesContainer" class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div class="text-xs text-slate-400 p-4 bg-slate-950 rounded-xl border border-slate-800">
-                            Loading AI career matches...
-                        </div>
+                    <div id="jobMatchesContainer" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        <div class="text-slate-500 text-xs py-12 text-center col-span-full">Loading matched executive openings...</div>
                     </div>
                 </div>
 
+                <!-- Live SSE Telemetry for Career Swarm -->
                 <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl flex flex-col">
                     <h3 class="text-sm font-bold text-white mb-4 flex items-center gap-2">
                         <i class="fa-solid fa-satellite-dish text-purple-400"></i> Live SSE Logs: Job Applications & Multi-Touch Sequences
                     </h3>
                     <div id="careerTelemetryLog" class="bg-slate-950 border border-slate-800 p-4 rounded-xl flex-1 h-52 overflow-y-auto font-mono text-xs text-slate-300 space-y-2">
-                        <p class="text-slate-500">[2026-09-17T07:37:58Z] career_swarm_launched: Risk reduction layer active. 1-page ATS formatting enabled.</p>
+                        <p class="text-slate-500">[2026-09-21T10:36:54Z] career_swarm_launched: Risk reduction layer active. 1-page ATS formatting enabled.</p>
                     </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Slide-Over Side Drawer for Deep Match Details & Studio Tools -->
+    <div id="side-drawer" class="fixed inset-0 z-50 overflow-hidden pointer-events-none">
+        <div id="drawer-backdrop" class="absolute inset-0 bg-black/60 backdrop-blur-sm opacity-0 transition-opacity pointer-events-none" onclick="closeSideDrawer()"></div>
+        <div class="absolute inset-y-0 right-0 max-w-xl w-full flex pl-10">
+            <div id="drawer-panel" class="slide-over w-full bg-slate-900 border-l border-slate-800 p-6 flex flex-col justify-between overflow-y-auto pointer-events-auto shadow-2xl">
+                <div id="drawer-content" class="space-y-6">
+                    <!-- Dynamic content injected here -->
+                </div>
+                <div class="border-t border-slate-800 pt-4 mt-6 flex justify-end">
+                    <button onclick="closeSideDrawer()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-bold">Close Drawer</button>
                 </div>
             </div>
         </div>
@@ -698,7 +703,6 @@ print(res.json())</code></pre>
         let activeCareerMatchIdForEmail = null;
 
         window.onload = function() {
-            // Restore API Key
             const savedKey = localStorage.getItem('nexus_api_key');
             if (savedKey) {
                 document.getElementById('apiKey').value = savedKey;
@@ -706,28 +710,17 @@ print(res.json())</code></pre>
                 loadCareerMatches();
             }
 
-            // Restore Career Resume Markdown
             const savedResume = localStorage.getItem('nexus_master_resume');
-            if (savedResume) {
-                document.getElementById('careerResumeInput').value = savedResume;
-            }
+            if (savedResume) document.getElementById('careerResumeInput').value = savedResume;
 
-            // Restore Target Job Criteria
             const savedRoles = localStorage.getItem('nexus_target_roles');
-            if (savedRoles) {
-                document.getElementById('targetJobRoles').value = savedRoles;
-            }
+            if (savedRoles) document.getElementById('targetJobRoles').value = savedRoles;
 
             const savedLocations = localStorage.getItem('nexus_target_locations');
-            if (savedLocations) {
-                document.getElementById('targetJobLocations').value = savedLocations;
-            }
+            if (savedLocations) document.getElementById('targetJobLocations').value = savedLocations;
 
-            // Restore Webhook Rules
             const savedRules = localStorage.getItem('nexus_webhook_rules');
-            if (savedRules) {
-                document.getElementById('webhookRules').value = savedRules;
-            }
+            if (savedRules) document.getElementById('webhookRules').value = savedRules;
 
             initSSETelemetry();
         };
@@ -802,57 +795,95 @@ print(res.json())</code></pre>
             if (!container) return;
 
             if (!matches || matches.length === 0) {
-                container.innerHTML = '<div class="text-xs text-slate-400 p-4 bg-slate-950 rounded-xl border border-slate-800">No career job matches found yet.</div>';
+                container.innerHTML = '<div class="text-xs text-slate-400 p-6 bg-slate-950 rounded-xl border border-slate-800 text-center col-span-full">No career job matches scouted yet. Save your criteria & launch the swarm!</div>';
                 return;
             }
 
-            let html = '';
-            matches.forEach((m, idx) => {
+            container.innerHTML = matches.map((m, idx) => {
                 const fitScore = m.fit_score || 90;
                 const matchId = m.id || idx + 1;
-                html += `
-                    <div id="job-card-${matchId}" class="bg-slate-900 border border-slate-800 p-5 rounded-xl shadow-lg flex flex-col justify-between animate-fade-in">
+                return `
+                    <div id="job-card-${matchId}" class="glass-panel p-5 rounded-2xl flex flex-col justify-between hover:border-sky-500/40 transition group">
                         <div>
-                            <div class="flex justify-between items-start mb-2">
+                            <div class="flex items-start justify-between gap-2 mb-3">
                                 <div>
-                                    <h4 class="font-bold text-slate-100">${escapeHtml(m.role_title)}</h4>
+                                    <h3 class="text-sm font-bold text-white group-hover:text-sky-400 transition">${escapeHtml(m.role_title)}</h3>
                                     <p class="text-xs text-slate-400">${escapeHtml(m.company_name)} • ${escapeHtml(m.location)}</p>
                                 </div>
-                                <div class="flex items-center gap-2">
-                                    <span class="bg-emerald-500/10 text-emerald-400 px-2.5 py-1 rounded-full text-xs font-bold">${fitScore}% Match</span>
-                                    <button onclick="dismissJobMatch(${matchId})" class="bg-rose-500/10 hover:bg-rose-500 text-rose-400 hover:text-white border border-rose-500/30 px-2 py-1 rounded-lg text-xs font-semibold transition" title="Dismiss / Delete">🗑️</button>
-                                </div>
+                                <span class="px-2.5 py-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-lg text-xs font-black mono">${fitScore}% Match</span>
                             </div>
-                            <p class="text-xs text-slate-300 mt-2 mb-3 bg-slate-950 p-3 rounded-lg border border-slate-800/60">
-                                <strong>Match Rationale & Positioning:</strong> ${escapeHtml(m.rationale)}
-                            </p>
-                            <p class="text-[11px] text-purple-400 font-mono mb-4 bg-purple-500/10 p-2 rounded border border-purple-500/20">
-                                📄 <strong>1-Page ATS Variant:</strong> ${escapeHtml(m.cv_variant)}
-                            </p>
+                            <p class="text-xs text-slate-300 line-clamp-3 mb-4 leading-relaxed">${escapeHtml(m.rationale)}</p>
                         </div>
-                        
-                        <!-- Networking Decision Maker Box -->
-                        <div class="border-t border-slate-800 pt-3 mt-3">
-                            <p class="text-xs font-bold text-sky-400 mb-1">👤 Networking Target:</p>
-                            <p class="text-xs text-slate-200"><strong>${escapeHtml(m.networking_target_name)}</strong> (${escapeHtml(m.networking_target_role)})</p>
-                            <p class="text-xs text-slate-400 mb-3">Email: ${escapeHtml(m.networking_target_email)}</p>
-                            
-                            <div class="flex flex-wrap gap-2">
-                                <button onclick="openCareerOutreachModal(${matchId})" class="flex-1 bg-sky-500 hover:bg-sky-400 text-slate-950 py-1.5 px-3 rounded-lg text-xs font-bold transition">
-                                    ✉️ View Outreach Draft
-                                </button>
-                                <a href="${escapeHtml(m.ats_portal_url)}" target="_blank" class="bg-slate-800 hover:bg-slate-700 text-accent px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1">
-                                    🔗 Apply ATS ↗
-                                </a>
-                                <button onclick="approveCareerMatch(${matchId})" class="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition">
-                                    🚀 Send
-                                </button>
+                        <div class="space-y-3 pt-3 border-t border-slate-800">
+                            <div class="flex items-center justify-between text-xs">
+                                <span class="text-slate-400">Target: <strong class="text-slate-200">${escapeHtml(m.networking_target_name || 'Hiring Lead')}</strong></span>
+                                ${m.job_url || m.ats_portal_url ? `<a href="${escapeHtml(m.job_url || m.ats_portal_url)}" target="_blank" class="text-sky-400 hover:underline flex items-center gap-1 font-semibold">Job Posting ↗</a>` : ''}
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <button onclick='openMatchDrawer(${JSON.stringify(m)})' class="flex-1 py-2 bg-sky-600/20 hover:bg-sky-600/30 text-sky-300 border border-sky-500/30 rounded-xl text-xs font-bold transition">⚡ Deep Dive & Studio</button>
+                                <button onclick="dismissJobMatch(${matchId})" class="p-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 rounded-xl transition" title="Dismiss Match">🗑️</button>
                             </div>
                         </div>
                     </div>
                 `;
-            });
-            container.innerHTML = html;
+            }).join('');
+        }
+
+        function openMatchDrawer(match) {
+            const drawer = document.getElementById('side-drawer');
+            const backdrop = document.getElementById('drawer-backdrop');
+            const panel = document.getElementById('drawer-panel');
+            const content = document.getElementById('drawer-content');
+
+            const postUrl = match.job_url || match.ats_portal_url;
+
+            content.innerHTML = `
+                <div class="flex justify-between items-start">
+                    <div>
+                        <h2 class="text-lg font-bold text-white">${escapeHtml(match.role_title)}</h2>
+                        <p class="text-xs text-sky-400 font-semibold">${escapeHtml(match.company_name)} • ${escapeHtml(match.location)}</p>
+                    </div>
+                    <span class="px-3 py-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 rounded-full text-xs font-bold mono">${match.fit_score}% Match</span>
+                </div>
+                
+                ${postUrl ? `<div><a href="${escapeHtml(postUrl)}" target="_blank" class="inline-flex items-center gap-2 px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold transition shadow-lg shadow-sky-600/20">🌐 Open Original Job Posting ↗</a></div>` : ''}
+
+                <div class="space-y-2">
+                    <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider">Structured Match Rationale</h3>
+                    <div class="bg-slate-950 p-4 rounded-xl text-xs text-slate-300 leading-relaxed border border-slate-800">${escapeHtml(match.rationale)}</div>
+                </div>
+
+                <div class="space-y-2">
+                    <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider">Decision Maker & Networking Target</h3>
+                    <div class="bg-slate-950 p-4 rounded-xl text-xs text-slate-300 border border-slate-800 space-y-1">
+                        <p><strong>Name:</strong> ${escapeHtml(match.networking_target_name)}</p>
+                        <p><strong>Title:</strong> ${escapeHtml(match.networking_target_role)}</p>
+                        <p><strong>Verified Email:</strong> <code class="text-sky-300">${escapeHtml(match.networking_target_email)}</code></p>
+                    </div>
+                </div>
+
+                <div class="space-y-3 pt-4 border-t border-slate-800">
+                    <h3 class="text-xs font-bold text-sky-400 uppercase tracking-wider">🚀 Contextual Studio Actions</h3>
+                    <div class="grid grid-cols-2 gap-3">
+                        <button onclick="launchMockInterview('${escapeHtml(match.company_name)}', '${escapeHtml(match.role_title)}')" class="p-3 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-bold text-left border border-slate-700 transition">🎙️ Launch Mock Interview Studio</button>
+                        <button onclick="launchNegotiationPlaybook('${escapeHtml(match.company_name)}', '${escapeHtml(match.role_title)}')" class="p-3 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-bold text-left border border-slate-700 transition">💰 Generate Compensation Playbook</button>
+                    </div>
+                </div>
+            `;
+
+            drawer.classList.remove('pointer-events-none');
+            backdrop.classList.remove('opacity-0', 'pointer-events-none');
+            panel.classList.add('open');
+        }
+
+        function closeSideDrawer() {
+            const drawer = document.getElementById('side-drawer');
+            const backdrop = document.getElementById('drawer-backdrop');
+            const panel = document.getElementById('drawer-panel');
+
+            panel.classList.remove('open');
+            backdrop.classList.add('opacity-0', 'pointer-events-none');
+            setTimeout(() => drawer.classList.add('pointer-events-none'), 300);
         }
 
         async function dismissJobMatch(matchId) {
@@ -880,53 +911,6 @@ print(res.json())</code></pre>
             } catch (err) {
                 showToast("Delete request failed: " + err.message, true);
             }
-        }
-
-        function openCareerOutreachModal(matchId) {
-            const match = cachedCareerMatches.find(m => m.id === matchId);
-            if (!match) return;
-            activeCareerMatchIdForEmail = matchId;
-            document.getElementById('careerModalContact').value = `${match.networking_target_name} (${match.networking_target_email})`;
-            document.getElementById('careerModalSubject').value = match.outreach_subject;
-            document.getElementById('careerModalBody').value = match.outreach_draft;
-            document.getElementById('careerOutreachModal').classList.remove('hidden');
-        }
-
-        function closeCareerOutreachModal() {
-            document.getElementById('careerOutreachModal').classList.add('hidden');
-        }
-
-        async function dispatchCareerOutreach() {
-            const apiKey = document.getElementById('apiKey').value.trim();
-            const subject = document.getElementById('careerModalSubject').value.trim();
-            const body = document.getElementById('careerModalBody').value.trim();
-
-            try {
-                const res = await fetch(`/api/v1/career/matches/${activeCareerMatchIdForEmail}/dispatch`, {
-                    method: 'POST',
-                    headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ subject, body })
-                });
-                const data = await res.json();
-                if (res.ok) {
-                    showToast(data.message);
-                    closeCareerOutreachModal();
-                } else {
-                    showToast(data.detail || "Failed.", true);
-                }
-            } catch (err) { showToast("Request failed.", true); }
-        }
-
-        async function approveCareerMatch(matchId) {
-            const apiKey = document.getElementById('apiKey').value.trim();
-            try {
-                const res = await fetch(`/api/v1/career/matches/${matchId}/approve`, {
-                    method: 'POST',
-                    headers: { 'x-api-key': apiKey }
-                });
-                const data = await res.json();
-                if (res.ok) showToast(data.message);
-            } catch (err) { showToast("Request failed.", true); }
         }
 
         async function saveCareerResume() {
@@ -1017,13 +1001,30 @@ print(res.json())</code></pre>
             }
         }
 
-        // Elite Career Additions Scripts
+        function launchMockInterview(company, title) {
+            closeSideDrawer();
+            switchPersona('career');
+            document.getElementById('mockCompany').value = company;
+            document.getElementById('mockJobTitle').value = title;
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            triggerMockInterview();
+        }
+
+        function launchNegotiationPlaybook(company, title) {
+            closeSideDrawer();
+            switchPersona('career');
+            document.getElementById('negCompany').value = company;
+            document.getElementById('negJobTitle').value = title;
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            triggerSalaryNegotiation();
+        }
+
         async function triggerMockInterview() {
             const title = document.getElementById('mockJobTitle').value;
             const company = document.getElementById('mockCompany').value;
             const desc = document.getElementById('mockDesc').value;
             const resDiv = document.getElementById('mockInterviewResult');
-            resDiv.innerHTML = "<p class='text-sky-400 animate-pulse'>Spinning up AI hiring manager persona...</p>";
+            if (resDiv) resDiv.innerHTML = "<p class='text-sky-400 animate-pulse'>Spinning up AI hiring manager persona...</p>";
 
             try {
                 const res = await fetch('/api/v1/career/mock-interview', {
@@ -1032,18 +1033,18 @@ print(res.json())</code></pre>
                     body: JSON.stringify({job_title: title, company_name: company, job_description: desc})
                 });
                 const data = await res.json();
-                if(data.status === 'success') {
+                if(data.status === 'success' && resDiv) {
                     let html = `<p class='font-bold text-sky-300'>Interviewer: ${data.mock_interview.interviewer_persona}</p>`;
                     html += `<p class='italic text-slate-400'>${data.mock_interview.opening_statement}</p>`;
                     html += `<p class='font-bold mt-2 text-amber-400'>Screening Questions:</p><ul class='list-disc pl-4 space-y-1'>`;
                     data.mock_interview.questions.forEach(q => html += `<li>${q}</li>`);
                     html += `</ul>`;
                     resDiv.innerHTML = html;
-                } else {
+                } else if (resDiv) {
                     resDiv.innerHTML = `<p class='text-red-400'>Error: ${data.message}</p>`;
                 }
             } catch(err) {
-                resDiv.innerHTML = `<p class='text-red-400'>Failed to connect to Mock Studio.</p>`;
+                if (resDiv) resDiv.innerHTML = `<p class='text-red-400'>Failed to connect to Mock Studio.</p>`;
             }
         }
 
@@ -1053,7 +1054,7 @@ print(res.json())</code></pre>
             const offered = document.getElementById('negOffered').value;
             const target = document.getElementById('negTarget').value;
             const resDiv = document.getElementById('salaryNegotiationResult');
-            resDiv.innerHTML = "<p class='text-emerald-400 animate-pulse'>Analyzing market brackets and drafting counter-offer...</p>";
+            if (resDiv) resDiv.innerHTML = "<p class='text-emerald-400 animate-pulse'>Analyzing market brackets and drafting counter-offer...</p>";
 
             try {
                 const res = await fetch('/api/v1/career/negotiate-offer', {
@@ -1062,16 +1063,16 @@ print(res.json())</code></pre>
                     body: JSON.stringify({job_title: title, company_name: company, offered_compensation: offered, target_compensation: target})
                 });
                 const data = await res.json();
-                if(data.status === 'success') {
+                if(data.status === 'success' && resDiv) {
                     let html = `<p class='font-bold text-emerald-300'>Market Analysis: ${data.negotiation_playbook.market_analysis}</p>`;
                     html += `<p class='font-bold mt-2 text-sky-400'>Subject: ${data.negotiation_playbook.counter_offer_email_subject}</p>`;
                     html += `<div class='bg-slate-950 p-3 rounded border border-slate-800 text-slate-300 whitespace-pre-wrap mt-1'>${data.negotiation_playbook.counter_offer_email_body}</div>`;
                     resDiv.innerHTML = html;
-                } else {
+                } else if (resDiv) {
                     resDiv.innerHTML = `<p class='text-red-400'>Error: ${data.message}</p>`;
                 }
             } catch(err) {
-                resDiv.innerHTML = `<p class='text-red-400'>Failed to connect to Offer Optimizer.</p>`;
+                if (resDiv) resDiv.innerHTML = `<p class='text-red-400'>Failed to connect to Offer Optimizer.</p>`;
             }
         }
 
@@ -2234,6 +2235,11 @@ print(res.json())</code></pre>
                 const data = await res.json();
                 showToast(data.message || "Reset link sent.");
             } catch (err) { showToast("Failed.", true); }
+        }
+
+        function triggerManualSwarm() {
+            alert('Swarm pulse initiated. Scanning target boards...');
+            loadCareerMatches();
         }
 
         function logout() {
