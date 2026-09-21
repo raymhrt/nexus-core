@@ -799,7 +799,7 @@ print(res.json())</code></pre>
             container.innerHTML = matches.map((m, idx) => {
                 const fitScore = m.fit_score || 90;
                 const matchId = m.id || idx + 1;
-                const postUrl = m.job_url || m.ats_portal_url || '#';
+                const postUrl = m.ats_portal_url || m.job_url || '#';
                 
                 return `
                     <div id="job-card-${matchId}" class="glass-panel p-5 rounded-2xl flex flex-col justify-between hover:border-sky-500/40 transition group">
@@ -816,7 +816,8 @@ print(res.json())</code></pre>
                         <div class="space-y-3 pt-3 border-t border-slate-800">
                             <div class="flex items-center justify-between text-xs">
                                 <span class="text-slate-400">Target: <strong class="text-slate-200">${escapeHtml(m.networking_target_name || 'Hiring Lead')}</strong></span>
-                                <a href="${escapeHtml(postUrl)}" target="_blank" class="text-sky-400 hover:underline flex items-center gap-1 font-semibold">Job Posting ↗</a>
+                                <!-- Integrated Official Listing Link -->
+                                <a href="${escapeHtml(postUrl)}" target="_blank" class="text-sky-400 hover:underline">View Official Listing ↗</a>
                             </div>
                             <div class="flex items-center gap-2">
                                 <button onclick='openMatchDrawer(${JSON.stringify(m)})' class="flex-1 py-2 bg-sky-600/20 hover:bg-sky-600/30 text-sky-300 border border-sky-500/30 rounded-xl text-xs font-bold transition">⚡ Deep Dive & Studio</button>
@@ -834,7 +835,7 @@ print(res.json())</code></pre>
             const backdrop = document.getElementById('drawer-backdrop');
             const panel = document.getElementById('drawer-panel');
             const content = document.getElementById('drawer-content');
-            const postUrl = match.job_url || match.ats_portal_url || '#';
+            const postUrl = match.ats_portal_url || match.job_url || '#';
 
             content.innerHTML = `
                 <div class="flex justify-between items-start">
@@ -846,7 +847,7 @@ print(res.json())</code></pre>
                 </div>
                 
                 <div>
-                    <a href="${escapeHtml(postUrl)}" target="_blank" class="inline-flex items-center gap-2 px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold transition shadow-lg shadow-sky-600/20">🌐 Open Original Job Posting ↗</a>
+                    <a href="${escapeHtml(postUrl)}" target="_blank" class="text-sky-400 hover:underline">View Official Listing ↗</a>
                 </div>
 
                 <div class="space-y-2">
@@ -2041,187 +2042,25 @@ print(res.json())</code></pre>
                                 <div>
                                     <span class="text-white font-bold">${escapeHtml(lead.company_name)}</span>
                                     <span class="text-slate-400 text-[11px] ml-1.5">(${escapeHtml(lead.industry)})</span>
-                                    <div class="text-accent text-[11px] mt-0.5">Domain: ${escapeHtml(lead.domain)} | Intent: ${escapeHtml(lead.intent_signals || 'N/A')}</div>
                                 </div>
-                                <span class="bg-sky-500/10 text-accent font-bold px-2.5 py-1 rounded-md border border-sky-500/30 text-[11px]">${sim}% Match</span>
+                                <span class="text-emerald-400 font-mono">${Math.round(sim * 100)}% Match</span>
                             </div>
                         `;
                     });
                 } else {
                     container.classList.remove('hidden');
-                    list.innerHTML = '<p class="text-slate-400 text-xs">No matching semantic leads found.</p>';
+                    list.innerHTML = '<p class="text-slate-400 text-xs">No matching vector leads found.</p>';
                 }
-            } catch (err) { showToast("Failed.", true); }
-        }
-
-        async function loadUsageChart(apiKey) {
-            try {
-                const res = await fetch('/api/v1/analytics/usage', { headers: { 'x-api-key': apiKey } });
-                const data = await res.json();
-                if (!res.ok) return;
-
-                const history = data.usage_history || [];
-                const labels = history.map(item => item.day);
-                const counts = history.map(item => item.request_count);
-
-                const canvas = document.getElementById('usageChart');
-                if (!canvas) return;
-                const ctx = canvas.getContext('2d');
-                if (usageChartInstance) usageChartInstance.destroy();
-
-                usageChartInstance = new Chart(ctx, {
-                    type: 'line',
-                    data: {
-                        labels: labels,
-                        datasets: [{
-                            label: 'API Requests',
-                            data: counts,
-                            borderColor: '#38bdf8',
-                            backgroundColor: 'rgba(56, 189, 248, 0.08)',
-                            borderWidth: 2.5,
-                            fill: true,
-                            tension: 0.35,
-                            pointBackgroundColor: '#38bdf8'
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: { legend: { display: false } },
-                        scales: {
-                            x: { grid: { color: '#1e293b' }, ticks: { color: '#94a3b8' } },
-                            y: { grid: { color: '#1e293b' }, ticks: { color: '#94a3b8', beginAtZero: true } }
-                        }
-                    }
-                });
-            } catch (e) { console.error(e); }
-        }
-
-        async function loadKeys(apiKey) {
-            try {
-                const res = await fetch('/api/v1/keys', { headers: { 'x-api-key': apiKey } });
-                const data = await res.json();
-                const keyListContainer = document.getElementById('keyList');
-                if (!keyListContainer) return;
-                
-                if (data.keys && data.keys.length > 0) {
-                    let html = '';
-                    data.keys.forEach(k => {
-                        if (k.active === 1) {
-                            html += `
-                                <div class="bg-darkbg border border-slate-800 p-3 rounded-lg flex justify-between items-center text-xs mb-2">
-                                    <div class="flex flex-col">
-                                        <span class="font-bold text-white">${escapeHtml(k.key_name)} <span class="text-[10px] text-accent bg-sky-500/10 px-1.5 py-0.5 rounded ml-1.5">Role: ${k.role || 'admin'}</span> (ID: ${k.id})</span>
-                                        <span class="text-slate-400 text-[11px] mt-0.5">Created: ${k.created_at || 'N/A'}</span>
-                                    </div>
-                                    <button class="bg-rose-500/10 hover:bg-rose-500 text-rose-400 hover:text-white border border-rose-500/30 px-3 py-1 rounded text-xs font-semibold transition" onclick="revokeKey(${k.id})">Revoke</button>
-                                </div>
-                            `;
-                        }
-                    });
-                    keyListContainer.innerHTML = html || 'No active keys found.';
-                } else keyListContainer.innerHTML = 'No keys found.';
-            } catch(e) { console.error(e); }
-        }
-
-        async function createNewKey() {
-            const apiKey = document.getElementById('apiKey').value.trim();
-            const keyNameInput = document.getElementById('newKeyName').value.trim() || "team@company.com";
-            const role = document.getElementById('newKeyRole').value;
-            const scope = document.getElementById('newKeyScope').value;
-            if (!apiKey) return;
-
-            let emailValue = keyNameInput;
-            if (!emailValue.includes('@')) emailValue = emailValue.toLowerCase().replace(/[^a-z0-9]/g, '') + '@company.com';
-
-            try {
-                const res = await fetch(`/api/v1/team/invite`, {
-                    method: 'POST',
-                    headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ email: emailValue, key_name: keyNameInput, role: role, scope: scope })
-                });
-                const data = await res.json();
-                if (res.ok) {
-                    showToast(data.message);
-                    loadKeys(apiKey);
-                } else showToast(data.detail || "Failed.", true);
-            } catch(e) { showToast("Error.", true); }
-        }
-
-        async function revokeKey(keyId) {
-            const apiKey = document.getElementById('apiKey').value.trim();
-            if (!apiKey || !confirm(`Revoke API key ID ${keyId}?`)) return;
-
-            try {
-                const res = await fetch(`/api/v1/keys/${keyId}`, {
-                    method: 'DELETE',
-                    headers: { 'x-api-key': apiKey }
-                });
-                if (res.ok) {
-                    showToast("API key revoked.");
-                    loadKeys(apiKey);
-                } else showToast("Failed.", true);
-            } catch (err) { showToast("Error.", true); }
-        }
-
-        async function registerWebhook() {
-            const apiKey = document.getElementById('apiKey').value.trim();
-            const webhookUrl = document.getElementById('webhookUrl').value.trim();
-            const filterRules = document.getElementById('webhookRules').value.trim();
-
-            if (!apiKey || !webhookUrl) return;
-            localStorage.setItem('nexus_webhook_rules', filterRules);
-
-            try {
-                const res = await fetch(`/api/v1/webhooks?webhook_url=${encodeURIComponent(webhookUrl)}&filter_rules=${encodeURIComponent(filterRules)}`, {
-                    method: 'POST',
-                    headers: { 'x-api-key': apiKey }
-                });
-                const data = await res.json();
-                showToast(data.message || "Webhook registered.");
-            } catch (err) { showToast("Failed.", true); }
-        }
-
-        async function fetchWebhookLogs() {
-            const apiKey = document.getElementById('apiKey').value.trim();
-            if (!apiKey) return;
-
-            try {
-                const res = await fetch('/api/v1/webhook-logs', { headers: { 'x-api-key': apiKey } });
-                const data = await res.json();
-                if (res.ok) {
-                    let logSummary = "Recent Webhook Deliveries:\n\n";
-                    (data.delivery_logs || []).forEach(l => {
-                        logSummary += `[${l.timestamp}] URL: ${l.webhook_url} | Status: ${l.status_code} | Success: ${l.success}\n`;
-                    });
-                    alert(logSummary);
-                } else showToast(data.detail || "Failed", true);
-            } catch (err) { showToast("Request failed.", true); }
-        }
-
-        async function triggerReset() {
-            const email = prompt("Enter your account email address:");
-            if (!email) return;
-
-            try {
-                const res = await fetch(`/api/v1/request-key-reset?email=${encodeURIComponent(email)}`, { method: 'POST' });
-                const data = await res.json();
-                showToast(data.message || "Reset link sent.");
-            } catch (err) { showToast("Failed.", true); }
-        }
-
-        function triggerManualSwarm() {
-            alert('Swarm pulse initiated. Scanning target boards...');
-            loadCareerMatches();
-        }
-
-        function logout() {
-            localStorage.removeItem('nexus_api_key');
-            window.location.reload();
+            } catch (e) {
+                showToast("Semantic search failed.", true);
+            }
         }
 
         function escapeHtml(str) {
-            return (str || '').replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+            if (!str) return '';
+            return str.replace(/[&<>'"]/g, 
+                tag => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[tag] || tag)
+            );
         }
     </script>
 </body>
