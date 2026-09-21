@@ -2041,187 +2041,134 @@ print(res.json())</code></pre>
                                 <div>
                                     <span class="text-white font-bold">${escapeHtml(lead.company_name)}</span>
                                     <span class="text-slate-400 text-[11px] ml-1.5">(${escapeHtml(lead.industry)})</span>
-                                    <div class="text-accent text-[11px] mt-0.5">Domain: ${escapeHtml(lead.domain)} | Intent: ${escapeHtml(lead.intent_signals || 'N/A')}</div>
                                 </div>
-                                <span class="bg-sky-500/10 text-accent font-bold px-2.5 py-1 rounded-md border border-sky-500/30 text-[11px]">${sim}% Match</span>
+                                <span class="text-sky-400 font-mono font-bold">${Math.round(sim * 100)}% Match</span>
                             </div>
                         `;
                     });
                 } else {
                     container.classList.remove('hidden');
-                    list.innerHTML = '<p class="text-slate-400 text-xs">No matching semantic leads found.</p>';
+                    list.innerHTML = '<div class="text-slate-400 text-xs">No matching vector leads found.</div>';
                 }
-            } catch (err) { showToast("Failed.", true); }
-        }
-
-        async function loadUsageChart(apiKey) {
-            try {
-                const res = await fetch('/api/v1/analytics/usage', { headers: { 'x-api-key': apiKey } });
-                const data = await res.json();
-                if (!res.ok) return;
-
-                const history = data.usage_history || [];
-                const labels = history.map(item => item.day);
-                const counts = history.map(item => item.request_count);
-
-                const canvas = document.getElementById('usageChart');
-                if (!canvas) return;
-                const ctx = canvas.getContext('2d');
-                if (usageChartInstance) usageChartInstance.destroy();
-
-                usageChartInstance = new Chart(ctx, {
-                    type: 'line',
-                    data: {
-                        labels: labels,
-                        datasets: [{
-                            label: 'API Requests',
-                            data: counts,
-                            borderColor: '#38bdf8',
-                            backgroundColor: 'rgba(56, 189, 248, 0.08)',
-                            borderWidth: 2.5,
-                            fill: true,
-                            tension: 0.35,
-                            pointBackgroundColor: '#38bdf8'
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: { legend: { display: false } },
-                        scales: {
-                            x: { grid: { color: '#1e293b' }, ticks: { color: '#94a3b8' } },
-                            y: { grid: { color: '#1e293b' }, ticks: { color: '#94a3b8', beginAtZero: true } }
-                        }
-                    }
-                });
-            } catch (e) { console.error(e); }
+            } catch (err) {
+                showToast("Semantic search failed.", true);
+            }
         }
 
         async function loadKeys(apiKey) {
             try {
                 const res = await fetch('/api/v1/keys', { headers: { 'x-api-key': apiKey } });
                 const data = await res.json();
-                const keyListContainer = document.getElementById('keyList');
-                if (!keyListContainer) return;
-                
-                if (data.keys && data.keys.length > 0) {
-                    let html = '';
-                    data.keys.forEach(k => {
-                        if (k.active === 1) {
-                            html += `
-                                <div class="bg-darkbg border border-slate-800 p-3 rounded-lg flex justify-between items-center text-xs mb-2">
-                                    <div class="flex flex-col">
-                                        <span class="font-bold text-white">${escapeHtml(k.key_name)} <span class="text-[10px] text-accent bg-sky-500/10 px-1.5 py-0.5 rounded ml-1.5">Role: ${k.role || 'admin'}</span> (ID: ${k.id})</span>
-                                        <span class="text-slate-400 text-[11px] mt-0.5">Created: ${k.created_at || 'N/A'}</span>
-                                    </div>
-                                    <button class="bg-rose-500/10 hover:bg-rose-500 text-rose-400 hover:text-white border border-rose-500/30 px-3 py-1 rounded text-xs font-semibold transition" onclick="revokeKey(${k.id})">Revoke</button>
-                                </div>
-                            `;
-                        }
-                    });
-                    keyListContainer.innerHTML = html || 'No active keys found.';
-                } else keyListContainer.innerHTML = 'No keys found.';
-            } catch(e) { console.error(e); }
+                const container = document.getElementById('keyList');
+                if (res.ok && data.keys && data.keys.length > 0) {
+                    let html = 'Active Workspace Keys: ';
+                    data.keys.forEach(k => { html += `[${k.name || 'Key'} - Role: ${k.role}] `; });
+                    if (container) container.innerHTML = html;
+                }
+            } catch (e) { console.error(e); }
         }
 
         async function createNewKey() {
             const apiKey = document.getElementById('apiKey').value.trim();
-            const keyNameInput = document.getElementById('newKeyName').value.trim() || "team@company.com";
+            const name = document.getElementById('newKeyName').value.trim();
             const role = document.getElementById('newKeyRole').value;
             const scope = document.getElementById('newKeyScope').value;
-            if (!apiKey) return;
 
-            let emailValue = keyNameInput;
-            if (!emailValue.includes('@')) emailValue = emailValue.toLowerCase().replace(/[^a-z0-9]/g, '') + '@company.com';
+            if (!apiKey || !name) { alert("Provide a key label / email."); return; }
 
             try {
-                const res = await fetch(`/api/v1/team/invite`, {
+                const res = await fetch('/api/v1/keys', {
                     method: 'POST',
                     headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ email: emailValue, key_name: keyNameInput, role: role, scope: scope })
+                    body: JSON.stringify({ name, role, scope })
                 });
                 const data = await res.json();
                 if (res.ok) {
-                    showToast(data.message);
+                    showToast(`New key created! Key: ${data.api_key}`);
                     loadKeys(apiKey);
                 } else showToast(data.detail || "Failed.", true);
-            } catch(e) { showToast("Error.", true); }
-        }
-
-        async function revokeKey(keyId) {
-            const apiKey = document.getElementById('apiKey').value.trim();
-            if (!apiKey || !confirm(`Revoke API key ID ${keyId}?`)) return;
-
-            try {
-                const res = await fetch(`/api/v1/keys/${keyId}`, {
-                    method: 'DELETE',
-                    headers: { 'x-api-key': apiKey }
-                });
-                if (res.ok) {
-                    showToast("API key revoked.");
-                    loadKeys(apiKey);
-                } else showToast("Failed.", true);
-            } catch (err) { showToast("Error.", true); }
-        }
-
-        async function registerWebhook() {
-            const apiKey = document.getElementById('apiKey').value.trim();
-            const webhookUrl = document.getElementById('webhookUrl').value.trim();
-            const filterRules = document.getElementById('webhookRules').value.trim();
-
-            if (!apiKey || !webhookUrl) return;
-            localStorage.setItem('nexus_webhook_rules', filterRules);
-
-            try {
-                const res = await fetch(`/api/v1/webhooks?webhook_url=${encodeURIComponent(webhookUrl)}&filter_rules=${encodeURIComponent(filterRules)}`, {
-                    method: 'POST',
-                    headers: { 'x-api-key': apiKey }
-                });
-                const data = await res.json();
-                showToast(data.message || "Webhook registered.");
-            } catch (err) { showToast("Failed.", true); }
-        }
-
-        async function fetchWebhookLogs() {
-            const apiKey = document.getElementById('apiKey').value.trim();
-            if (!apiKey) return;
-
-            try {
-                const res = await fetch('/api/v1/webhook-logs', { headers: { 'x-api-key': apiKey } });
-                const data = await res.json();
-                if (res.ok) {
-                    let logSummary = "Recent Webhook Deliveries:\n\n";
-                    (data.delivery_logs || []).forEach(l => {
-                        logSummary += `[${l.timestamp}] URL: ${l.webhook_url} | Status: ${l.status_code} | Success: ${l.success}\n`;
-                    });
-                    alert(logSummary);
-                } else showToast(data.detail || "Failed", true);
             } catch (err) { showToast("Request failed.", true); }
         }
 
-        async function triggerReset() {
-            const email = prompt("Enter your account email address:");
-            if (!email) return;
-
+        async function loadUsageChart(apiKey) {
             try {
-                const res = await fetch(`/api/v1/request-key-reset?email=${encodeURIComponent(email)}`, { method: 'POST' });
+                const res = await fetch('/api/v1/usage-history', { headers: { 'x-api-key': apiKey } });
                 const data = await res.json();
-                showToast(data.message || "Reset link sent.");
-            } catch (err) { showToast("Failed.", true); }
+                if (res.ok && data.history) {
+                    const labels = data.history.map(h => h.date);
+                    const counts = data.history.map(h => h.count);
+
+                    const ctx = document.getElementById('usageChart').getContext('2d');
+                    if (usageChartInstance) usageChartInstance.destroy();
+
+                    usageChartInstance = new Chart(ctx, {
+                        type: 'line',
+                        data: {
+                            labels: labels,
+                            datasets: [{
+                                label: 'API Requests',
+                                data: counts,
+                                borderColor: '#38bdf8',
+                                backgroundColor: 'rgba(56, 189, 248, 0.1)',
+                                fill: true,
+                                tension: 0.3
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: { legend: { display: false } },
+                            scales: {
+                                x: { grid: { color: 'rgba(51, 65, 85, 0.2)' }, ticks: { color: '#94a3b8', font: { size: 10 } } },
+                                y: { grid: { color: 'rgba(51, 65, 85, 0.2)' }, ticks: { color: '#94a3b8', font: { size: 10 } } }
+                            }
+                        }
+                    });
+                }
+            } catch (e) { console.error("Usage chart load error:", e); }
         }
 
-        function triggerManualSwarm() {
-            alert('Swarm pulse initiated. Scanning target boards...');
-            loadCareerMatches();
+        function triggerReset() {
+            localStorage.removeItem('nexus_api_key');
+            document.getElementById('apiKey').value = '';
+            showToast("API Key reset successfully.");
+        }
+
+        async function triggerManualSwarm() {
+            const apiKey = document.getElementById('apiKey').value.trim();
+            if (!apiKey) { alert("Please authenticate first."); return; }
+            showToast("Triggering manual global ATS job & lead swarm indexing...");
+            try {
+                const res = await fetch('/api/v1/swarm/trigger', {
+                    method: 'POST',
+                    headers: { 'x-api-key': apiKey }
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    showToast(data.message || "Swarm execution completed successfully!");
+                    saveAndFetch();
+                    loadCareerMatches();
+                } else {
+                    showToast(data.detail || "Failed to trigger swarm.", true);
+                }
+            } catch (e) {
+                showToast("Swarm trigger request failed.", true);
+            }
         }
 
         function logout() {
             localStorage.removeItem('nexus_api_key');
-            window.location.reload();
+            location.reload();
         }
 
         function escapeHtml(str) {
-            return (str || '').replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+            if (!str) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
         }
     </script>
 </body>
