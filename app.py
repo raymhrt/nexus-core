@@ -927,7 +927,6 @@ def fetch_advanced_enrichment_data(domain: str, industry: str = "SaaS / Tech") -
         return parsed
     except Exception as e:
         logger.warning(f"Dynamic enrichment AI extraction fallback triggered for {clean_dom}: {e}")
-        # Robust fallback returning dynamic domain telemetry ensuring the app never crashes
         return {
             "tech_stack": "Python, PostgreSQL, AWS",
             "funding_stage": "Private / Established",
@@ -1027,12 +1026,18 @@ async def evaluate_autonomous_rules_for_lead(lead_id: int):
             logger.info(f"Omnichannel Swarm: Enrolled lead {r['company_name']} into multi-touch email + LinkedIn sequence & Slack alert.")
             await sse_broker.broadcast("slack_alert", {"company": r["company_name"], "trust_score": r["trust_score"], "message": f"🔥 High-Value Account Alert: {r['company_name']} has a trust score of {r['trust_score']}/100!"})
 
-async def job_scouting_swarm_worker():
-    logger.info("APScheduler Career Swarm: Scouting active job boards and running match scoring...")
+async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_count: int = 5):
+    logger.info(f"APScheduler Career Swarm: Scouting active job boards with strict location filtering and target volume: {requested_count}...")
     conn = get_db()
     try:
         cursor = conn.cursor()
-        cursor.execute("SELECT email, profile_json FROM user_profiles")
+        if user_email:
+            if DATABASE_URL:
+                cursor.execute("SELECT email, profile_json FROM user_profiles WHERE email = %s", (user_email,))
+            else:
+                cursor.execute("SELECT email, profile_json FROM user_profiles WHERE email = ?", (user_email,))
+        else:
+            cursor.execute("SELECT email, profile_json FROM user_profiles")
         users = cursor.fetchall()
         cursor.close()
     finally:
@@ -1042,24 +1047,35 @@ async def job_scouting_swarm_worker():
         u_dict = dict(user) if not isinstance(user, dict) and not hasattr(user, "keys") else user
         email = u_dict["email"] if isinstance(u_dict, dict) else user[0]
          
-        await asyncio.sleep(4.0)
+        existing_jobs = set()
+        chk_conn = get_db()
+        try:
+            cc = chk_conn.cursor()
+            if DATABASE_URL:
+                cc.execute("SELECT company_name, job_title FROM job_matches WHERE user_email = %s", (email,))
+            else:
+                cc.execute("SELECT company_name, job_title FROM job_matches WHERE user_email = ?", (email,))
+            for r in cc.fetchall():
+                r_d = dict(r) if hasattr(r, "keys") else {"company_name": r[0], "job_title": r[1]}
+                existing_jobs.add((r_d["company_name"].lower().strip(), r_d["job_title"].lower().strip()))
+            cc.close()
+        finally:
+            release_db(chk_conn)
+
+        await asyncio.sleep(2.0)
+        
         prompt_job_discovery = f"""
-        Act as an expert job market scraper. Based on the user profile niche: {u_dict.get('profile_json')}, generate 2 realistic executive job openings.
-        CRITICAL: Output ONLY valid JSON in the exact format of a JSON list of objects with keys: company_name, job_title, location, job_description. Do NOT include markdown code blocks, backticks, or any conversational filler text.
-        Example format:
-        [
-          {{
-            "company_name": "Apex Tech",
-            "job_title": "VP of Engineering",
-            "location": "Remote",
-            "job_description": "Leading cloud scaling initiatives..."
-          }}
-        ]
+        Act as an expert executive job market scraper. Based on the candidate profile: {u_dict.get('profile_json')}, 
+        generate exactly {requested_count} distinct, high-value executive job openings.
+        
+        CRITICAL LOCATION CONSTRAINT: Restrict job locations strictly to South Africa, Remote (UK/EU), or European Union hubs unless global remote is specified.
+        CRITICAL UNIQUENESS CONSTRAINT: Do NOT generate jobs from these already-discovered companies/roles: {list(existing_jobs)}.
+        CRITICAL: Output ONLY valid JSON in the exact format of a JSON list of objects with keys: company_name, job_title, location, job_description. No markdown block backticks or conversational text.
         """
+        
         sample_jobs = []
         try:
             raw_jobs = call_gemini_rest(prompt_job_discovery)
-             
             cleaned_text = raw_jobs.strip()
             if cleaned_text.startswith("```json"):
                 cleaned_text = cleaned_text[7:]
@@ -1076,32 +1092,40 @@ async def job_scouting_swarm_worker():
                  
             sample_jobs = json.loads(cleaned_text)
         except Exception as e:
-            logger.error(f"Live job discovery failed to parse JSON: {e} | Raw output: {raw_jobs if 'raw_jobs' in locals() else 'None'}")
-            raise HTTPException(status_code=502, detail="External job discovery failed to return valid data. No mock data injected.")
+            logger.error(f"Live job discovery failed to parse JSON: {e}")
+            continue
 
         for job in sample_jobs:
-            await asyncio.sleep(3.0)
+            c_name = job.get('company_name', '').strip()
+            j_title = job.get('job_title', '').strip()
+            
+            if (c_name.lower(), j_title.lower()) in existing_jobs:
+                continue
+
+            await asyncio.sleep(1.5)
+            # PROMPT UPGRADE: Direct second-person narrative ("You") and executive networking draft
             prompt = f"""
             Act as an elite Career Matchmaking and Executive Recruiting Agent.
-            Evaluate the fit between the candidate profile and the open job description.
+            Evaluate the fit between the candidate profile and the open job description. 
+            IMPORTANT: Address the candidate directly using second-person pronouns ("You", "Your background", "Your 11 years...") in the match rationale, speaking directly to them as the user.
              
             Candidate Profile: {u_dict.get('profile_json')}
-            Job Title: {job.get('job_title')}
-            Company: {job.get('company_name')}
+            Job Title: {j_title}
+            Company: {c_name}
+            Location: {job.get('location')}
             Description: {job.get('job_description')}
              
             CRITICAL: Output ONLY valid JSON with keys:
             - fit_score (integer 0 to 100)
-            - match_rationale (string)
+            - match_rationale (string written in second-person addressing the candidate as 'You')
             - decision_maker_name (string)
             - decision_maker_title (string)
             - decision_maker_email (string)
-            - outreach_draft (string)
+            - outreach_draft (string - a polished, professional first-person networking note from the candidate to the decision maker)
             No markdown backticks or commentary.
             """
             try:
                 raw_eval = call_gemini_rest(prompt)
-                 
                 cleaned_eval = raw_eval.strip()
                 if cleaned_eval.startswith("```json"):
                     cleaned_eval = cleaned_eval[7:]
@@ -1119,7 +1143,7 @@ async def job_scouting_swarm_worker():
                 eval_data = json.loads(cleaned_eval)
             except Exception as eval_err:
                 logger.error(f"AI evaluation failed: {eval_err}")
-                raise HTTPException(status_code=502, detail="External job match evaluation failed. No mock data injected.")
+                continue
 
             ins_conn = get_db()
             try:
@@ -1130,7 +1154,7 @@ async def job_scouting_swarm_worker():
                         INSERT INTO job_matches (user_email, company_name, job_title, job_description, location, fit_score, match_rationale, decision_maker_name, decision_maker_title, decision_maker_email, outreach_draft, status)
                         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'discovered')
                         """,
-                        (email, job.get('company_name'), job.get('job_title'), job.get('job_description'), job.get('location'), eval_data.get('fit_score', 85), eval_data.get('match_rationale'), eval_data.get('decision_maker_name'), eval_data.get('decision_maker_title'), eval_data.get('decision_maker_email'), eval_data.get('outreach_draft'))
+                        (email, c_name, j_title, job.get('job_description'), job.get('location'), eval_data.get('fit_score', 85), eval_data.get('match_rationale'), eval_data.get('decision_maker_name'), eval_data.get('decision_maker_title'), eval_data.get('decision_maker_email'), eval_data.get('outreach_draft'))
                     )
                 else:
                     ic.execute(
@@ -1138,14 +1162,15 @@ async def job_scouting_swarm_worker():
                         INSERT INTO job_matches (user_email, company_name, job_title, job_description, location, fit_score, match_rationale, decision_maker_name, decision_maker_title, decision_maker_email, outreach_draft, status)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'discovered')
                         """,
-                        (email, job.get('company_name'), job.get('job_title'), job.get('job_description'), job.get('location'), eval_data.get('fit_score', 85), eval_data.get('match_rationale'), eval_data.get('decision_maker_name'), eval_data.get('decision_maker_title'), eval_data.get('decision_maker_email'), eval_data.get('outreach_draft'))
+                        (email, c_name, j_title, job.get('job_description'), job.get('location'), eval_data.get('fit_score', 85), eval_data.get('match_rationale'), eval_data.get('decision_maker_name'), eval_data.get('decision_maker_title'), eval_data.get('decision_maker_email'), eval_data.get('outreach_draft'))
                     )
                 ins_conn.commit()
                 ic.close()
+                existing_jobs.add((c_name.lower(), j_title.lower()))
             finally:
                 release_db(ins_conn)
 
-    await sse_broker.broadcast("career_swarm_update", {"status": "scouted", "message": "New job matches discovered and evaluated."})
+    await sse_broker.broadcast("career_swarm_update", {"status": "scouted", "message": "Custom volume job matches discovered and evaluated."})
 
 async def webhook_canary_healing_worker():
     conn = get_db()
@@ -1455,6 +1480,7 @@ class JobHuntRequest(BaseModel):
     resume_text: str
     target_role: str
     location: str
+    job_count: Optional[int] = Field(default=5, ge=1, le=20)
 
 class CareerResumeRequest(BaseModel):
     resume_content: str
@@ -1722,7 +1748,7 @@ async def save_career_resume(payload: ResumeInput, x_api_key: str = Header(None)
 async def save_career_criteria(payload: CareerCriteriaInput, background_tasks: BackgroundTasks, x_api_key: str = Header(None), request: Request = None):
     auth = verify_api_key(x_api_key, request)
 
-    background_tasks.add_task(job_scouting_swarm_worker)
+    background_tasks.add_task(job_scouting_swarm_worker, user_email=auth["email"], requested_count=5)
 
     await sse_broker.broadcast("career_swarm_launched", {"roles": payload.target_roles, "locations": payload.locations})
     return {"status": "success", "message": "Target criteria saved & Career Swarm launched with elite risk-reduction filters."}
@@ -1745,6 +1771,28 @@ def approve_career_match(match_id: int, user=Depends(verify_api_key)):
         raise HTTPException(status_code=404, detail="Match not found.")
     match_company = row["company_name"] if isinstance(row, dict) else row[0]
     return {"status": "success", "message": f"Match for {match_company} approved! Multi-touch sequence queued."}
+
+@app.delete("/api/v1/career/matches/{match_id}")
+async def delete_career_match(match_id: int, request: Request, auth: dict = Depends(verify_api_key)):
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute("DELETE FROM job_matches WHERE id = %s AND user_email = %s RETURNING id", (match_id, auth["email"]))
+            row = cursor.fetchone()
+        else:
+            cursor.execute("DELETE FROM job_matches WHERE id = ? AND user_email = ?", (match_id, auth["email"]))
+            row = cursor.lastrowid
+        conn.commit()
+        cursor.close()
+    finally:
+        release_db(conn)
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Job match not found.")
+
+    log_audit_event(auth["email"], "CAREER_MATCH_DELETED", f"Deleted job match ID {match_id}", auth["ip"])
+    return {"status": "success", "message": f"Job match #{match_id} successfully dismissed."}
 
 @app.post("/api/v1/career/matches/{match_id}/dispatch")
 def dispatch_career_outreach(match_id: int, payload: DispatchOutreachInput, user=Depends(verify_api_key)):
@@ -1801,11 +1849,11 @@ async def match_jobs_endpoint(request: JobHuntRequest, background_tasks: Backgro
     finally:
         release_db(conn)
 
-    background_tasks.add_task(job_scouting_swarm_worker)
+    background_tasks.add_task(job_scouting_swarm_worker, user_email=request.user_id, requested_count=request.job_count)
 
     return {
         "status": "success", 
-        "message": "Career swarm initiated and scouting worker triggered. Check your dashboard shortly.",
+        "message": f"Career swarm initiated and scouting worker triggered for {request.job_count} roles. Check your dashboard shortly.",
         "credits_deducted": credits_required
     }
 

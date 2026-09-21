@@ -528,7 +528,21 @@ print(res.json())</code></pre>
                             <input type="text" id="targetJobLocations" placeholder="e.g. South Africa, Remote, European Union" class="w-full bg-slate-950 border border-slate-800 px-4 py-2.5 rounded-xl text-xs text-white">
                         </div>
                     </div>
-                    <button id="save-criteria-btn" onclick="saveCareerCriteria()" class="bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold px-5 py-2.5 rounded-xl text-xs transition">Save Criteria & Launch Swarm</button>
+                    <!-- PHASE 2: Job Quantity Selector Added Here -->
+                    <div class="flex flex-col sm:flex-row items-start sm:items-center gap-4 pt-2">
+                        <div class="flex-1 w-full sm:w-auto">
+                            <label class="block text-xs font-bold text-slate-300 mb-1">Jobs Per Batch</label>
+                            <select id="jobQuantitySelect" class="bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white w-full sm:w-48 focus:outline-none focus:border-sky-500 font-mono">
+                                <option value="3">3 Jobs per batch</option>
+                                <option value="5" selected>5 Jobs per batch</option>
+                                <option value="10">10 Jobs per batch</option>
+                                <option value="15">15 Jobs per batch</option>
+                            </select>
+                        </div>
+                        <div class="w-full sm:w-auto self-end">
+                            <button id="save-criteria-btn" onclick="saveCareerCriteria()" class="bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold px-6 py-2.5 rounded-xl text-xs transition whitespace-nowrap">Save Criteria & Launch Swarm</button>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Discovered Job Matches & Networking Targets Section -->
@@ -765,14 +779,17 @@ print(res.json())</code></pre>
                 const fitScore = m.fit_score || 90;
                 const matchId = m.id || idx + 1;
                 html += `
-                    <div class="bg-slate-900 border border-slate-800 p-5 rounded-xl shadow-lg flex flex-col justify-between">
+                    <div id="job-card-${matchId}" class="bg-slate-900 border border-slate-800 p-5 rounded-xl shadow-lg flex flex-col justify-between animate-fade-in">
                         <div>
                             <div class="flex justify-between items-start mb-2">
                                 <div>
                                     <h4 class="font-bold text-slate-100">${escapeHtml(m.role_title)}</h4>
                                     <p class="text-xs text-slate-400">${escapeHtml(m.company_name)} • ${escapeHtml(m.location)}</p>
                                 </div>
-                                <span class="bg-emerald-500/10 text-emerald-400 px-2.5 py-1 rounded-full text-xs font-bold">${fitScore}% Match</span>
+                                <div class="flex items-center gap-2">
+                                    <span class="bg-emerald-500/10 text-emerald-400 px-2.5 py-1 rounded-full text-xs font-bold">${fitScore}% Match</span>
+                                    <button onclick="dismissJobMatch(${matchId})" class="bg-rose-500/10 hover:bg-rose-500 text-rose-400 hover:text-white border border-rose-500/30 px-2 py-1 rounded-lg text-xs font-semibold transition" title="Dismiss / Delete">🗑️</button>
+                                </div>
                             </div>
                             <p class="text-xs text-slate-300 mt-2 mb-3 bg-slate-950 p-3 rounded-lg border border-slate-800/60">
                                 <strong>Match Rationale & Positioning:</strong> ${escapeHtml(m.rationale)}
@@ -804,6 +821,34 @@ print(res.json())</code></pre>
                 `;
             });
             container.innerHTML = html;
+        }
+
+        // PHASE 2: Delete / Dismiss job match card
+        async function dismissJobMatch(matchId) {
+            const apiKey = document.getElementById('apiKey').value.trim();
+            if (!apiKey) { alert("Please authenticate first."); return; }
+
+            try {
+                const res = await fetch(`/api/v1/career/matches/${matchId}`, {
+                    method: 'DELETE',
+                    headers: { 'x-api-key': apiKey }
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    showToast(data.message || `Job match #${matchId} dismissed successfully.`);
+                    const card = document.getElementById(`job-card-${matchId}`);
+                    if (card) {
+                        card.style.transition = 'all 0.3s ease';
+                        card.style.opacity = '0';
+                        card.style.transform = 'scale(0.95)';
+                        setTimeout(() => card.remove(), 300);
+                    }
+                } else {
+                    showToast(data.detail || "Failed to dismiss job match.", true);
+                }
+            } catch (err) {
+                showToast("Delete request failed: " + err.message, true);
+            }
         }
 
         function openCareerOutreachModal(matchId) {
@@ -906,16 +951,18 @@ print(res.json())</code></pre>
             const apiKey = document.getElementById('apiKey').value.trim();
             const target_roles = document.getElementById('targetJobRoles').value.trim();
             const locations = document.getElementById('targetJobLocations').value.trim();
+            const job_quantity = parseInt(document.getElementById('jobQuantitySelect').value) || 5;
             
             // Save criteria to local storage
             localStorage.setItem('nexus_target_roles', target_roles);
             localStorage.setItem('nexus_target_locations', locations);
+            localStorage.setItem('nexus_job_quantity', job_quantity);
             
             try {
                 const res = await fetch('/api/v1/career/criteria', {
                     method: 'POST',
                     headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ target_roles, locations })
+                    body: JSON.stringify({ target_roles, locations, job_quantity })
                 });
                 const data = await res.json();
                 if (res.ok) {
