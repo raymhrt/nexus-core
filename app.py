@@ -755,7 +755,7 @@ def init_db():
                 timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        
+         
         for col_def in [
             ("hidden_pain_points", "TEXT DEFAULT 'None'"),
             ("regulatory_vulnerability", "TEXT DEFAULT 'None'"),
@@ -820,6 +820,20 @@ def init_career_tables():
                 timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        
+        # Robust schema auto-migration for existing tables missing columns
+        for col_def in [
+            ("salary_benchmark", "TEXT"),
+            ("recruiter_verified", "BOOLEAN"),
+            ("negotiation_strategy", "TEXT"),
+            ("cv_variant", "TEXT"),
+            ("ats_portal_url", "TEXT"),
+            ("outreach_subject", "TEXT")
+        ]:
+            try:
+                cursor.execute(f"ALTER TABLE job_matches ADD COLUMN IF NOT EXISTS {col_def[0]} {col_def[1]};")
+            except Exception:
+                conn.rollback()
     else:
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS user_profiles (
@@ -849,6 +863,19 @@ def init_career_tables():
                 timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        
+        for col_def in [
+            ("salary_benchmark", "TEXT"),
+            ("recruiter_verified", "INTEGER"),
+            ("negotiation_strategy", "TEXT"),
+            ("cv_variant", "TEXT"),
+            ("ats_portal_url", "TEXT"),
+            ("outreach_subject", "TEXT")
+        ]:
+            try:
+                cursor.execute(f"ALTER TABLE job_matches ADD COLUMN {col_def[0]} {col_def[1]};")
+            except Exception:
+                pass
     conn.commit()
     cursor.close()
     release_db(conn)
@@ -1797,7 +1824,7 @@ async def generate_mock_interview(payload: MockInterviewRequest, x_api_key: str 
     Conduct a rigorous mock interview screening for the position: {payload.job_title}.
     Job Description: {payload.job_description}
     Focus: {payload.candidate_focus}
-    
+     
     Return strict JSON with keys:
     - interviewer_persona (string, name and style)
     - opening_statement (string)
@@ -1824,7 +1851,7 @@ async def generate_salary_negotiation(payload: SalaryNegotiationRequest, x_api_k
     Act as an elite executive compensation advisor and career negotiator.
     Company: {payload.company_name} | Role: {payload.job_title}
     Offered Comp: {payload.offered_compensation} | Target Comp: {payload.target_compensation}
-    
+     
     Draft a persuasive, highly professional counter-offer email emphasizing leverage, market rates, and unique value propositions.
     Return strict JSON with keys:
     - market_analysis (string, real-time benchmark summary)
