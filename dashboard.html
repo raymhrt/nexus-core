@@ -433,6 +433,33 @@
                             <p class="text-xs text-slate-400 font-sans">Authenticate to load audit logs.</p>
                         </div>
                     </div>
+
+                    <div class="bg-inputbg border border-slate-800 p-6 rounded-xl">
+                        <span class="block text-xs font-bold uppercase tracking-wider text-accent mb-3 flex items-center gap-2"><i class="fa-solid fa-users-gear text-purple-400"></i> Multi-Key Management & Team Workspaces</span>
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                            <div>
+                                <label class="block text-xs font-bold uppercase text-slate-400 mb-2">Key Label / Member Email</label>
+                                <input type="text" id="newKeyName" placeholder="e.g. sdr-john@company.com" class="bg-darkbg border border-slate-700 rounded-lg px-3 py-2.5 text-xs w-full focus:outline-none focus:border-accent text-white">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold uppercase text-slate-400 mb-2">Workspace Role</label>
+                                <select id="newKeyRole" class="bg-darkbg border border-slate-700 rounded-lg p-2.5 text-xs w-full text-white">
+                                    <option value="sdr">Role: SDR (Ingest & Train)</option>
+                                    <option value="viewer">Role: Viewer (Read-Only)</option>
+                                    <option value="admin">Role: Admin (Full Access)</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold uppercase text-slate-400 mb-2">Granular Scope</label>
+                                <select id="newKeyScope" class="bg-darkbg border border-slate-700 rounded-lg p-2.5 text-xs w-full text-white">
+                                    <option value="full">Scope: Full (Read/Write/Admin)</option>
+                                    <option value="read">Scope: Read (Read-Only)</option>
+                                </select>
+                            </div>
+                        </div>
+                        <button class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-accent font-bold px-5 py-2.5 rounded-lg text-xs transition mb-4 flex items-center gap-2" onclick="createNewKey()"><i class="fa-solid fa-user-plus text-cyan-400"></i> Invite Team Member & Generate Key</button>
+                        <div id="keyList" class="text-xs text-slate-400">Authenticate to load active API keys.</div>
+                    </div>
                 </div>
 
                 <!-- TAB 6: Developer Sandbox -->
@@ -665,9 +692,6 @@ print(res.json())</code></pre>
     <script>
         lucide.createIcons();
 
-        // Explicit Render Production API Base Endpoint
-        const API_BASE = "https://nexus-core-yfou.onrender.com";
-
         let usageChartInstance = null;
         let cachedLeadsData = [];
         let cachedCareerMatches = [];
@@ -676,32 +700,24 @@ print(res.json())</code></pre>
         let activeCareerMatchIdForEmail = null;
 
         window.onload = function() {
-            let savedKey = '';
-            try {
-                savedKey = localStorage.getItem('nexus_api_key') || '';
-            } catch (e) {
-                console.warn('localStorage restricted by browser privacy settings.');
-            }
-
+            const savedKey = localStorage.getItem('nexus_api_key');
             if (savedKey) {
                 document.getElementById('apiKey').value = savedKey;
                 saveAndFetch();
                 loadCareerMatches();
             }
 
-            try {
-                const savedResume = localStorage.getItem('nexus_master_resume');
-                if (savedResume) document.getElementById('careerResumeInput').value = savedResume;
+            const savedResume = localStorage.getItem('nexus_master_resume');
+            if (savedResume) document.getElementById('careerResumeInput').value = savedResume;
 
-                const savedRoles = localStorage.getItem('nexus_target_roles');
-                if (savedRoles) document.getElementById('targetJobRoles').value = savedRoles;
+            const savedRoles = localStorage.getItem('nexus_target_roles');
+            if (savedRoles) document.getElementById('targetJobRoles').value = savedRoles;
 
-                const savedLocations = localStorage.getItem('nexus_target_locations');
-                if (savedLocations) document.getElementById('targetJobLocations').value = savedLocations;
+            const savedLocations = localStorage.getItem('nexus_target_locations');
+            if (savedLocations) document.getElementById('targetJobLocations').value = savedLocations;
 
-                const savedRules = localStorage.getItem('nexus_webhook_rules');
-                if (savedRules) document.getElementById('webhookRules').value = savedRules;
-            } catch (e) {}
+            const savedRules = localStorage.getItem('nexus_webhook_rules');
+            if (savedRules) document.getElementById('webhookRules').value = savedRules;
 
             initSSETelemetry();
         };
@@ -745,7 +761,7 @@ print(res.json())</code></pre>
 
             const apiKey = document.getElementById('apiKey').value.trim();
             try {
-                const response = await fetch(`${API_BASE}/api/v1/career/matches`, {
+                const response = await fetch('/api/v1/career/matches', {
                     headers: { 'x-api-key': apiKey }
                 });
                 const data = await response.json();
@@ -783,7 +799,7 @@ print(res.json())</code></pre>
             container.innerHTML = matches.map((m, idx) => {
                 const fitScore = m.fit_score || 90;
                 const matchId = m.id || idx + 1;
-                const postUrl = m.ats_portal_url || m.job_url || '#';
+                const postUrl = m.job_url || m.ats_portal_url || '#';
                 
                 return `
                     <div id="job-card-${matchId}" class="glass-panel p-5 rounded-2xl flex flex-col justify-between hover:border-sky-500/40 transition group">
@@ -800,8 +816,7 @@ print(res.json())</code></pre>
                         <div class="space-y-3 pt-3 border-t border-slate-800">
                             <div class="flex items-center justify-between text-xs">
                                 <span class="text-slate-400">Target: <strong class="text-slate-200">${escapeHtml(m.networking_target_name || 'Hiring Lead')}</strong></span>
-                                <!-- Integrated Official Listing Link -->
-                                <a href="${escapeHtml(postUrl)}" target="_blank" class="text-sky-400 hover:underline">View Official Listing ↗</a>
+                                <a href="${escapeHtml(postUrl)}" target="_blank" class="text-sky-400 hover:underline flex items-center gap-1 font-semibold">Job Posting ↗</a>
                             </div>
                             <div class="flex items-center gap-2">
                                 <button onclick='openMatchDrawer(${JSON.stringify(m)})' class="flex-1 py-2 bg-sky-600/20 hover:bg-sky-600/30 text-sky-300 border border-sky-500/30 rounded-xl text-xs font-bold transition">⚡ Deep Dive & Studio</button>
@@ -819,7 +834,7 @@ print(res.json())</code></pre>
             const backdrop = document.getElementById('drawer-backdrop');
             const panel = document.getElementById('drawer-panel');
             const content = document.getElementById('drawer-content');
-            const postUrl = match.ats_portal_url || match.job_url || '#';
+            const postUrl = match.job_url || match.ats_portal_url || '#';
 
             content.innerHTML = `
                 <div class="flex justify-between items-start">
@@ -831,7 +846,7 @@ print(res.json())</code></pre>
                 </div>
                 
                 <div>
-                    <a href="${escapeHtml(postUrl)}" target="_blank" class="text-sky-400 hover:underline">View Official Listing ↗</a>
+                    <a href="${escapeHtml(postUrl)}" target="_blank" class="inline-flex items-center gap-2 px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold transition shadow-lg shadow-sky-600/20">🌐 Open Original Job Posting ↗</a>
                 </div>
 
                 <div class="space-y-2">
@@ -892,7 +907,7 @@ print(res.json())</code></pre>
             const body = document.getElementById('careerModalBody').value.trim();
 
             try {
-                const res = await fetch(`${API_BASE}/api/v1/career/matches/${activeCareerMatchIdForEmail}/dispatch`, {
+                const res = await fetch(`/api/v1/career/matches/${activeCareerMatchIdForEmail}/dispatch`, {
                     method: 'POST',
                     headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
                     body: JSON.stringify({ subject, body })
@@ -912,7 +927,7 @@ print(res.json())</code></pre>
             if (!apiKey) { alert("Please authenticate first."); return; }
 
             try {
-                const res = await fetch(`${API_BASE}/api/v1/career/matches/${matchId}`, {
+                const res = await fetch(`/api/v1/career/matches/${matchId}`, {
                     method: 'DELETE',
                     headers: { 'x-api-key': apiKey }
                 });
@@ -947,7 +962,7 @@ print(res.json())</code></pre>
             localStorage.setItem('nexus_master_resume', resume_content);
             
             try {
-                const res = await fetch(`${API_BASE}/api/v1/career/resume`, {
+                const res = await fetch('/api/v1/career/resume', {
                     method: 'POST',
                     headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
                     body: JSON.stringify({ resume_content })
@@ -993,7 +1008,7 @@ print(res.json())</code></pre>
             localStorage.setItem('nexus_job_quantity', job_quantity);
             
             try {
-                const res = await fetch(`${API_BASE}/api/v1/career/criteria`, {
+                const res = await fetch('/api/v1/career/criteria', {
                     method: 'POST',
                     headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
                     body: JSON.stringify({ target_roles, locations, job_quantity })
@@ -1047,7 +1062,7 @@ print(res.json())</code></pre>
             const apiKey = document.getElementById('apiKey').value.trim();
             if (!apiKey) return;
             try {
-                const res = await fetch(`${API_BASE}/api/v1/copilot/morning-briefing`, { headers: { 'x-api-key': apiKey } });
+                const res = await fetch('/api/v1/copilot/morning-briefing', { headers: { 'x-api-key': apiKey } });
                 const data = await res.json();
                 if (res.ok && data.greeting) {
                     document.getElementById("briefing-greeting").innerText = data.greeting;
@@ -1076,7 +1091,7 @@ print(res.json())</code></pre>
             input.value = '';
 
             try {
-                const res = await fetch(`${API_BASE}/api/v1/copilot/chat`, {
+                const res = await fetch('/api/v1/copilot/chat', {
                     method: 'POST',
                     headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
                     body: JSON.stringify({ prompt })
@@ -1097,7 +1112,7 @@ print(res.json())</code></pre>
         }
 
         function initSSETelemetry() {
-            const eventSource = new EventSource(`${API_BASE}/api/v1/stream/telemetry`);
+            const eventSource = new EventSource('/api/v1/stream/telemetry');
             const sseLog = document.getElementById('telemetry-log');
             const careerLog = document.getElementById('careerTelemetryLog');
 
@@ -1176,13 +1191,13 @@ print(res.json())</code></pre>
 
             if (!apiKey) { alert("Please enter your API key first."); return; }
 
-            const fullUrl = `${API_BASE}${endpoint}?limit=${limit}`;
+            const fullUrl = `https://nexus-core-yfou.onrender.com${endpoint}?limit=${limit}`;
             document.getElementById('curlSnippet').innerText = `curl -X GET "${fullUrl}" \\\n  -H "x-api-key: ${apiKey}"`;
             document.getElementById('pythonSnippet').innerText = `import requests\nres = requests.get("${fullUrl}", headers={"x-api-key": "${apiKey}"})\nprint(res.json())`;
 
             output.innerText = "Executing request...";
             try {
-                const res = await fetch(`${API_BASE}${endpoint}?limit=${limit}`, {
+                const res = await fetch(`${endpoint}?limit=${limit}`, {
                     headers: { 'x-api-key': apiKey }
                 });
                 const data = await res.json();
@@ -1203,7 +1218,7 @@ print(res.json())</code></pre>
             document.getElementById('emailModal').classList.remove('hidden');
 
             try {
-                const res = await fetch(`${API_BASE}/api/v1/leads/${leadId}/ai-draft`, {
+                const res = await fetch(`/api/v1/leads/${leadId}/ai-draft`, {
                     method: 'POST',
                     headers: { 'x-api-key': apiKey }
                 });
@@ -1229,7 +1244,7 @@ print(res.json())</code></pre>
             if (!to_email || !subject || !body) { alert("Fill all fields."); return; }
 
             try {
-                const res = await fetch(`${API_BASE}/api/v1/leads/${activeLeadIdForEmail}/send-live-email`, {
+                const res = await fetch(`/api/v1/leads/${activeLeadIdForEmail}/send-live-email`, {
                     method: 'POST',
                     headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
                     body: JSON.stringify({ to_email, subject, body })
@@ -1250,7 +1265,7 @@ print(res.json())</code></pre>
             if (!apiKey) { alert("Please enter your API key first!"); return; }
 
             try {
-                const res = await fetch(`${API_BASE}/api/v1/leads/${leadId}/sync-crm`, {
+                const res = await fetch(`/api/v1/leads/${leadId}/sync-crm`, {
                     method: 'POST',
                     headers: { 'x-api-key': apiKey }
                 });
@@ -1268,7 +1283,7 @@ print(res.json())</code></pre>
             const apiKey = document.getElementById('apiKey').value.trim();
             if (!apiKey) { alert("Please authenticate first."); return; }
             try {
-                const res = await fetch(`${API_BASE}/api/v1/leads/${leadId}/convert`, {
+                const res = await fetch(`/api/v1/leads/${leadId}/convert`, {
                     method: 'POST',
                     headers: { 'x-api-key': apiKey }
                 });
@@ -1284,7 +1299,7 @@ print(res.json())</code></pre>
             const apiKey = document.getElementById('apiKey').value.trim();
             if (!apiKey) { alert("Please authenticate first."); return; }
             try {
-                const res = await fetch(`${API_BASE}/api/v1/leads/${leadId}/reject`, {
+                const res = await fetch(`/api/v1/leads/${leadId}/reject`, {
                     method: 'POST',
                     headers: { 'x-api-key': apiKey }
                 });
@@ -1301,7 +1316,7 @@ print(res.json())</code></pre>
             if (!apiKey) { alert("Please authenticate first."); return; }
 
             try {
-                const res = await fetch(`${API_BASE}/api/v1/leads/${leadId}/enroll-sequence`, {
+                const res = await fetch(`/api/v1/leads/${leadId}/enroll-sequence`, {
                     method: 'POST',
                     headers: { 'x-api-key': apiKey }
                 });
@@ -1325,7 +1340,7 @@ print(res.json())</code></pre>
             if (!apiKey) { alert("Please authenticate first."); return; }
 
             try {
-                const res = await fetch(`${API_BASE}/api/v1/leads/${leadId}`, {
+                const res = await fetch(`/api/v1/leads/${leadId}`, {
                     method: 'DELETE',
                     headers: { 'x-api-key': apiKey }
                 });
@@ -1351,13 +1366,13 @@ print(res.json())</code></pre>
             content.innerText = "Executing deep intelligence scan & vector lookalikes search...";
 
             try {
-                const scanRes = await fetch(`${API_BASE}/api/v1/leads/${leadId}/deep-scan`, {
+                const scanRes = await fetch(`/api/v1/leads/${leadId}/deep-scan`, {
                     method: 'POST',
                     headers: { 'x-api-key': apiKey }
                 });
                 const scanData = await scanRes.json();
 
-                const lookRes = await fetch(`${API_BASE}/api/v1/leads/${leadId}/lookalikes`, {
+                const lookRes = await fetch(`/api/v1/leads/${leadId}/lookalikes`, {
                     headers: { 'x-api-key': apiKey }
                 });
                 const lookData = await lookRes.json();
@@ -1398,7 +1413,7 @@ print(res.json())</code></pre>
             const container = document.getElementById('dlqContainer');
 
             try {
-                const res = await fetch(`${API_BASE}/api/v1/admin/dlq`, { headers: { 'x-api-key': apiKey } });
+                const res = await fetch('/api/v1/admin/dlq', { headers: { 'x-api-key': apiKey } });
                 const data = await res.json();
                 if (res.ok && data.dlq_items && data.dlq_items.length > 0) {
                     let html = '';
@@ -1429,7 +1444,7 @@ print(res.json())</code></pre>
             const apiKey = document.getElementById('apiKey').value.trim();
             if (!apiKey) return;
             try {
-                const res = await fetch(`${API_BASE}/api/v1/admin/dlq/${dlqId}/replay`, {
+                const res = await fetch(`/api/v1/admin/dlq/${dlqId}/replay`, {
                     method: 'POST',
                     headers: { 'x-api-key': apiKey }
                 });
@@ -1449,7 +1464,7 @@ print(res.json())</code></pre>
             const apiKey = document.getElementById('apiKey').value.trim();
             if (!apiKey) return;
             try {
-                const res = await fetch(`${API_BASE}/api/v1/admin/dlq/replay-all`, {
+                const res = await fetch(`/api/v1/admin/dlq/replay-all`, {
                     method: 'POST',
                     headers: { 'x-api-key': apiKey }
                 });
@@ -1469,7 +1484,7 @@ print(res.json())</code></pre>
             const apiKey = document.getElementById('apiKey').value.trim();
             if (!apiKey) return;
             try {
-                const res = await fetch(`${API_BASE}/api/v1/admin/circuit-breakers`, { headers: { 'x-api-key': apiKey } });
+                const res = await fetch('/api/v1/admin/circuit-breakers', { headers: { 'x-api-key': apiKey } });
                 const data = await res.json();
                 if (res.ok && data.breakers) {
                     const wb = data.breakers.webhook || { state: 'CLOSED', failures: 0 };
@@ -1501,7 +1516,7 @@ print(res.json())</code></pre>
             const apiKey = document.getElementById('apiKey').value.trim();
             if (!apiKey) return;
             try {
-                const res = await fetch(`${API_BASE}/api/v1/admin/circuit-breakers/${service}/reset`, {
+                const res = await fetch(`/api/v1/admin/circuit-breakers/${service}/reset`, {
                     method: 'POST',
                     headers: { 'x-api-key': apiKey }
                 });
@@ -1521,7 +1536,7 @@ print(res.json())</code></pre>
             const apiKey = document.getElementById('apiKey').value.trim();
             if (!apiKey) return;
             try {
-                const res = await fetch(`${API_BASE}/api/v1/admin/canary-heal`, {
+                const res = await fetch('/api/v1/admin/canary-heal', {
                     method: 'POST',
                     headers: { 'x-api-key': apiKey }
                 });
@@ -1544,7 +1559,7 @@ print(res.json())</code></pre>
             const container = document.getElementById('auditLogContainer');
 
             try {
-                const res = await fetch(`${API_BASE}/api/v1/admin/audit-logs`, { headers: { 'x-api-key': apiKey } });
+                const res = await fetch('/api/v1/admin/audit-logs', { headers: { 'x-api-key': apiKey } });
                 const data = await res.json();
                 if (res.ok && data.audit_logs && data.audit_logs.length > 0) {
                     let html = '';
@@ -1566,7 +1581,7 @@ print(res.json())</code></pre>
             if (!apiKey) { alert("Please authenticate first."); return; }
 
             try {
-                const res = await fetch(`${API_BASE}/api/v1/user/telegram`, {
+                const res = await fetch('/api/v1/user/telegram', {
                     method: 'POST',
                     headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
                     body: JSON.stringify({ telegram_chat_id })
@@ -1584,7 +1599,7 @@ print(res.json())</code></pre>
 
         async function loadTelegramSettings(apiKey) {
             try {
-                const res = await fetch(`${API_BASE}/api/v1/user/telegram`, { headers: { 'x-api-key': apiKey } });
+                const res = await fetch('/api/v1/user/telegram', { headers: { 'x-api-key': apiKey } });
                 const data = await res.json();
                 if (res.ok && data.telegram_chat_id) {
                     const el = document.getElementById('telegramChatId');
@@ -1597,23 +1612,14 @@ print(res.json())</code></pre>
         function closeDeepScanModal() { document.getElementById('deepScanModal').classList.add('hidden'); }
 
         async function saveAndFetch() {
-            const apiKeyInput = document.getElementById('apiKey');
-            const apiKey = apiKeyInput ? apiKeyInput.value.trim() : '';
+            const apiKey = document.getElementById('apiKey').value.trim();
             const leadFeedContainer = document.getElementById('leadFeedContainer');
             const statusDiv = document.getElementById('status');
             const usageBar = document.getElementById('usageBar');
 
-            if (!apiKey) {
-                alert("Please enter a valid API key.");
-                return;
-            }
+            if (!apiKey) { alert("Please enter a valid API key."); return; }
 
-            try {
-                localStorage.setItem('nexus_api_key', apiKey);
-            } catch (e) {
-                console.warn('Could not save API key to localStorage due to browser policy.');
-            }
-
+            localStorage.setItem('nexus_api_key', apiKey);
             if (leadFeedContainer) leadFeedContainer.innerHTML = '<div class="bg-slate-900 border border-slate-800 p-4 rounded-xl animate-pulse h-20"></div>';
             if (statusDiv) statusDiv.innerText = "Syncing with cluster...";
 
@@ -1629,7 +1635,7 @@ print(res.json())</code></pre>
             if (sortBy) queryParams += `&sort_by=${encodeURIComponent(sortBy)}`;
 
             try {
-                const response = await fetch(`${API_BASE}/api/v1/leads${queryParams}`, {
+                const response = await fetch(`/api/v1/leads${queryParams}`, {
                     method: 'GET',
                     headers: { 'x-api-key': apiKey }
                 });
@@ -1684,7 +1690,7 @@ print(res.json())</code></pre>
 
         async function loadUserRoleBadge(apiKey) {
             try {
-                const res = await fetch(`${API_BASE}/api/v1/keys`, { headers: { 'x-api-key': apiKey } });
+                const res = await fetch('/api/v1/keys', { headers: { 'x-api-key': apiKey } });
                 const data = await res.json();
                 if (res.ok && data.keys && data.keys.length > 0) {
                     const activeKey = data.keys.find(k => k.active === 1) || data.keys[0];
@@ -1729,7 +1735,7 @@ print(res.json())</code></pre>
             if (!apiKey) { alert("Please authenticate first."); return; }
 
             try {
-                const res = await fetch(`${API_BASE}/create-portal-session`, {
+                const res = await fetch(`/create-portal-session`, {
                     method: 'POST',
                     headers: { 'x-api-key': apiKey }
                 });
@@ -1741,7 +1747,7 @@ print(res.json())</code></pre>
 
         async function loadCredits(apiKey) {
             try {
-                const res = await fetch(`${API_BASE}/api/v1/credits`, { headers: { 'x-api-key': apiKey } });
+                const res = await fetch('/api/v1/credits', { headers: { 'x-api-key': apiKey } });
                 const data = await res.json();
                 if (res.ok) {
                     document.getElementById('creditStatus').innerText = `Lead Credits Remaining: ${data.credits_remaining} / ${data.credits_limit}`;
@@ -1769,7 +1775,7 @@ print(res.json())</code></pre>
             resDiv.innerHTML = `<i class="fa-solid fa-spinner fa-spin text-cyan-400"></i> AI agent crawling & running enrichment waterfalls...`;
 
             try {
-                const response = await fetch(`${API_BASE}/api/v1/leads/generate-on-demand`, {
+                const response = await fetch('/api/v1/leads/generate-on-demand', {
                     method: 'POST',
                     headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
                     body: JSON.stringify({ query: query, count: count })
@@ -1815,7 +1821,7 @@ print(res.json())</code></pre>
             if (!apiKey || !webhook_url) { alert("Provide an endpoint URL."); return; }
 
             try {
-                const res = await fetch(`${API_BASE}/api/v1/destinations`, {
+                const res = await fetch('/api/v1/destinations', {
                     method: 'POST',
                     headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
                     body: JSON.stringify({ destination_type, webhook_url, access_token })
@@ -1830,7 +1836,7 @@ print(res.json())</code></pre>
 
         async function loadDestinations(apiKey) {
             try {
-                const res = await fetch(`${API_BASE}/api/v1/destinations`, { headers: { 'x-api-key': apiKey } });
+                const res = await fetch('/api/v1/destinations', { headers: { 'x-api-key': apiKey } });
                 const data = await res.json();
                 const container = document.getElementById('destinationList');
                 if (data.destinations && data.destinations.length > 0) {
@@ -1843,7 +1849,7 @@ print(res.json())</code></pre>
 
         async function loadAutonomousRules(apiKey) {
             try {
-                const res = await fetch(`${API_BASE}/api/v1/autonomous/rules`, { headers: { 'x-api-key': apiKey } });
+                const res = await fetch('/api/v1/autonomous/rules', { headers: { 'x-api-key': apiKey } });
                 const data = await res.json();
                 if (res.ok && data.rules) {
                     const elTrust = document.getElementById('autoMinTrust');
@@ -1865,7 +1871,7 @@ print(res.json())</code></pre>
             const auto_enroll = parseInt(document.getElementById('autoEnrollSeq').value) || 1;
 
             try {
-                const res = await fetch(`${API_BASE}/api/v1/autonomous/rules`, {
+                const res = await fetch('/api/v1/autonomous/rules', {
                     method: 'POST',
                     headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
                     body: JSON.stringify({ min_trust, auto_sync, auto_enroll })
@@ -1973,20 +1979,25 @@ print(res.json())</code></pre>
                             <span class="bg-darkbg border border-slate-800 px-2.5 py-1 rounded text-slate-300">Industry: <strong class="text-white">${escapeHtml(lead.industry)}</strong></span>
                             <span class="bg-darkbg border border-slate-800 px-2.5 py-1 rounded text-slate-300">Size: <strong class="text-white">${escapeHtml(lead.employee_count)}</strong></span>
                             <span class="bg-darkbg border border-slate-800 px-2.5 py-1 rounded text-slate-300">Stage: <strong class="text-white">${escapeHtml(displayStage)}</strong></span>
-                            <span class="bg-darkbg border border-slate-800 px-2.5 py-1 rounded text-slate-300">Intent: <strong class="text-white">${escapeHtml(intent)}</strong></span>
+                            <span class="bg-darkbg border border-slate-800 px-2.5 py-1 rounded text-emerald-400 font-semibold">${emailStatus}</span>
                         </div>
-                        <div class="flex flex-wrap items-center justify-between pt-2 border-t border-slate-800 gap-2">
-                            <div class="flex items-center gap-2">
-                                <button onclick="draftAIEmail(${lead.id}, '${escapeHtml(lead.company_name)}')" class="bg-sky-500/10 hover:bg-sky-500/20 text-accent border border-sky-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1">✉️ Draft AI Email</button>
-                                <button onclick="syncLeadToCRM(${lead.id})" class="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1">🔄 Sync CRM</button>
-                                <button onclick="enrollSequence(${lead.id})" class="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1">⚡ Sequence</button>
-                                <button onclick="triggerDeepScan(${lead.id})" class="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1">🔍 Deep Scan</button>
+                        <div class="bg-sky-500/5 border-l-2 border-accent p-2.5 rounded-r-lg text-xs text-slate-300">
+                            🔥 <strong class="text-white">Intent Signal / News Trigger:</strong> ${escapeHtml(intent)}
+                        </div>
+                        <div class="flex flex-wrap items-center justify-between mt-1">
+                            <div class="flex flex-wrap gap-2">
+                                <button class="bg-sky-500/10 hover:bg-sky-500/20 text-accent border border-sky-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${disabledAttr}" onclick="draftAIEmail(${lead.id}, '${escapeHtml(lead.company_name)}', '${escapeHtml(lead.email || 'contact@' + cleanDomain)}')">✨ AI Draft & Send</button>
+                                <button class="bg-sky-500/10 hover:bg-sky-500/20 text-accent border border-sky-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${disabledAttr}" onclick="syncLeadToCRM(${lead.id})">🔗 ${lead.sync_status === 'synced' ? 'Unsync' : 'Sync'} CRM</button>
+                                <button class="bg-sky-500/10 hover:bg-sky-500/20 text-accent border border-sky-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${disabledAttr}" onclick="enrollSequence(${lead.id})">🚀 Enroll</button>
+                                <button class="bg-sky-500/10 hover:bg-sky-500/20 text-accent border border-sky-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition" onclick="triggerDeepScan(${lead.id})">🔍 Deep Scan</button>
+                                <button class="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${disabledAttr}" onclick="convertLeadAction(${lead.id})">
+                                    👍 ${isConverted ? 'Unconvert' : 'Convert'}
+                                </button>
+                                <button class="bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${disabledAttr}" onclick="rejectLeadAction(${lead.id})">
+                                    👎 ${isRejected ? 'Unreject' : 'Reject'}
+                                </button>
                             </div>
-                            <div class="flex items-center gap-2">
-                                <button onclick="convertLeadAction(${lead.id})" class="text-emerald-400 hover:underline text-xs font-semibold">Convert</button>
-                                <button onclick="rejectLeadAction(${lead.id})" class="text-rose-400 hover:underline text-xs font-semibold">Reject</button>
-                                <button onclick="deleteLeadCard(${lead.id})" class="text-slate-500 hover:text-rose-400 text-xs transition p-1" title="Delete lead"><i class="fa-solid fa-trash"></i></button>
-                            </div>
+                            <button class="bg-rose-500/10 hover:bg-rose-500 text-rose-400 hover:text-white border border-rose-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${disabledAttr}" onclick="deleteLeadCard(${lead.id})">🗑️ Delete</button>
                         </div>
                     </div>
                 `;
@@ -1994,14 +2005,223 @@ print(res.json())</code></pre>
             container.innerHTML = html;
         }
 
+        async function loadICPProfile(apiKey) {
+            try {
+                const res = await fetch('/api/v1/icp', { headers: { 'x-api-key': apiKey } });
+                const data = await res.json();
+                if (res.ok && data.icp) {
+                    const elInd = document.getElementById('targetIndustries');
+                    const elMin = document.getElementById('minTrustScore');
+                    if (elInd) elInd.value = data.icp.target_industries || 'Fintech, SaaS, AI';
+                    if (elMin) elMin.value = data.icp.min_trust_score || 85;
+                }
+            } catch (e) { console.error(e); }
+        }
+
+        async function runSemanticSearch() {
+            const query = document.getElementById('semanticQueryInput').value.trim();
+            const apiKey = document.getElementById('apiKey').value.trim();
+            if (!apiKey || !query) { alert("Authenticate and enter query."); return; }
+
+            try {
+                const response = await fetch(`/api/v1/leads/semantic-search?query=${encodeURIComponent(query)}&limit=5`, {
+                    headers: { 'x-api-key': apiKey }
+                });
+                const data = await response.json();
+                const container = document.getElementById('semanticResultsContainer');
+                const list = document.getElementById('semanticResultsList');
+                list.innerHTML = '';
+
+                if (data.status === 'success' && data.leads && data.leads.length > 0) {
+                    container.classList.remove('hidden');
+                    data.leads.forEach((lead) => {
+                        const sim = lead.similarity !== undefined ? lead.similarity : 90;
+                        list.innerHTML += `
+                            <div class="bg-darkbg border border-slate-800 p-3 rounded-lg flex justify-between items-center text-xs">
+                                <div>
+                                    <span class="text-white font-bold">${escapeHtml(lead.company_name)}</span>
+                                    <span class="text-slate-400 text-[11px] ml-1.5">(${escapeHtml(lead.industry)})</span>
+                                    <div class="text-accent text-[11px] mt-0.5">Domain: ${escapeHtml(lead.domain)} | Intent: ${escapeHtml(lead.intent_signals || 'N/A')}</div>
+                                </div>
+                                <span class="bg-sky-500/10 text-accent font-bold px-2.5 py-1 rounded-md border border-sky-500/30 text-[11px]">${sim}% Match</span>
+                            </div>
+                        `;
+                    });
+                } else {
+                    container.classList.remove('hidden');
+                    list.innerHTML = '<p class="text-slate-400 text-xs">No matching semantic leads found.</p>';
+                }
+            } catch (err) { showToast("Failed.", true); }
+        }
+
+        async function loadUsageChart(apiKey) {
+            try {
+                const res = await fetch('/api/v1/analytics/usage', { headers: { 'x-api-key': apiKey } });
+                const data = await res.json();
+                if (!res.ok) return;
+
+                const history = data.usage_history || [];
+                const labels = history.map(item => item.day);
+                const counts = history.map(item => item.request_count);
+
+                const canvas = document.getElementById('usageChart');
+                if (!canvas) return;
+                const ctx = canvas.getContext('2d');
+                if (usageChartInstance) usageChartInstance.destroy();
+
+                usageChartInstance = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'API Requests',
+                            data: counts,
+                            borderColor: '#38bdf8',
+                            backgroundColor: 'rgba(56, 189, 248, 0.08)',
+                            borderWidth: 2.5,
+                            fill: true,
+                            tension: 0.35,
+                            pointBackgroundColor: '#38bdf8'
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { display: false } },
+                        scales: {
+                            x: { grid: { color: '#1e293b' }, ticks: { color: '#94a3b8' } },
+                            y: { grid: { color: '#1e293b' }, ticks: { color: '#94a3b8', beginAtZero: true } }
+                        }
+                    }
+                });
+            } catch (e) { console.error(e); }
+        }
+
+        async function loadKeys(apiKey) {
+            try {
+                const res = await fetch('/api/v1/keys', { headers: { 'x-api-key': apiKey } });
+                const data = await res.json();
+                const keyListContainer = document.getElementById('keyList');
+                if (!keyListContainer) return;
+                
+                if (data.keys && data.keys.length > 0) {
+                    let html = '';
+                    data.keys.forEach(k => {
+                        if (k.active === 1) {
+                            html += `
+                                <div class="bg-darkbg border border-slate-800 p-3 rounded-lg flex justify-between items-center text-xs mb-2">
+                                    <div class="flex flex-col">
+                                        <span class="font-bold text-white">${escapeHtml(k.key_name)} <span class="text-[10px] text-accent bg-sky-500/10 px-1.5 py-0.5 rounded ml-1.5">Role: ${k.role || 'admin'}</span> (ID: ${k.id})</span>
+                                        <span class="text-slate-400 text-[11px] mt-0.5">Created: ${k.created_at || 'N/A'}</span>
+                                    </div>
+                                    <button class="bg-rose-500/10 hover:bg-rose-500 text-rose-400 hover:text-white border border-rose-500/30 px-3 py-1 rounded text-xs font-semibold transition" onclick="revokeKey(${k.id})">Revoke</button>
+                                </div>
+                            `;
+                        }
+                    });
+                    keyListContainer.innerHTML = html || 'No active keys found.';
+                } else keyListContainer.innerHTML = 'No keys found.';
+            } catch(e) { console.error(e); }
+        }
+
+        async function createNewKey() {
+            const apiKey = document.getElementById('apiKey').value.trim();
+            const keyNameInput = document.getElementById('newKeyName').value.trim() || "team@company.com";
+            const role = document.getElementById('newKeyRole').value;
+            const scope = document.getElementById('newKeyScope').value;
+            if (!apiKey) return;
+
+            let emailValue = keyNameInput;
+            if (!emailValue.includes('@')) emailValue = emailValue.toLowerCase().replace(/[^a-z0-9]/g, '') + '@company.com';
+
+            try {
+                const res = await fetch(`/api/v1/team/invite`, {
+                    method: 'POST',
+                    headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email: emailValue, key_name: keyNameInput, role: role, scope: scope })
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    showToast(data.message);
+                    loadKeys(apiKey);
+                } else showToast(data.detail || "Failed.", true);
+            } catch(e) { showToast("Error.", true); }
+        }
+
+        async function revokeKey(keyId) {
+            const apiKey = document.getElementById('apiKey').value.trim();
+            if (!apiKey || !confirm(`Revoke API key ID ${keyId}?`)) return;
+
+            try {
+                const res = await fetch(`/api/v1/keys/${keyId}`, {
+                    method: 'DELETE',
+                    headers: { 'x-api-key': apiKey }
+                });
+                if (res.ok) {
+                    showToast("API key revoked.");
+                    loadKeys(apiKey);
+                } else showToast("Failed.", true);
+            } catch (err) { showToast("Error.", true); }
+        }
+
+        async function registerWebhook() {
+            const apiKey = document.getElementById('apiKey').value.trim();
+            const webhookUrl = document.getElementById('webhookUrl').value.trim();
+            const filterRules = document.getElementById('webhookRules').value.trim();
+
+            if (!apiKey || !webhookUrl) return;
+            localStorage.setItem('nexus_webhook_rules', filterRules);
+
+            try {
+                const res = await fetch(`/api/v1/webhooks?webhook_url=${encodeURIComponent(webhookUrl)}&filter_rules=${encodeURIComponent(filterRules)}`, {
+                    method: 'POST',
+                    headers: { 'x-api-key': apiKey }
+                });
+                const data = await res.json();
+                showToast(data.message || "Webhook registered.");
+            } catch (err) { showToast("Failed.", true); }
+        }
+
+        async function fetchWebhookLogs() {
+            const apiKey = document.getElementById('apiKey').value.trim();
+            if (!apiKey) return;
+
+            try {
+                const res = await fetch('/api/v1/webhook-logs', { headers: { 'x-api-key': apiKey } });
+                const data = await res.json();
+                if (res.ok) {
+                    let logSummary = "Recent Webhook Deliveries:\n\n";
+                    (data.delivery_logs || []).forEach(l => {
+                        logSummary += `[${l.timestamp}] URL: ${l.webhook_url} | Status: ${l.status_code} | Success: ${l.success}\n`;
+                    });
+                    alert(logSummary);
+                } else showToast(data.detail || "Failed", true);
+            } catch (err) { showToast("Request failed.", true); }
+        }
+
+        async function triggerReset() {
+            const email = prompt("Enter your account email address:");
+            if (!email) return;
+
+            try {
+                const res = await fetch(`/api/v1/request-key-reset?email=${encodeURIComponent(email)}`, { method: 'POST' });
+                const data = await res.json();
+                showToast(data.message || "Reset link sent.");
+            } catch (err) { showToast("Failed.", true); }
+        }
+
+        function triggerManualSwarm() {
+            alert('Swarm pulse initiated. Scanning target boards...');
+            loadCareerMatches();
+        }
+
+        function logout() {
+            localStorage.removeItem('nexus_api_key');
+            window.location.reload();
+        }
+
         function escapeHtml(str) {
-            if (!str) return '';
-            return String(str)
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;')
-                .replace(/"/g, '&quot;')
-                .replace(/'/g, '&#039;');
+            return (str || '').replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
         }
     </script>
 </body>

@@ -817,7 +817,6 @@ def init_career_tables():
                 salary_benchmark TEXT DEFAULT 'Competitive Market Rate',
                 recruiter_verified INT DEFAULT 0,
                 negotiation_strategy TEXT DEFAULT '',
-                ats_portal_url TEXT,
                 timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
@@ -860,7 +859,6 @@ def init_career_tables():
                 salary_benchmark TEXT DEFAULT 'Competitive Market Rate',
                 recruiter_verified INTEGER DEFAULT 0,
                 negotiation_strategy TEXT DEFAULT '',
-                ats_portal_url TEXT,
                 timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         """)
@@ -1104,14 +1102,7 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
         
         CRITICAL LOCATION CONSTRAINT: Restrict job locations strictly to South Africa, Remote (UK/EU), or European Union hubs unless global remote is specified.
         CRITICAL UNIQUENESS CONSTRAINT: Do NOT generate jobs from these already-discovered companies/roles: {list(existing_jobs)}.
-        
-        Return strict JSON as a list of objects with keys: 
-        - company_name
-        - job_title
-        - location
-        - job_description
-        - ats_portal_url (include a real public career page URL or search link for the company, e.g., '[https://careers.company.com](https://careers.company.com)')
-        No markdown block backticks or conversational text.
+        CRITICAL: Output ONLY valid JSON in the exact format of a JSON list of objects with keys: company_name, job_title, location, job_description. No markdown block backticks or conversational text.
         """
         
         sample_jobs = []
@@ -1139,7 +1130,6 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
         for job in sample_jobs:
             c_name = job.get('company_name', '').strip()
             j_title = job.get('job_title', '').strip()
-            ats_url = job.get('ats_portal_url', '').strip()
             
             if (c_name.lower(), j_title.lower()) in existing_jobs:
                 continue
@@ -1195,8 +1185,8 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
                 if DATABASE_URL:
                     ic.execute(
                         """
-                        INSERT INTO job_matches (user_email, company_name, job_title, job_description, location, fit_score, match_rationale, decision_maker_name, decision_maker_title, decision_maker_email, outreach_draft, salary_benchmark, recruiter_verified, negotiation_strategy, ats_portal_url, status)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'discovered')
+                        INSERT INTO job_matches (user_email, company_name, job_title, job_description, location, fit_score, match_rationale, decision_maker_name, decision_maker_title, decision_maker_email, outreach_draft, salary_benchmark, recruiter_verified, negotiation_strategy, status)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'discovered')
                         """,
                         (
                             email, c_name, j_title, job.get('job_description'), job.get('location'), 
@@ -1206,14 +1196,13 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
                             eval_data.get('salary_benchmark', 'Competitive Market Rate'),
                             eval_data.get('recruiter_verified', 1),
                             eval_data.get('negotiation_strategy', 'Emphasize past scale and unique domain expertise.'),
-                            ats_url
                         )
                     )
                 else:
                     ic.execute(
                         """
-                        INSERT INTO job_matches (user_email, company_name, job_title, job_description, location, fit_score, match_rationale, decision_maker_name, decision_maker_title, decision_maker_email, outreach_draft, salary_benchmark, recruiter_verified, negotiation_strategy, ats_portal_url, status)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'discovered')
+                        INSERT INTO job_matches (user_email, company_name, job_title, job_description, location, fit_score, match_rationale, decision_maker_name, decision_maker_title, decision_maker_email, outreach_draft, salary_benchmark, recruiter_verified, negotiation_strategy, status)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'discovered')
                         """,
                         (
                             email, c_name, j_title, job.get('job_description'), job.get('location'), 
@@ -1223,7 +1212,6 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
                             eval_data.get('salary_benchmark', 'Competitive Market Rate'),
                             eval_data.get('recruiter_verified', 1),
                             eval_data.get('negotiation_strategy', 'Emphasize past scale and unique domain expertise.'),
-                            ats_url
                         )
                     )
                 ins_conn.commit()
@@ -1586,6 +1574,7 @@ class OutreachDispatchRequest(BaseModel):
 @career_router.post("/matches/{match_id}/dispatch")
 async def dispatch_career_outreach_router(match_id: int, payload: OutreachDispatchRequest, x_api_key: str = Header(None), request: Request = None):
     """Dispatches the customized networking outreach email via Resend API."""
+    # Verify API Key & get user context...
     user = verify_api_key(x_api_key, request)
     
     conn = get_db()
@@ -1606,8 +1595,10 @@ async def dispatch_career_outreach_router(match_id: int, payload: OutreachDispat
 
     resend_api_key = os.environ.get("RESEND_API_KEY")
     if not resend_api_key:
+        # Fallback simulation or live send
         return {"status": "success", "message": f"Outreach email queued and dispatched successfully to {target_email} via Resend API (Simulated mode)."}
      
+    # If live Resend integration is active:
     headers = {
         "Authorization": f"Bearer {resend_api_key}",
         "Content-Type": "application/json"
@@ -1794,9 +1785,9 @@ def get_career_matches(user=Depends(verify_api_key)):
     try:
         cursor = conn.cursor()
         if DATABASE_URL:
-            cursor.execute("SELECT id, company_name, job_title as role_title, location, fit_score, match_rationale as rationale, decision_maker_name as networking_target_name, decision_maker_title as networking_target_role, decision_maker_email as networking_target_email, outreach_draft, salary_benchmark, recruiter_verified, negotiation_strategy, ats_portal_url FROM job_matches WHERE user_email = %s ORDER BY timestamp DESC", (user["email"],))
+            cursor.execute("SELECT id, company_name, job_title as role_title, location, fit_score, match_rationale as rationale, decision_maker_name as networking_target_name, decision_maker_title as networking_target_role, decision_maker_email as networking_target_email, outreach_draft, salary_benchmark, recruiter_verified, negotiation_strategy FROM job_matches WHERE user_email = %s ORDER BY timestamp DESC", (user["email"],))
         else:
-            cursor.execute("SELECT id, company_name, job_title as role_title, location, fit_score, match_rationale as rationale, decision_maker_name as networking_target_name, decision_maker_title as networking_target_role, decision_maker_email as networking_target_email, outreach_draft, salary_benchmark, recruiter_verified, negotiation_strategy, ats_portal_url FROM job_matches WHERE user_email = ? ORDER BY timestamp DESC", (user["email"],))
+            cursor.execute("SELECT id, company_name, job_title as role_title, location, fit_score, match_rationale as rationale, decision_maker_name as networking_target_name, decision_maker_title as networking_target_role, decision_maker_email as networking_target_email, outreach_draft, salary_benchmark, recruiter_verified, negotiation_strategy FROM job_matches WHERE user_email = ? ORDER BY timestamp DESC", (user["email"],))
         rows = cursor.fetchall()
         matches = [dict(r) for r in rows]
         cursor.close()
