@@ -865,7 +865,7 @@ def init_career_tables():
          
         for col_def in [
             ("salary_benchmark", "TEXT"),
-            ("recruiter_verified", "INTEGER"),
+            ("recruiter_verified", "BOOLEAN DEFAULT TRUE"),
             ("negotiation_strategy", "TEXT"),
             ("cv_variant", "TEXT"),
             ("ats_portal_url", "TEXT"),
@@ -1194,7 +1194,7 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
                             eval_data.get('decision_maker_name'), eval_data.get('decision_maker_title'), 
                             eval_data.get('decision_maker_email'), eval_data.get('outreach_draft'),
                             eval_data.get('salary_benchmark', 'Competitive Market Rate'),
-                            eval_data.get('recruiter_verified', 1),
+                            bool(eval_data.get('recruiter_verified', 1)),  # <--- FIXED: converted to boolean
                             eval_data.get('negotiation_strategy', 'Emphasize past scale and unique domain expertise.'),
                         )
                     )
