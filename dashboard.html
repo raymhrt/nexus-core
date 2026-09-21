@@ -665,6 +665,9 @@ print(res.json())</code></pre>
     <script>
         lucide.createIcons();
 
+        // Explicit Render Production API Base Endpoint
+        const API_BASE = "https://nexus-core-yfou.onrender.com";
+
         let usageChartInstance = null;
         let cachedLeadsData = [];
         let cachedCareerMatches = [];
@@ -742,7 +745,7 @@ print(res.json())</code></pre>
 
             const apiKey = document.getElementById('apiKey').value.trim();
             try {
-                const response = await fetch('/api/v1/career/matches', {
+                const response = await fetch(`${API_BASE}/api/v1/career/matches`, {
                     headers: { 'x-api-key': apiKey }
                 });
                 const data = await response.json();
@@ -889,7 +892,7 @@ print(res.json())</code></pre>
             const body = document.getElementById('careerModalBody').value.trim();
 
             try {
-                const res = await fetch(`/api/v1/career/matches/${activeCareerMatchIdForEmail}/dispatch`, {
+                const res = await fetch(`${API_BASE}/api/v1/career/matches/${activeCareerMatchIdForEmail}/dispatch`, {
                     method: 'POST',
                     headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
                     body: JSON.stringify({ subject, body })
@@ -909,7 +912,7 @@ print(res.json())</code></pre>
             if (!apiKey) { alert("Please authenticate first."); return; }
 
             try {
-                const res = await fetch(`/api/v1/career/matches/${matchId}`, {
+                const res = await fetch(`${API_BASE}/api/v1/career/matches/${matchId}`, {
                     method: 'DELETE',
                     headers: { 'x-api-key': apiKey }
                 });
@@ -944,7 +947,7 @@ print(res.json())</code></pre>
             localStorage.setItem('nexus_master_resume', resume_content);
             
             try {
-                const res = await fetch('/api/v1/career/resume', {
+                const res = await fetch(`${API_BASE}/api/v1/career/resume`, {
                     method: 'POST',
                     headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
                     body: JSON.stringify({ resume_content })
@@ -990,7 +993,7 @@ print(res.json())</code></pre>
             localStorage.setItem('nexus_job_quantity', job_quantity);
             
             try {
-                const res = await fetch('/api/v1/career/criteria', {
+                const res = await fetch(`${API_BASE}/api/v1/career/criteria`, {
                     method: 'POST',
                     headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
                     body: JSON.stringify({ target_roles, locations, job_quantity })
@@ -1044,7 +1047,7 @@ print(res.json())</code></pre>
             const apiKey = document.getElementById('apiKey').value.trim();
             if (!apiKey) return;
             try {
-                const res = await fetch('/api/v1/copilot/morning-briefing', { headers: { 'x-api-key': apiKey } });
+                const res = await fetch(`${API_BASE}/api/v1/copilot/morning-briefing`, { headers: { 'x-api-key': apiKey } });
                 const data = await res.json();
                 if (res.ok && data.greeting) {
                     document.getElementById("briefing-greeting").innerText = data.greeting;
@@ -1073,7 +1076,7 @@ print(res.json())</code></pre>
             input.value = '';
 
             try {
-                const res = await fetch('/api/v1/copilot/chat', {
+                const res = await fetch(`${API_BASE}/api/v1/copilot/chat`, {
                     method: 'POST',
                     headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
                     body: JSON.stringify({ prompt })
@@ -1094,7 +1097,7 @@ print(res.json())</code></pre>
         }
 
         function initSSETelemetry() {
-            const eventSource = new EventSource('/api/v1/stream/telemetry');
+            const eventSource = new EventSource(`${API_BASE}/api/v1/stream/telemetry`);
             const sseLog = document.getElementById('telemetry-log');
             const careerLog = document.getElementById('careerTelemetryLog');
 
@@ -1173,13 +1176,13 @@ print(res.json())</code></pre>
 
             if (!apiKey) { alert("Please enter your API key first."); return; }
 
-            const fullUrl = `https://nexus-core-yfou.onrender.com${endpoint}?limit=${limit}`;
+            const fullUrl = `${API_BASE}${endpoint}?limit=${limit}`;
             document.getElementById('curlSnippet').innerText = `curl -X GET "${fullUrl}" \\\n  -H "x-api-key: ${apiKey}"`;
             document.getElementById('pythonSnippet').innerText = `import requests\nres = requests.get("${fullUrl}", headers={"x-api-key": "${apiKey}"})\nprint(res.json())`;
 
             output.innerText = "Executing request...";
             try {
-                const res = await fetch(`${endpoint}?limit=${limit}`, {
+                const res = await fetch(`${API_BASE}${endpoint}?limit=${limit}`, {
                     headers: { 'x-api-key': apiKey }
                 });
                 const data = await res.json();
@@ -1200,7 +1203,7 @@ print(res.json())</code></pre>
             document.getElementById('emailModal').classList.remove('hidden');
 
             try {
-                const res = await fetch(`/api/v1/leads/${leadId}/ai-draft`, {
+                const res = await fetch(`${API_BASE}/api/v1/leads/${leadId}/ai-draft`, {
                     method: 'POST',
                     headers: { 'x-api-key': apiKey }
                 });
@@ -1226,7 +1229,7 @@ print(res.json())</code></pre>
             if (!to_email || !subject || !body) { alert("Fill all fields."); return; }
 
             try {
-                const res = await fetch(`/api/v1/leads/${activeLeadIdForEmail}/send-live-email`, {
+                const res = await fetch(`${API_BASE}/api/v1/leads/${activeLeadIdForEmail}/send-live-email`, {
                     method: 'POST',
                     headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
                     body: JSON.stringify({ to_email, subject, body })
@@ -1247,7 +1250,7 @@ print(res.json())</code></pre>
             if (!apiKey) { alert("Please enter your API key first!"); return; }
 
             try {
-                const res = await fetch(`/api/v1/leads/${leadId}/sync-crm`, {
+                const res = await fetch(`${API_BASE}/api/v1/leads/${leadId}/sync-crm`, {
                     method: 'POST',
                     headers: { 'x-api-key': apiKey }
                 });
@@ -1265,7 +1268,7 @@ print(res.json())</code></pre>
             const apiKey = document.getElementById('apiKey').value.trim();
             if (!apiKey) { alert("Please authenticate first."); return; }
             try {
-                const res = await fetch(`/api/v1/leads/${leadId}/convert`, {
+                const res = await fetch(`${API_BASE}/api/v1/leads/${leadId}/convert`, {
                     method: 'POST',
                     headers: { 'x-api-key': apiKey }
                 });
@@ -1281,7 +1284,7 @@ print(res.json())</code></pre>
             const apiKey = document.getElementById('apiKey').value.trim();
             if (!apiKey) { alert("Please authenticate first."); return; }
             try {
-                const res = await fetch(`/api/v1/leads/${leadId}/reject`, {
+                const res = await fetch(`${API_BASE}/api/v1/leads/${leadId}/reject`, {
                     method: 'POST',
                     headers: { 'x-api-key': apiKey }
                 });
@@ -1298,7 +1301,7 @@ print(res.json())</code></pre>
             if (!apiKey) { alert("Please authenticate first."); return; }
 
             try {
-                const res = await fetch(`/api/v1/leads/${leadId}/enroll-sequence`, {
+                const res = await fetch(`${API_BASE}/api/v1/leads/${leadId}/enroll-sequence`, {
                     method: 'POST',
                     headers: { 'x-api-key': apiKey }
                 });
@@ -1322,7 +1325,7 @@ print(res.json())</code></pre>
             if (!apiKey) { alert("Please authenticate first."); return; }
 
             try {
-                const res = await fetch(`/api/v1/leads/${leadId}`, {
+                const res = await fetch(`${API_BASE}/api/v1/leads/${leadId}`, {
                     method: 'DELETE',
                     headers: { 'x-api-key': apiKey }
                 });
@@ -1348,13 +1351,13 @@ print(res.json())</code></pre>
             content.innerText = "Executing deep intelligence scan & vector lookalikes search...";
 
             try {
-                const scanRes = await fetch(`/api/v1/leads/${leadId}/deep-scan`, {
+                const scanRes = await fetch(`${API_BASE}/api/v1/leads/${leadId}/deep-scan`, {
                     method: 'POST',
                     headers: { 'x-api-key': apiKey }
                 });
                 const scanData = await scanRes.json();
 
-                const lookRes = await fetch(`/api/v1/leads/${leadId}/lookalikes`, {
+                const lookRes = await fetch(`${API_BASE}/api/v1/leads/${leadId}/lookalikes`, {
                     headers: { 'x-api-key': apiKey }
                 });
                 const lookData = await lookRes.json();
@@ -1395,7 +1398,7 @@ print(res.json())</code></pre>
             const container = document.getElementById('dlqContainer');
 
             try {
-                const res = await fetch('/api/v1/admin/dlq', { headers: { 'x-api-key': apiKey } });
+                const res = await fetch(`${API_BASE}/api/v1/admin/dlq`, { headers: { 'x-api-key': apiKey } });
                 const data = await res.json();
                 if (res.ok && data.dlq_items && data.dlq_items.length > 0) {
                     let html = '';
@@ -1426,7 +1429,7 @@ print(res.json())</code></pre>
             const apiKey = document.getElementById('apiKey').value.trim();
             if (!apiKey) return;
             try {
-                const res = await fetch(`/api/v1/admin/dlq/${dlqId}/replay`, {
+                const res = await fetch(`${API_BASE}/api/v1/admin/dlq/${dlqId}/replay`, {
                     method: 'POST',
                     headers: { 'x-api-key': apiKey }
                 });
@@ -1446,7 +1449,7 @@ print(res.json())</code></pre>
             const apiKey = document.getElementById('apiKey').value.trim();
             if (!apiKey) return;
             try {
-                const res = await fetch(`/api/v1/admin/dlq/replay-all`, {
+                const res = await fetch(`${API_BASE}/api/v1/admin/dlq/replay-all`, {
                     method: 'POST',
                     headers: { 'x-api-key': apiKey }
                 });
@@ -1466,7 +1469,7 @@ print(res.json())</code></pre>
             const apiKey = document.getElementById('apiKey').value.trim();
             if (!apiKey) return;
             try {
-                const res = await fetch('/api/v1/admin/circuit-breakers', { headers: { 'x-api-key': apiKey } });
+                const res = await fetch(`${API_BASE}/api/v1/admin/circuit-breakers`, { headers: { 'x-api-key': apiKey } });
                 const data = await res.json();
                 if (res.ok && data.breakers) {
                     const wb = data.breakers.webhook || { state: 'CLOSED', failures: 0 };
@@ -1498,7 +1501,7 @@ print(res.json())</code></pre>
             const apiKey = document.getElementById('apiKey').value.trim();
             if (!apiKey) return;
             try {
-                const res = await fetch(`/api/v1/admin/circuit-breakers/${service}/reset`, {
+                const res = await fetch(`${API_BASE}/api/v1/admin/circuit-breakers/${service}/reset`, {
                     method: 'POST',
                     headers: { 'x-api-key': apiKey }
                 });
@@ -1518,7 +1521,7 @@ print(res.json())</code></pre>
             const apiKey = document.getElementById('apiKey').value.trim();
             if (!apiKey) return;
             try {
-                const res = await fetch('/api/v1/admin/canary-heal', {
+                const res = await fetch(`${API_BASE}/api/v1/admin/canary-heal`, {
                     method: 'POST',
                     headers: { 'x-api-key': apiKey }
                 });
@@ -1541,7 +1544,7 @@ print(res.json())</code></pre>
             const container = document.getElementById('auditLogContainer');
 
             try {
-                const res = await fetch('/api/v1/admin/audit-logs', { headers: { 'x-api-key': apiKey } });
+                const res = await fetch(`${API_BASE}/api/v1/admin/audit-logs`, { headers: { 'x-api-key': apiKey } });
                 const data = await res.json();
                 if (res.ok && data.audit_logs && data.audit_logs.length > 0) {
                     let html = '';
@@ -1563,7 +1566,7 @@ print(res.json())</code></pre>
             if (!apiKey) { alert("Please authenticate first."); return; }
 
             try {
-                const res = await fetch('/api/v1/user/telegram', {
+                const res = await fetch(`${API_BASE}/api/v1/user/telegram`, {
                     method: 'POST',
                     headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
                     body: JSON.stringify({ telegram_chat_id })
@@ -1581,7 +1584,7 @@ print(res.json())</code></pre>
 
         async function loadTelegramSettings(apiKey) {
             try {
-                const res = await fetch('/api/v1/user/telegram', { headers: { 'x-api-key': apiKey } });
+                const res = await fetch(`${API_BASE}/api/v1/user/telegram`, { headers: { 'x-api-key': apiKey } });
                 const data = await res.json();
                 if (res.ok && data.telegram_chat_id) {
                     const el = document.getElementById('telegramChatId');
@@ -1626,7 +1629,7 @@ print(res.json())</code></pre>
             if (sortBy) queryParams += `&sort_by=${encodeURIComponent(sortBy)}`;
 
             try {
-                const response = await fetch(`/api/v1/leads${queryParams}`, {
+                const response = await fetch(`${API_BASE}/api/v1/leads${queryParams}`, {
                     method: 'GET',
                     headers: { 'x-api-key': apiKey }
                 });
@@ -1681,7 +1684,7 @@ print(res.json())</code></pre>
 
         async function loadUserRoleBadge(apiKey) {
             try {
-                const res = await fetch('/api/v1/keys', { headers: { 'x-api-key': apiKey } });
+                const res = await fetch(`${API_BASE}/api/v1/keys`, { headers: { 'x-api-key': apiKey } });
                 const data = await res.json();
                 if (res.ok && data.keys && data.keys.length > 0) {
                     const activeKey = data.keys.find(k => k.active === 1) || data.keys[0];
@@ -1726,7 +1729,7 @@ print(res.json())</code></pre>
             if (!apiKey) { alert("Please authenticate first."); return; }
 
             try {
-                const res = await fetch(`/create-portal-session`, {
+                const res = await fetch(`${API_BASE}/create-portal-session`, {
                     method: 'POST',
                     headers: { 'x-api-key': apiKey }
                 });
@@ -1738,7 +1741,7 @@ print(res.json())</code></pre>
 
         async function loadCredits(apiKey) {
             try {
-                const res = await fetch('/api/v1/credits', { headers: { 'x-api-key': apiKey } });
+                const res = await fetch(`${API_BASE}/api/v1/credits`, { headers: { 'x-api-key': apiKey } });
                 const data = await res.json();
                 if (res.ok) {
                     document.getElementById('creditStatus').innerText = `Lead Credits Remaining: ${data.credits_remaining} / ${data.credits_limit}`;
@@ -1766,7 +1769,7 @@ print(res.json())</code></pre>
             resDiv.innerHTML = `<i class="fa-solid fa-spinner fa-spin text-cyan-400"></i> AI agent crawling & running enrichment waterfalls...`;
 
             try {
-                const response = await fetch('/api/v1/leads/generate-on-demand', {
+                const response = await fetch(`${API_BASE}/api/v1/leads/generate-on-demand`, {
                     method: 'POST',
                     headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
                     body: JSON.stringify({ query: query, count: count })
@@ -1812,7 +1815,7 @@ print(res.json())</code></pre>
             if (!apiKey || !webhook_url) { alert("Provide an endpoint URL."); return; }
 
             try {
-                const res = await fetch('/api/v1/destinations', {
+                const res = await fetch(`${API_BASE}/api/v1/destinations`, {
                     method: 'POST',
                     headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
                     body: JSON.stringify({ destination_type, webhook_url, access_token })
@@ -1827,7 +1830,7 @@ print(res.json())</code></pre>
 
         async function loadDestinations(apiKey) {
             try {
-                const res = await fetch('/api/v1/destinations', { headers: { 'x-api-key': apiKey } });
+                const res = await fetch(`${API_BASE}/api/v1/destinations`, { headers: { 'x-api-key': apiKey } });
                 const data = await res.json();
                 const container = document.getElementById('destinationList');
                 if (data.destinations && data.destinations.length > 0) {
@@ -1840,7 +1843,7 @@ print(res.json())</code></pre>
 
         async function loadAutonomousRules(apiKey) {
             try {
-                const res = await fetch('/api/v1/autonomous/rules', { headers: { 'x-api-key': apiKey } });
+                const res = await fetch(`${API_BASE}/api/v1/autonomous/rules`, { headers: { 'x-api-key': apiKey } });
                 const data = await res.json();
                 if (res.ok && data.rules) {
                     const elTrust = document.getElementById('autoMinTrust');
@@ -1862,7 +1865,7 @@ print(res.json())</code></pre>
             const auto_enroll = parseInt(document.getElementById('autoEnrollSeq').value) || 1;
 
             try {
-                const res = await fetch('/api/v1/autonomous/rules', {
+                const res = await fetch(`${API_BASE}/api/v1/autonomous/rules`, {
                     method: 'POST',
                     headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
                     body: JSON.stringify({ min_trust, auto_sync, auto_enroll })
