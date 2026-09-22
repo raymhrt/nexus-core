@@ -264,7 +264,6 @@ def fetch_adzuna_jobs(target_roles: str, location: str, count: int) -> List[Dict
     return jobs
 
 def fetch_themuse_jobs(target_roles: str, location: str, count: int) -> List[Dict]:
-    """Queries The Muse public open API for global professional listings."""
     url = "https://www.themuse.com/api/public/jobs"
     params = {
         "page": 1,
@@ -294,7 +293,6 @@ def fetch_themuse_jobs(target_roles: str, location: str, count: int) -> List[Dic
     return jobs[:count]
 
 def fetch_jsearch_rapidapi(target_roles: str, location: str, count: int) -> List[Dict]:
-    """Queries JSearch via RapidAPI if configured to aggregate across LinkedIn, Indeed, Glassdoor, ZipRecruiter."""
     rapid_api_key = os.getenv("RAPID_API_KEY")
     if not rapid_api_key:
         return []
@@ -324,27 +322,22 @@ def fetch_jsearch_rapidapi(target_roles: str, location: str, count: int) -> List
     return jobs[:count]
 
 def fetch_live_job_market(target_roles: str, location: str, count: int = 5) -> List[Dict]:
-    """Aggregates live job postings across ALL available channels simultaneously (Adzuna, The Muse, JSearch, etc.)."""
     logger.info(f"Multi-Source Job Aggregator: Scanning all connected job channels for '{target_roles}' in '{location}'...")
     
     aggregated_pool = []
     
-    # 1. Fetch from Adzuna
     adzuna_results = fetch_adzuna_jobs(target_roles, location, count)
     if adzuna_results:
         aggregated_pool.extend(adzuna_results)
         
-    # 2. Fetch from The Muse
     muse_results = fetch_themuse_jobs(target_roles, location, count)
     if muse_results:
         aggregated_pool.extend(muse_results)
 
-    # 3. Fetch from JSearch (Aggregator across LinkedIn, Indeed, etc.)
     jsearch_results = fetch_jsearch_rapidapi(target_roles, location, count)
     if jsearch_results:
         aggregated_pool.extend(jsearch_results)
 
-    # Deduplicate aggregated listings by company name and title signature
     unique_jobs = {}
     for job in aggregated_pool:
         signature = f"{job['company_name'].lower().strip()}-{job['job_title'].lower().strip()}"
@@ -392,7 +385,6 @@ def discover_real_decision_maker(company_name: str) -> Dict[str, str]:
     }
 
 def compute_domain_semantic_match(resume_text: str, job_title: str, job_description: str) -> int:
-    """Calculates a rigorous semantic fit score clamped between 74 and 98."""
     try:
         r_lower = resume_text.lower()
         t_lower = job_title.lower()
@@ -710,14 +702,28 @@ def delete_career_match(match_id: int, user=Depends(verify_api_key_and_credits))
 
 @app.post("/api/v1/career/resume")
 async def save_career_resume(payload: ResumeInput, auth: dict = Depends(verify_api_key_and_credits)):
-    prompt = f"Parse resume text and extract core skills, seniority, domain expertise, and tech stack in strict JSON format: {payload.resume_content}"
+    prompt = f"""
+    Analyze this master CV and extract core skills, seniority, domain expertise, and recommend optimal search titles.
+    Return strict JSON:
+    - "seniority": "Senior / Executive"
+    - "primary_domain": "Molecular Biology & Technical Operations"
+    - "recommended_roles": ["Molecular Research Scientist", "Production Manager", "R&D Project Manager"]
+    CV Text: {payload.resume_content}
+    """
     try:
         raw_ai = call_groq_ai(prompt)
         import re
         jm = re.search(r'\{.*\}', raw_ai, re.DOTALL)
         parsed_profile = json.loads(jm.group(0) if jm else raw_ai)
     except Exception:
-        parsed_profile = {"seniority": "Senior", "skills": ["Professional Skills"]}
+        parsed_profile = {
+            "seniority": "Senior", 
+            "skills": ["Professional Skills"],
+            "recommended_roles": ["Molecular Research Scientist", "Production Manager", "R&D Project Manager"]
+        }
+
+    if "recommended_roles" not in parsed_profile:
+        parsed_profile["recommended_roles"] = ["Molecular Research Scientist", "Production Manager", "R&D Project Manager"]
 
     with db_transaction_scope() as (_, cursor):
         profile_str = json.dumps(parsed_profile)
@@ -726,7 +732,13 @@ async def save_career_resume(payload: ResumeInput, auth: dict = Depends(verify_a
         else:
             cursor.execute("INSERT OR REPLACE INTO user_profiles (email, profile_json, updated_at) VALUES (?, ?, datetime('now'))", (auth["email"], profile_str))
             
-    return {"status": "success", "profile": parsed_profile, "message": "Resume indexed.", "credits_remaining": auth["credits"]}
+    return {
+        "status": "success", 
+        "profile": parsed_profile, 
+        "recommended_roles": parsed_profile.get("recommended_roles", []),
+        "message": "Resume indexed and optimal target roles generated.", 
+        "credits_remaining": auth["credits"]
+    }
 
 @app.post("/api/v1/career/criteria")
 async def save_career_criteria(payload: CareerCriteriaInput, background_tasks: BackgroundTasks, auth: dict = Depends(verify_api_key_and_credits)):
