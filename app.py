@@ -460,8 +460,8 @@ def verify_api_key_and_credits(cost: int = 1, x_api_key: str = Header(...), requ
 
     return {"email": email, "tier": tier, "credits": credits_left - cost if tier != "enterprise" else 99999, "ip": client_ip}
 
-async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_count: int = 3, target_locations: str = "South Africa"):
-    logger.info(f"Career Swarm Worker: Scouting 100% verified live job feeds with strict quality gating for {target_locations}...")
+async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_count: int = 3, target_locations: str = "South Africa", target_roles: str = "Scientist"):
+    logger.info(f"Career Swarm Worker: Scouting 100% verified live job feeds for '{target_roles}' in '{target_locations}'...")
     with db_transaction_scope() as (_, cursor):
         if user_email:
             cursor.execute("SELECT email, profile_json FROM user_profiles WHERE email = %s" if DATABASE_URL else "SELECT email, profile_json FROM user_profiles WHERE email = ?", (user_email,))
@@ -474,7 +474,7 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
         email = u_dict["email"]
         profile_content = u_dict.get('profile_json', '')
 
-        raw_jobs = fetch_live_job_market(target_roles="Scientist OR Researcher OR Manager OR Engineer OR Developer", location=target_locations, count=requested_count * 2)
+        raw_jobs = fetch_live_job_market(target_roles=target_roles, location=target_locations, count=requested_count * 2)
         
         valid_jobs = []
         for job in raw_jobs:
@@ -484,8 +484,8 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
                 valid_jobs.append(job)
 
         if not valid_jobs:
-            logger.warning("Live job feed returned no matching active postings. Enforcing strict empty state (zero mock data).")
-            await sse_broker.broadcast("career_swarm_update", {"status": "empty", "message": "No live verified vacancies found matching criteria."})
+            logger.warning("Live job feed returned no matching active postings for these criteria. Enforcing strict empty state (zero mock data).")
+            await sse_broker.broadcast("career_swarm_update", {"status": "empty", "message": f"No live verified vacancies found for '{target_roles}' in '{target_locations}'."})
             continue
 
         evaluated_matches = []
@@ -678,7 +678,7 @@ async def save_career_resume(payload: ResumeInput, auth: dict = Depends(verify_a
 
 @app.post("/api/v1/career/criteria")
 async def save_career_criteria(payload: CareerCriteriaInput, background_tasks: BackgroundTasks, auth: dict = Depends(verify_api_key_and_credits)):
-    background_tasks.add_task(job_scouting_swarm_worker, user_email=auth["email"], requested_count=payload.job_count, target_locations=payload.locations)
+    background_tasks.add_task(job_scouting_swarm_worker, user_email=auth["email"], requested_count=payload.job_count, target_locations=payload.locations, target_roles=payload.target_roles)
     await sse_broker.broadcast("career_swarm_launched", {"roles": payload.target_roles, "locations": payload.locations})
     return {"status": "success", "message": "Career swarm launched.", "credits_remaining": auth["credits"]}
 
