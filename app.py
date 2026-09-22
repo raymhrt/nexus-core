@@ -237,72 +237,49 @@ def call_groq_ai(prompt: str, system_prompt: str = "You are an elite career inte
 
 def fetch_live_job_market(target_roles: str, location: str, count: int = 5) -> List[Dict]:
     """
-    Pulls strictly from verified, live corporate recruitment feeds and structured 
-    ATS endpoints. Zero mock data allowed.
+    Pulls exclusively from live, authenticated third-party ATS feeds (e.g., Adzuna).
+    If no live vacancies are found or credentials are missing, returns an empty list. 
+    Zero mock data or hardcoded fallbacks allowed.
     """
-    verified_jobs = []
-    
-    # Querying structured public feeds or direct institutional endpoints 
-    # For South African medical/scientific institutional anchors if location matches
-    if "south africa" in location.lower():
-        institutional_feeds = [
-            {
-                "company": "South African Medical Research Council (SAMRC)",
-                "url": "https://samrcjobs.mcidirecthire.com/Search/Index",
-                "fallback_title": "Specialist Scientist / Researcher",
-                "fallback_desc": "Responsible for conducting independent cutting-edge research, managing project deliverables, analyzing health data, and contributing to peer-reviewed scientific publications under the burden of disease research directorate."
-            },
-            {
-                "company": "Aspen Pharmacare",
-                "url": "https://aspen.mcidirecthire.com/SouthAfrica/External/CurrentOpportunities",
-                "fallback_title": "Technical Operations & Quality Specialist",
-                "fallback_desc": "Manage high-volume production quality compliance, coordinate operational workflows, and ensure adherence to international pharmaceutical manufacturing standards."
-            }
-        ]
-        
-        for feed in institutional_feeds:
-            verified_jobs.append({
-                "company_name": feed["company"],
-                "job_title": feed["fallback_title"],
-                "location": location,
-                "job_description": feed["fallback_desc"],
-                "ats_portal_url": feed["url"]
-            })
-
-    # If an external API token like Adzuna is active, enforce strict minimum length checks on descriptions
     app_id = os.getenv("ADZUNA_APP_ID")
     app_key = os.getenv("ADZUNA_API_KEY")
     
-    if app_id and app_key:
-        country = "za" if "south africa" in location.lower() else "us"
-        url = f"https://api.adzuna.com/v1/api/jobs/{country}/search/1"
-        params = {
-            "app_id": app_id,
-            "app_key": app_key,
-            "results_per_page": count * 2,
-            "what": target_roles,
-            "where": location,
-            "content-type": "application/json"
-        }
-        try:
-            response = requests.get(url, params=params, timeout=15)
-            if response.status_code == 200:
-                data = response.json()
-                for item in data.get("results", []):
-                    desc = item.get("description", "")
-                    # STRICT GATE: Only accept if the description is fully fleshed out (> 200 characters)
-                    if desc and len(desc.strip()) > 200:
-                        verified_jobs.append({
-                            "company_name": item.get("company", {}).get("display_name", "Verified Enterprise"),
-                            "job_title": item.get("title"),
-                            "location": item.get("location", {}).get("display_name", location),
-                            "job_description": desc,
-                            "ats_portal_url": item.get("redirect_url")
-                        })
-        except Exception as e:
-            logger.error(f"Strict API fetch error: {e}")
+    if not app_id or not app_key:
+        logger.warning("Adzuna API credentials not configured. Live job feed unavailable.")
+        return []
 
-    # Return only verified jobs up to the requested count; return empty list if none meet criteria
+    country = "za" if "south africa" in location.lower() else "us"
+    url = f"https://api.adzuna.com/v1/api/jobs/{country}/search/1"
+    
+    params = {
+        "app_id": app_id,
+        "app_key": app_key,
+        "results_per_page": count * 2,
+        "what": target_roles,
+        "where": location,
+        "content-type": "application/json"
+    }
+
+    verified_jobs = []
+    try:
+        response = requests.get(url, params=params, timeout=15)
+        if response.status_code == 200:
+            data = response.json()
+            for item in data.get("results", []):
+                desc = item.get("description", "")
+                # STRICT GATE: Only accept if the description is fully fleshed out (> 200 characters)
+                if desc and len(desc.strip()) > 200:
+                    verified_jobs.append({
+                        "company_name": item.get("company", {}).get("display_name", "Verified Enterprise"),
+                        "job_title": item.get("title"),
+                        "location": item.get("location", {}).get("display_name", location),
+                        "job_description": desc,
+                        "ats_portal_url": item.get("redirect_url")
+                    })
+    except Exception as e:
+        logger.error(f"Live job fetch API error: {e}")
+
+    # Return strictly verified live jobs up to requested count. Returns [] if none match.
     return verified_jobs[:count]
 
 def discover_real_decision_maker(company_name: str) -> Dict[str, str]:
@@ -501,7 +478,7 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
         email = u_dict["email"]
         profile_content = u_dict.get('profile_json', '')
 
-        # Fetch live jobs from verified direct feeds & Adzuna
+        # Fetch live jobs from live feeds
         raw_jobs = fetch_live_job_market(target_roles="Scientist OR Researcher OR Manager OR Engineer OR Developer", location=target_locations, count=requested_count * 2)
         
         # STRICT CREDIBILITY FILTER GATE: Reject any job with missing, blank, or stub descriptions (< 150 chars)
@@ -513,7 +490,8 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
                 valid_jobs.append(job)
 
         if not valid_jobs:
-            logger.warning("Live job feed returned sparse or empty descriptions. Rejecting unverified batch to protect credibility.")
+            logger.warning("Live job feed returned no matching active postings. Enforcing strict empty state (zero mock data).")
+            await sse_broker.broadcast("career_swarm_update", {"status": "empty", "message": "No live verified vacancies found matching criteria."})
             continue
 
         evaluated_matches = []
