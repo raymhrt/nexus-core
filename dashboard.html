@@ -439,6 +439,17 @@
             }
         }
 
+        function sanitizeJobUrl(m) {
+            let postUrl = m.ats_portal_url || '#';
+            const allowedATS = ['greenhouse.io', 'lever.co', 'myworkdayjobs.com', 'ashbyhq.com', 'bamboohr.com'];
+            let isAllowed = allowedATS.some(domain => postUrl.toLowerCase().includes(domain));
+            
+            if (postUrl === '#' || postUrl.includes('example') || postUrl.includes('NXDOMAIN') || !isAllowed) {
+                postUrl = `https://www.google.com/search?q=${encodeURIComponent(m.role_title + ' ' + m.company_name + ' job careers vacancy')}`;
+            }
+            return postUrl;
+        }
+
         function renderJobMatches(matches) {
             const container = document.getElementById('jobMatchesContainer');
             if (!container) return;
@@ -451,12 +462,7 @@
             container.innerHTML = matches.map((m, idx) => {
                 const fitScore = m.fit_score || 88;
                 const matchId = m.id || idx + 1;
-                
-                // Bulletproof Google Jobs Search Fallback (bypassing LinkedIn intercept/login walls & NXDOMAIN errors)
-                let postUrl = m.ats_portal_url || '#';
-                if (postUrl === '#' || postUrl.includes('example') || postUrl.includes('NXDOMAIN') || postUrl.includes('jobs.roche.com') || postUrl.includes('linkedin.com')) {
-                    postUrl = `https://www.google.com/search?q=${encodeURIComponent(m.role_title + ' ' + m.company_name + ' job careers vacancy')}`;
-                }
+                const postUrl = sanitizeJobUrl(m);
 
                 return `
                     <div id="job-card-${matchId}" class="glass-panel p-5 rounded-2xl flex flex-col justify-between hover:border-sky-500/40 transition group">
@@ -629,10 +635,7 @@
             const panel = document.getElementById('drawer-panel');
             const content = document.getElementById('drawer-content');
             
-            let postUrl = match.ats_portal_url || '#';
-            if (postUrl === '#' || postUrl.includes('example') || postUrl.includes('NXDOMAIN') || postUrl.includes('jobs.roche.com') || postUrl.includes('linkedin.com')) {
-                postUrl = `https://www.google.com/search?q=${encodeURIComponent(match.role_title + ' ' + match.company_name + ' job careers vacancy')}`;
-            }
+            let postUrl = sanitizeJobUrl(match);
 
             content.innerHTML = `
                 <div class="flex justify-between items-start">

@@ -146,6 +146,17 @@ def safe_int(val: Any, default: int = 88) -> int:
 def hash_api_key(api_key: str) -> str:
     return hashlib.sha256(api_key.encode("utf-8")).hexdigest()
 
+def sanitize_ats_url(url: str, role_title: str, company_name: str) -> str:
+    """Ensures unstable corporate subdomains are replaced with reliable Google job searches."""
+    if not url or url == '#':
+        return f"https://www.google.com/search?q={requests.utils.quote(role_title + ' ' + company_name + ' job careers vacancy')}"
+    
+    stable_ats_domains = ['greenhouse.io', 'lever.co', 'myworkdayjobs.com', 'ashbyhq.com', 'bamboohr.com']
+    if any(domain in url.lower() for domain in stable_ats_domains):
+        return url
+        
+    return f"https://www.google.com/search?q={requests.utils.quote(role_title + ' ' + company_name + ' job careers vacancy')}"
+
 def log_audit_event(email: str, action: str, details: str, ip_address: str = "127.0.0.1"):
     try:
         with db_transaction_scope() as (_, cursor):
@@ -466,16 +477,21 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
             if target_locations and not any(term in loc for term in allowed_terms):
                 continue
 
+            role = job.get('job_title', 'Specialist')
+            company = job.get('company_name', 'Enterprise')
+            raw_url = job.get('ats_portal_url', '#')
+            safe_portal_url = sanitize_ats_url(raw_url, role, company)
+
             eval_prompt = f"""
             Act as an elite executive career strategist. 
             Candidate Master Profile: {profile_content}
-            Target Job: {job.get('job_title')} at {job.get('company_name')}
+            Target Job: {role} at {company}
             Job Description: {job.get('job_description', 'Professional technical and domain role')}
 
             Generate the following in strict JSON (no markdown backticks):
             1. "fit_score": An integer between 74 and 98 representing semantic alignment with the candidate's specific domain.
             2. "match_rationale": A concise 2-sentence rationale tailored specifically to the candidate's exact background.
-            3. "decision_maker_name": A realistic hiring manager or department lead name at {job.get('company_name')}.
+            3. "decision_maker_name": A realistic hiring manager or department lead name at {company}.
             4. "decision_maker_title": Their exact title.
             5. "decision_maker_email": A professional corporate email address.
             6. "outreach_draft": A personalized cold outreach email written FROM the candidate TO the decision maker referencing their specific skills and domain expertise.
@@ -494,11 +510,11 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
             computed_score = compute_true_semantic_match(str(profile_content), job.get('job_description', ''))
             final_score = safe_int(eval_data.get('fit_score'), computed_score)
 
-            real_lead = discover_real_decision_maker(job.get('company_name', 'Enterprise'))
+            real_lead = discover_real_decision_maker(company)
 
             match_obj = {
-                "company_name": job.get('company_name'),
-                "job_title": job.get('job_title'),
+                "company_name": company,
+                "job_title": role,
                 "job_description": job.get('job_description'),
                 "location": job.get('location'),
                 "fit_score": final_score,
@@ -506,11 +522,11 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
                 "decision_maker_name": eval_data.get('decision_maker_name') or real_lead["name"],
                 "decision_maker_title": eval_data.get('decision_maker_title') or real_lead["title"],
                 "decision_maker_email": eval_data.get('decision_maker_email') or real_lead["email"],
-                "outreach_draft": eval_data.get('outreach_draft', f"Hi {real_lead['name']},\n\nI saw your team is expanding at {job.get('company_name')}. With my background, I'd love to connect regarding the {job.get('job_title')} position."),
+                "outreach_draft": eval_data.get('outreach_draft', f"Hi {real_lead['name']},\n\nI saw your team is expanding at {company}. With my background, I'd love to connect regarding the {role} position."),
                 "salary_benchmark": eval_data.get('salary_benchmark', "Competitive Market Rate"),
                 "negotiation_strategy": eval_data.get('negotiation_strategy', "Emphasize past specialized delivery impact."),
                 "cv_variant": eval_data.get('cv_variant', "# Resume Variant\n- Tailored domain achievements."),
-                "ats_portal_url": job.get('ats_portal_url', '#')
+                "ats_portal_url": safe_portal_url
             }
             evaluated_matches.append(match_obj)
 
@@ -547,7 +563,7 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
 
 app = FastAPI(
     title="QuantCode Monetized Career Swarm Apex",
-    version="6.1.0",
+    version="6.3.0",
     description="Autonomous Career Matching, Resume Vectorization, Stripe Billing, and Real-Time SSE Telemetry."
 )
 
