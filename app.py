@@ -384,23 +384,6 @@ def discover_real_decision_maker(company_name: str) -> Dict[str, str]:
         "email": f"{lead['pattern']}@{clean_domain}"
     }
 
-def compute_domain_semantic_match(resume_text: str, job_title: str, job_description: str) -> int:
-    try:
-        r_lower = resume_text.lower()
-        t_lower = job_title.lower()
-        d_lower = job_description.lower()
-        
-        is_tech_role = any(kw in t_lower or kw in d_lower for kw in ['engineering', 'software', 'developer', 'tech', 'python', 'cloud', 'devops', 'manager'])
-        is_science_profile = any(kw in r_lower for kw in ['research', 'scientific', 'clinical', 'laboratory', 'biology', 'assay', 'publication'])
-        
-        base_score = random.randint(76, 92)
-        if is_tech_role and is_science_profile:
-            base_score -= random.randint(10, 15)
-            
-        return min(max(base_score, 74), 98)
-    except Exception:
-        return 82
-
 def init_career_database():
     with db_transaction_scope() as (_, cursor):
         if DATABASE_URL:
@@ -476,45 +459,8 @@ def init_career_database():
 
 init_career_database()
 
-def verify_api_key_and_credits(cost: int = 1, x_api_key: str = Header(...), request: Request = None):
-    incoming_hash = hash_api_key(x_api_key)
-    client_ip = request.client.host if request and request.client else "127.0.0.1"
-
-    with db_transaction_scope() as (conn, cursor):
-        query = "SELECT k.email, s.tier, c.credits_remaining, c.credits_limit FROM api_keys k JOIN subscribers s ON k.email = s.email LEFT JOIN subscriber_credits c ON s.email = c.email WHERE k.key_hash = %s AND k.active = 1" if DATABASE_URL else "SELECT k.email, s.tier, c.credits_remaining, c.credits_limit FROM api_keys k JOIN subscribers s ON k.email = s.email LEFT JOIN subscriber_credits c ON s.email = c.email WHERE k.key_hash = ? AND k.active = 1"
-        cursor.execute(query, (incoming_hash,))
-        row = cursor.fetchone()
-        
-        if not row:
-            raise HTTPException(status_code=401, detail="Invalid API key.")
-        
-        email = row["email"] if isinstance(row, dict) else row[0]
-        tier = row["tier"] if isinstance(row, dict) else row[1]
-        credits_left = row["credits_remaining"] if isinstance(row, dict) else row[2]
-        credits_limit = row["credits_limit"] if isinstance(row, dict) else row[3]
-        
-        if credits_left is None:
-            credits_left = 100
-        if credits_limit is None:
-            credits_limit = 100
-
-        if credits_left > credits_limit:
-            credits_left = credits_limit
-            upd_limit_query = "UPDATE subscriber_credits SET credits_remaining = %s WHERE email = %s" if DATABASE_URL else "UPDATE subscriber_credits SET credits_remaining = ? WHERE email = ?"
-            cursor.execute(upd_limit_query, (credits_limit, email))
-
-        if tier != "enterprise" and credits_left < cost:
-            raise HTTPException(status_code=403, detail="Insufficient credits. Please top up via Stripe checkout.")
-
-        if tier != "enterprise":
-            upd_query = "UPDATE subscriber_credits SET credits_remaining = credits_remaining - %s WHERE email = %s" if DATABASE_URL else "UPDATE subscriber_credits SET credits_remaining = credits_remaining - ? WHERE email = ?"
-            cursor.execute(upd_query, (cost, email))
-            credits_left -= cost
-
-    return {"email": email, "tier": tier, "credits": credits_left if tier != "enterprise" else 99999, "limit": credits_limit, "ip": client_ip}
-
 def verify_api_key_only(x_api_key: str = Header(...), request: Request = None):
-    """Authenticates API key and retrieves credit balance without upfront deduction."""
+    """Pure non-deducting authentication dependency for reading, refreshing, and indexing."""
     incoming_hash = hash_api_key(x_api_key)
     client_ip = request.client.host if request and request.client else "127.0.0.1"
 
@@ -724,11 +670,11 @@ async def read_index():
     return HTMLResponse("<!DOCTYPE html><html><body style='background:#0a0f1d;color:#fff;font-family:sans-serif;padding:40px;'><h2>dashboard.html not found in root directory.</h2></body></html>")
 
 @app.get("/api/v1/credits")
-def get_credits(user=Depends(verify_api_key_and_credits)):
+def get_credits(user=Depends(verify_api_key_only)):
     return {"status": "success", "credits": user["credits"], "limit": user["limit"], "tier": user["tier"]}
 
 @app.get("/api/v1/career/matches")
-def get_career_matches(user=Depends(verify_api_key_and_credits)):
+def get_career_matches(user=Depends(verify_api_key_only)):
     with db_transaction_scope() as (_, cursor):
         sql = "SELECT id, company_name, job_title as role_title, location, fit_score, match_rationale as rationale, decision_maker_name as networking_target_name, decision_maker_title as networking_target_role, decision_maker_email as networking_target_email, outreach_draft, salary_benchmark, recruiter_verified, negotiation_strategy, cv_variant, interview_playbook, ats_portal_url FROM job_matches WHERE user_email = %s ORDER BY timestamp DESC" if DATABASE_URL else "SELECT id, company_name, job_title as role_title, location, fit_score, match_rationale as rationale, decision_maker_name as networking_target_name, decision_maker_title as networking_target_role, decision_maker_email as networking_target_email, outreach_draft, salary_benchmark, recruiter_verified, negotiation_strategy, cv_variant, interview_playbook, ats_portal_url FROM job_matches WHERE user_email = ? ORDER BY timestamp DESC"
         cursor.execute(sql, (user["email"],))
@@ -736,14 +682,14 @@ def get_career_matches(user=Depends(verify_api_key_and_credits)):
     return {"status": "success", "matches": matches, "credits_remaining": user["credits"], "limit": user["limit"], "tier": user["tier"]}
 
 @app.delete("/api/v1/career/matches/{match_id}")
-def delete_career_match(match_id: int, user=Depends(verify_api_key_and_credits)):
+def delete_career_match(match_id: int, user=Depends(verify_api_key_only)):
     with db_transaction_scope() as (_, cursor):
         sql = "DELETE FROM job_matches WHERE id = %s AND user_email = %s" if DATABASE_URL else "DELETE FROM job_matches WHERE id = ? AND user_email = ?"
         cursor.execute(sql, (match_id, user["email"]))
     return {"status": "success", "message": "Job match dismissed."}
 
 @app.post("/api/v1/career/resume")
-async def save_career_resume(payload: ResumeInput, auth: dict = Depends(verify_api_key_and_credits)):
+async def save_career_resume(payload: ResumeInput, auth: dict = Depends(verify_api_key_only)):
     prompt = f"""
     Analyze this master CV and extract core skills, seniority, domain expertise, and recommend optimal search titles.
     Return strict JSON:
@@ -792,7 +738,7 @@ async def save_career_criteria(payload: CareerCriteriaInput, background_tasks: B
     return {"status": "success", "message": "Career swarm launched under pay-per-match credit model.", "credits_remaining": auth["credits"]}
 
 @app.post("/api/v1/career/matches/{match_id}/dispatch")
-async def dispatch_career_outreach(match_id: int, payload: OutreachDispatchRequest, auth: dict = Depends(verify_api_key_and_credits)):
+async def dispatch_career_outreach(match_id: int, payload: OutreachDispatchRequest, auth: dict = Depends(verify_api_key_only)):
     with db_transaction_scope() as (_, cursor):
         sql = "SELECT decision_maker_email FROM job_matches WHERE id = %s AND user_email = %s" if DATABASE_URL else "SELECT decision_maker_email FROM job_matches WHERE id = ? AND user_email = ?"
         cursor.execute(sql, (match_id, auth["email"]))
@@ -812,20 +758,20 @@ async def dispatch_career_outreach(match_id: int, payload: OutreachDispatchReque
     return {"status": "success", "message": f"Outreach dispatched to {target_email}!"}
 
 @app.post("/api/v1/career/interview/practice")
-async def trial_interview_practice(payload: TrialInterviewRequest, auth: dict = Depends(verify_api_key_and_credits)):
+async def trial_interview_practice(payload: TrialInterviewRequest, auth: dict = Depends(verify_api_key_only)):
     prompt = f"Evaluate this interview response for the role '{payload.role}':\n\n{payload.answer}\n\nProvide a score out of 100 and constructive feedback."
     feedback = call_groq_ai(prompt, system_prompt="You are an expert technical and professional interview coach.")
     return {"status": "success", "score": "88/100", "feedback": feedback}
 
 @app.post("/api/v1/career/negotiate")
-async def salary_negotiator(payload: NegotiatorRequest, auth: dict = Depends(verify_api_key_and_credits)):
+async def salary_negotiator(payload: NegotiatorRequest, auth: dict = Depends(verify_api_key_only)):
     prompt = f"Initial Offer: {payload.offer_details}\nTarget Compensation: {payload.target_compensation}\n\nDraft a professional counter-offer script and negotiation strategy."
     script = call_groq_ai(prompt, system_prompt="You are an expert executive compensation negotiator.")
     return {"status": "success", "script": script}
 
 @app.post("/create-portal-session")
 @app.post("/api/v1/billing/create-checkout-session")
-def create_checkout_session(payload: Optional[PortalSessionRequest] = None, checkout_req: Optional[CheckoutRequest] = None, auth: Optional[dict] = Depends(verify_api_key_and_credits)):
+def create_checkout_session(payload: Optional[PortalSessionRequest] = None, checkout_req: Optional[CheckoutRequest] = None, auth: Optional[dict] = Depends(verify_api_key_only)):
     try:
         tier = "pro"
         if checkout_req:
