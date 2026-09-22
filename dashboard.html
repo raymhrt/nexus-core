@@ -698,6 +698,59 @@
             }
         }
 
+        function formatPlaybookContent(content) {
+            if (!content) return '<p class="text-slate-500 italic">Playbook generating on next cycle...</p>';
+            
+            let data = content;
+            if (typeof content === 'string') {
+                try {
+                    data = JSON.parse(content);
+                } catch (e) {
+                    // If it's already markdown or plain text, just return it escaped or formatted
+                    return escapeHtml(content).replace(/\n/g, '<br>');
+                }
+            }
+
+            // If it parsed successfully into a structured JSON object (like your example)
+            if (typeof data === 'object' && data !== null) {
+                let html = '<div class="space-y-4">';
+                for (const [stageKey, stageVal] of Object.entries(data)) {
+                    const stageTitle = stageKey.replace(/_/g, ' ').toUpperCase();
+                    html += `
+                        <div class="bg-inputbg border border-slate-800 p-4 rounded-xl space-y-2">
+                            <h4 class="text-xs font-black text-sky-400 tracking-wider">${stageTitle}</h4>
+                    `;
+                    if (stageVal.objective) {
+                        html += `<p class="text-[11px] text-slate-300"><strong>Objective:</strong> ${escapeHtml(stageVal.objective)}</p>`;
+                    }
+                    if (stageVal.key_questions && Array.isArray(stageVal.key_questions)) {
+                        html += `<div class="mt-2"><strong class="text-[10px] text-slate-400 uppercase">Key Questions:</strong><ul class="list-disc list-inside text-[11px] text-slate-300 space-y-1 mt-1">`;
+                        stageVal.key_questions.forEach(q => { html += `<li>${escapeHtml(q)}</li>`; });
+                        html += `</ul></div>`;
+                    }
+                    if (stageVal.technical_questions && Array.isArray(stageVal.technical_questions)) {
+                        html += `<div class="mt-2"><strong class="text-[10px] text-slate-400 uppercase">Technical Grilling:</strong><ul class="list-disc list-inside text-[11px] text-slate-300 space-y-1 mt-1">`;
+                        stageVal.technical_questions.forEach(q => { html += `<li>${escapeHtml(q)}</li>`; });
+                        html += `</ul></div>`;
+                    }
+                    if (stageVal.components && Array.isArray(stageVal.components)) {
+                        html += `<div class="mt-2"><strong class="text-[10px] text-slate-400 uppercase">Components:</strong><div class="space-y-2 mt-1">`;
+                        stageVal.components.forEach(c => {
+                            html += `<div class="bg-slate-900/80 p-2.5 rounded-lg border border-slate-800"><span class="text-amber-400 font-bold">${escapeHtml(c.type)}:</span> ${escapeHtml(c.prompt)}</div>`;
+                        });
+                        html += `</div></div>`;
+                    }
+                    if (stageVal.evaluation_criteria) {
+                        html += `<p class="text-[11px] text-emerald-400 mt-2"><strong>Evaluation Focus:</strong> ${escapeHtml(stageVal.evaluation_criteria)}</p>`;
+                    }
+                    html += `</div>`;
+                }
+                html += '</div>';
+                return html;
+            }
+            return escapeHtml(String(content));
+        }
+
         function openMatchDrawer(match) {
             const drawer = document.getElementById('side-drawer');
             const backdrop = document.getElementById('drawer-backdrop');
@@ -731,7 +784,9 @@
                 </div>
                 <div class="space-y-2">
                     <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider">🎯 Elite Interview Playbook & STAR Guide</h3>
-                    <div class="bg-inputbg p-4 rounded-xl text-xs text-slate-300 border border-slate-800 whitespace-pre-wrap leading-relaxed">${escapeHtml(match.interview_playbook || 'Playbook generating on next cycle...')}</div>
+                    <div class="bg-inputbg p-4 rounded-xl text-xs text-slate-300 border border-slate-800 leading-relaxed">
+                        ${formatPlaybookContent(match.interview_playbook)}
+                    </div>
                 </div>
             `;
 

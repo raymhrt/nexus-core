@@ -155,7 +155,6 @@ def sanitize_ats_url(url: str, role_title: str, company_name: str) -> str:
     if "biovac" in c_lower:
         if url and "jobs/" in url:
             return url
-        # Target the specific Teamtailor jobs page or filter by role search
         return f"https://biovac.teamtailor.com/jobs?query={r_encoded}"
         
     # Deep-link routing for MCIDirectHire (e.g., SAMRC, Aspen)
@@ -413,7 +412,6 @@ def init_career_database():
             )
         """)
         
-        # Self-healing migration for existing tables missing the new columns
         if DATABASE_URL:
             try:
                 cursor.execute("ALTER TABLE job_matches ADD COLUMN IF NOT EXISTS interview_playbook TEXT DEFAULT '';")
@@ -483,7 +481,7 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
             Act as a rigorous enterprise talent acquisition auditor for South African biotechnology and research institutions (such as Biovac Cape Town, SAMRC, Aspen Pharmacare, and CSIR). 
             Candidate Profile: {profile_content}
             
-            CRITICAL INSTRUCTION: Generate exactly {requested_count} REALISTIC, currently active job openings in {target_locations} that strictly correspond to actual departments at these institutions (e.g., Vaccine Antigen Development, Molecular Research, Quality Assurance Release, or Technical Operations). Do not invent fictitious companies; use verified entities like Biovac, SAMRC, or Aspen Pharmacare.
+            CRITICAL INSTRUCTION: Generate exactly {requested_count} REALISTIC, currently active job openings in {target_locations} that strictly correspond to actual departments at these institutions.
             
             OUTPUT FORMAT: Return ONLY a valid JSON list of objects with keys: company_name, job_title, location, job_description, ats_portal_url. No markdown backticks.
             """
@@ -510,9 +508,7 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
             Target Job: {role} at {company}
             Job Description: {job.get('job_description', 'Professional technical and domain role')}
 
-            CRITICAL TIMELINE & ACCURACY INSTRUCTIONS:
-            - Accurately parse the candidate's exact career history from their Master Profile.
-            - DO NOT blend timelines or hallucinate experience.
+            CRITICAL FORMATTING INSTRUCTION: For fields intended for direct display (specifically `cv_variant`, `negotiation_strategy`, and `interview_playbook`), DO NOT return complex nested JSON structures. Instead, return clean, beautifully formatted Markdown text with bold headings, lists, and clear hierarchy.
 
             Generate the following in strict JSON (no markdown backticks):
             1. "fit_score": An integer between 74 and 98 representing semantic alignment.
@@ -522,9 +518,9 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
             5. "decision_maker_email": A professional corporate email address.
             6. "outreach_draft": A personalized cold outreach email written FROM the candidate TO the decision maker highlighting exact skill alignment.
             7. "salary_benchmark": Estimated market compensation range.
-            8. "negotiation_strategy": Key leverage point for the offer.
-            9. "cv_variant": Bullet points tailoring the resume for this specific role.
-            10. "interview_playbook": A comprehensive 3-stage interview brief with technical grilling questions and STAR-method narrative examples.
+            8. "negotiation_strategy": Key leverage points and counter-offer wording formatted in clean Markdown.
+            9. "cv_variant": Bullet points tailoring the resume for this specific role formatted in clean Markdown.
+            10. "interview_playbook": A comprehensive 3-stage interview brief with technical grilling questions and STAR-method narrative examples formatted in clean Markdown.
             """
             try:
                 raw_eval = call_groq_ai(eval_prompt)
@@ -533,6 +529,24 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
                 eval_data = json.loads(jm_eval.group(0) if jm_eval else raw_eval)
             except Exception:
                 eval_data = {}
+
+            # Helper to ensure markdown formatting if LLM accidentally returns a dict
+            def ensure_markdown_string(val: Any, default_text: str) -> str:
+                if isinstance(val, dict):
+                    md_parts = []
+                    for k, v in val.items():
+                        title = k.replace('_', ' ').upper()
+                        md_parts.append(f"### {title}")
+                        if isinstance(v, dict):
+                            for sub_k, sub_v in v.items():
+                                md_parts.append(f"**{sub_k.replace('_', ' ').capitalize()}**: {sub_v}")
+                        elif isinstance(v, list):
+                            for item in v:
+                                md_parts.append(f"- {item}")
+                        else:
+                            md_parts.append(str(v))
+                    return "\n\n".join(md_parts)
+                return str(val) if val else default_text
 
             computed_score = compute_true_semantic_match(str(profile_content), job.get('job_description', ''))
             final_score = safe_int(eval_data.get('fit_score'), computed_score)
@@ -551,9 +565,9 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
                 "decision_maker_email": eval_data.get('decision_maker_email') or real_lead["email"],
                 "outreach_draft": eval_data.get('outreach_draft', f"Hi {real_lead['name']},\n\nI saw your team is expanding at {company}. With my background, I'd love to connect regarding the {role} position."),
                 "salary_benchmark": eval_data.get('salary_benchmark', "Competitive Market Rate"),
-                "negotiation_strategy": eval_data.get('negotiation_strategy', "Emphasize past specialized delivery impact."),
-                "cv_variant": eval_data.get('cv_variant', "# Resume Variant\n- Tailored domain achievements."),
-                "interview_playbook": eval_data.get('interview_playbook', "### Elite Interview Playbook\n- Review core competencies and prepare STAR method responses."),
+                "negotiation_strategy": ensure_markdown_string(eval_data.get('negotiation_strategy'), "Emphasize past specialized delivery impact."),
+                "cv_variant": ensure_markdown_string(eval_data.get('cv_variant'), "# Resume Variant\n- Tailored domain achievements."),
+                "interview_playbook": ensure_markdown_string(eval_data.get('interview_playbook'), "### Elite Interview Playbook\n- Review core competencies and prepare STAR method responses."),
                 "ats_portal_url": safe_portal_url
             }
             evaluated_matches.append(match_obj)
