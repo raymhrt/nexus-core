@@ -513,8 +513,34 @@ def verify_api_key_and_credits(cost: int = 1, x_api_key: str = Header(...), requ
 
     return {"email": email, "tier": tier, "credits": credits_left if tier != "enterprise" else 99999, "limit": credits_limit, "ip": client_ip}
 
+def verify_api_key_only(x_api_key: str = Header(...), request: Request = None):
+    """Authenticates API key and retrieves credit balance without upfront deduction."""
+    incoming_hash = hash_api_key(x_api_key)
+    client_ip = request.client.host if request and request.client else "127.0.0.1"
+
+    with db_transaction_scope() as (_, cursor):
+        query = "SELECT k.email, s.tier, c.credits_remaining, c.credits_limit FROM api_keys k JOIN subscribers s ON k.email = s.email LEFT JOIN subscriber_credits c ON s.email = c.email WHERE k.key_hash = %s AND k.active = 1" if DATABASE_URL else "SELECT k.email, s.tier, c.credits_remaining, c.credits_limit FROM api_keys k JOIN subscribers s ON k.email = s.email LEFT JOIN subscriber_credits c ON s.email = c.email WHERE k.key_hash = ? AND k.active = 1"
+        cursor.execute(query, (incoming_hash,))
+        row = cursor.fetchone()
+        
+        if not row:
+            raise HTTPException(status_code=401, detail="Invalid API key.")
+        
+        email = row["email"] if isinstance(row, dict) else row[0]
+        tier = row["tier"] if isinstance(row, dict) else row[1]
+        credits_left = row["credits_remaining"] if isinstance(row, dict) else row[2]
+        credits_limit = row["credits_limit"] if isinstance(row, dict) else row[3]
+        
+    return {
+        "email": email, 
+        "tier": tier, 
+        "credits": credits_left if credits_left is not None else 100, 
+        "limit": credits_limit if credits_limit is not None else 100, 
+        "ip": client_ip
+    }
+
 async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_count: int = 3, target_locations: str = "South Africa", target_roles: str = "Scientist"):
-    logger.info(f"Career Swarm Worker: Executing strict live multi-source vector alignment for '{target_roles}' in '{target_locations}'...")
+    logger.info(f"Career Swarm Worker: Executing pay-per-match vector alignment for '{target_roles}' in '{target_locations}'...")
     
     with db_transaction_scope() as (_, cursor):
         if user_email:
@@ -531,10 +557,10 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
         raw_jobs = fetch_live_job_market(target_roles=target_roles, location=target_locations, count=requested_count * 2)
         
         if not raw_jobs:
-            logger.warning("Strict Zero-Mock Policy: Multi-source live feeds returned zero verified postings.")
+            logger.warning("Strict Zero-Mock Policy: Multi-source live feeds returned zero verified postings. 0 credits deducted.")
             await sse_broker.broadcast("career_swarm_update", {
                 "status": "empty", 
-                "message": f"Zero live verified vacancies found for '{target_roles}' in '{target_locations}' across all connected job boards."
+                "message": f"Zero live verified vacancies found for '{target_roles}' in '{target_locations}'. No credits deducted."
             })
             continue
 
@@ -600,21 +626,31 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
                 break
 
         if not evaluated_matches:
-            logger.warning("Strict Zero-Mock Policy: Multi-source feeds returned jobs, but AI qualification agent filtered out 100% due to domain misalignment.")
+            logger.warning("Strict Zero-Mock Policy: Multi-source feeds returned jobs, but AI qualification agent filtered out 100% due to domain misalignment. 0 credits deducted.")
             await sse_broker.broadcast("career_swarm_update", {
                 "status": "filtered", 
-                "message": f"Live jobs found across channels, but filtered out due to domain mismatch with your master resume."
+                "message": f"Live jobs found, but filtered out due to domain mismatch. No credits deducted."
             })
             continue
 
+        # Pay-Per-Match Credit Deduction & Persistence
         with db_transaction_scope() as (_, ic):
+            saved_count = 0
             for match_item in evaluated_matches:
+                ic.execute("SELECT tier, credits_remaining FROM subscribers s JOIN subscriber_credits c ON s.email = c.email WHERE s.email = %s" if DATABASE_URL else "SELECT tier, credits_remaining FROM subscribers s JOIN subscriber_credits c ON s.email = c.email WHERE s.email = ?", (email,))
+                sub_row = ic.fetchone()
+                user_tier = sub_row["tier"] if isinstance(sub_row, dict) else sub_row[0]
+                c_left = sub_row["credits_remaining"] if isinstance(sub_row, dict) else sub_row[1]
+
+                if user_tier != "enterprise" and (c_left is None or c_left <= 0):
+                    logger.warning(f"Credit limit reached for {email}. Halting further match indexing.")
+                    break
+
                 sql = """
                     INSERT INTO job_matches (user_email, company_name, job_title, job_description, location, fit_score, match_rationale, decision_maker_name, decision_maker_title, decision_maker_email, outreach_draft, salary_benchmark, negotiation_strategy, cv_variant, interview_playbook, ats_portal_url, status)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'discovered')
                 """ if DATABASE_URL else """
-                    INSERT INTO job_matches (user_email, company_name, job_title, job_description, location, fit_score, match_rationale, decision_maker_name, decision_maker_title, decision_maker_email, outreach_draft, salary_benchmark, negotiation_strategy, cv_variant, interview_playbook, ats_portal_url, status)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'discovered')
+                    INSERT INTO job_matches (user_email, company_name, job_title, job_description, location, fit_score, match_rationale, decision_maker_name, decision_maker_title, decision_maker_email, outreach_draft, salary_benchmark, negotiation_strategy, cv_variant, interview_playbook, ats_portal_url, 'discovered')
                 """
                 ic.execute(sql, (
                     email,
@@ -635,7 +671,13 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
                     safe_str(match_item.get('ats_portal_url'))
                 ))
 
-    await sse_broker.broadcast("career_swarm_update", {"status": "scouted", "message": "Multi-source career swarm indexed verified live vacancies matching your profile."})
+                if user_tier != "enterprise":
+                    deduct_sql = "UPDATE subscriber_credits SET credits_remaining = credits_remaining - 1 WHERE email = %s" if DATABASE_URL else "UPDATE subscriber_credits SET credits_remaining = credits_remaining - 1 WHERE email = ?"
+                    ic.execute(deduct_sql, (email,))
+
+                saved_count += 1
+
+    await sse_broker.broadcast("career_swarm_update", {"status": "scouted", "message": f"Career swarm indexed {saved_count} verified live matches (1 credit deducted per match)."})
 
 app = FastAPI(
     title="QuantCode Monetized Career Swarm Apex",
@@ -741,10 +783,13 @@ async def save_career_resume(payload: ResumeInput, auth: dict = Depends(verify_a
     }
 
 @app.post("/api/v1/career/criteria")
-async def save_career_criteria(payload: CareerCriteriaInput, background_tasks: BackgroundTasks, auth: dict = Depends(verify_api_key_and_credits)):
+async def save_career_criteria(payload: CareerCriteriaInput, background_tasks: BackgroundTasks, auth: dict = Depends(verify_api_key_only)):
+    if auth["tier"] != "enterprise" and auth["credits"] <= 0:
+        raise HTTPException(status_code=403, detail="Insufficient credits. Please top up via Stripe checkout.")
+
     background_tasks.add_task(job_scouting_swarm_worker, user_email=auth["email"], requested_count=payload.job_count, target_locations=payload.locations, target_roles=payload.target_roles)
     await sse_broker.broadcast("career_swarm_launched", {"roles": payload.target_roles, "locations": payload.locations})
-    return {"status": "success", "message": "Career swarm launched.", "credits_remaining": auth["credits"]}
+    return {"status": "success", "message": "Career swarm launched under pay-per-match credit model.", "credits_remaining": auth["credits"]}
 
 @app.post("/api/v1/career/matches/{match_id}/dispatch")
 async def dispatch_career_outreach(match_id: int, payload: OutreachDispatchRequest, auth: dict = Depends(verify_api_key_and_credits)):
