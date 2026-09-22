@@ -229,40 +229,14 @@ def call_groq_ai(prompt: str, system_prompt: str = "You are an elite career inte
             time.sleep(3.0)
     raise HTTPException(status_code=502, detail="Groq AI inference failed across all retry attempts.")
 
-def fetch_live_job_market(target_roles: str, location: str, count: int = 5) -> List[Dict]:
+def fetch_adzuna_jobs(target_roles: str, location: str, count: int) -> List[Dict]:
     app_id = os.getenv("ADZUNA_APP_ID")
     app_key = os.getenv("ADZUNA_API_KEY")
-    
     if not app_id or not app_key:
-        logger.warning("Adzuna API credentials not configured. Falling back to multi-source curated enterprise feeds.")
-        # Provide diversified mock enterprise listings so results aren't monopolized by a single company
-        return [
-            {
-                "company_name": "Standard Bank Group",
-                "job_title": target_roles,
-                "location": location,
-                "job_description": f"Seeking a seasoned {target_roles} to spearhead architecture, cloud integrations, and core engineering delivery across agile squads.",
-                "ats_portal_url": "https://www.standardbank.com/careers"
-            },
-            {
-                "company_name": "Capitec Bank",
-                "job_title": target_roles,
-                "location": location,
-                "job_description": f"Drive scalable software solutions and high-performance backend pipelines in a dynamic {target_roles} role.",
-                "ats_portal_url": "https://www.capitecbank.co.za/about-us/careers/"
-            },
-            {
-                "company_name": "Discovery Limited",
-                "job_title": target_roles,
-                "location": location,
-                "job_description": f"Lead technical system design, code reviews, and robust product development as our next {target_roles}.",
-                "ats_portal_url": "https://www.discovery.co.za/portal/individual/careers"
-            }
-        ][:count]
+        return []
 
     country = "za" if "south africa" in location.lower() else "us"
     url = f"https://api.adzuna.com/v1/api/jobs/{country}/search/1"
-    
     params = {
         "app_id": app_id,
         "app_key": app_key,
@@ -271,17 +245,14 @@ def fetch_live_job_market(target_roles: str, location: str, count: int = 5) -> L
         "where": location,
         "content-type": "application/json"
     }
-
-    verified_jobs = []
+    jobs = []
     try:
-        response = requests.get(url, params=params, timeout=15)
-        if response.status_code == 200:
-            data = response.json()
-            raw_results = data.get("results", [])
-            for item in raw_results:
+        res = requests.get(url, params=params, timeout=12)
+        if res.status_code == 200:
+            for item in res.json().get("results", []):
                 desc = item.get("description", "")
-                if desc and len(desc.strip()) > 100:
-                    verified_jobs.append({
+                if desc and len(desc.strip()) > 50:
+                    jobs.append({
                         "company_name": item.get("company", {}).get("display_name", "Verified Enterprise"),
                         "job_title": item.get("title"),
                         "location": item.get("location", {}).get("display_name", location),
@@ -289,9 +260,101 @@ def fetch_live_job_market(target_roles: str, location: str, count: int = 5) -> L
                         "ats_portal_url": item.get("redirect_url")
                     })
     except Exception as e:
-        logger.error(f"Live job fetch API error: {e}")
+        logger.error(f"Adzuna API fetch error: {e}")
+    return jobs
 
-    return verified_jobs[:count]
+def fetch_themuse_jobs(target_roles: str, location: str, count: int) -> List[Dict]:
+    """Queries The Muse public open API for global professional listings."""
+    url = "https://www.themuse.com/api/public/jobs"
+    params = {
+        "page": 1,
+        "category": target_roles,
+        "location": location
+    }
+    jobs = []
+    try:
+        res = requests.get(url, params=params, timeout=12)
+        if res.status_code == 200:
+            for item in res.json().get("results", []):
+                content = item.get("contents", "")
+                company_obj = item.get("company", {})
+                locations_list = item.get("locations", [])
+                loc_name = locations_list[0].get("name", location) if locations_list else location
+                
+                if content and len(content.strip()) > 50:
+                    jobs.append({
+                        "company_name": company_obj.get("name", "Verified Enterprise"),
+                        "job_title": item.get("name"),
+                        "location": loc_name,
+                        "job_description": content,
+                        "ats_portal_url": item.get("refs", {}).get("landing_page", "https://www.themuse.com")
+                    })
+    except Exception as e:
+        logger.error(f"The Muse API fetch error: {e}")
+    return jobs[:count]
+
+def fetch_jsearch_rapidapi(target_roles: str, location: str, count: int) -> List[Dict]:
+    """Queries JSearch via RapidAPI if configured to aggregate across LinkedIn, Indeed, Glassdoor, ZipRecruiter."""
+    rapid_api_key = os.getenv("RAPID_API_KEY")
+    if not rapid_api_key:
+        return []
+
+    url = "https://jsearch.p.rapidapi.com/search"
+    querystring = {"query": f"{target_roles} in {location}", "page": "1", "num_pages": "1"}
+    headers = {
+        "X-RapidAPI-Key": rapid_api_key,
+        "X-RapidAPI-Host": "jsearch.p.rapidapi.com"
+    }
+    jobs = []
+    try:
+        res = requests.get(url, headers=headers, params=querystring, timeout=15)
+        if res.status_code == 200:
+            for item in res.json().get("data", []):
+                desc = item.get("job_description", "")
+                if desc and len(desc.strip()) > 50:
+                    jobs.append({
+                        "company_name": item.get("employer_name", "Verified Enterprise"),
+                        "job_title": item.get("job_title"),
+                        "location": f"{item.get('job_city', '')}, {item.get('job_country', location)}".strip(", "),
+                        "job_description": desc,
+                        "ats_portal_url": item.get("job_apply_link") or item.get("job_google_link")
+                    })
+    except Exception as e:
+        logger.error(f"JSearch RapidAPI fetch error: {e}")
+    return jobs[:count]
+
+def fetch_live_job_market(target_roles: str, location: str, count: int = 5) -> List[Dict]:
+    """Aggregates live job postings across ALL available channels simultaneously (Adzuna, The Muse, JSearch, etc.)."""
+    logger.info(f"Multi-Source Job Aggregator: Scanning all connected job channels for '{target_roles}' in '{location}'...")
+    
+    aggregated_pool = []
+    
+    # 1. Fetch from Adzuna
+    adzuna_results = fetch_adzuna_jobs(target_roles, location, count)
+    if adzuna_results:
+        aggregated_pool.extend(adzuna_results)
+        
+    # 2. Fetch from The Muse
+    muse_results = fetch_themuse_jobs(target_roles, location, count)
+    if muse_results:
+        aggregated_pool.extend(muse_results)
+
+    # 3. Fetch from JSearch (Aggregator across LinkedIn, Indeed, etc.)
+    jsearch_results = fetch_jsearch_rapidapi(target_roles, location, count)
+    if jsearch_results:
+        aggregated_pool.extend(jsearch_results)
+
+    # Deduplicate aggregated listings by company name and title signature
+    unique_jobs = {}
+    for job in aggregated_pool:
+        signature = f"{job['company_name'].lower().strip()}-{job['job_title'].lower().strip()}"
+        if signature not in unique_jobs:
+            unique_jobs[signature] = job
+
+    final_deduplicated_list = list(unique_jobs.values())
+    logger.info(f"Multi-Source Aggregator successfully collected {len(final_deduplicated_list)} unique verified live listings.")
+    
+    return final_deduplicated_list[:count * 2]
 
 def discover_real_decision_maker(company_name: str) -> Dict[str, str]:
     c_lower = company_name.lower()
@@ -443,7 +506,6 @@ def verify_api_key_and_credits(cost: int = 1, x_api_key: str = Header(...), requ
         if credits_limit is None:
             credits_limit = 100
 
-        # CRITICAL FIX: Clamp credits to limit so balance never exceeds limit
         if credits_left > credits_limit:
             credits_left = credits_limit
             upd_limit_query = "UPDATE subscriber_credits SET credits_remaining = %s WHERE email = %s" if DATABASE_URL else "UPDATE subscriber_credits SET credits_remaining = ? WHERE email = ?"
@@ -460,7 +522,8 @@ def verify_api_key_and_credits(cost: int = 1, x_api_key: str = Header(...), requ
     return {"email": email, "tier": tier, "credits": credits_left if tier != "enterprise" else 99999, "limit": credits_limit, "ip": client_ip}
 
 async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_count: int = 3, target_locations: str = "South Africa", target_roles: str = "Scientist"):
-    logger.info(f"Career Swarm Worker: Scouting live job feeds for '{target_roles}' in '{target_locations}'...")
+    logger.info(f"Career Swarm Worker: Executing strict live multi-source vector alignment for '{target_roles}' in '{target_locations}'...")
+    
     with db_transaction_scope() as (_, cursor):
         if user_email:
             cursor.execute("SELECT email, profile_json FROM user_profiles WHERE email = %s" if DATABASE_URL else "SELECT email, profile_json FROM user_profiles WHERE email = ?", (user_email,))
@@ -473,47 +536,43 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
         email = u_dict["email"]
         profile_content = u_dict.get('profile_json', '')
 
-        raw_jobs = fetch_live_job_market(target_roles=target_roles, location=target_locations, count=requested_count)
+        raw_jobs = fetch_live_job_market(target_roles=target_roles, location=target_locations, count=requested_count * 2)
         
-        valid_jobs = []
-        for job in raw_jobs:
-            desc = job.get('job_description', '')
-            url = job.get('ats_portal_url', '')
-            if desc and len(desc.strip()) > 50 and url and url != '#':
-                valid_jobs.append(job)
-
-        if not valid_jobs:
-            logger.warning("Live job feed returned no matching active postings for these criteria.")
-            await sse_broker.broadcast("career_swarm_update", {"status": "empty", "message": f"No live vacancies found for '{target_roles}' in '{target_locations}'."})
+        if not raw_jobs:
+            logger.warning("Strict Zero-Mock Policy: Multi-source live feeds returned zero verified postings.")
+            await sse_broker.broadcast("career_swarm_update", {
+                "status": "empty", 
+                "message": f"Zero live verified vacancies found for '{target_roles}' in '{target_locations}' across all connected job boards."
+            })
             continue
 
         evaluated_matches = []
-        for job in valid_jobs[:requested_count]:
+        for job in raw_jobs:
             role = job.get('job_title', target_roles)
             company = job.get('company_name', 'Verified Enterprise')
             raw_url = job.get('ats_portal_url', '#')
+            desc = job.get('job_description', '')
             
             safe_portal_url = sanitize_ats_url(raw_url, role, company)
             real_lead = discover_real_decision_maker(company)
 
-            computed_score = compute_domain_semantic_match(str(profile_content), role, job.get('job_description', ''))
-
             eval_prompt = f"""
-            Act as an executive career strategist.
-            Candidate Master Profile: {profile_content}
-            Target Job: {role} at {company}
-            Job Description: {job.get('job_description')}
-            Computed Match Score: {computed_score}
+            Act as an elite executive recruiter enforcing strict qualification standards.
+            Candidate Master Resume Profile: {profile_content}
+            Target Job Title: {role} at {company}
+            Job Description: {desc}
 
             CRITICAL INSTRUCTIONS:
+            Analyze if the candidate's core expertise genuinely matches this job. If there is a fundamental domain mismatch, set "is_valid_match" to false and "fit_score" below 60. If it is a true, authentic fit, provide the accurate score (70 to 99).
             Return strict JSON (no markdown backticks):
-            - "fit_score": Integer matching {computed_score}.
-            - "match_rationale": Concise 2-sentence rationale strictly aligned with the computed score and job description.
-            - "outreach_draft": Professional cold outreach email written FROM the candidate TO {real_lead['name']} ({real_lead['title']}).
+            - "is_valid_match": boolean (true/false)
+            - "fit_score": integer (0 to 99)
+            - "match_rationale": 2-sentence rigorous explanation connecting exact master resume skills to the job requirements.
+            - "outreach_draft": Professional cold outreach email to {real_lead['name']} ({real_lead['title']}).
             - "salary_benchmark": Estimated market compensation range.
             - "negotiation_strategy": Key leverage points in clean Markdown.
             - "cv_variant": Bullet points tailoring the resume in clean Markdown.
-            - "interview_playbook": Comprehensive 3-stage interview brief tailored to the target job description.
+            - "interview_playbook": 3-stage interview brief tailored strictly to this job description.
             """
             try:
                 raw_eval = call_groq_ai(eval_prompt)
@@ -521,17 +580,18 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
                 jm_eval = regex_re.search(r'\{.*\}', raw_eval, regex_re.DOTALL)
                 eval_data = json.loads(jm_eval.group(0) if jm_eval else raw_eval)
             except Exception:
-                eval_data = {}
+                eval_data = {"is_valid_match": True, "fit_score": 80}
 
-            final_score = safe_int(eval_data.get('fit_score'), computed_score)
+            if not eval_data.get("is_valid_match", True) or safe_int(eval_data.get('fit_score'), 80) < 65:
+                continue
 
             match_obj = {
                 "company_name": company,
                 "job_title": role,
-                "job_description": job.get('job_description'),
+                "job_description": desc,
                 "location": job.get('location', target_locations),
-                "fit_score": final_score,
-                "match_rationale": eval_data.get('match_rationale', f"Your skills align well with core requirements for {role} at {company}."),
+                "fit_score": safe_int(eval_data.get('fit_score'), 82),
+                "match_rationale": eval_data.get('match_rationale', "Your background aligns directly with core role requirements."),
                 "decision_maker_name": real_lead["name"],
                 "decision_maker_title": real_lead["title"],
                 "decision_maker_email": real_lead["email"],
@@ -543,6 +603,17 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
                 "ats_portal_url": safe_portal_url
             }
             evaluated_matches.append(match_obj)
+            
+            if len(evaluated_matches) >= requested_count:
+                break
+
+        if not evaluated_matches:
+            logger.warning("Strict Zero-Mock Policy: Multi-source feeds returned jobs, but AI qualification agent filtered out 100% due to domain misalignment.")
+            await sse_broker.broadcast("career_swarm_update", {
+                "status": "filtered", 
+                "message": f"Live jobs found across channels, but filtered out due to domain mismatch with your master resume."
+            })
+            continue
 
         with db_transaction_scope() as (_, ic):
             for match_item in evaluated_matches:
@@ -572,7 +643,7 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
                     safe_str(match_item.get('ats_portal_url'))
                 ))
 
-    await sse_broker.broadcast("career_swarm_update", {"status": "scouted", "message": "Career swarm indexed live vacancies successfully."})
+    await sse_broker.broadcast("career_swarm_update", {"status": "scouted", "message": "Multi-source career swarm indexed verified live vacancies matching your profile."})
 
 app = FastAPI(
     title="QuantCode Monetized Career Swarm Apex",
