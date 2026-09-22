@@ -9,6 +9,6 @@ pydantic
 apscheduler
 python-dotenv
 psycopg2-binary
-google-genai
 pydantic[email]
 email-validator
+celery
