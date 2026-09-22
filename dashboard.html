@@ -441,11 +441,24 @@
 
         function sanitizeJobUrl(m) {
             let postUrl = m.ats_portal_url || '#';
-            const allowedATS = ['greenhouse.io', 'lever.co', 'myworkdayjobs.com', 'ashbyhq.com', 'bamboohr.com'];
+            const companyName = (m.company_name || '').toLowerCase();
+            
+            // Route specific verified South African institutions to their official live career boards
+            if (companyName.includes('biovac')) {
+                return 'https://biovac.teamtailor.com';
+            }
+            if (companyName.includes('samrc') || companyName.includes('medical research council')) {
+                return 'https://samrcjobs.mcidirecthire.com';
+            }
+            if (companyName.includes('aspen')) {
+                return 'https://aspen.mcidirecthire.com/SouthAfrica/External/CurrentOpportunities';
+            }
+
+            const allowedATS = ['greenhouse.io', 'lever.co', 'myworkdayjobs.com', 'ashbyhq.com', 'bamboohr.com', 'teamtailor.com', 'mcidirecthire.com'];
             let isAllowed = allowedATS.some(domain => postUrl.toLowerCase().includes(domain));
             
             if (postUrl === '#' || postUrl.includes('example') || postUrl.includes('NXDOMAIN') || !isAllowed) {
-                postUrl = `https://www.google.com/search?q=${encodeURIComponent(m.role_title + ' ' + m.company_name + ' job careers vacancy')}`;
+                postUrl = `https://www.google.com/search?q=${encodeURIComponent(m.role_title + ' ' + m.company_name + ' careers vacancy application')}`;
             }
             return postUrl;
         }
