@@ -28,6 +28,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from dotenv import load_dotenv
 from psycopg2 import pool
 from psycopg2.extras import RealDictCursor
+from celery import Celery
 
 load_dotenv()
 
@@ -61,8 +62,22 @@ RESEND_API_KEY = os.getenv("RESEND_API_KEY")
 SENDER_EMAIL = os.getenv("SENDER_EMAIL", "onboarding@resend.dev")
 
 DATABASE_URL = os.getenv("DATABASE_URL")
-REDIS_URL = os.getenv("REDIS_URL")
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 TRUSTED_ORIGINS = [origin.strip() for origin in os.getenv("TRUSTED_ORIGINS", "https://nexus-core-yfou.onrender.com,http://localhost:3000,http://127.0.0.1:8000").split(",") if origin.strip()]
+
+# Celery App Initialization for Asynchronous Distributed Swarm Execution
+celery_app = Celery(
+    "nexus_career_swarm",
+    broker=REDIS_URL,
+    backend=REDIS_URL
+)
+celery_app.conf.update(
+    task_serializer="json",
+    accept_content=["json"],
+    result_serializer="json",
+    timezone="UTC",
+    enable_utc=True,
+)
 
 redis_client = None
 if REDIS_URL:
@@ -321,33 +336,32 @@ def fetch_jsearch_rapidapi(target_roles: str, location: str, count: int) -> List
         logger.error(f"JSearch RapidAPI fetch error: {e}")
     return jobs[:count]
 
-def fetch_live_job_market(target_roles: str, location: str, count: int = 5) -> List[Dict]:
-    logger.info(f"Multi-Source Job Aggregator: Scanning all connected job channels for '{target_roles}' in '{location}'...")
-    
-    aggregated_pool = []
-    
-    adzuna_results = fetch_adzuna_jobs(target_roles, location, count)
-    if adzuna_results:
-        aggregated_pool.extend(adzuna_results)
-        
-    muse_results = fetch_themuse_jobs(target_roles, location, count)
-    if muse_results:
-        aggregated_pool.extend(muse_results)
+def fetch_live_job_market_granular(target_roles_str: str, location: str, count: int = 5) -> List[Dict]:
+    """Phase 3 Fix: Splits compound comma-separated roles into discrete queries, fetches concurrently, and deduplicates."""
+    individual_roles = [r.strip() for r in target_roles_str.split(",") if r.strip()]
+    if not individual_roles:
+        individual_roles = [target_roles_str.strip()]
 
-    jsearch_results = fetch_jsearch_rapidapi(target_roles, location, count)
-    if jsearch_results:
-        aggregated_pool.extend(jsearch_results)
+    aggregated_pool = []
+    for role in individual_roles:
+        logger.info(f"Granular Aggregator: Scanning live channels for discrete role '{role}' in '{location}'...")
+        adzuna_res = fetch_adzuna_jobs(role, location, count)
+        muse_res = fetch_themuse_jobs(role, location, count)
+        jsearch_res = fetch_jsearch_rapidapi(role, location, count)
+        aggregated_pool.extend(adzuna_res + muse_res + jsearch_res)
 
     unique_jobs = {}
     for job in aggregated_pool:
-        signature = f"{job['company_name'].lower().strip()}-{job['job_title'].lower().strip()}"
-        if signature not in unique_jobs:
+        company = job.get('company_name', '').lower().strip()
+        title = job.get('job_title', '').lower().strip()
+        signature = f"{company}-{title}"
+        url = job.get('ats_portal_url', '')
+        if signature not in unique_jobs and 'example.com' not in url:
             unique_jobs[signature] = job
 
-    final_deduplicated_list = list(unique_jobs.values())
-    logger.info(f"Multi-Source Aggregator successfully collected {len(final_deduplicated_list)} unique verified live listings.")
-    
-    return final_deduplicated_list[:count * 2]
+    final_list = list(unique_jobs.values())
+    logger.info(f"Granular Aggregator successfully collected {len(final_list)} unique verified live listings.")
+    return final_list[:count * 2]
 
 def discover_real_decision_maker(company_name: str) -> Dict[str, str]:
     c_lower = company_name.lower()
@@ -485,8 +499,10 @@ def verify_api_key_only(x_api_key: str = Header(...), request: Request = None):
         "ip": client_ip
     }
 
-async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_count: int = 3, target_locations: str = "South Africa", target_roles: str = "Scientist"):
-    logger.info(f"Career Swarm Worker: Executing pay-per-match vector alignment for '{target_roles}' in '{target_locations}'...")
+# Phase 2: Asynchronous Distributed Celery Worker Task
+@celery_app.task(name="tasks.job_scouting_swarm_worker")
+def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_count: int = 3, target_locations: str = "South Africa", target_roles: str = "Scientist"):
+    logger.info(f"Celery Swarm Worker: Executing distributed pay-per-match vector alignment for '{target_roles}' in '{target_locations}'...")
     
     with db_transaction_scope() as (_, cursor):
         if user_email:
@@ -500,14 +516,16 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
         email = u_dict["email"]
         profile_content = u_dict.get('profile_json', '')
 
-        raw_jobs = fetch_live_job_market(target_roles=target_roles, location=target_locations, count=requested_count * 2)
+        # Use granular multi-role splitting (Phase 3)
+        loop = asyncio.get_event_loop()
+        raw_jobs = loop.run_until_complete(fetch_live_job_market_granular(target_roles, target_locations, requested_count * 2))
         
         if not raw_jobs:
             logger.warning("Strict Zero-Mock Policy: Multi-source live feeds returned zero verified postings. 0 credits deducted.")
-            await sse_broker.broadcast("career_swarm_update", {
+            loop.run_until_complete(sse_broker.broadcast("career_swarm_update", {
                 "status": "empty", 
                 "message": f"Zero live verified vacancies found for '{target_roles}' in '{target_locations}'. No credits deducted."
-            })
+            }))
             continue
 
         evaluated_matches = []
@@ -573,13 +591,13 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
 
         if not evaluated_matches:
             logger.warning("Strict Zero-Mock Policy: Multi-source feeds returned jobs, but AI qualification agent filtered out 100% due to domain misalignment. 0 credits deducted.")
-            await sse_broker.broadcast("career_swarm_update", {
+            loop.run_until_complete(sse_broker.broadcast("career_swarm_update", {
                 "status": "filtered", 
                 "message": f"Live jobs found, but filtered out due to domain mismatch. No credits deducted."
-            })
+            }))
             continue
 
-        # Pay-Per-Match Credit Deduction & Persistence
+        # Phase 1: Deferred Pay-Per-Match Credit Deduction & Persistence
         with db_transaction_scope() as (_, ic):
             saved_count = 0
             for match_item in evaluated_matches:
@@ -623,11 +641,12 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
 
                 saved_count += 1
 
-    await sse_broker.broadcast("career_swarm_update", {"status": "scouted", "message": f"Career swarm indexed {saved_count} verified live matches (1 credit deducted per match)."})
+    loop.run_until_complete(sse_broker.broadcast("career_swarm_update", {"status": "scouted", "message": f"Career swarm indexed {saved_count} verified live matches (1 credit deducted per match)."}))
+    return {"status": "success", "saved_matches": saved_count}
 
 app = FastAPI(
     title="QuantCode Monetized Career Swarm Apex",
-    version="6.4.0",
+    version="6.5.0",
     description="Autonomous Career Matching, Resume Vectorization, Stripe Billing, and Real-Time SSE Telemetry."
 )
 
@@ -729,13 +748,20 @@ async def save_career_resume(payload: ResumeInput, auth: dict = Depends(verify_a
     }
 
 @app.post("/api/v1/career/criteria")
-async def save_career_criteria(payload: CareerCriteriaInput, background_tasks: BackgroundTasks, auth: dict = Depends(verify_api_key_only)):
+async def save_career_criteria(payload: CareerCriteriaInput, auth: dict = Depends(verify_api_key_only)):
     if auth["tier"] != "enterprise" and auth["credits"] <= 0:
         raise HTTPException(status_code=403, detail="Insufficient credits. Please top up via Stripe checkout.")
 
-    background_tasks.add_task(job_scouting_swarm_worker, user_email=auth["email"], requested_count=payload.job_count, target_locations=payload.locations, target_roles=payload.target_roles)
+    # Dispatch asynchronously to Celery distributed task queue
+    job_scouting_swarm_worker.delay(
+        user_email=auth["email"],
+        requested_count=payload.job_count,
+        target_locations=payload.locations,
+        target_roles=payload.target_roles
+    )
+    
     await sse_broker.broadcast("career_swarm_launched", {"roles": payload.target_roles, "locations": payload.locations})
-    return {"status": "success", "message": "Career swarm launched under pay-per-match credit model.", "credits_remaining": auth["credits"]}
+    return {"status": "success", "message": "Career swarm dispatched to distributed Celery cluster.", "credits_remaining": auth["credits"]}
 
 @app.post("/api/v1/career/matches/{match_id}/dispatch")
 async def dispatch_career_outreach(match_id: int, payload: OutreachDispatchRequest, auth: dict = Depends(verify_api_key_only)):
