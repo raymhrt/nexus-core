@@ -411,6 +411,16 @@ def init_career_database():
                 timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        
+        # Self-healing migration for existing tables missing the new columns
+        if DATABASE_URL:
+            try:
+                cursor.execute("ALTER TABLE job_matches ADD COLUMN IF NOT EXISTS interview_playbook TEXT DEFAULT '';")
+                cursor.execute("ALTER TABLE job_matches ADD COLUMN IF NOT EXISTS ats_portal_url TEXT;")
+                cursor.execute("ALTER TABLE job_matches ADD COLUMN IF NOT EXISTS cv_variant TEXT;")
+            except Exception as e:
+                logger.info(f"Column migration check note: {e}")
+
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS audit_logs (
                 id SERIAL PRIMARY KEY,
