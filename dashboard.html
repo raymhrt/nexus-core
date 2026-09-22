@@ -443,7 +443,6 @@
             let postUrl = m.ats_portal_url || '#';
             const companyName = (m.company_name || '').toLowerCase();
             
-            // Route specific verified South African institutions to their official live career boards
             if (companyName.includes('biovac')) {
                 return 'https://biovac.teamtailor.com';
             }
@@ -672,6 +671,10 @@
                         <p><strong>Title:</strong> ${escapeHtml(match.networking_target_role)}</p>
                         <p><strong>Verified Email:</strong> <code class="text-sky-300">${escapeHtml(match.networking_target_email)}</code></p>
                     </div>
+                </div>
+                <div class="space-y-2">
+                    <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider">🎯 Elite Interview Playbook & STAR Guide</h3>
+                    <div class="bg-slate-950 p-4 rounded-xl text-xs text-slate-300 border border-slate-800 whitespace-pre-wrap leading-relaxed">${escapeHtml(match.interview_playbook || 'Playbook generating on next cycle...')}</div>
                 </div>
             `;
 

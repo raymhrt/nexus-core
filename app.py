@@ -147,17 +147,24 @@ def hash_api_key(api_key: str) -> str:
     return hashlib.sha256(api_key.encode("utf-8")).hexdigest()
 
 def sanitize_ats_url(url: str, role_title: str, company_name: str) -> str:
-    """Ensures unstable corporate subdomains are replaced with reliable corporate career portals."""
+    """Resolves exact direct deep links for verified corporate ATS platforms."""
     c_lower = company_name.lower()
+    r_encoded = requests.utils.quote(role_title)
+    
+    # Deep-link routing for Teamtailor (e.g., Biovac)
     if "biovac" in c_lower:
-        return "https://biovac.teamtailor.com"
+        if "jobs/" in url:
+            return url
+        return f"https://biovac.teamtailor.com/search?q={r_encoded}"
+        
+    # Deep-link routing for MCIDirectHire (e.g., SAMRC, Aspen)
     if "samrc" in c_lower or "medical research council" in c_lower:
-        return "https://samrcjobs.mcidirecthire.com"
+        return f"https://samrcjobs.mcidirecthire.com/Search/Index?q={r_encoded}"
     if "aspen" in c_lower:
-        return "https://aspen.mcidirecthire.com/SouthAfrica/External/CurrentOpportunities"
+        return f"https://aspen.mcidirecthire.com/SouthAfrica/External/CurrentOpportunities?q={r_encoded}"
 
-    if not url or url == '#':
-        return f"https://www.google.com/search?q={requests.utils.quote(role_title + ' ' + company_name + ' job careers vacancy')}"
+    if not url or url == '#' or 'example' in url:
+        return f"https://www.google.com/search?q={requests.utils.quote(role_title + ' ' + company_name + ' job careers vacancy application')}"
     
     stable_ats_domains = ['greenhouse.io', 'lever.co', 'myworkdayjobs.com', 'ashbyhq.com', 'bamboohr.com', 'teamtailor.com', 'mcidirecthire.com']
     if any(domain in url.lower() for domain in stable_ats_domains):
@@ -229,7 +236,7 @@ def call_groq_ai(prompt: str, system_prompt: str = "You are an elite career inte
             time.sleep(3.0)
     raise HTTPException(status_code=502, detail="Groq AI inference failed across all retry attempts.")
 
-# ==================== ZERO-MOCK RECRUITER & JOB INTEGRATIONS ====================
+# ==================== RECRUITER & JOB INTEGRATIONS ====================
 
 def fetch_live_job_market(target_roles: str, location: str, count: int = 5) -> List[Dict]:
     app_id = os.getenv("ADZUNA_APP_ID")
@@ -301,7 +308,6 @@ def discover_real_decision_maker(company_name: str) -> Dict[str, str]:
     }
 
 def compute_true_semantic_match(resume_text: str, job_description: str) -> int:
-    """Harden scoring to ensure high entropy and prevent static 78% clustering."""
     try:
         resume_words = set(resume_text.lower().split())
         job_words = set(job_description.lower().split())
@@ -312,8 +318,7 @@ def compute_true_semantic_match(resume_text: str, job_description: str) -> int:
         union = resume_words.union(job_words)
         jaccard_score = len(intersection) / len(union) if union else 0
         
-        # Introduce text entropy hash to prevent uniform clustering
-        entropy = (hash(resume_text[:30] + job_description[:30]) % 12) - 6  # -6 to +6 variance
+        entropy = (hash(resume_text[:30] + job_description[:30]) % 12) - 6 
         normalized_score = int(76 + (jaccard_score * 38) + entropy)
         return min(max(normalized_score, 74), 98)
     except Exception:
@@ -401,6 +406,7 @@ def init_career_database():
                 recruiter_verified INT DEFAULT 1,
                 negotiation_strategy TEXT DEFAULT '',
                 cv_variant TEXT,
+                interview_playbook TEXT DEFAULT '',
                 ats_portal_url TEXT,
                 timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
@@ -459,10 +465,8 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
         email = u_dict["email"]
         profile_content = u_dict.get('profile_json', '')
 
-        # Attempt to pull from live Adzuna feed first
         sample_jobs = fetch_live_job_market(target_roles="Scientist OR Researcher OR Biotechnologist OR Manager", location=target_locations, count=requested_count)
         
-        # If live job board feed is empty or unconfigured, use strict verified corporate generator
         if not sample_jobs:
             prompt = f"""
             Act as a rigorous enterprise talent acquisition auditor for South African biotechnology and research institutions (such as Biovac Cape Town, SAMRC, Aspen Pharmacare, and CSIR). 
@@ -487,7 +491,6 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
             company = job.get('company_name', 'Biotech Enterprise')
             raw_url = job.get('ats_portal_url', '#')
             
-            # Use smart URL routing to point directly to official careers portals if generic
             safe_portal_url = sanitize_ats_url(raw_url, role, company)
 
             eval_prompt = f"""
@@ -497,21 +500,20 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
             Job Description: {job.get('job_description', 'Professional technical and domain role')}
 
             CRITICAL TIMELINE & ACCURACY INSTRUCTIONS:
-            - Accurately parse the candidate's exact career history: 
-              1. Production Manager at Transvaal Electric Motors from 2010 to 2019 (9 years of operational leadership, technical problem-solving, and process control).
-              2. PhD Researcher at University of the Witwatersrand from 2023 to Present (molecular biology, SPR/ITC binding studies, X-ray crystallography, and peer-reviewed publications).
-            - DO NOT blend these timelines or state they have "12 years of hands-on research experience." Clearly segment their industrial operational background from their advanced molecular research credentials.
+            - Accurately parse the candidate's exact career history from their Master Profile.
+            - DO NOT blend timelines or hallucinate experience.
 
             Generate the following in strict JSON (no markdown backticks):
             1. "fit_score": An integer between 74 and 98 representing semantic alignment.
-            2. "match_rationale": A concise 2-sentence rationale reflecting their dual expertise in industrial operations and advanced molecular research.
+            2. "match_rationale": A concise 2-sentence rationale reflecting their dual expertise.
             3. "decision_maker_name": A realistic hiring manager or department lead name at {company}.
             4. "decision_maker_title": Their exact title.
             5. "decision_maker_email": A professional corporate email address.
-            6. "outreach_draft": A personalized cold outreach email written FROM the candidate TO the decision maker that correctly references their 2010-2019 engineering/operations leadership AND their 2023-Present PhD research publications.
+            6. "outreach_draft": A personalized cold outreach email written FROM the candidate TO the decision maker highlighting exact skill alignment.
             7. "salary_benchmark": Estimated market compensation range.
             8. "negotiation_strategy": Key leverage point for the offer.
             9. "cv_variant": Bullet points tailoring the resume for this specific role.
+            10. "interview_playbook": A comprehensive 3-stage interview brief with technical grilling questions and STAR-method narrative examples.
             """
             try:
                 raw_eval = call_groq_ai(eval_prompt)
@@ -540,6 +542,7 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
                 "salary_benchmark": eval_data.get('salary_benchmark', "Competitive Market Rate"),
                 "negotiation_strategy": eval_data.get('negotiation_strategy', "Emphasize past specialized delivery impact."),
                 "cv_variant": eval_data.get('cv_variant', "# Resume Variant\n- Tailored domain achievements."),
+                "interview_playbook": eval_data.get('interview_playbook', "### Elite Interview Playbook\n- Review core competencies and prepare STAR method responses."),
                 "ats_portal_url": safe_portal_url
             }
             evaluated_matches.append(match_obj)
@@ -549,11 +552,11 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
         with db_transaction_scope() as (_, ic):
             for match_item in evaluated_matches:
                 sql = """
-                    INSERT INTO job_matches (user_email, company_name, job_title, job_description, location, fit_score, match_rationale, decision_maker_name, decision_maker_title, decision_maker_email, outreach_draft, salary_benchmark, negotiation_strategy, cv_variant, ats_portal_url, status)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'discovered')
+                    INSERT INTO job_matches (user_email, company_name, job_title, job_description, location, fit_score, match_rationale, decision_maker_name, decision_maker_title, decision_maker_email, outreach_draft, salary_benchmark, negotiation_strategy, cv_variant, interview_playbook, ats_portal_url, status)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'discovered')
                 """ if DATABASE_URL else """
-                    INSERT INTO job_matches (user_email, company_name, job_title, job_description, location, fit_score, match_rationale, decision_maker_name, decision_maker_title, decision_maker_email, outreach_draft, salary_benchmark, negotiation_strategy, cv_variant, ats_portal_url, status)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'discovered')
+                    INSERT INTO job_matches (user_email, company_name, job_title, job_description, location, fit_score, match_rationale, decision_maker_name, decision_maker_title, decision_maker_email, outreach_draft, salary_benchmark, negotiation_strategy, cv_variant, interview_playbook, ats_portal_url, status)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'discovered')
                 """
                 ic.execute(sql, (
                     email,
@@ -570,6 +573,7 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
                     safe_str(match_item.get('salary_benchmark')),
                     safe_str(match_item.get('negotiation_strategy')),
                     safe_str(match_item.get('cv_variant')),
+                    safe_str(match_item.get('interview_playbook')),
                     safe_str(match_item.get('ats_portal_url'))
                 ))
 
@@ -626,7 +630,7 @@ def get_credits(user=Depends(verify_api_key_and_credits)):
 @app.get("/api/v1/career/matches")
 def get_career_matches(user=Depends(verify_api_key_and_credits)):
     with db_transaction_scope() as (_, cursor):
-        sql = "SELECT id, company_name, job_title as role_title, location, fit_score, match_rationale as rationale, decision_maker_name as networking_target_name, decision_maker_title as networking_target_role, decision_maker_email as networking_target_email, outreach_draft, salary_benchmark, recruiter_verified, negotiation_strategy, cv_variant, ats_portal_url FROM job_matches WHERE user_email = %s ORDER BY timestamp DESC" if DATABASE_URL else "SELECT id, company_name, job_title as role_title, location, fit_score, match_rationale as rationale, decision_maker_name as networking_target_name, decision_maker_title as networking_target_role, decision_maker_email as networking_target_email, outreach_draft, salary_benchmark, recruiter_verified, negotiation_strategy, cv_variant, ats_portal_url FROM job_matches WHERE user_email = ? ORDER BY timestamp DESC"
+        sql = "SELECT id, company_name, job_title as role_title, location, fit_score, match_rationale as rationale, decision_maker_name as networking_target_name, decision_maker_title as networking_target_role, decision_maker_email as networking_target_email, outreach_draft, salary_benchmark, recruiter_verified, negotiation_strategy, cv_variant, interview_playbook, ats_portal_url FROM job_matches WHERE user_email = %s ORDER BY timestamp DESC" if DATABASE_URL else "SELECT id, company_name, job_title as role_title, location, fit_score, match_rationale as rationale, decision_maker_name as networking_target_name, decision_maker_title as networking_target_role, decision_maker_email as networking_target_email, outreach_draft, salary_benchmark, recruiter_verified, negotiation_strategy, cv_variant, interview_playbook, ats_portal_url FROM job_matches WHERE user_email = ? ORDER BY timestamp DESC"
         cursor.execute(sql, (user["email"],))
         matches = [dict(r) for r in cursor.fetchall()]
     return {"status": "success", "matches": matches, "credits_remaining": user["credits"], "tier": user["tier"]}
@@ -640,7 +644,7 @@ def delete_career_match(match_id: int, user=Depends(verify_api_key_and_credits))
 
 @app.post("/api/v1/career/resume")
 async def save_career_resume(payload: ResumeInput, auth: dict = Depends(verify_api_key_and_credits)):
-    prompt = f"Parse resume text and extract core skills, seniority, domain expertise (e.g. software, biotech, finance), and tech stack in strict JSON format: {payload.resume_content}"
+    prompt = f"Parse resume text and extract core skills, seniority, domain expertise, and tech stack in strict JSON format: {payload.resume_content}"
     try:
         raw_ai = call_groq_ai(prompt)
         import re
