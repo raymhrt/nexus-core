@@ -1204,7 +1204,7 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
                             eval_data.get('decision_maker_name'), eval_data.get('decision_maker_title'), 
                             eval_data.get('decision_maker_email'), eval_data.get('outreach_draft'),
                             eval_data.get('salary_benchmark', 'Competitive Market Rate'),
-                            bool(eval_data.get('recruiter_verified', 1)),  # <--- FIXED: converted to boolean
+                            bool(eval_data.get('recruiter_verified', 1)), 
                             eval_data.get('negotiation_strategy', 'Emphasize past scale and unique domain expertise.'),
                         )
                     )
@@ -3479,24 +3479,39 @@ async def confirm_key_reset(token: str, background_tasks: BackgroundTasks, reque
         return FileResponse("reset_success.html")
     return {"status": "success", "message": "API key successfully reset."}
 
+class ResetRequestPayload(BaseModel):
+    email: EmailStr
+
 @app.post("/api/v1/request-key-reset")
-async def request_key_reset(
-    email: str = Query(..., description="User email address requesting API key reset"),
-    background_tasks: BackgroundTasks = None,
-    request: Request = None
-):
+async def request_key_reset(payload: ResetRequestPayload, background_tasks: BackgroundTasks, request: Request):
     conn = get_db()
     try:
         cursor = conn.cursor()
         if DATABASE_URL:
-            cursor.execute("SELECT active FROM subscribers WHERE email = %s", (email,))
+            cursor.execute("SELECT active FROM subscribers WHERE email = %s", (payload.email,))
         else:
-            cursor.execute("SELECT active FROM subscribers WHERE email = ?", (email,))
+            cursor.execute("SELECT active FROM subscribers WHERE email = ?", (payload.email,))
         row = cursor.fetchone()
-         
-        if not row or (row["active"] if isinstance(row, dict) or hasattr(row, "__keys__") else row[0]) == 0:
-            cursor.close()
-            return {"status": "success", "message": f"API key reset link sent to {email}."}
+        
+        if not row:
+            return {"status": "success", "message": "If the email exists, a reset link has been dispatched."}
+
+        reset_token = secrets.token_urlsafe(32)
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=15)
+
+        if DATABASE_URL:
+            cursor.execute("UPDATE subscribers SET reset_token = %s, reset_expires_at = %s WHERE email = %s", (reset_token, expires_at, payload.email))
+        else:
+            cursor.execute("UPDATE subscribers SET reset_token = ?, reset_expires_at = ? WHERE email = ?", (reset_token, expires_at, payload.email))
+        conn.commit()
+        cursor.close()
+    finally:
+        release_db(conn)
+
+    reset_url = f"[https://nexus-core-yfou.onrender.com/reset-confirm?token=](https://nexus-core-yfou.onrender.com/reset-confirm?token=){reset_token}"
+    background_tasks.add_task(send_password_reset_email, payload.email, reset_url)
+    log_audit_event(payload.email, "KEY_RESET_REQUESTED", "API key reset requested", request.client.host if request.client else "unknown")
+    return {"status": "success", "message": "Password/Key reset instructions sent to your inbox."}
 
         reset_token = secrets.token_urlsafe(32)
         expires_at = datetime.now(timezone.utc) + timedelta(minutes=15)
