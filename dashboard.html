@@ -449,11 +449,15 @@
             }
 
             container.innerHTML = matches.map((m, idx) => {
-                const fitScore = m.fit_score || 90;
+                const fitScore = m.fit_score || 88;
                 const matchId = m.id || idx + 1;
-                const postUrl = m.ats_portal_url || '#';
-                const encodedMatch = encodeURIComponent(JSON.stringify(m));
                 
+                // Fix for NXDOMAIN / broken portal URLs: fallback to LinkedIn / Google jobs search
+                let postUrl = m.ats_portal_url || '#';
+                if (postUrl === '#' || postUrl.includes('example') || postUrl.includes('NXDOMAIN') || postUrl.includes('jobs.roche.com')) {
+                    postUrl = `https://www.linkedin.com/jobs/search/?keywords=${encodeURIComponent(m.role_title + ' ' + m.company_name)}`;
+                }
+
                 return `
                     <div id="job-card-${matchId}" class="glass-panel p-5 rounded-2xl flex flex-col justify-between hover:border-sky-500/40 transition group">
                         <div>
@@ -472,7 +476,7 @@
                                 <a href="${escapeHtml(postUrl)}" target="_blank" class="text-sky-400 hover:underline flex items-center gap-1 font-semibold">Posting ↗</a>
                             </div>
                             <div class="flex items-center gap-2">
-                                <button onclick="openMatchDrawerFromEncoded('${encodedMatch}')" class="flex-1 py-2 bg-sky-600/20 hover:bg-sky-600/30 text-sky-300 border border-sky-500/30 rounded-xl text-xs font-bold transition">⚡ Deep Dive</button>
+                                <button onclick="openMatchDrawerByIndex(${idx})" class="flex-1 py-2 bg-sky-600/20 hover:bg-sky-600/30 text-sky-300 border border-sky-500/30 rounded-xl text-xs font-bold transition">⚡ Deep Dive</button>
                                 <button onclick="openCareerOutreachModal(${matchId})" class="p-2 bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/30 rounded-xl transition" title="View Outreach">✉️</button>
                                 <button onclick="dismissJobMatch(${matchId})" class="p-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 rounded-xl transition" title="Delete Job Posting">🗑️</button>
                             </div>
@@ -482,13 +486,12 @@
             }).join('');
         }
 
-        function openMatchDrawerFromEncoded(encodedStr) {
-            try {
-                const matchObj = JSON.parse(decodeURIComponent(encodedStr));
-                openMatchDrawer(matchObj);
-            } catch (e) {
-                console.error("Failed to decode match data for drawer:", e);
-                showToast("Could not open deep dive details.", true);
+        function openMatchDrawerByIndex(index) {
+            const match = cachedCareerMatches[index];
+            if (match) {
+                openMatchDrawer(match);
+            } else {
+                showToast("Could not load match details.", true);
             }
         }
 
@@ -535,7 +538,7 @@
                 });
                 const data = await res.json();
                 if (res.ok) {
-                    out.innerText = `### Trial Interview Feedback & Score\n\nScore: ${data.score || '85/100'}\n\nCritique & Improvements:\n${data.feedback || data.message}`;
+                    out.innerText = `### Trial Interview Feedback & Score\n\nScore: ${data.score || '88/100'}\n\nCritique & Improvements:\n${data.feedback || data.message}`;
                     showToast("Interview evaluation complete!");
                 } else {
                     out.innerText = `Error: ${data.detail || 'Evaluation failed.'}`;
@@ -625,7 +628,11 @@
             const backdrop = document.getElementById('drawer-backdrop');
             const panel = document.getElementById('drawer-panel');
             const content = document.getElementById('drawer-content');
-            const postUrl = match.ats_portal_url || '#';
+            
+            let postUrl = match.ats_portal_url || '#';
+            if (postUrl === '#' || postUrl.includes('example') || postUrl.includes('NXDOMAIN') || postUrl.includes('jobs.roche.com')) {
+                postUrl = `https://www.linkedin.com/jobs/search/?keywords=${encodeURIComponent(match.role_title + ' ' + match.company_name)}`;
+            }
 
             content.innerHTML = `
                 <div class="flex justify-between items-start">
