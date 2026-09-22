@@ -123,7 +123,7 @@
                     <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl flex flex-col justify-between">
                         <div>
                             <h2 class="text-base font-bold text-white flex items-center gap-2">📄 Elite Master Resume & ATS Optimizer</h2>
-                            <p class="text-xs text-slate-400 mt-1 mb-4">Paste your master resume markdown. The Career Swarm indexes your tech stack and experience.</p>
+                            <p class="text-xs text-slate-400 mt-1 mb-4">Paste your master resume markdown (including domain specialization). The Career Swarm indexes your expertise.</p>
                             <textarea id="careerResumeInput" rows="6" class="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs mono text-slate-200 focus:outline-none focus:border-sky-500 transition" placeholder="Paste your master resume markdown here..."></textarea>
                         </div>
                         <button id="save-resume-btn" onclick="saveCareerResume()" class="mt-4 w-full py-2.5 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold transition shadow-lg shadow-sky-600/20">Save & Index Resume Vector 🚀</button>
@@ -136,7 +136,7 @@
                             <div class="space-y-3">
                                 <div>
                                     <label class="text-xs text-slate-400 font-semibold">Target Roles (comma separated)</label>
-                                    <input type="text" id="targetJobRoles" class="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-slate-200 focus:outline-none focus:border-sky-500" placeholder="e.g. Principal Software Engineer, AI Architect">
+                                    <input type="text" id="targetJobRoles" class="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-slate-200 focus:outline-none focus:border-sky-500" placeholder="e.g. Senior Scientist, AI Architect, Principal Engineer">
                                 </div>
                                 <div class="grid grid-cols-2 gap-3">
                                     <div>
@@ -197,11 +197,11 @@
                             <div class="space-y-3">
                                 <div>
                                     <label class="text-xs text-slate-400 font-semibold">Target Company & Role</label>
-                                    <input type="text" id="interviewRole" class="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-slate-200 focus:outline-none focus:border-sky-500" placeholder="e.g. Staff Engineer at Google">
+                                    <input type="text" id="interviewRole" class="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-slate-200 focus:outline-none focus:border-sky-500" placeholder="e.g. Senior Scientist at Roche">
                                 </div>
                                 <div>
                                     <label class="text-xs text-slate-400 font-semibold">Your Answer / Response to Practice</label>
-                                    <textarea id="interviewAnswer" rows="4" class="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-slate-200 focus:outline-none focus:border-sky-500" placeholder="Type how you would answer a system design or behavioral question..."></textarea>
+                                    <textarea id="interviewAnswer" rows="4" class="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-slate-200 focus:outline-none focus:border-sky-500" placeholder="Type how you would answer a technical or behavioral question..."></textarea>
                                 </div>
                             </div>
                         </div>
@@ -216,11 +216,11 @@
                             <div class="space-y-3">
                                 <div>
                                     <label class="text-xs text-slate-400 font-semibold">Initial Offer Details</label>
-                                    <input type="text" id="offerDetails" class="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-slate-200 focus:outline-none focus:border-sky-500" placeholder="e.g. $160k base, 0.1% equity">
+                                    <input type="text" id="offerDetails" class="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-slate-200 focus:outline-none focus:border-sky-500" placeholder="e.g. R950k base, performance bonus">
                                 </div>
                                 <div>
                                     <label class="text-xs text-slate-400 font-semibold">Target Compensation / Leverage</label>
-                                    <input type="text" id="targetCompensation" class="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-slate-200 focus:outline-none focus:border-sky-500" placeholder="e.g. $195k base + sign-on bonus">
+                                    <input type="text" id="targetCompensation" class="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-slate-200 focus:outline-none focus:border-sky-500" placeholder="e.g. R1.2M base + sign-on package">
                                 </div>
                             </div>
                         </div>
@@ -452,10 +452,10 @@
                 const fitScore = m.fit_score || 88;
                 const matchId = m.id || idx + 1;
                 
+                // Bulletproof Google Jobs Search Fallback (bypassing LinkedIn intercept/login walls & NXDOMAIN errors)
                 let postUrl = m.ats_portal_url || '#';
-                if (postUrl === '#' || postUrl.includes('example') || postUrl.includes('NXDOMAIN') || postUrl.includes('jobs.roche.com')) {
-                    // Updated modern LinkedIn search redirect format
-                    postUrl = `https://www.linkedin.com/jobs/search?keywords=${encodeURIComponent(m.role_title + ' ' + m.company_name)}`;
+                if (postUrl === '#' || postUrl.includes('example') || postUrl.includes('NXDOMAIN') || postUrl.includes('jobs.roche.com') || postUrl.includes('linkedin.com')) {
+                    postUrl = `https://www.google.com/search?q=${encodeURIComponent(m.role_title + ' ' + m.company_name + ' job careers vacancy')}`;
                 }
 
                 return `
@@ -473,7 +473,7 @@
                         <div class="space-y-3 pt-3 border-t border-slate-800">
                             <div class="flex items-center justify-between text-xs">
                                 <span class="text-slate-400">Lead: <strong class="text-slate-200">${escapeHtml(m.networking_target_name || 'Hiring Lead')}</strong></span>
-                                <a href="${escapeHtml(postUrl)}" target="_blank" class="text-sky-400 hover:underline flex items-center gap-1 font-semibold">Posting ↗</a>
+                                <a href="${escapeHtml(postUrl)}" target="_blank" class="text-sky-400 hover:underline flex items-center gap-1 font-semibold">Search Posting ↗</a>
                             </div>
                             <div class="flex items-center gap-2">
                                 <button onclick="openMatchDrawerByIndex(${idx})" class="flex-1 py-2 bg-sky-600/20 hover:bg-sky-600/30 text-sky-300 border border-sky-500/30 rounded-xl text-xs font-bold transition">⚡ Deep Dive</button>
@@ -630,9 +630,8 @@
             const content = document.getElementById('drawer-content');
             
             let postUrl = match.ats_portal_url || '#';
-            if (postUrl === '#' || postUrl.includes('example') || postUrl.includes('NXDOMAIN') || postUrl.includes('jobs.roche.com')) {
-                // Updated modern LinkedIn search redirect format
-                postUrl = `https://www.linkedin.com/jobs/search?keywords=${encodeURIComponent(match.role_title + ' ' + match.company_name)}`;
+            if (postUrl === '#' || postUrl.includes('example') || postUrl.includes('NXDOMAIN') || postUrl.includes('jobs.roche.com') || postUrl.includes('linkedin.com')) {
+                postUrl = `https://www.google.com/search?q=${encodeURIComponent(match.role_title + ' ' + match.company_name + ' job careers vacancy')}`;
             }
 
             content.innerHTML = `
@@ -644,7 +643,7 @@
                     <span class="px-3 py-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 rounded-full text-xs font-bold mono">${match.fit_score}% Match</span>
                 </div>
                 <div>
-                    <a href="${escapeHtml(postUrl)}" target="_blank" class="inline-flex items-center gap-2 px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold transition shadow-lg shadow-sky-600/20">🌐 Open Original Job Posting ↗</a>
+                    <a href="${escapeHtml(postUrl)}" target="_blank" class="inline-flex items-center gap-2 px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold transition shadow-lg shadow-sky-600/20">🌐 Search Job Posting ↗</a>
                 </div>
                 <div class="space-y-2">
                     <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider">Structured Match Rationale</h3>
@@ -681,7 +680,7 @@
             activeCareerMatchIdForEmail = matchId;
             document.getElementById('careerModalContact').value = `${match.networking_target_name} (${match.networking_target_email})`;
             document.getElementById('careerModalSubject').value = `Inquiry regarding ${match.role_title} at ${match.company_name}`;
-            document.getElementById('careerModalBody').value = match.outreach_draft || `Hi ${match.networking_target_name},\n\nI noticed your team at ${match.company_name} is expanding its technical leadership...`;
+            document.getElementById('careerModalBody').value = match.outreach_draft || `Hi ${match.networking_target_name},\n\nI noticed your team at ${match.company_name} is expanding...`;
             document.getElementById('careerOutreachModal').classList.remove('hidden');
         }
 
