@@ -67,6 +67,8 @@
         </div>
     </header>
 
+    <!-- Success/Canceled Payment Alert Banners -->
+    <div id="alertBannerContainer" class="w-full max-w-7xl mx-auto px-4 mt-4"></div>
     <div id="toastContainer" class="fixed bottom-6 right-6 z-50 flex flex-col gap-3"></div>
 
     <div class="w-full max-w-7xl mx-auto flex flex-col gap-6 p-4 md:p-8">
@@ -351,6 +353,15 @@
 
             const savedLocations = localStorage.getItem('nexus_target_locations');
             if (savedLocations) document.getElementById('targetJobLocations').value = savedLocations;
+
+            // Check for Stripe success or cancel redirect parameters
+            const urlParams = new URLSearchParams(window.location.search);
+            const bannerContainer = document.getElementById('alertBannerContainer');
+            if (urlParams.get('success') === 'true') {
+                bannerContainer.innerHTML = `<div class="p-4 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 rounded-xl text-xs font-bold mb-4 flex items-center justify-between"><span>🎉 Subscription activated successfully! Credits and tier upgraded.</span><button onclick="this.parentElement.remove()" class="text-emerald-400 font-bold">&times;</button></div>`;
+            } else if (urlParams.get('canceled') === 'true') {
+                bannerContainer.innerHTML = `<div class="p-4 bg-amber-500/10 border border-amber-500/30 text-amber-400 rounded-xl text-xs font-bold mb-4 flex items-center justify-between"><span>⚠️ Checkout process was canceled. You can try again anytime.</span><button onclick="this.parentElement.remove()" class="text-amber-400 font-bold">&times;</button></div>`;
+            }
 
             initSSETelemetry();
         };
