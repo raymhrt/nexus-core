@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>QuantCode Nexus Enterprise Apex | Dual-Persona Command Center</title>
+    <title>QuantCode Nexus Enterprise Apex | Career Swarm Command Center</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -53,14 +53,14 @@
         <div class="flex items-center space-x-4">
             <div class="flex items-center space-x-2">
                 <div class="h-3 w-3 rounded-full bg-emerald-500 animate-pulse"></div>
-                <span class="text-xs font-bold uppercase tracking-wider text-emerald-400">Swarm Active</span>
+                <span class="text-xs font-bold uppercase tracking-wider text-emerald-400">Career Swarm Active</span>
             </div>
             <div class="h-4 w-[1px] bg-slate-800"></div>
-            <p id="swarm-status-text" class="text-xs text-slate-400 font-medium">Autonomous agents actively indexing European & Global ATS job feeds...</p>
+            <p id="swarm-status-text" class="text-xs text-slate-400 font-medium">Autonomous agents actively indexing global ATS feeds & matching candidate vectors...</p>
         </div>
         <div class="flex items-center space-x-4">
-            <span id="credits-badge" class="px-3 py-1 bg-sky-500/10 border border-sky-500/30 text-sky-400 rounded-full text-xs font-bold mono">460 / 500 Credits</span>
-            <button onclick="triggerManualSwarm()" class="px-3 py-1.5 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-bold transition shadow-lg shadow-sky-500/20">⚡ Run Swarm</button>
+            <span id="credits-badge" class="px-3 py-1 bg-sky-500/10 border border-sky-500/30 text-sky-400 rounded-full text-xs font-bold mono">System Operational</span>
+            <button onclick="loadCareerMatches()" class="px-3 py-1.5 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-bold transition shadow-lg shadow-sky-500/20">⚡ Refresh Matches</button>
         </div>
     </header>
 
@@ -76,38 +76,22 @@
                 <div>
                     <div class="flex flex-wrap items-center gap-3">
                         <div class="bg-gradient-to-tr from-cyan-500 to-blue-600 p-2 rounded-xl text-white shadow-lg shadow-cyan-500/20">
-                            <i class="fa-solid fa-network-wired text-lg"></i>
+                            <i class="fa-solid fa-user-astronaut text-lg"></i>
                         </div>
-                        <h1 class="text-2xl md:text-3xl font-black text-accent tracking-tight">Dual-Persona Command Center</h1>
-                        <!-- Dynamic Role & Tier Badge -->
-                        <div id="userRoleBadge" class="hidden items-center gap-2 bg-sky-500/10 border border-sky-500/30 px-3 py-1 rounded-full text-xs font-bold text-accent">
-                            <span id="badgeTier">Tier: --</span> • <span id="badgeRole">Role: --</span>
-                        </div>
+                        <h1 class="text-2xl md:text-3xl font-black text-accent tracking-tight">Career Swarm Apex Command Center</h1>
                     </div>
-                    <p class="text-sm text-slate-400 mt-1">Multi-persona workspace supporting B2B Lead Gen and Autonomous Career & Networking Swarms with ATS optimization.</p>
+                    <p class="text-sm text-slate-400 mt-1">Autonomous Career Intelligence, Resume Vectorization, Decision-Maker Mapping, and Real-Time SSE Telemetry.</p>
                 </div>
                 <div class="flex items-center gap-3">
                     <div id="sse-status-badge" class="flex items-center space-x-2 bg-emerald-500/10 border border-emerald-500/30 px-3 py-1.5 rounded-full text-xs font-semibold text-emerald-400">
                         <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
                         <span id="telemetryStatusText">SSE Telemetry Connected</span>
                     </div>
-                    <!-- Co-Pilot Trigger Button -->
-                    <button onclick="toggleCopilotModal()" class="bg-sky-500/10 hover:bg-sky-500/20 text-accent border border-sky-500/30 px-3.5 py-2 rounded-lg text-xs font-semibold transition flex items-center gap-2">
-                        <i class="fa-solid fa-robot text-cyan-400"></i> AI Co-Pilot <span class="text-[10px] bg-sky-500/20 px-1.5 py-0.5 rounded text-sky-300 font-mono">Cmd+K</span>
-                    </button>
-                    <!-- Credits Badge -->
-                    <div id="credit-badge" class="hidden sm:flex items-center space-x-2 bg-slate-800 border border-slate-700 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-200">
-                        <i class="fa-solid fa-coins text-amber-400"></i>
-                        <span id="credits-text">Loading credits...</span>
-                    </div>
-                    <button onclick="openBillingPortal()" class="bg-slate-800 hover:bg-slate-700 text-accent border border-sky-500/30 px-4 py-2 rounded-lg text-xs font-semibold transition flex items-center gap-2">
-                        <i class="fa-solid fa-credit-card text-cyan-400"></i> Manage Subscription
-                    </button>
                     <button onclick="logout()" class="bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-400 text-xs font-semibold px-3 py-2 rounded-xl transition">Sign Out</button>
                 </div>
             </div>
 
-            <!-- Global Authentication Bar (Persistent across tabs) -->
+            <!-- Global Authentication Bar (API Key & Credits) -->
             <div class="bg-inputbg border border-slate-700/80 p-4 rounded-xl flex flex-col md:flex-row items-center gap-4 mb-6">
                 <div class="w-full md:w-auto flex-grow flex items-center gap-3">
                     <span class="text-xs font-bold uppercase tracking-wider text-accent whitespace-nowrap"><i class="fa-solid fa-key text-amber-400 mr-1"></i> API Key:</span>
@@ -119,416 +103,15 @@
                 </div>
             </div>
 
-            <!-- Dual-Persona Top-Level Navigation Tabs -->
-            <div class="flex flex-wrap gap-2 border-b border-sky-500/20 pb-3 mb-6">
-                <button id="btnPersonaB2B" onclick="switchPersona('b2b', this)" class="persona-tab-btn px-5 py-2.5 rounded-lg text-xs font-bold transition bg-sky-500/15 text-accent border border-sky-500/40 flex items-center gap-2">
-                    <i class="fa-solid fa-briefcase text-cyan-400"></i> Tab 1: B2B Lead Gen Engine
-                </button>
-                <button id="btnPersonaCareer" onclick="switchPersona('career', this)" class="persona-tab-btn px-5 py-2.5 rounded-lg text-xs font-bold transition text-slate-400 hover:text-slate-200 flex items-center gap-2">
-                    <i class="fa-solid fa-user-astronaut text-purple-400"></i> Tab 2: Career & Networking Swarm
-                </button>
-            </div>
-
-            <!-- PERSONA CONTAINER 1: B2B LEAD GEN ENGINE -->
-            <div id="personaB2B" class="persona-section space-y-6">
-                <!-- Restructured Persona Navigation Tabs -->
-                <div class="flex flex-wrap gap-2 border-b border-sky-500/20 pb-3">
-                    <button id="btnTabOverview" onclick="switchTab('overview', this)" class="tab-btn px-4 py-2 rounded-lg text-xs font-bold transition bg-sky-500/15 text-accent border border-sky-500/40 flex items-center gap-2"><i class="fa-solid fa-chart-line text-cyan-400"></i> Overview & Telemetry</button>
-                    <button id="btnTabLeads" onclick="switchTab('leads', this)" class="tab-btn px-4 py-2 rounded-lg text-xs font-bold transition text-slate-400 hover:text-slate-200 flex items-center gap-2"><i class="fa-solid fa-bullseye text-cyan-400"></i> Lead Intelligence (SDR)</button>
-                    <button id="btnTabGenerator" onclick="switchTab('generator', this)" class="tab-btn px-4 py-2 rounded-lg text-xs font-bold transition text-slate-400 hover:text-slate-200 flex items-center gap-2"><i class="fa-solid fa-wand-magic-sparkles text-amber-400"></i> On-Demand Generator</button>
-                    <button id="btnTabAutopilot" onclick="switchTab('autopilot', this)" class="tab-btn px-4 py-2 rounded-lg text-xs font-bold transition text-slate-400 hover:text-slate-200 flex items-center gap-2"><i class="fa-solid fa-robot text-purple-400"></i> Autonomous SDR Rules</button>
-                    <button id="btnTabRevOps" onclick="switchTab('revops', this)" class="tab-btn px-4 py-2 rounded-lg text-xs font-bold transition text-slate-400 hover:text-slate-200 flex items-center gap-2"><i class="fa-solid fa-plug text-indigo-400"></i> RevOps & Webhooks</button>
-                    <button id="btnTabAdmin" onclick="switchTab('admin', this)" class="tab-btn px-4 py-2 rounded-lg text-xs font-bold transition text-slate-400 hover:text-slate-200 flex items-center gap-2"><i class="fa-solid fa-shield-halved text-emerald-400"></i> Admin Audit & Canaries</button>
-                    <button id="btnTabSandbox" onclick="switchTab('sandbox', this)" class="tab-btn px-4 py-2 rounded-lg text-xs font-bold transition text-slate-400 hover:text-slate-200 flex items-center gap-2"><i class="fa-solid fa-bolt text-amber-400"></i> Developer Sandbox</button>
-                </div>
-
-                <!-- TAB 0: OVERVIEW & TELEMETRY -->
-                <div id="tabOverview" class="tab-content active mt-6 space-y-6">
-                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-                        <div class="bg-slate-900 border border-slate-800 p-5 rounded-2xl">
-                            <p class="text-xs text-slate-400 font-bold uppercase tracking-wider">Total Active Leads</p>
-                            <h3 id="stat-total-leads" class="text-2xl font-black text-white mt-2">--</h3>
-                            <span class="text-[10px] text-emerald-400 font-semibold mt-1 block">Live vector index synchronized</span>
-                        </div>
-                        <div class="bg-slate-900 border border-slate-800 p-5 rounded-2xl">
-                            <p class="text-xs text-slate-400 font-bold uppercase tracking-wider">Credits Remaining</p>
-                            <h3 id="stat-credits" class="text-2xl font-black text-sky-400 mt-2">--</h3>
-                            <span class="text-[10px] text-slate-400 font-semibold mt-1 block">Refreshes monthly</span>
-                        </div>
-                        <div class="bg-slate-900 border border-slate-800 p-5 rounded-2xl">
-                            <p class="text-xs text-slate-400 font-bold uppercase tracking-wider">Circuit Breaker Status</p>
-                            <h3 id="stat-circuit" class="text-2xl font-black text-emerald-400 mt-2">Optimal</h3>
-                            <span class="text-[10px] text-slate-400 font-semibold mt-1 block">All webhook endpoints healthy</span>
-                        </div>
-                        <div class="bg-slate-900 border border-slate-800 p-5 rounded-2xl">
-                            <p class="text-xs text-slate-400 font-bold uppercase tracking-wider">DLQ Exceptions</p>
-                            <h3 id="stat-dlq" class="text-2xl font-black text-white mt-2">0</h3>
-                            <span class="text-[10px] text-slate-400 font-semibold mt-1 block">Zero unhandled exceptions</span>
-                        </div>
-                    </div>
-
-                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl flex flex-col">
-                            <h3 class="text-sm font-bold text-white mb-4 flex items-center gap-2">
-                                <i class="fa-solid fa-satellite-dish text-sky-400"></i> Live SSE Telemetry Stream
-                            </h3>
-                            <div id="telemetry-log" class="bg-slate-950 border border-slate-800 p-4 rounded-xl flex-1 h-64 overflow-y-auto font-mono text-xs text-slate-300 space-y-2">
-                                <p class="text-slate-500">Connecting to telemetry broker stream...</p>
-                            </div>
-                        </div>
-
-                        <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl flex flex-col justify-between">
-                            <div>
-                                <h3 class="text-sm font-bold text-white mb-2 flex items-center gap-2">
-                                    <i class="fa-solid fa-mug-hot text-amber-400"></i> AI Morning Briefing & Copilot
-                                </h3>
-                                <p id="briefing-greeting" class="text-xs text-slate-400 mb-4">Loading morning briefing...</p>
-                                <div id="briefing-actions" class="space-y-2"></div>
-                            </div>
-                            <div class="mt-4 pt-4 border-t border-slate-800 flex gap-2">
-                                <input type="text" id="copilot-input" placeholder="Ask AI Copilot (e.g., 'Summarize high trust leads')..." class="flex-1 bg-slate-950 border border-slate-800 px-3 py-2 rounded-xl text-xs focus:outline-none focus:border-sky-500 text-white">
-                                <button onclick="sendCopilotChat()" class="bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold px-4 py-2 rounded-xl text-xs transition">Ask</button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- TAB 1: Lead Intelligence Hub (SDR Focus) -->
-                <div id="tabLeads" class="tab-content hidden mt-6 space-y-6">
-                    <div class="bg-inputbg border border-slate-800 p-6 rounded-xl">
-                        <span class="block text-xs font-bold uppercase tracking-wider text-accent mb-2 flex items-center gap-2"><i class="fa-solid fa-brain text-purple-400"></i> Semantic Vector Search Explorer</span>
-                        <div class="flex gap-2 mb-3">
-                            <input type="text" id="semanticQueryInput" placeholder="Describe your ideal company (e.g., cloud security platforms)..." class="bg-darkbg border border-slate-700 rounded-lg px-3 py-2.5 text-xs flex-grow focus:outline-none focus:border-accent text-white">
-                            <button onclick="runSemanticSearch()" class="bg-accent hover:bg-accentHover text-slate-950 font-bold px-5 py-2.5 rounded-lg text-xs transition">Search AI</button>
-                        </div>
-                        <div id="semanticResultsContainer" class="hidden mt-4">
-                            <span class="block text-xs font-bold text-accent mb-2">Matching Vector Leads</span>
-                            <div id="semanticResultsList" class="flex flex-col gap-2"></div>
-                        </div>
-                    </div>
-
-                    <div class="bg-inputbg border border-slate-800 p-5 rounded-xl flex flex-col md:flex-row justify-between items-center gap-4">
-                        <div class="flex flex-wrap items-center gap-3 w-full md:w-auto">
-                            <div>
-                                <label class="block text-[10px] font-bold uppercase text-slate-400 mb-1">Min Trust</label>
-                                <input type="number" id="filterMinTrust" placeholder="e.g. 85" class="bg-darkbg border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs w-24 focus:outline-none focus:border-accent text-white">
-                            </div>
-                            <div>
-                                <label class="block text-[10px] font-bold uppercase text-slate-400 mb-1">Industry</label>
-                                <input type="text" id="filterIndustry" placeholder="Fintech, SaaS..." class="bg-darkbg border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs w-28 focus:outline-none focus:border-accent text-white">
-                            </div>
-                            <div>
-                                <label class="block text-[10px] font-bold uppercase text-slate-400 mb-1">Funding</label>
-                                <input type="text" id="filterFunding" placeholder="Series A..." class="bg-darkbg border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs w-28 focus:outline-none focus:border-accent text-white">
-                            </div>
-                            <div>
-                                <label class="block text-[10px] font-bold uppercase text-slate-400 mb-1">Sort By</label>
-                                <select id="filterSort" class="bg-darkbg border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs w-32 text-white">
-                                    <option value="newest">Newest First</option>
-                                    <option value="trust_desc">Trust (High to Low)</option>
-                                    <option value="trust_asc">Trust (Low to High)</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div class="flex items-center gap-2 w-full md:w-auto justify-end">
-                            <button onclick="saveAndFetch()" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-accent font-bold px-4 py-2 rounded-lg text-xs transition">Apply Filters</button>
-                            <button onclick="exportLeadsCSV()" class="bg-accent hover:bg-accentHover text-slate-950 font-bold px-4 py-2 rounded-lg text-xs transition flex items-center gap-1.5"><i class="fa-solid fa-download text-emerald-700"></i> Export CSV</button>
-                        </div>
-                    </div>
-
-                    <div>
-                        <div class="flex justify-between items-center mb-4">
-                            <div>
-                                <span class="block text-xs font-bold uppercase tracking-wider text-accent flex items-center gap-2"><i class="fa-solid fa-database text-blue-400"></i> Granular B2B Lead Intelligence Matrix</span>
-                                <p class="text-xs text-slate-400">Decision-maker mapping, headcount velocity metrics, technographic fingerprints & recent news triggers.</p>
-                            </div>
-                        </div>
-                        <div id="leadFeedContainer" class="space-y-3">
-                            <div class="bg-slate-900 border border-slate-800 p-4 rounded-xl animate-pulse h-20"></div>
-                            <div class="bg-slate-900 border border-slate-800 p-4 rounded-xl animate-pulse h-20"></div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- TAB 2: ON-DEMAND GENERATOR -->
-                <div id="tabGenerator" class="tab-content hidden mt-6 space-y-6">
-                    <div class="max-w-2xl bg-slate-900 border border-slate-800 p-8 rounded-2xl space-y-6">
-                        <div>
-                            <h2 class="text-base font-black text-white flex items-center gap-2">
-                                <i class="fa-solid fa-wand-magic-sparkles text-sky-400"></i> Autonomous On-Demand Lead Generator
-                            </h2>
-                            <p class="text-xs text-slate-400 mt-1">Deploy Gemini AI swarms to crawl, verify, and enrich new B2B accounts on the fly.</p>
-                        </div>
-                        <div class="space-y-4">
-                            <div>
-                                <label class="block text-xs font-bold text-slate-300 mb-1">Target Query / Niche</label>
-                                <input type="text" id="onDemandQuery" placeholder="e.g., 'Series B Fintech startups using Python and AWS in San Francisco'" class="w-full bg-slate-950 border border-slate-800 px-4 py-3 rounded-xl text-xs focus:outline-none focus:border-sky-500 text-white">
-                            </div>
-                            <div>
-                                <label class="block text-xs font-bold text-slate-300 mb-1">Quantity (1 - 25 leads)</label>
-                                <input type="number" id="onDemandCount" value="1" min="1" max="25" class="w-full bg-slate-950 border border-slate-800 px-4 py-3 rounded-xl text-xs focus:outline-none focus:border-sky-500 text-white font-mono">
-                            </div>
-                            <button id="generate-leads-btn" onclick="triggerOnDemandGeneration()" class="w-full bg-gradient-to-r from-sky-500 to-indigo-500 hover:opacity-90 text-slate-950 font-black py-3.5 rounded-xl text-xs transition shadow-lg shadow-sky-500/20">
-                                🚀 Launch Generation Swarm (1 Credit per lead)
-                            </button>
-                            <div id="loading-spinner" class="hidden flex items-center gap-2 text-xs text-sky-400 font-semibold mt-2">
-                                <i class="fa-solid fa-spinner fa-spin text-cyan-400"></i> Autonomous AI Swarm generating leads...
-                            </div>
-                        </div>
-                        <div id="onDemandResult" class="hidden p-4 rounded-xl bg-slate-950 border border-slate-800 text-xs font-mono"></div>
-                    </div>
-                </div>
-
-                <!-- TAB 3: AUTONOMOUS SDR RULES -->
-                <div id="tabAutopilot" class="tab-content hidden mt-6 space-y-6">
-                    <div class="max-w-2xl bg-slate-900 border border-slate-800 p-8 rounded-2xl space-y-6">
-                        <div>
-                            <h2 class="text-base font-black text-white flex items-center gap-2">
-                                <i class="fa-solid fa-robot text-sky-400"></i> Autonomous SDR Autopilot Rules
-                            </h2>
-                            <p class="text-xs text-slate-400 mt-1">Configure automated CRM sync, Slack alerts, and multi-touch sequence enrollment rules for high-trust inbound leads.</p>
-                        </div>
-                        <div class="space-y-4">
-                            <div>
-                                <label class="block text-xs font-bold text-slate-300 mb-1">Minimum Trust Score Threshold for Autopilot</label>
-                                <input type="number" id="autoMinTrust" value="85" min="50" max="100" class="w-full bg-slate-950 border border-slate-800 px-4 py-3 rounded-xl text-xs focus:outline-none focus:border-sky-500 text-white">
-                            </div>
-                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div>
-                                    <label class="block text-xs font-bold text-slate-300 mb-1">Auto-Sync to CRM</label>
-                                    <select id="autoSyncCrm" class="w-full bg-slate-950 border border-slate-800 px-4 py-3 rounded-xl text-xs text-white">
-                                        <option value="1">Enabled</option>
-                                        <option value="0">Disabled</option>
-                                    </select>
-                                </div>
-                                <div>
-                                    <label class="block text-xs font-bold text-slate-300 mb-1">Auto-Enroll Sequence</label>
-                                    <select id="autoEnrollSeq" class="w-full bg-slate-950 border border-slate-800 px-4 py-3 rounded-xl text-xs text-white">
-                                        <option value="1">Enabled</option>
-                                        <option value="0">Disabled</option>
-                                    </select>
-                                </div>
-                            </div>
-                            <button onclick="saveAutonomousRules()" class="bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold px-6 py-3 rounded-xl text-xs transition">
-                                Save Autopilot Rules
-                            </button>
-                        </div>
-                    </div>
-
-                    <div class="max-w-2xl bg-slate-900 border border-slate-800 p-8 rounded-2xl space-y-4">
-                        <span class="block text-xs font-bold uppercase tracking-wider text-accent mb-1 flex items-center gap-2"><i class="fa-brands fa-telegram text-cyan-400"></i> Telegram Bot Notification Settings</span>
-                        <p class="text-xs text-slate-400 mb-4">Receive autonomous autopilot high-trust lead sync alerts straight to your personal Telegram chat.</p>
-                        <div>
-                            <label class="block text-xs font-bold text-slate-300 mb-2">Telegram Chat ID</label>
-                            <input type="text" id="telegramChatId" placeholder="e.g. 123456789" class="w-full bg-slate-950 border border-slate-800 px-4 py-3 rounded-xl text-xs font-mono text-white focus:outline-none focus:border-sky-500">
-                        </div>
-                        <button onclick="saveTelegramSettings()" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-accent font-bold px-5 py-2.5 rounded-lg text-xs transition">Save Telegram Settings</button>
-                    </div>
-                </div>
-
-                <!-- TAB 4: REVOPS & WEBHOOKS -->
-                <div id="tabRevOps" class="tab-content hidden mt-6 space-y-6">
-                    <div class="bg-inputbg border border-slate-800 p-6 rounded-xl">
-                        <span class="block text-xs font-bold uppercase tracking-wider text-accent mb-1 flex items-center gap-2"><i class="fa-solid fa-cloud-arrow-up text-cyan-400"></i> Native CRM & Data Warehouse Destinations</span>
-                        <p class="text-xs text-slate-400 mb-4">Connect HubSpot, Salesforce, Snowflake, or Slack with one click.</p>
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                            <div>
-                                <label class="block text-xs font-bold uppercase text-slate-400 mb-2">Outbound Warehouse Destination</label>
-                                <select id="destType" class="bg-darkbg border border-slate-700 rounded-lg p-2.5 text-xs w-full text-white">
-                                    <option value="hubspot">HubSpot CRM</option>
-                                    <option value="salesforce">Salesforce</option>
-                                    <option value="snowflake">Snowflake Warehouse</option>
-                                    <option value="slack">Slack Alert Channel</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label class="block text-xs font-bold uppercase text-slate-400 mb-2">Webhook / API Endpoint URL</label>
-                                <input type="text" id="destWebhookUrl" placeholder="https://api.hubspot.com/crm/v3/objects/contacts" class="bg-darkbg border border-slate-700 rounded-lg px-3 py-2.5 text-xs w-full focus:outline-none focus:border-accent text-white">
-                            </div>
-                        </div>
-                        <div class="mb-4">
-                            <label class="block text-xs font-bold uppercase text-slate-400 mb-2">Access Token / Bearer Key (Optional)</label>
-                            <input type="password" id="destToken" placeholder="pat-na1-..." class="bg-darkbg border border-slate-700 rounded-lg px-3 py-2.5 text-xs w-full focus:outline-none focus:border-accent text-white">
-                        </div>
-                        <button class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-accent font-bold px-5 py-2.5 rounded-lg text-xs transition" onclick="registerDestination()">Connect Destination</button>
-                        <div id="destinationList" class="mt-3 text-xs text-slate-400"></div>
-                    </div>
-
-                    <div class="bg-inputbg border border-slate-800 p-6 rounded-xl">
-                        <span class="block text-xs font-bold uppercase tracking-wider text-accent mb-1 flex items-center gap-2"><i class="fa-solid fa-satellite-dish text-indigo-400"></i> Outbound Webhook Dispatcher & Filters</span>
-                        <p class="text-xs text-slate-400 mb-4">Configure your endpoint receiver and JSON filter rules.</p>
-                        <div class="space-y-4 mb-4">
-                            <div>
-                                <label class="block text-xs font-bold uppercase text-slate-400 mb-2">Destination URL</label>
-                                <input type="text" id="webhookUrl" placeholder="https://your-server.com/webhook-receiver" class="bg-darkbg border border-slate-700 rounded-lg px-3 py-2.5 text-xs w-full focus:outline-none focus:border-accent text-white">
-                            </div>
-                            <div>
-                                <label class="block text-xs font-bold uppercase text-slate-400 mb-2">Filter Rules (JSON)</label>
-                                <input type="text" id="webhookRules" value='{"min_trust_score": 85, "industries": ["Fintech"]}' class="bg-darkbg border border-slate-700 rounded-lg px-3 py-2.5 text-xs w-full focus:outline-none focus:border-accent font-mono text-white">
-                            </div>
-                        </div>
-                        <div class="flex gap-3">
-                            <button class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-accent font-bold px-4 py-2.5 rounded-lg text-xs transition" onclick="registerWebhook()">Register Webhook & Rules</button>
-                            <button class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-accent font-bold px-4 py-2.5 rounded-lg text-xs transition" onclick="fetchWebhookLogs()">View Recent Delivery Logs</button>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- TAB 5: ADMIN AUDIT & CANARIES -->
-                <div id="tabAdmin" class="tab-content hidden mt-6 space-y-6">
-                    <div class="bg-inputbg border border-slate-800 p-6 rounded-xl">
-                        <div class="flex justify-between items-center mb-3">
-                            <div>
-                                <span class="block text-xs font-bold uppercase tracking-wider text-accent flex items-center gap-2"><i class="fa-solid fa-shield-halved text-cyan-400"></i> Circuit Breakers & Canary Health Status</span>
-                                <p class="text-xs text-slate-400">Monitor automated circuit breaker states and trigger manual health checks or canary recoveries.</p>
-                            </div>
-                            <button onclick="loadCircuitBreakers()" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-accent font-bold px-3 py-1.5 rounded-lg text-xs transition flex items-center gap-1"><i class="fa-solid fa-rotate text-cyan-400"></i> Refresh States</button>
-                        </div>
-                        <div id="circuitBreakersContainer" class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
-                            <div class="bg-darkbg border border-slate-800 p-3 rounded-lg text-xs">
-                                <div class="flex justify-between items-center mb-1">
-                                    <span class="font-bold text-white">Webhook Dispatch Circuit</span>
-                                    <span id="cbWebhookState" class="bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded text-[10px] font-bold uppercase">CLOSED</span>
-                                </div>
-                                <p class="text-slate-400 text-[11px] mb-2">Failures: <span id="cbWebhookFailures">0</span> / 5 threshold</p>
-                                <button onclick="resetCircuit('webhook')" class="bg-sky-500/10 hover:bg-sky-500/20 text-accent border border-sky-500/30 px-2.5 py-1 rounded text-[11px] font-semibold transition">Reset Circuit</button>
-                            </div>
-                            <div class="bg-darkbg border border-slate-800 p-3 rounded-lg text-xs">
-                                <div class="flex justify-between items-center mb-1">
-                                    <span class="font-bold text-white">AI Processing / Gemini Circuit</span>
-                                    <span id="cbAiState" class="bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded text-[10px] font-bold uppercase">CLOSED</span>
-                                </div>
-                                <p class="text-slate-400 text-[11px] mb-2">Failures: <span id="cbAiFailures">0</span> / 3 threshold</p>
-                                <button onclick="resetCircuit('ai')" class="bg-sky-500/10 hover:bg-sky-500/20 text-accent border border-sky-500/30 px-2.5 py-1 rounded text-[11px] font-semibold transition">Reset Circuit</button>
-                            </div>
-                        </div>
-                        <button onclick="triggerCanaryHealing()" class="bg-accent hover:bg-accentHover text-slate-950 font-bold px-4 py-2 rounded-lg text-xs transition flex items-center gap-1.5"><i class="fa-solid fa-wand-magic-sparkles"></i> Run Canary Health Healing Worker</button>
-                    </div>
-
-                    <div class="bg-inputbg border border-slate-800 p-6 rounded-xl">
-                        <div class="flex justify-between items-center mb-3">
-                            <div>
-                                <span class="block text-xs font-bold uppercase tracking-wider text-accent flex items-center gap-2"><i class="fa-solid fa-triangle-exclamation text-amber-400"></i> Dead Letter Queue (DLQ) & Failed Webhooks</span>
-                                <p class="text-xs text-slate-400">Inspect failed webhook deliveries and trigger manual or automated payload replays.</p>
-                            </div>
-                            <div class="flex items-center gap-2">
-                                <button onclick="replayAllDLQ()" class="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1"><i class="fa-solid fa-play"></i> Replay All</button>
-                                <button onclick="loadDLQEvents()" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-accent font-bold px-3 py-1.5 rounded-lg text-xs transition flex items-center gap-1"><i class="fa-solid fa-rotate text-cyan-400"></i> Refresh DLQ</button>
-                            </div>
-                        </div>
-                        <div id="dlqContainer" class="space-y-2 max-h-60 overflow-y-auto">
-                            <p class="text-xs text-slate-400">Authenticate to load DLQ events.</p>
-                        </div>
-                    </div>
-
-                    <div class="bg-inputbg border border-slate-800 p-6 rounded-xl">
-                        <div class="flex justify-between items-center mb-3">
-                            <div>
-                                <span class="block text-xs font-bold uppercase tracking-wider text-accent flex items-center gap-2"><i class="fa-solid fa-user-shield text-cyan-400"></i> Workspace Audit Log Feed</span>
-                                <p class="text-xs text-slate-400">Real-time tracking of security events, exports, key creations, and replays.</p>
-                            </div>
-                            <button onclick="loadAuditLogs()" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-accent font-bold px-3 py-1.5 rounded-lg text-xs transition flex items-center gap-1"><i class="fa-solid fa-rotate text-cyan-400"></i> Refresh Logs</button>
-                        </div>
-                        <div id="auditLogContainer" class="space-y-2 max-h-60 overflow-y-auto font-mono text-[11px]">
-                            <p class="text-xs text-slate-400 font-sans">Authenticate to load audit logs.</p>
-                        </div>
-                    </div>
-
-                    <div class="bg-inputbg border border-slate-800 p-6 rounded-xl">
-                        <span class="block text-xs font-bold uppercase tracking-wider text-accent mb-3 flex items-center gap-2"><i class="fa-solid fa-users-gear text-purple-400"></i> Multi-Key Management & Team Workspaces</span>
-                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-                            <div>
-                                <label class="block text-xs font-bold uppercase text-slate-400 mb-2">Key Label / Member Email</label>
-                                <input type="text" id="newKeyName" placeholder="e.g. sdr-john@company.com" class="bg-darkbg border border-slate-700 rounded-lg px-3 py-2.5 text-xs w-full focus:outline-none focus:border-accent text-white">
-                            </div>
-                            <div>
-                                <label class="block text-xs font-bold uppercase text-slate-400 mb-2">Workspace Role</label>
-                                <select id="newKeyRole" class="bg-darkbg border border-slate-700 rounded-lg p-2.5 text-xs w-full text-white">
-                                    <option value="sdr">Role: SDR (Ingest & Train)</option>
-                                    <option value="viewer">Role: Viewer (Read-Only)</option>
-                                    <option value="admin">Role: Admin (Full Access)</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label class="block text-xs font-bold uppercase text-slate-400 mb-2">Granular Scope</label>
-                                <select id="newKeyScope" class="bg-darkbg border border-slate-700 rounded-lg p-2.5 text-xs w-full text-white">
-                                    <option value="full">Scope: Full (Read/Write/Admin)</option>
-                                    <option value="read">Scope: Read (Read-Only)</option>
-                                </select>
-                            </div>
-                        </div>
-                        <button class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-accent font-bold px-5 py-2.5 rounded-lg text-xs transition mb-4 flex items-center gap-2" onclick="createNewKey()"><i class="fa-solid fa-user-plus text-cyan-400"></i> Invite Team Member & Generate Key</button>
-                        <div id="keyList" class="text-xs text-slate-400">Authenticate to load active API keys.</div>
-                    </div>
-                </div>
-
-                <!-- TAB 6: Developer Sandbox -->
-                <div id="tabSandbox" class="tab-content hidden mt-6 space-y-6">
-                    <div class="bg-inputbg border border-slate-800 p-6 rounded-xl">
-                        <div id="status" class="text-xs font-semibold text-accent mb-2">Authenticate above to load quotas.</div>
-                        <div class="bg-darkbg border border-slate-800 rounded-lg h-2.5 overflow-hidden mb-3">
-                            <div id="usageBar" class="bg-gradient-to-r from-sky-500 to-accent h-full w-0 transition-all duration-500"></div>
-                        </div>
-                        <div class="flex justify-between items-center text-xs text-slate-400">
-                            <div id="creditStatus">Lead Credits Remaining: -- / --</div>
-                            <div id="tierStatus" class="font-bold text-accent uppercase">Tier: --</div>
-                        </div>
-                    </div>
-
-                    <div class="bg-inputbg border border-slate-800 p-6 rounded-xl">
-                        <span class="block text-xs font-bold uppercase tracking-wider text-accent mb-1 flex items-center gap-2"><i class="fa-solid fa-code text-cyan-400"></i> Live API Testing & Snippet Generator</span>
-                        <p class="text-xs text-slate-400 mb-4">Test your API key live in the browser, adjust parameters, and copy production-ready code snippets.</p>
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                            <div>
-                                <label class="block text-xs font-bold uppercase text-slate-400 mb-2">API Endpoint</label>
-                                <select id="sandboxEndpoint" class="bg-darkbg border border-slate-700 rounded-lg p-2.5 text-xs w-full text-white">
-                                    <option value="/api/v1/leads">GET /api/v1/leads (List Leads)</option>
-                                    <option value="/api/v1/credits">GET /api/v1/credits (Check Quota)</option>
-                                    <option value="/api/v1/icp">GET /api/v1/icp (Get ICP Settings)</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label class="block text-xs font-bold uppercase text-slate-400 mb-2">Query Limit</label>
-                                <input type="number" id="sandboxLimit" value="5" min="1" max="50" class="bg-darkbg border border-slate-700 rounded-lg p-2.5 text-xs w-full font-mono text-white">
-                            </div>
-                        </div>
-                        <button onclick="runSandboxRequest()" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-bold py-2.5 px-4 rounded-lg transition mb-4 text-accent">Execute Live Request</button>
-
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                            <div>
-                                <span class="block text-xs font-bold uppercase text-slate-400 mb-1">Generated cURL Snippet</span>
-                                <pre class="bg-darkbg p-3 rounded-lg border border-slate-800 overflow-x-auto text-xs text-accent font-mono"><code id="curlSnippet">curl -X GET "https://nexus-core-yfou.onrender.com/api/v1/leads?limit=5" -H "x-api-key: YOUR_API_KEY"</code></pre>
-                            </div>
-                            <div>
-                                <span class="block text-xs font-bold uppercase text-slate-400 mb-1">Generated Python Snippet</span>
-                                <pre class="bg-darkbg p-3 rounded-lg border border-slate-800 overflow-x-auto text-xs text-accent font-mono"><code id="pythonSnippet">import requests
-res = requests.get("https://nexus-core-yfou.onrender.com/api/v1/leads?limit=5", headers={"x-api-key": "YOUR_API_KEY"})
-print(res.json())</code></pre>
-                            </div>
-                        </div>
-
-                        <span class="block text-xs font-bold uppercase text-slate-400 mb-1">Live Response Stream</span>
-                        <pre class="bg-darkbg p-4 rounded-lg border border-slate-800 max-h-60 overflow-y-auto text-xs text-accent font-mono"><code id="sandboxResponseOutput">// Execute request above to view live JSON response...</code></pre>
-                    </div>
-
-                    <div class="bg-inputbg border border-slate-800 p-6 rounded-xl">
-                        <span class="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-2"><i class="fa-solid fa-chart-line text-emerald-400"></i> 7-Day API Request History</span>
-                        <div class="h-56 relative">
-                            <canvas id="usageChart"></canvas>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- PERSONA CONTAINER 2: CAREER & NETWORKING SWARM -->
-            <div id="personaCareer" class="persona-section hidden space-y-6">
+            <!-- CAREER & NETWORKING SWARM SECTION -->
+            <div id="personaCareer" class="space-y-6">
                 
                 <!-- ATS Resume Uploader & Criteria Config Grid -->
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl flex flex-col justify-between">
                         <div>
                             <h2 class="text-base font-bold text-white flex items-center gap-2">📄 Elite Master Resume & ATS Optimizer</h2>
-                            <p class="text-xs text-slate-400 mt-1 mb-4">Paste your master resume markdown. The Career Swarm parses your stack, deconstructs hiring intent, and maps structural gaps.</p>
+                            <p class="text-xs text-slate-400 mt-1 mb-4">Paste your master resume markdown. The Career Swarm parses your tech stack, seniority, and structural background.</p>
                             <textarea id="careerResumeInput" rows="6" class="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs mono text-slate-200 focus:outline-none focus:border-sky-500 transition" placeholder="Paste your master resume markdown or text here..."></textarea>
                         </div>
                         <button id="save-resume-btn" onclick="saveCareerResume()" class="mt-4 w-full py-2.5 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold transition shadow-lg shadow-sky-600/20">Save & Index Resume Vector 🚀</button>
@@ -541,12 +124,12 @@ print(res.json())</code></pre>
                             <div class="space-y-3">
                                 <div>
                                     <label class="text-xs text-slate-400 font-semibold">Target Roles (comma separated)</label>
-                                    <input type="text" id="targetJobRoles" class="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-slate-200 focus:outline-none focus:border-sky-500" placeholder="e.g. Principal Engineer, Head of Protein Engineering">
+                                    <input type="text" id="targetJobRoles" class="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-slate-200 focus:outline-none focus:border-sky-500" placeholder="e.g. Principal Software Engineer, AI Architect">
                                 </div>
                                 <div class="grid grid-cols-2 gap-3">
                                     <div>
                                         <label class="text-xs text-slate-400 font-semibold">Locations / Remote</label>
-                                        <input type="text" id="targetJobLocations" class="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-slate-200 focus:outline-none focus:border-sky-500" placeholder="e.g. Berlin, Remote (UK/EU)">
+                                        <input type="text" id="targetJobLocations" class="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-slate-200 focus:outline-none focus:border-sky-500" placeholder="e.g. South Africa, Remote">
                                     </div>
                                     <div>
                                         <label class="text-xs text-slate-400 font-semibold">Jobs Per Batch</label>
@@ -586,7 +169,7 @@ print(res.json())</code></pre>
                         <i class="fa-solid fa-satellite-dish text-purple-400"></i> Live SSE Logs: Job Applications & Multi-Touch Sequences
                     </h3>
                     <div id="careerTelemetryLog" class="bg-slate-950 border border-slate-800 p-4 rounded-xl flex-1 h-52 overflow-y-auto font-mono text-xs text-slate-300 space-y-2">
-                        <p class="text-slate-500">[2026-09-21T10:36:54Z] career_swarm_launched: Risk reduction layer active. 1-page ATS formatting enabled.</p>
+                        <p class="text-slate-500">[System] Risk reduction layer active. 1-page ATS formatting enabled.</p>
                     </div>
                 </div>
             </div>
@@ -608,32 +191,7 @@ print(res.json())</code></pre>
         </div>
     </div>
 
-    <!-- Modals -->
-    <div id="emailModal" class="hidden fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex justify-center items-center p-4">
-        <div class="bg-cardbg border border-sky-500/40 p-6 rounded-2xl max-w-xl w-full shadow-2xl">
-            <span class="text-xs font-bold uppercase tracking-wider text-accent block mb-3 flex items-center gap-2"><i class="fa-solid fa-envelope text-blue-400"></i> AI Cold Outreach & Resend Live Dispatch</span>
-            <div class="space-y-3 mb-4">
-                <div>
-                    <label class="block text-[10px] font-bold uppercase text-slate-400 mb-1">Recipient Email</label>
-                    <input type="email" id="modalRecipientEmail" placeholder="contact@company.com" class="bg-inputbg border border-slate-700 rounded-lg px-3 py-2 text-xs w-full text-white">
-                </div>
-                <div>
-                    <label class="block text-[10px] font-bold uppercase text-slate-400 mb-1">Subject</label>
-                    <input type="text" id="modalSubject" class="bg-inputbg border border-slate-700 rounded-lg px-3 py-2 text-xs w-full text-white">
-                </div>
-                <div>
-                    <label class="block text-[10px] font-bold uppercase text-slate-400 mb-1">Email Body</label>
-                    <textarea id="modalBody" rows="8" class="bg-inputbg border border-slate-700 rounded-lg p-3 text-xs w-full text-white font-mono"></textarea>
-                </div>
-            </div>
-            <div class="flex gap-3">
-                <button onclick="sendLiveEmailViaResend()" class="bg-accent hover:bg-accentHover text-slate-950 font-bold px-4 py-2 rounded-lg text-xs transition flex items-center gap-1.5"><i class="fa-solid fa-rocket text-emerald-700"></i> Send Live Email via Resend</button>
-                <button class="bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold px-4 py-2 rounded-lg text-xs transition" onclick="closeEmailModal()">Close</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Career Swarm Outreach & Approval Modal (Restored) -->
+    <!-- Career Swarm Outreach & Approval Modal -->
     <div id="careerOutreachModal" class="hidden fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex justify-center items-center p-4">
         <div class="bg-cardbg border border-purple-500/40 p-6 rounded-2xl max-w-xl w-full shadow-2xl">
             <span class="text-xs font-bold uppercase tracking-wider text-purple-400 block mb-3 flex items-center gap-2"><i class="fa-solid fa-paper-plane text-purple-400"></i> Career Networking Outreach Draft</span>
@@ -658,52 +216,17 @@ print(res.json())</code></pre>
         </div>
     </div>
 
-    <div id="deepScanModal" class="hidden fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex justify-center items-center p-4">
-        <div class="bg-cardbg border border-sky-500/40 p-6 rounded-2xl max-w-xl w-full shadow-2xl">
-            <span class="text-xs font-bold uppercase tracking-wider text-accent block mb-3 flex items-center gap-2"><i class="fa-solid fa-magnifying-glass text-cyan-400"></i> Deep Company Intelligence & Lookalikes</span>
-            <div id="deepScanContent" class="bg-inputbg p-4 rounded-xl border border-slate-800 text-xs text-slate-200 font-mono space-y-2 max-h-80 overflow-y-auto mb-4">Scanning company telemetry...</div>
-            <div class="flex justify-end">
-                <button class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 font-bold px-4 py-2 rounded-lg text-xs transition" onclick="closeDeepScanModal()">Close Intelligence</button>
-            </div>
-        </div>
-    </div>
-
-    <div id="copilotModal" class="hidden fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex justify-center items-center p-4">
-        <div class="bg-cardbg border border-sky-500/40 p-6 rounded-2xl max-w-2xl w-full shadow-2xl flex flex-col h-[500px]">
-            <div class="flex justify-between items-center border-b border-slate-800 pb-3 mb-3">
-                <span class="text-xs font-bold uppercase tracking-wider text-accent flex items-center gap-2">
-                    <i class="fa-solid fa-robot text-cyan-400"></i> Nexus AI Co-Pilot (Cmd+K)
-                </span>
-                <button onclick="toggleCopilotModal()" class="text-slate-400 hover:text-white text-xs">✕ Close</button>
-            </div>
-            <div id="copilotChatHistory" class="flex-grow overflow-y-auto space-y-3 pr-2 font-mono text-xs text-slate-300 mb-3">
-                <div class="bg-darkbg p-3 rounded-lg border border-slate-800 text-sky-400">
-                    Nexus Co-Pilot online. Ask me anything about your telemetry, leads, or career swarm rules...
-                </div>
-            </div>
-            <div class="flex gap-2">
-                <input type="text" id="copilotPromptInput" placeholder="Type a command or natural query..." class="bg-inputbg border border-slate-700 rounded-lg px-3 py-2.5 text-xs flex-grow focus:outline-none focus:border-accent text-white" onkeydown="if(event.key==='Enter') sendCopilotMessage()">
-                <button onclick="sendCopilotMessage()" class="bg-accent hover:bg-accentHover text-slate-950 font-bold px-5 py-2.5 rounded-lg text-xs transition">Send</button>
-            </div>
-        </div>
-    </div>
-
     <!-- Frontend Controller Script -->
     <script>
         lucide.createIcons();
 
-        let usageChartInstance = null;
-        let cachedLeadsData = [];
         let cachedCareerMatches = [];
-        let currentUserRole = 'admin';
-        let activeLeadIdForEmail = null;
         let activeCareerMatchIdForEmail = null;
 
         window.onload = function() {
             const savedKey = localStorage.getItem('nexus_api_key');
             if (savedKey) {
                 document.getElementById('apiKey').value = savedKey;
-                saveAndFetch();
                 loadCareerMatches();
             }
 
@@ -716,39 +239,8 @@ print(res.json())</code></pre>
             const savedLocations = localStorage.getItem('nexus_target_locations');
             if (savedLocations) document.getElementById('targetJobLocations').value = savedLocations;
 
-            const savedRules = localStorage.getItem('nexus_webhook_rules');
-            if (savedRules) document.getElementById('webhookRules').value = savedRules;
-
             initSSETelemetry();
         };
-
-        window.addEventListener('keydown', function(e) {
-            if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-                e.preventDefault();
-                toggleCopilotModal();
-            }
-        });
-
-        function switchPersona(personaName, btnElement) {
-            document.querySelectorAll('.persona-tab-btn').forEach(b => {
-                b.classList.remove('bg-sky-500/15', 'text-accent', 'border', 'border-sky-500/40');
-                b.classList.add('text-slate-400');
-            });
-            document.querySelectorAll('.persona-section').forEach(s => s.classList.add('hidden'));
-
-            if (btnElement) {
-                btnElement.classList.add('bg-sky-500/15', 'text-accent', 'border', 'border-sky-500/40');
-                btnElement.classList.remove('text-slate-400');
-            }
-
-            const targetId = personaName === 'b2b' ? 'personaB2B' : 'personaCareer';
-            const targetEl = document.getElementById(targetId);
-            if (targetEl) targetEl.classList.remove('hidden');
-
-            if (personaName === 'career') {
-                loadCareerMatches();
-            }
-        }
 
         async function loadCareerMatches() {
             const btn = document.getElementById('refresh-matches-btn');
@@ -799,7 +291,7 @@ print(res.json())</code></pre>
             container.innerHTML = matches.map((m, idx) => {
                 const fitScore = m.fit_score || 90;
                 const matchId = m.id || idx + 1;
-                const postUrl = m.job_url || m.ats_portal_url || '#';
+                const postUrl = m.ats_portal_url || '#';
                 
                 return `
                     <div id="job-card-${matchId}" class="glass-panel p-5 rounded-2xl flex flex-col justify-between hover:border-sky-500/40 transition group">
@@ -821,7 +313,6 @@ print(res.json())</code></pre>
                             <div class="flex items-center gap-2">
                                 <button onclick='openMatchDrawer(${JSON.stringify(m)})' class="flex-1 py-2 bg-sky-600/20 hover:bg-sky-600/30 text-sky-300 border border-sky-500/30 rounded-xl text-xs font-bold transition">⚡ Deep Dive & Studio</button>
                                 <button onclick="openCareerOutreachModal(${matchId})" class="p-2 bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/30 rounded-xl transition" title="View Outreach Draft">✉️</button>
-                                <button onclick="dismissJobMatch(${matchId})" class="p-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 rounded-xl transition" title="Dismiss Match">🗑️</button>
                             </div>
                         </div>
                     </div>
@@ -834,7 +325,7 @@ print(res.json())</code></pre>
             const backdrop = document.getElementById('drawer-backdrop');
             const panel = document.getElementById('drawer-panel');
             const content = document.getElementById('drawer-content');
-            const postUrl = match.job_url || match.ats_portal_url || '#';
+            const postUrl = match.ats_portal_url || '#';
 
             content.innerHTML = `
                 <div class="flex justify-between items-start">
@@ -862,14 +353,6 @@ print(res.json())</code></pre>
                         <p><strong>Verified Email:</strong> <code class="text-sky-300">${escapeHtml(match.networking_target_email)}</code></p>
                     </div>
                 </div>
-
-                <div class="space-y-3 pt-4 border-t border-slate-800">
-                    <h3 class="text-xs font-bold text-sky-400 uppercase tracking-wider">🚀 Contextual Studio Actions</h3>
-                    <div class="grid grid-cols-2 gap-3">
-                        <button onclick="launchMockInterview('${escapeHtml(match.company_name)}', '${escapeHtml(match.role_title)}')" class="p-3 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-bold text-left border border-slate-700 transition">🎙️ Launch Mock Interview Studio</button>
-                        <button onclick="launchNegotiationPlaybook('${escapeHtml(match.company_name)}', '${escapeHtml(match.role_title)}')" class="p-3 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-bold text-left border border-slate-700 transition">💰 Generate Compensation Playbook</button>
-                    </div>
-                </div>
             `;
 
             drawer.classList.remove('pointer-events-none');
@@ -892,8 +375,8 @@ print(res.json())</code></pre>
             if (!match) return;
             activeCareerMatchIdForEmail = matchId;
             document.getElementById('careerModalContact').value = `${match.networking_target_name} (${match.networking_target_email})`;
-            document.getElementById('careerModalSubject').value = match.outreach_subject || `Inquiry regarding ${match.role_title} at ${match.company_name}`;
-            document.getElementById('careerModalBody').value = match.outreach_draft || `Hi ${match.networking_target_name},\n\nI noticed your team at ${match.company_name} is expanding its engineering leadership. Given my background in distributed systems...\n\nBest regards`;
+            document.getElementById('careerModalSubject').value = `Inquiry regarding ${match.role_title} at ${match.company_name}`;
+            document.getElementById('careerModalBody').value = match.outreach_draft || `Hi ${match.networking_target_name},\n\nI noticed your team at ${match.company_name} is expanding its technical leadership...`;
             document.getElementById('careerOutreachModal').classList.remove('hidden');
         }
 
@@ -920,33 +403,6 @@ print(res.json())</code></pre>
                     showToast(data.detail || "Failed to dispatch outreach.", true);
                 }
             } catch (err) { showToast("Dispatch request failed.", true); }
-        }
-
-        async function dismissJobMatch(matchId) {
-            const apiKey = document.getElementById('apiKey').value.trim();
-            if (!apiKey) { alert("Please authenticate first."); return; }
-
-            try {
-                const res = await fetch(`/api/v1/career/matches/${matchId}`, {
-                    method: 'DELETE',
-                    headers: { 'x-api-key': apiKey }
-                });
-                const data = await res.json();
-                if (res.ok) {
-                    showToast(data.message || `Job match #${matchId} dismissed successfully.`);
-                    const card = document.getElementById(`job-card-${matchId}`);
-                    if (card) {
-                        card.style.transition = 'all 0.3s ease';
-                        card.style.opacity = '0';
-                        card.style.transform = 'scale(0.95)';
-                        setTimeout(() => card.remove(), 300);
-                    }
-                } else {
-                    showToast(data.detail || "Failed to dismiss job match.", true);
-                }
-            } catch (err) {
-                showToast("Delete request failed: " + err.message, true);
-            }
         }
 
         async function saveCareerResume() {
@@ -1001,17 +457,16 @@ print(res.json())</code></pre>
             const apiKey = document.getElementById('apiKey').value.trim();
             const target_roles = document.getElementById('targetJobRoles').value.trim();
             const locations = document.getElementById('targetJobLocations').value.trim();
-            const job_quantity = parseInt(document.getElementById('jobQuantitySelect').value) || 5;
+            const job_count = parseInt(document.getElementById('jobQuantitySelect').value) || 5;
             
             localStorage.setItem('nexus_target_roles', target_roles);
             localStorage.setItem('nexus_target_locations', locations);
-            localStorage.setItem('nexus_job_quantity', job_quantity);
             
             try {
                 const res = await fetch('/api/v1/career/criteria', {
                     method: 'POST',
                     headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ target_roles, locations, job_quantity })
+                    body: JSON.stringify({ target_roles, locations, job_count })
                 });
                 const data = await res.json();
                 if (res.ok) {
@@ -1037,83 +492,8 @@ print(res.json())</code></pre>
             }
         }
 
-        function launchMockInterview(company, title) {
-            closeSideDrawer();
-            switchPersona('career');
-            showToast(`Launching Mock Interview Studio for ${company}...`);
-        }
-
-        function launchNegotiationPlaybook(company, title) {
-            closeSideDrawer();
-            switchPersona('career');
-            showToast(`Generating Compensation Playbook for ${title} at ${company}...`);
-        }
-
-        function toggleCopilotModal() {
-            const modal = document.getElementById('copilotModal');
-            modal.classList.toggle('hidden');
-            if (!modal.classList.contains('hidden')) {
-                document.getElementById('copilotPromptInput').focus();
-                fetchMorningBriefing();
-            }
-        }
-
-        async function fetchMorningBriefing() {
-            const apiKey = document.getElementById('apiKey').value.trim();
-            if (!apiKey) return;
-            try {
-                const res = await fetch('/api/v1/copilot/morning-briefing', { headers: { 'x-api-key': apiKey } });
-                const data = await res.json();
-                if (res.ok && data.greeting) {
-                    document.getElementById("briefing-greeting").innerText = data.greeting;
-                    if (data.suggested_actions) {
-                        document.getElementById("briefing-actions").innerHTML = data.suggested_actions.map(a => `
-                            <button onclick="alert('Executing action: ${a.label}')" class="w-full text-left bg-slate-950 hover:bg-slate-800 border border-slate-800 p-3 rounded-xl text-xs text-sky-400 font-semibold transition">
-                                <i class="fa-solid fa-arrow-right mr-2"></i> ${a.label}
-                            </button>
-                        `).join('');
-                    }
-                }
-            } catch (e) { console.error(e); }
-        }
-
-        async function sendCopilotChat() {
-            const input = document.getElementById('copilotPromptInput') || document.getElementById('copilot-input');
-            const prompt = input.value.trim();
-            const apiKey = document.getElementById('apiKey').value.trim();
-            const history = document.getElementById('copilotChatHistory');
-
-            if (!prompt || !apiKey) return;
-
-            if (history) {
-                history.innerHTML += `<div class="bg-darkbg p-3 rounded-lg border border-slate-800 text-white text-right"><strong>You:</strong> ${escapeHtml(prompt)}</div>`;
-            }
-            input.value = '';
-
-            try {
-                const res = await fetch('/api/v1/copilot/chat', {
-                    method: 'POST',
-                    headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ prompt })
-                });
-                const data = await res.json();
-                const log = document.getElementById("telemetry-log");
-                if (res.ok) {
-                    if (history) {
-                        history.innerHTML += `<div class="bg-darkbg p-3 rounded-lg border border-slate-800 text-accent"><strong>Co-Pilot:</strong> ${escapeHtml(data.response)}</div>`;
-                        history.scrollTop = history.scrollHeight;
-                    }
-                    if (log) {
-                        log.innerHTML += `<p class="text-emerald-400"><i class="fa-solid fa-robot"></i> ${escapeHtml(data.response)}</p>`;
-                        log.scrollTop = log.scrollHeight;
-                    }
-                }
-            } catch (err) { console.error(err); }
-        }
-
         function initSSETelemetry() {
             const eventSource = new EventSource('/api/v1/stream/telemetry');
-            const sseLog = document.getElementById('telemetry-log');
             const careerLog = document.getElementById('careerTelemetryLog');
 
             eventSource.onmessage = function(event) {
@@ -1127,13 +507,9 @@ print(res.json())</code></pre>
                     entry.className = "border-b border-slate-900 pb-1";
                     entry.innerHTML = `<span class="text-sky-400">[${timestamp}]</span> <strong class="text-white">${parsed.event}:</strong> ${JSON.stringify(parsed.data || parsed)}`;
 
-                    if (parsed.event.includes('career') || parsed.event.includes('application') || parsed.event.includes('networking')) {
-                        if (careerLog) careerLog.prepend(entry);
-                        if (parsed.event === 'career_swarm_update' || parsed.event === 'career_match_executed') {
-                            loadCareerMatches();
-                        }
-                    } else {
-                        if (sseLog) sseLog.prepend(entry);
+                    if (careerLog) careerLog.prepend(entry);
+                    if (parsed.event === 'career_swarm_update') {
+                        loadCareerMatches();
                     }
                 } catch (e) {
                     console.error("SSE parse error:", e);
@@ -1151,1009 +527,18 @@ print(res.json())</code></pre>
             setTimeout(() => toast.remove(), isError ? 5000 : 3000);
         }
 
-        function switchTab(tabName, btnElement) {
-            document.querySelectorAll('.tab-btn').forEach(b => {
-                b.classList.remove('bg-sky-500/15', 'text-accent', 'border', 'border-sky-500/40');
-                b.classList.add('text-slate-400');
-            });
-            document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
-            
-            if (btnElement) {
-                btnElement.classList.add('bg-sky-500/15', 'text-accent', 'border', 'border-sky-500/40');
-                btnElement.classList.remove('text-slate-400');
-            }
-
-            const targetId = tabName === 'overview' ? 'tabOverview' : 
-                           tabName === 'leads' ? 'tabLeads' : 
-                           tabName === 'generator' ? 'tabGenerator' : 
-                           tabName === 'autopilot' ? 'tabAutopilot' : 
-                           tabName === 'revops' ? 'tabRevOps' : 
-                           tabName === 'admin' ? 'tabAdmin' : 'tabSandbox';
-
-            const targetEl = document.getElementById(targetId);
-            if (targetEl) targetEl.classList.remove('hidden');
-
-            if (tabName === 'admin') {
-                loadDLQEvents();
-                loadAuditLogs();
-                loadCircuitBreakers();
-            }
-            if (tabName === 'leads') {
-                fetchLeads();
-            }
-        }
-
-        async function runSandboxRequest() {
-            const apiKey = document.getElementById('apiKey').value.trim();
-            const endpoint = document.getElementById('sandboxEndpoint').value;
-            const limit = document.getElementById('sandboxLimit').value;
-            const output = document.getElementById('sandboxResponseOutput');
-
-            if (!apiKey) { alert("Please enter your API key first."); return; }
-
-            const fullUrl = `https://nexus-core-yfou.onrender.com${endpoint}?limit=${limit}`;
-            document.getElementById('curlSnippet').innerText = `curl -X GET "${fullUrl}" \\\n  -H "x-api-key: ${apiKey}"`;
-            document.getElementById('pythonSnippet').innerText = `import requests\nres = requests.get("${fullUrl}", headers={"x-api-key": "${apiKey}"})\nprint(res.json())`;
-
-            output.innerText = "Executing request...";
-            try {
-                const res = await fetch(`${endpoint}?limit=${limit}`, {
-                    headers: { 'x-api-key': apiKey }
-                });
-                const data = await res.json();
-                output.innerText = JSON.stringify(data, null, 2);
-            } catch (err) {
-                output.innerText = `Error: ${err.message}`;
-            }
-        }
-
-        async function draftAIEmail(leadId, company, email) {
-            if (currentUserRole === 'viewer') { alert("Viewer role cannot send live emails."); return; }
-            const apiKey = document.getElementById('apiKey').value.trim();
-            activeLeadIdForEmail = leadId;
-            
-            document.getElementById('modalRecipientEmail').value = email || 'contact@company.com';
-            document.getElementById('modalSubject').value = "Generating AI draft...";
-            document.getElementById('modalBody').value = "Analyzing lead telemetry and drafting personalized outreach...";
-            document.getElementById('emailModal').classList.remove('hidden');
-
-            try {
-                const res = await fetch(`/api/v1/leads/${leadId}/ai-draft`, {
-                    method: 'POST',
-                    headers: { 'x-api-key': apiKey }
-                });
-                const data = await res.json();
-                if (res.ok) {
-                    document.getElementById('modalRecipientEmail').value = data.to_email;
-                    document.getElementById('modalSubject').value = data.subject;
-                    document.getElementById('modalBody').value = data.body;
-                } else {
-                    showToast("Failed to generate AI draft.", true);
-                }
-            } catch (err) {
-                showToast("AI draft request failed.", true);
-            }
-        }
-
-        async function sendLiveEmailViaResend() {
-            const apiKey = document.getElementById('apiKey').value.trim();
-            const to_email = document.getElementById('modalRecipientEmail').value.trim();
-            const subject = document.getElementById('modalSubject').value.trim();
-            const body = document.getElementById('modalBody').value.trim();
-
-            if (!to_email || !subject || !body) { alert("Fill all fields."); return; }
-
-            try {
-                const res = await fetch(`/api/v1/leads/${activeLeadIdForEmail}/send-live-email`, {
-                    method: 'POST',
-                    headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ to_email, subject, body })
-                });
-                const data = await res.json();
-                if (res.ok) {
-                    showToast(data.message);
-                    closeEmailModal();
-                    saveAndFetch();
-                } else {
-                    showToast(data.detail || "Failed to send email.", true);
-                }
-            } catch (err) { showToast("Request failed.", true); }
-        }
-
-        async function syncLeadToCRM(leadId) {
-            const apiKey = document.getElementById('apiKey').value.trim();
-            if (!apiKey) { alert("Please enter your API key first!"); return; }
-
-            try {
-                const res = await fetch(`/api/v1/leads/${leadId}/sync-crm`, {
-                    method: 'POST',
-                    headers: { 'x-api-key': apiKey }
-                });
-                const data = await res.json();
-                if (res.ok) {
-                    showToast(data.message || `Lead #${leadId} synced successfully!`);
-                    saveAndFetch();
-                } else showToast(data.detail || "Failed to sync lead.", true);
-            } catch (err) {
-                showToast("Sync request failed: " + err.message, true);
-            }
-        }
-
-        async function convertLeadAction(leadId) {
-            const apiKey = document.getElementById('apiKey').value.trim();
-            if (!apiKey) { alert("Please authenticate first."); return; }
-            try {
-                const res = await fetch(`/api/v1/leads/${leadId}/convert`, {
-                    method: 'POST',
-                    headers: { 'x-api-key': apiKey }
-                });
-                const data = await res.json();
-                if (res.ok) {
-                    showToast(data.message);
-                    saveAndFetch();
-                } else showToast(data.detail || "Failed.", true);
-            } catch (err) { showToast("Request failed.", true); }
-        }
-
-        async function rejectLeadAction(leadId) {
-            const apiKey = document.getElementById('apiKey').value.trim();
-            if (!apiKey) { alert("Please authenticate first."); return; }
-            try {
-                const res = await fetch(`/api/v1/leads/${leadId}/reject`, {
-                    method: 'POST',
-                    headers: { 'x-api-key': apiKey }
-                });
-                const data = await res.json();
-                if (res.ok) {
-                    showToast(data.message);
-                    saveAndFetch();
-                } else showToast(data.detail || "Failed.", true);
-            } catch (err) { showToast("Request failed.", true); }
-        }
-
-        async function enrollSequence(leadId) {
-            const apiKey = document.getElementById('apiKey').value.trim();
-            if (!apiKey) { alert("Please authenticate first."); return; }
-
-            try {
-                const res = await fetch(`/api/v1/leads/${leadId}/enroll-sequence`, {
-                    method: 'POST',
-                    headers: { 'x-api-key': apiKey }
-                });
-                const data = await res.json();
-                if (res.ok) showToast(data.message);
-                else showToast(data.detail || "Failed to enroll lead.", true);
-            } catch (err) {
-                showToast("Request failed.", true);
-            }
-        }
-
-        async function deleteLeadCard(leadId) {
-            if (currentUserRole === 'viewer') {
-                alert("Viewer role is restricted from deleting leads.");
-                return;
-            }
-
-            if (!confirm(`Are you sure you want to delete lead #${leadId}?`)) return;
-
-            const apiKey = document.getElementById('apiKey').value.trim();
-            if (!apiKey) { alert("Please authenticate first."); return; }
-
-            try {
-                const res = await fetch(`/api/v1/leads/${leadId}`, {
-                    method: 'DELETE',
-                    headers: { 'x-api-key': apiKey }
-                });
-                const data = await res.json();
-                if (res.ok) {
-                    showToast(data.message || `Lead #${leadId} deleted successfully.`);
-                    saveAndFetch();
-                } else {
-                    showToast(data.detail || "Failed to delete lead.", true);
-                }
-            } catch (err) {
-                showToast("Delete request failed: " + err.message, true);
-            }
-        }
-
-        async function triggerDeepScan(leadId) {
-            const apiKey = document.getElementById('apiKey').value.trim();
-            if (!apiKey) { alert("Please authenticate first."); return; }
-
-            const modal = document.getElementById('deepScanModal');
-            const content = document.getElementById('deepScanContent');
-            modal.classList.remove('hidden');
-            content.innerText = "Executing deep intelligence scan & vector lookalikes search...";
-
-            try {
-                const scanRes = await fetch(`/api/v1/leads/${leadId}/deep-scan`, {
-                    method: 'POST',
-                    headers: { 'x-api-key': apiKey }
-                });
-                const scanData = await scanRes.json();
-
-                const lookRes = await fetch(`/api/v1/leads/${leadId}/lookalikes`, {
-                    headers: { 'x-api-key': apiKey }
-                });
-                const lookData = await lookRes.json();
-
-                if (scanRes.ok && scanData.report) {
-                    const info = scanData.report.deep_intelligence;
-                    let lookalikesHtml = '<strong class="text-accent text-sm mt-3 block">Vector Lookalikes:</strong>';
-                    if (lookData.lookalikes && lookData.lookalikes.length > 0) {
-                        lookData.lookalikes.forEach(l => {
-                            const sim = Math.round((l.similarity || 0.9) * 100);
-                            lookalikesHtml += `<div class="text-slate-300 text-xs ml-2">- ${escapeHtml(l.company_name)} (${escapeHtml(l.domain)}) [${sim}% Match]</div>`;
-                        });
-                    } else {
-                        lookalikesHtml += '<div class="text-slate-400 text-xs ml-2">No lookalikes found.</div>';
-                    }
-
-                    content.innerHTML = `
-                        <strong class="text-accent text-sm">Company:</strong> ${escapeHtml(scanData.report.company_name)} (${escapeHtml(scanData.report.domain)})<br>
-                        <strong class="text-accent text-sm mt-2 block">Tech Stack:</strong> ${escapeHtml(info.tech_stack)}<br>
-                        <strong class="text-accent text-sm mt-2 block">Funding Stage:</strong> ${escapeHtml(info.funding_stage)}<br>
-                        <strong class="text-accent text-sm mt-2 block">Trust Score:</strong> ${info.trust_score}/100<br>
-                        <strong class="text-accent text-sm mt-2 block">Intent Signals:</strong> ${escapeHtml(info.intent_signals)}<br>
-                        <strong class="text-accent text-sm mt-2 block">Threat Risk Assessment:</strong> ${escapeHtml(info.threat_risk_assessment)}<br>
-                        <strong class="text-accent text-sm mt-2 block">Recommended Outreach Angle:</strong> ${escapeHtml(info.recommended_outreach_angle)}
-                        ${lookalikesHtml}
-                    `;
-                } else {
-                    content.innerText = "Failed to run deep intelligence scan.";
-                }
-            } catch (err) {
-                content.innerText = "Request failed.";
-            }
-        }
-
-        async function loadDLQEvents() {
-            const apiKey = document.getElementById('apiKey').value.trim();
-            if (!apiKey) return;
-            const container = document.getElementById('dlqContainer');
-
-            try {
-                const res = await fetch('/api/v1/admin/dlq', { headers: { 'x-api-key': apiKey } });
-                const data = await res.json();
-                if (res.ok && data.dlq_items && data.dlq_items.length > 0) {
-                    let html = '';
-                    data.dlq_items.forEach(item => {
-                        html += `
-                            <div class="bg-darkbg border border-slate-800 p-3 rounded-lg flex justify-between items-center text-xs">
-                                <div>
-                                    <span class="text-rose-400 font-bold">Event: ${item.event_id || item.id}</span>
-                                    <div class="text-slate-300 text-[11px]">URL: ${escapeHtml(item.webhook_url)}</div>
-                                    <div class="text-slate-400 text-[10px]">Error: ${escapeHtml(item.error_message)}</div>
-                                </div>
-                                <button onclick="replayDLQ(${item.id})" class="bg-sky-500/10 hover:bg-sky-500/20 text-accent border border-sky-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition">Replay</button>
-                            </div>
-                        `;
-                    });
-                    container.innerHTML = html;
-                    document.getElementById('stat-dlq').innerText = data.dlq_items.length;
-                } else {
-                    container.innerHTML = '<p class="text-xs text-slate-400">No failed events in Dead Letter Queue.</p>';
-                    document.getElementById('stat-dlq').innerText = '0';
-                }
-            } catch (e) {
-                if (container) container.innerHTML = '<p class="text-xs text-rose-400">Failed to load DLQ events.</p>';
-            }
-        }
-
-        async function replayDLQ(dlqId) {
-            const apiKey = document.getElementById('apiKey').value.trim();
-            if (!apiKey) return;
-            try {
-                const res = await fetch(`/api/v1/admin/dlq/${dlqId}/replay`, {
-                    method: 'POST',
-                    headers: { 'x-api-key': apiKey }
-                });
-                const data = await res.json();
-                if (res.ok) {
-                    showToast(data.message);
-                    loadDLQEvents();
-                } else {
-                    showToast(data.detail || "Failed to replay DLQ event.", true);
-                }
-            } catch (err) {
-                showToast("Replay request failed.", true);
-            }
-        }
-
-        async function replayAllDLQ() {
-            const apiKey = document.getElementById('apiKey').value.trim();
-            if (!apiKey) return;
-            try {
-                const res = await fetch(`/api/v1/admin/dlq/replay-all`, {
-                    method: 'POST',
-                    headers: { 'x-api-key': apiKey }
-                });
-                const data = await res.json();
-                if (res.ok) {
-                    showToast(data.message || "All DLQ items replayed!");
-                    loadDLQEvents();
-                } else {
-                    showToast(data.detail || "Failed to replay DLQ queue.", true);
-                }
-            } catch (err) {
-                showToast("Replay all request failed.", true);
-            }
-        }
-
-        async function loadCircuitBreakers() {
-            const apiKey = document.getElementById('apiKey').value.trim();
-            if (!apiKey) return;
-            try {
-                const res = await fetch('/api/v1/admin/circuit-breakers', { headers: { 'x-api-key': apiKey } });
-                const data = await res.json();
-                if (res.ok && data.breakers) {
-                    const wb = data.breakers.webhook || { state: 'CLOSED', failures: 0 };
-                    const ai = data.breakers.ai || { state: 'CLOSED', failures: 0 };
-                    
-                    document.getElementById('cbWebhookState').innerText = wb.state;
-                    document.getElementById('cbWebhookState').className = wb.state === 'OPEN' ? 'bg-rose-500/10 text-rose-400 border border-rose-500/30 px-2 py-0.5 rounded text-[10px] font-bold uppercase' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded text-[10px] font-bold uppercase';
-                    document.getElementById('cbWebhookFailures').innerText = wb.failures;
-
-                    document.getElementById('cbAiState').innerText = ai.state;
-                    document.getElementById('cbAiState').className = ai.state === 'OPEN' ? 'bg-rose-500/10 text-rose-400 border border-rose-500/30 px-2 py-0.5 rounded text-[10px] font-bold uppercase' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded text-[10px] font-bold uppercase';
-                    document.getElementById('cbAiFailures').innerText = ai.failures;
-
-                    const statCircuit = document.getElementById('stat-circuit');
-                    if (wb.state === 'OPEN' || ai.state === 'OPEN') {
-                        statCircuit.innerText = 'Degraded';
-                        statCircuit.className = 'text-2xl font-black text-rose-400 mt-2';
-                    } else {
-                        statCircuit.innerText = 'Optimal';
-                        statCircuit.className = 'text-2xl font-black text-emerald-400 mt-2';
-                    }
-                }
-            } catch (e) {
-                console.error("Failed to load circuit breakers:", e);
-            }
-        }
-
-        async function resetCircuit(service) {
-            const apiKey = document.getElementById('apiKey').value.trim();
-            if (!apiKey) return;
-            try {
-                const res = await fetch(`/api/v1/admin/circuit-breakers/${service}/reset`, {
-                    method: 'POST',
-                    headers: { 'x-api-key': apiKey }
-                });
-                const data = await res.json();
-                if (res.ok) {
-                    showToast(data.message || `Circuit ${service} reset successfully!`);
-                    loadCircuitBreakers();
-                } else {
-                    showToast(data.detail || "Failed to reset circuit.", true);
-                }
-            } catch (err) {
-                showToast("Request failed.", true);
-            }
-        }
-
-        async function triggerCanaryHealing() {
-            const apiKey = document.getElementById('apiKey').value.trim();
-            if (!apiKey) return;
-            try {
-                const res = await fetch('/api/v1/admin/canary-heal', {
-                    method: 'POST',
-                    headers: { 'x-api-key': apiKey }
-                });
-                const data = await res.json();
-                if (res.ok) {
-                    showToast(data.message || "Canary healing executed!");
-                    loadCircuitBreakers();
-                    loadDLQEvents();
-                } else {
-                    showToast(data.detail || "Canary healing failed.", true);
-                }
-            } catch (err) {
-                showToast("Canary request failed.", true);
-            }
-        }
-
-        async function loadAuditLogs() {
-            const apiKey = document.getElementById('apiKey').value.trim();
-            if (!apiKey) return;
-            const container = document.getElementById('auditLogContainer');
-
-            try {
-                const res = await fetch('/api/v1/admin/audit-logs', { headers: { 'x-api-key': apiKey } });
-                const data = await res.json();
-                if (res.ok && data.audit_logs && data.audit_logs.length > 0) {
-                    let html = '';
-                    data.audit_logs.forEach(log => {
-                        html += `<div class="border-b border-slate-800/60 pb-1 mb-1"><span class="text-accent">[${log.timestamp}]</span> <strong class="text-white">${escapeHtml(log.action)}</strong> (${escapeHtml(log.email)}): ${escapeHtml(log.details)}</div>`;
-                    });
-                    container.innerHTML = html;
-                } else {
-                    container.innerHTML = '<p class="text-xs text-slate-400">No audit logs recorded.</p>';
-                }
-            } catch (e) {
-                if (container) container.innerHTML = '<p class="text-xs text-rose-400">Failed to load audit logs.</p>';
-            }
-        }
-
-        async function saveTelegramSettings() {
-            const apiKey = document.getElementById('apiKey').value.trim();
-            const telegram_chat_id = document.getElementById('telegramChatId').value.trim();
-            if (!apiKey) { alert("Please authenticate first."); return; }
-
-            try {
-                const res = await fetch('/api/v1/user/telegram', {
-                    method: 'POST',
-                    headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ telegram_chat_id })
-                });
-                const data = await res.json();
-                if (res.ok) {
-                    showToast(data.message || "Telegram settings saved!", "success");
-                } else {
-                    showToast(data.detail || "Failed to save Telegram settings.", "error");
-                }
-            } catch (err) {
-                showToast("Network error saving Telegram settings.", "error");
-            }
-        }
-
-        async function loadTelegramSettings(apiKey) {
-            try {
-                const res = await fetch('/api/v1/user/telegram', { headers: { 'x-api-key': apiKey } });
-                const data = await res.json();
-                if (res.ok && data.telegram_chat_id) {
-                    const el = document.getElementById('telegramChatId');
-                    if (el) el.value = data.telegram_chat_id;
-                }
-            } catch (e) { console.error(e); }
-        }
-
-        function closeEmailModal() { document.getElementById('emailModal').classList.add('hidden'); }
-        function closeDeepScanModal() { document.getElementById('deepScanModal').classList.add('hidden'); }
-
-        async function saveAndFetch() {
-            const apiKey = document.getElementById('apiKey').value.trim();
-            const leadFeedContainer = document.getElementById('leadFeedContainer');
-            const statusDiv = document.getElementById('status');
-            const usageBar = document.getElementById('usageBar');
-
-            if (!apiKey) { alert("Please enter a valid API key."); return; }
-
-            localStorage.setItem('nexus_api_key', apiKey);
-            if (leadFeedContainer) leadFeedContainer.innerHTML = '<div class="bg-slate-900 border border-slate-800 p-4 rounded-xl animate-pulse h-20"></div>';
-            if (statusDiv) statusDiv.innerText = "Syncing with cluster...";
-
-            const minTrust = document.getElementById('filterMinTrust').value.trim();
-            const industry = document.getElementById('filterIndustry').value.trim();
-            const funding = document.getElementById('filterFunding').value.trim();
-            const sortBy = document.getElementById('filterSort').value;
-
-            let queryParams = '?limit=20';
-            if (minTrust) queryParams += `&min_trust=${encodeURIComponent(minTrust)}`;
-            if (industry) queryParams += `&industry=${encodeURIComponent(industry)}`;
-            if (funding) queryParams += `&funding_stage=${encodeURIComponent(funding)}`;
-            if (sortBy) queryParams += `&sort_by=${encodeURIComponent(sortBy)}`;
-
-            try {
-                const response = await fetch(`/api/v1/leads${queryParams}`, {
-                    method: 'GET',
-                    headers: { 'x-api-key': apiKey }
-                });
-
-                const limit = parseInt(response.headers.get('X-RateLimit-Limit') || '30');
-                const remaining = parseInt(response.headers.get('X-RateLimit-Remaining') || '30');
-                const used = limit - remaining;
-                const percentage = Math.min(100, Math.max(0, (used / limit) * 100));
-
-                if (usageBar) usageBar.style.width = percentage + '%';
-                if (statusDiv) statusDiv.innerText = `Rate Limit Quota: ${remaining} / ${limit} requests remaining this minute.`;
-
-                const data = await response.json();
-                if (!response.ok) {
-                    if (response.status === 429) {
-                        showToast("Rate limit exceeded (429). Please wait before retrying.", true);
-                    }
-                    if (leadFeedContainer) leadFeedContainer.innerHTML = `<pre class="text-rose-400">Error (${response.status}):\n` + JSON.stringify(data, null, 2) + `</pre>`;
-                    return;
-                }
-
-                if (data.tier) {
-                    document.getElementById('tierStatus').innerText = `Tier: ${data.tier.toUpperCase()}`;
-                    const badgeContainer = document.getElementById('userRoleBadge');
-                    badgeContainer.classList.remove('hidden');
-                    badgeContainer.classList.add('flex');
-                    document.getElementById('badgeTier').innerText = `Tier: ${data.tier.toUpperCase()}`;
-                }
-
-                cachedLeadsData = data.leads || [];
-                document.getElementById('stat-total-leads').innerText = cachedLeadsData.length;
-                renderLeadFeed(cachedLeadsData);
-                loadKeys(apiKey);
-                loadUserRoleBadge(apiKey);
-                loadUsageChart(apiKey);
-                loadICPProfile(apiKey);
-                loadCredits(apiKey);
-                loadDestinations(apiKey);
-                loadAutonomousRules(apiKey);
-                loadTelegramSettings(apiKey);
-                loadCareerMatches();
-                showToast("Successfully authenticated & telemetry loaded!");
-            } catch (err) {
-                if (leadFeedContainer) leadFeedContainer.innerHTML = `<p class="text-rose-400">Request failed: ${err.message}</p>`;
-                showToast("Network sync fault detected.", true);
-            }
-        }
-
-        async function fetchLeads() {
-            saveAndFetch();
-        }
-
-        async function loadUserRoleBadge(apiKey) {
-            try {
-                const res = await fetch('/api/v1/keys', { headers: { 'x-api-key': apiKey } });
-                const data = await res.json();
-                if (res.ok && data.keys && data.keys.length > 0) {
-                    const activeKey = data.keys.find(k => k.active === 1) || data.keys[0];
-                    currentUserRole = (activeKey.role || 'admin').toLowerCase();
-                    document.getElementById('badgeRole').innerText = `Role: ${currentUserRole.toUpperCase()}`;
-                }
-            } catch (e) { console.error(e); }
-        }
-
-        function exportLeadsCSV() {
-            if (!cachedLeadsData || cachedLeadsData.length === 0) { alert("No leads available to export."); return; }
-
-            let csvContent = "data:text/csv;charset=utf-8,ID,Company Name,Domain,Industry,Employee Count,Tech Stack,Funding Stage,Trust Score,Verified Email,Intent Signals\n";
-            cachedLeadsData.forEach(lead => {
-                const row = [
-                    lead.id,
-                    `"${(lead.company_name || '').replace(/"/g, '""')}"`,
-                    `"${(lead.domain || '').replace(/"/g, '""')}"`,
-                    `"${(lead.industry || '').replace(/"/g, '""')}"`,
-                    `"${(lead.employee_count || '').replace(/"/g, '""')}"`,
-                    `"${(lead.tech_stack || '').replace(/"/g, '""')}"`,
-                    `"${(lead.funding_stage || '').replace(/"/g, '""')}"`,
-                    lead.trust_score,
-                    lead.verified_email,
-                    `"${(lead.intent_signals || '').replace(/"/g, '""')}"`
-                ];
-                csvContent += row.join(",") + "\n";
-            });
-
-            const encodedUri = encodeURI(csvContent);
-            const link = document.createElement("a");
-            link.setAttribute("href", encodedUri);
-            link.setAttribute("download", `nexus_leads_export_${new Date().toISOString().slice(0,10)}.csv`);
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            showToast("Leads exported to CSV!");
-        }
-
-        async function openBillingPortal() {
-            const apiKey = document.getElementById('apiKey').value.trim();
-            if (!apiKey) { alert("Please authenticate first."); return; }
-
-            try {
-                const res = await fetch(`/create-portal-session`, {
-                    method: 'POST',
-                    headers: { 'x-api-key': apiKey }
-                });
-                const data = await res.json();
-                if (res.ok && data.portal_url) window.location.href = data.portal_url;
-                else showToast(data.detail || "Failed to create portal session.", true);
-            } catch (err) { showToast("Request failed.", true); }
-        }
-
-        async function loadCredits(apiKey) {
-            try {
-                const res = await fetch('/api/v1/credits', { headers: { 'x-api-key': apiKey } });
-                const data = await res.json();
-                if (res.ok) {
-                    document.getElementById('creditStatus').innerText = `Lead Credits Remaining: ${data.credits_remaining} / ${data.credits_limit}`;
-                    document.getElementById('credits-text').innerText = `${data.credits_remaining} / ${data.credits_limit} Credits`;
-                    document.getElementById('stat-credits').innerText = data.credits_remaining;
-                }
-            } catch (e) { console.error(e); }
-        }
-
-        async function triggerOnDemandGeneration() {
-            const apiKey = document.getElementById('apiKey').value.trim();
-            const query = document.getElementById('onDemandQuery').value.trim();
-            const count = parseInt(document.getElementById('onDemandCount').value) || 1;
-            const resDiv = document.getElementById('onDemandResult');
-            const generateBtn = document.getElementById('generate-leads-btn');
-            const spinner = document.getElementById('loading-spinner');
-
-            if (!apiKey) { alert("Please authenticate first."); return; }
-
-            if (generateBtn) generateBtn.disabled = true;
-            if (spinner) spinner.classList.remove('hidden');
-
-            resDiv.classList.remove("hidden");
-            resDiv.className = "mt-3 text-xs text-accent font-semibold flex items-center gap-2";
-            resDiv.innerHTML = `<i class="fa-solid fa-spinner fa-spin text-cyan-400"></i> AI agent crawling & running enrichment waterfalls...`;
-
-            try {
-                const response = await fetch('/api/v1/leads/generate-on-demand', {
-                    method: 'POST',
-                    headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ query: query, count: count })
-                });
-                const data = await response.json();
-
-                if (generateBtn) generateBtn.disabled = false;
-                if (spinner) spinner.classList.add('hidden');
-
-                if (!response.ok) {
-                    showToast(data.detail || "Generation failed.", true);
-                    resDiv.className = "mt-3 text-xs text-rose-400 font-semibold";
-                    resDiv.innerText = data.detail || "Generation failed.";
-                    return;
-                }
-
-                if (data.leads && data.leads.length === 0) {
-                    showToast("No leads found for that criteria.", true);
-                    resDiv.className = "mt-3 text-xs text-amber-400 font-semibold";
-                    resDiv.innerText = "No leads found for that criteria.";
-                } else {
-                    const leadCount = data.leads ? data.leads.length : 1;
-                    showToast(`${leadCount} lead(s) generated successfully! Credits remaining: ${data.credits_remaining}`);
-                    resDiv.className = "mt-3 text-xs text-emerald-400 font-semibold";
-                    resDiv.innerText = `${leadCount} lead(s) generated successfully! Credits remaining: ${data.credits_remaining}`;
-                    saveAndFetch();
-                }
-            } catch (err) {
-                if (generateBtn) generateBtn.disabled = false;
-                if (spinner) spinner.classList.add('hidden');
-                showToast("Request failed: " + err.message, true);
-                resDiv.className = "mt-3 text-xs text-rose-400 font-semibold";
-                resDiv.innerText = "Request failed.";
-            }
-        }
-
-        async function registerDestination() {
-            const apiKey = document.getElementById('apiKey').value.trim();
-            const destination_type = document.getElementById('destType').value;
-            const webhook_url = document.getElementById('destWebhookUrl').value.trim();
-            const access_token = document.getElementById('destToken').value.trim();
-
-            if (!apiKey || !webhook_url) { alert("Provide an endpoint URL."); return; }
-
-            try {
-                const res = await fetch('/api/v1/destinations', {
-                    method: 'POST',
-                    headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ destination_type, webhook_url, access_token })
-                });
-                const data = await res.json();
-                if (res.ok) {
-                    showToast(data.message || "Destination connected.");
-                    loadDestinations(apiKey);
-                } else showToast(data.detail || "Failed.", true);
-            } catch (err) { showToast("Error.", true); }
-        }
-
-        async function loadDestinations(apiKey) {
-            try {
-                const res = await fetch('/api/v1/destinations', { headers: { 'x-api-key': apiKey } });
-                const data = await res.json();
-                const container = document.getElementById('destinationList');
-                if (data.destinations && data.destinations.length > 0) {
-                    let html = 'Connected Destinations: ';
-                    data.destinations.forEach(d => { html += `[${d.destination_type.toUpperCase()}] `; });
-                    container.innerHTML = html;
-                } else container.innerHTML = 'No native CRM destinations connected.';
-            } catch (e) { console.error(e); }
-        }
-
-        async function loadAutonomousRules(apiKey) {
-            try {
-                const res = await fetch('/api/v1/autonomous/rules', { headers: { 'x-api-key': apiKey } });
-                const data = await res.json();
-                if (res.ok && data.rules) {
-                    const elTrust = document.getElementById('autoMinTrust');
-                    const elSync = document.getElementById('autoSyncCrm');
-                    const elEnroll = document.getElementById('autoEnrollSeq');
-                    if (elTrust) elTrust.value = data.rules.min_trust;
-                    if (elSync) elSync.value = data.rules.auto_sync;
-                    if (elEnroll) elEnroll.value = data.rules.auto_enroll;
-                }
-            } catch (e) { console.error(e); }
-        }
-
-        async function saveAutonomousRules() {
-            const apiKey = document.getElementById('apiKey').value.trim();
-            if (currentUserRole === 'viewer') { alert("Viewer role cannot update rules."); return; }
-
-            const min_trust = parseInt(document.getElementById('autoMinTrust').value) || 85;
-            const auto_sync = parseInt(document.getElementById('autoSyncCrm').value) || 1;
-            const auto_enroll = parseInt(document.getElementById('autoEnrollSeq').value) || 1;
-
-            try {
-                const res = await fetch('/api/v1/autonomous/rules', {
-                    method: 'POST',
-                    headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ min_trust, auto_sync, auto_enroll })
-                });
-                const data = await res.json();
-                if (res.ok) {
-                    showToast(data.message || "Autopilot rules saved successfully!", "success");
-                } else {
-                    showToast(data.detail || "Failed to save rules.", "error");
-                }
-            } catch (err) {
-                showToast("Network error saving autopilot rules.", "error");
-            }
-        }
-
-        function renderLeadFeed(leads) {
-            const container = document.getElementById('leadFeedContainer');
-            if (!leads || leads.length === 0) {
-                container.innerHTML = '<p class="text-slate-400 text-xs">No leads ingested matching criteria.</p>';
-                return;
-            }
-
-            let html = '';
-            leads.forEach(lead => {
-                let dmList = [];
-                try {
-                    dmList = JSON.parse(lead.decision_makers_json || '[]');
-                } catch (e) {}
-
-                let dmHtml = '';
-                if (dmList.length > 0) {
-                    dmList.forEach(dm => {
-                        const stakeholderName = dm.name || dm.role || 'Stakeholder';
-                        const searchQuery = encodeURIComponent(`${stakeholderName} ${lead.company_name} LinkedIn`);
-                        const linkedInUrl = `https://www.google.com/search?q=${searchQuery}`;
-                        const dmEmail = dm.email || '';
-
-                        dmHtml += `
-                            <div class="mb-2 pb-2 border-b border-slate-800 last:border-0 last:mb-0 last:pb-0 space-y-1">
-                                <div class="flex items-center justify-between">
-                                    <span class="font-semibold text-slate-200">${escapeHtml(stakeholderName)}</span>
-                                    <span class="text-[10px] px-2 py-0.5 rounded bg-sky-500/10 text-sky-400 font-medium">${escapeHtml(dm.role_type || dm.role || 'Leader')}</span>
-                                </div>
-                                <p class="text-[11px] text-slate-400">${escapeHtml(dm.title || 'Executive')}</p>
-                                <div class="flex items-center space-x-4 pt-0.5 text-[11px]">
-                                    ${dmEmail ? `<a href="mailto:${escapeHtml(dmEmail)}" class="text-sky-400 hover:underline flex items-center gap-1">📧 ${escapeHtml(dmEmail)}</a>` : ''}
-                                    <a href="${linkedInUrl}" target="_blank" rel="noopener noreferrer" class="text-sky-400 hover:underline flex items-center gap-1 font-semibold text-sky-300">
-                                        🔍 Find LinkedIn Profile ↗
-                                    </a>
-                                </div>
-                            </div>
-                        `;
-                    });
-                } else {
-                    dmHtml = `<div class="font-semibold text-slate-200">${escapeHtml(lead.decision_maker_title || 'VP of Engineering')}</div>`;
-                }
-
-                let displayStage = lead.funding_stage || 'Series A';
-                const empCountStr = (lead.employee_count || '').toString();
-                if (empCountStr.includes('201') || empCountStr.includes('500') || empCountStr.includes('1000+')) {
-                    if (displayStage.toLowerCase().includes('series a') || displayStage.toLowerCase().includes('seed')) {
-                        displayStage = 'Private / Enterprise Subsidiary';
-                    }
-                }
-
-                const cleanDomain = (lead.domain || '').replace(/^https?:\/\//, '');
-                const companyWebUrl = cleanDomain ? `https://${cleanDomain}` : '#';
-                const trust = lead.trust_score || 90;
-                const emailStatus = lead.verified_email === 1 ? '✅ Verified Email' : '⚠️ Unverified';
-                const intent = lead.intent_signals || lead.recent_news_trigger || 'None (20% QoQ growth velocity)';
-                const disabledAttr = currentUserRole === 'viewer' ? 'opacity-50 cursor-not-allowed' : '';
-                const syncBadge = lead.sync_status === 'synced' ? '<span class="bg-blue-500/10 text-blue-400 border border-blue-500/20 text-[10px] px-2 py-0.5 rounded font-bold uppercase">Synced</span>' : '<span class="bg-slate-800 text-slate-400 text-[10px] px-2 py-0.5 rounded font-bold uppercase">Unsynced</span>';
-                
-                const isConverted = lead.conversion_status === 'converted';
-                const isRejected = lead.rejection_status === 'rejected';
-
-                const convBadge = isConverted ? '<span class="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] px-2 py-0.5 rounded font-bold uppercase">Converted</span>' : '';
-                const rejBadge = isRejected ? '<span class="bg-rose-500/10 text-rose-400 border border-rose-500/20 text-[10px] px-2 py-0.5 rounded font-bold uppercase">Rejected</span>' : '';
-
-                html += `
-                    <div id="lead-card-${lead.id}" class="bg-inputbg border border-slate-800 p-4 rounded-xl flex flex-col gap-3 hover:border-sky-500/40 transition animate-fade-in">
-                        <div class="flex justify-between items-center">
-                            <span class="font-bold text-sm text-white flex items-center gap-2">
-                                ${escapeHtml(lead.company_name)} 
-                                <span class="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] px-2 py-0.5 rounded font-bold uppercase">Trust: ${trust}/100</span>
-                                ${syncBadge}
-                                ${convBadge}
-                                ${rejBadge}
-                            </span>
-                            <a href="${companyWebUrl}" target="_blank" rel="noopener noreferrer" class="text-sky-400 hover:underline text-xs font-semibold flex items-center gap-1">
-                                <i class="fa-solid fa-globe"></i> ${escapeHtml(cleanDomain)} ↗
-                            </a>
-                        </div>
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
-                            <div class="bg-darkbg border border-slate-800 p-2.5 rounded text-slate-300">
-                                <span class="text-slate-400 block text-[10px] uppercase font-bold mb-1">Decision-Maker Matrix (Buying Committee)</span>
-                                ${dmHtml}
-                            </div>
-                            <div class="bg-darkbg border border-slate-800 p-2.5 rounded text-slate-300">
-                                <span class="text-slate-400 block text-[10px] uppercase font-bold mb-0.5">Headcount & Tech Stack</span>
-                                Growth: <span class="text-emerald-400 font-bold">${escapeHtml(lead.headcount_growth_pct || '+20% QoQ')}</span> | Stack: <span class="font-mono text-white">${escapeHtml(lead.tech_stack || 'Python, PostgreSQL')}</span>
-                            </div>
-                        </div>
-                        <div class="flex flex-wrap gap-2 text-xs">
-                            <span class="bg-darkbg border border-slate-800 px-2.5 py-1 rounded text-slate-300">Industry: <strong class="text-white">${escapeHtml(lead.industry)}</strong></span>
-                            <span class="bg-darkbg border border-slate-800 px-2.5 py-1 rounded text-slate-300">Size: <strong class="text-white">${escapeHtml(lead.employee_count)}</strong></span>
-                            <span class="bg-darkbg border border-slate-800 px-2.5 py-1 rounded text-slate-300">Stage: <strong class="text-white">${escapeHtml(displayStage)}</strong></span>
-                            <span class="bg-darkbg border border-slate-800 px-2.5 py-1 rounded text-emerald-400 font-semibold">${emailStatus}</span>
-                        </div>
-                        <div class="bg-sky-500/5 border-l-2 border-accent p-2.5 rounded-r-lg text-xs text-slate-300">
-                            🔥 <strong class="text-white">Intent Signal / News Trigger:</strong> ${escapeHtml(intent)}
-                        </div>
-                        <div class="flex flex-wrap items-center justify-between mt-1">
-                            <div class="flex flex-wrap gap-2">
-                                <button class="bg-sky-500/10 hover:bg-sky-500/20 text-accent border border-sky-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${disabledAttr}" onclick="draftAIEmail(${lead.id}, '${escapeHtml(lead.company_name)}', '${escapeHtml(lead.email || 'contact@' + cleanDomain)}')">✨ AI Draft & Send</button>
-                                <button class="bg-sky-500/10 hover:bg-sky-500/20 text-accent border border-sky-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${disabledAttr}" onclick="syncLeadToCRM(${lead.id})">🔗 ${lead.sync_status === 'synced' ? 'Unsync' : 'Sync'} CRM</button>
-                                <button class="bg-sky-500/10 hover:bg-sky-500/20 text-accent border border-sky-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${disabledAttr}" onclick="enrollSequence(${lead.id})">🚀 Enroll</button>
-                                <button class="bg-sky-500/10 hover:bg-sky-500/20 text-accent border border-sky-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition" onclick="triggerDeepScan(${lead.id})">🔍 Deep Scan</button>
-                                <button class="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${disabledAttr}" onclick="convertLeadAction(${lead.id})">
-                                    👍 ${isConverted ? 'Unconvert' : 'Convert'}
-                                </button>
-                                <button class="bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${disabledAttr}" onclick="rejectLeadAction(${lead.id})">
-                                    👎 ${isRejected ? 'Unreject' : 'Reject'}
-                                </button>
-                            </div>
-                            <button class="bg-rose-500/10 hover:bg-rose-500 text-rose-400 hover:text-white border border-rose-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${disabledAttr}" onclick="deleteLeadCard(${lead.id})">🗑️ Delete</button>
-                        </div>
-                    </div>
-                `;
-            });
-            container.innerHTML = html;
-        }
-
-        async function loadICPProfile(apiKey) {
-            try {
-                const res = await fetch('/api/v1/icp', { headers: { 'x-api-key': apiKey } });
-                const data = await res.json();
-                if (res.ok && data.icp) {
-                    const elInd = document.getElementById('targetIndustries');
-                    const elMin = document.getElementById('minTrustScore');
-                    if (elInd) elInd.value = data.icp.target_industries || 'Fintech, SaaS, AI';
-                    if (elMin) elMin.value = data.icp.min_trust_score || 85;
-                }
-            } catch (e) { console.error(e); }
-        }
-
-        async function runSemanticSearch() {
-            const query = document.getElementById('semanticQueryInput').value.trim();
-            const apiKey = document.getElementById('apiKey').value.trim();
-            if (!apiKey || !query) { alert("Authenticate and enter query."); return; }
-
-            try {
-                const response = await fetch(`/api/v1/leads/semantic-search?query=${encodeURIComponent(query)}&limit=5`, {
-                    headers: { 'x-api-key': apiKey }
-                });
-                const data = await response.json();
-                const container = document.getElementById('semanticResultsContainer');
-                const list = document.getElementById('semanticResultsList');
-                list.innerHTML = '';
-
-                if (data.status === 'success' && data.leads && data.leads.length > 0) {
-                    container.classList.remove('hidden');
-                    data.leads.forEach((lead) => {
-                        const sim = lead.similarity !== undefined ? lead.similarity : 90;
-                        list.innerHTML += `
-                            <div class="bg-darkbg border border-slate-800 p-3 rounded-lg flex justify-between items-center text-xs">
-                                <div>
-                                    <span class="text-white font-bold">${escapeHtml(lead.company_name)}</span>
-                                    <span class="text-slate-400 text-[11px] ml-1.5">(${escapeHtml(lead.industry)})</span>
-                                </div>
-                                <span class="text-sky-400 font-mono font-bold">${Math.round(sim * 100)}% Match</span>
-                            </div>
-                        `;
-                    });
-                } else {
-                    container.classList.remove('hidden');
-                    list.innerHTML = '<div class="text-slate-400 text-xs">No matching vector leads found.</div>';
-                }
-            } catch (err) {
-                showToast("Semantic search failed.", true);
-            }
-        }
-
-        async function loadKeys(apiKey) {
-            try {
-                const res = await fetch('/api/v1/keys', { headers: { 'x-api-key': apiKey } });
-                const data = await res.json();
-                const container = document.getElementById('keyList');
-                if (res.ok && data.keys && data.keys.length > 0) {
-                    let html = 'Active Workspace Keys: ';
-                    data.keys.forEach(k => { html += `[${k.name || 'Key'} - Role: ${k.role}] `; });
-                    if (container) container.innerHTML = html;
-                }
-            } catch (e) { console.error(e); }
-        }
-
-        async function createNewKey() {
-            const apiKey = document.getElementById('apiKey').value.trim();
-            const name = document.getElementById('newKeyName').value.trim();
-            const role = document.getElementById('newKeyRole').value;
-            const scope = document.getElementById('newKeyScope').value;
-
-            if (!apiKey || !name) { alert("Provide a key label / email."); return; }
-
-            try {
-                const res = await fetch('/api/v1/keys', {
-                    method: 'POST',
-                    headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name, role, scope })
-                });
-                const data = await res.json();
-                if (res.ok) {
-                    showToast(`New key created! Key: ${data.api_key}`);
-                    loadKeys(apiKey);
-                } else showToast(data.detail || "Failed.", true);
-            } catch (err) { showToast("Request failed.", true); }
-        }
-
-        async function loadUsageChart(apiKey) {
-            try {
-                const res = await fetch('/api/v1/usage-history', { headers: { 'x-api-key': apiKey } });
-                const data = await res.json();
-                if (res.ok && data.history) {
-                    const labels = data.history.map(h => h.date);
-                    const counts = data.history.map(h => h.count);
-
-                    const ctx = document.getElementById('usageChart').getContext('2d');
-                    if (usageChartInstance) usageChartInstance.destroy();
-
-                    usageChartInstance = new Chart(ctx, {
-                        type: 'line',
-                        data: {
-                            labels: labels,
-                            datasets: [{
-                                label: 'API Requests',
-                                data: counts,
-                                borderColor: '#38bdf8',
-                                backgroundColor: 'rgba(56, 189, 248, 0.1)',
-                                fill: true,
-                                tension: 0.3
-                            }]
-                        },
-                        options: {
-                            responsive: true,
-                            maintainAspectRatio: false,
-                            plugins: { legend: { display: false } },
-                            scales: {
-                                x: { grid: { color: 'rgba(51, 65, 85, 0.2)' }, ticks: { color: '#94a3b8', font: { size: 10 } } },
-                                y: { grid: { color: 'rgba(51, 65, 85, 0.2)' }, ticks: { color: '#94a3b8', font: { size: 10 } } }
-                            }
-                        }
-                    });
-                }
-            } catch (e) { console.error("Usage chart load error:", e); }
-        }
-
         function triggerReset() {
             localStorage.removeItem('nexus_api_key');
             document.getElementById('apiKey').value = '';
             showToast("API Key reset successfully.");
         }
 
-        async function triggerManualSwarm() {
+        async function saveAndFetch() {
             const apiKey = document.getElementById('apiKey').value.trim();
-            if (!apiKey) { alert("Please authenticate first."); return; }
-            showToast("Triggering manual global ATS job & lead swarm indexing...");
-            try {
-                const res = await fetch('/api/v1/swarm/trigger', {
-                    method: 'POST',
-                    headers: { 'x-api-key': apiKey }
-                });
-                const data = await res.json();
-                if (res.ok) {
-                    showToast(data.message || "Swarm execution completed successfully!");
-                    saveAndFetch();
-                    loadCareerMatches();
-                } else {
-                    showToast(data.detail || "Failed to trigger swarm.", true);
-                }
-            } catch (e) {
-                showToast("Swarm trigger request failed.", true);
-            }
+            if (!apiKey) { alert("Please enter a valid API key."); return; }
+            localStorage.setItem('nexus_api_key', apiKey);
+            loadCareerMatches();
+            showToast("Successfully authenticated & telemetry loaded!");
         }
 
         function logout() {
