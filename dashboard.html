@@ -59,8 +59,9 @@
             <p id="swarm-status-text" class="text-xs text-slate-400 font-medium">Autonomous agents indexing global feeds & optimizing candidate vectors...</p>
         </div>
         <div class="flex items-center space-x-4">
-            <div id="credits-badge" class="px-3 py-1 bg-sky-500/10 border border-sky-500/30 text-sky-400 rounded-full text-xs font-bold mono">
-                Credits: <span id="headerCreditCount">--</span> / 100
+            <div id="credits-badge" class="px-3 py-1 bg-sky-500/10 border border-sky-500/30 text-sky-400 rounded-full text-xs font-bold mono flex items-center gap-2">
+                <span>Credits: <span id="headerCreditCount">--</span> / 100</span>
+                <span id="headerTierBadge" class="px-1.5 py-0.5 bg-sky-500/20 rounded text-[10px] uppercase text-accent font-black">Starter</span>
             </div>
             <button onclick="switchTab('subscription')" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition shadow-lg shadow-emerald-500/20">💎 Subscriber Hub</button>
             <button onclick="loadCareerMatches()" class="px-3 py-1.5 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-bold transition shadow-lg shadow-sky-500/20">⚡ Refresh</button>
@@ -354,7 +355,6 @@
             const savedLocations = localStorage.getItem('nexus_target_locations');
             if (savedLocations) document.getElementById('targetJobLocations').value = savedLocations;
 
-            // Check for Stripe success or cancel redirect parameters
             const urlParams = new URLSearchParams(window.location.search);
             const bannerContainer = document.getElementById('alertBannerContainer');
             if (urlParams.get('success') === 'true') {
@@ -391,6 +391,10 @@
                 const data = await res.json();
                 if (res.ok && data.credits !== undefined) {
                     document.getElementById('headerCreditCount').innerText = data.credits;
+                    if (data.tier) {
+                        const tierBadge = document.getElementById('headerTierBadge');
+                        tierBadge.innerText = data.tier;
+                    }
                 }
             } catch (e) { console.error('Failed to load credits', e); }
         }
@@ -411,7 +415,12 @@
                 if (response.ok && data.matches) {
                     cachedCareerMatches = data.matches;
                     renderJobMatches(data.matches);
-                    loadCredits();
+                    if (data.credits_remaining !== undefined) {
+                        document.getElementById('headerCreditCount').innerText = data.credits_remaining;
+                    }
+                    if (data.tier) {
+                        document.getElementById('headerTierBadge').innerText = data.tier;
+                    }
                     showToast("Career matches refreshed successfully!");
                 } else {
                     renderJobMatches([]);
@@ -443,8 +452,6 @@
                 const fitScore = m.fit_score || 90;
                 const matchId = m.id || idx + 1;
                 const postUrl = m.ats_portal_url || '#';
-                
-                // Safely encode the match object to avoid quote/newline collision in inline onclick handlers
                 const encodedMatch = encodeURIComponent(JSON.stringify(m));
                 
                 return `
@@ -475,7 +482,6 @@
             }).join('');
         }
 
-        // Helper function to decode and pass the match object securely to the drawer
         function openMatchDrawerFromEncoded(encodedStr) {
             try {
                 const matchObj = JSON.parse(decodeURIComponent(encodedStr));
@@ -494,13 +500,13 @@
                     headers: { 'x-api-key': apiKey }
                 });
                 if (res.ok) {
+                    cachedCareerMatches = cachedCareerMatches.filter(m => (m.id || 0) !== matchId);
                     const card = document.getElementById(`job-card-${matchId}`);
                     if (card) {
                         card.style.opacity = '0';
                         setTimeout(() => card.remove(), 300);
                     }
                     showToast("Job match dismissed successfully.");
-                    loadCareerMatches();
                 } else {
                     showToast("Failed to dismiss job match.", true);
                 }
@@ -516,7 +522,7 @@
             const out = document.getElementById('aiStudioOutput');
 
             if (!role || !answer) {
-                alert("Please enter target role and your answer.");
+                showToast("Please enter target role and your answer.", true);
                 return;
             }
 
@@ -533,9 +539,11 @@
                     showToast("Interview evaluation complete!");
                 } else {
                     out.innerText = `Error: ${data.detail || 'Evaluation failed.'}`;
+                    showToast(data.detail || "Evaluation failed.", true);
                 }
             } catch (e) {
                 out.innerText = "Network error during interview evaluation.";
+                showToast("Network error during evaluation.", true);
             }
         }
 
@@ -546,7 +554,7 @@
             const out = document.getElementById('aiStudioOutput');
 
             if (!offer) {
-                alert("Please enter offer details.");
+                showToast("Please enter offer details.", true);
                 return;
             }
 
@@ -563,9 +571,11 @@
                     showToast("Negotiation script generated!");
                 } else {
                     out.innerText = `Error: ${data.detail || 'Generation failed.'}`;
+                    showToast(data.detail || "Generation failed.", true);
                 }
             } catch (e) {
                 out.innerText = "Network error during negotiation generation.";
+                showToast("Network error during generation.", true);
             }
         }
 
@@ -576,7 +586,7 @@
                 return;
             }
             try {
-                const res = await fetch('/create-portal-session', {
+                const res = await fetch('/api/v1/billing/create-checkout-session', {
                     method: 'POST',
                     headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
                     body: JSON.stringify({ price_id: priceId })
@@ -595,7 +605,7 @@
         async function openStripePortal() {
             const apiKey = document.getElementById('apiKey').value.trim();
             try {
-                const res = await fetch('/create-portal-session', {
+                const res = await fetch('/api/v1/billing/create-checkout-session', {
                     method: 'POST',
                     headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' }
                 });
