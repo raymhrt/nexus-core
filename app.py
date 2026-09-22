@@ -147,15 +147,16 @@ def hash_api_key(api_key: str) -> str:
     return hashlib.sha256(api_key.encode("utf-8")).hexdigest()
 
 def sanitize_ats_url(url: str, role_title: str, company_name: str) -> str:
-    """Resolves exact direct deep links for verified corporate ATS platforms."""
+    """Resolves exact direct deep links or targeted search queries for verified corporate ATS platforms."""
     c_lower = company_name.lower()
     r_encoded = requests.utils.quote(role_title)
     
     # Deep-link routing for Teamtailor (e.g., Biovac)
     if "biovac" in c_lower:
-        if "jobs/" in url:
+        if url and "jobs/" in url:
             return url
-        return f"https://biovac.teamtailor.com/search?q={r_encoded}"
+        # Target the specific Teamtailor jobs page or filter by role search
+        return f"https://biovac.teamtailor.com/jobs?query={r_encoded}"
         
     # Deep-link routing for MCIDirectHire (e.g., SAMRC, Aspen)
     if "samrc" in c_lower or "medical research council" in c_lower:
