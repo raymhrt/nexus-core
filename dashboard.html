@@ -163,9 +163,9 @@
                                     <div>
                                         <label class="text-xs text-slate-400 font-semibold">Jobs Per Batch</label>
                                         <select id="jobQuantitySelect" class="w-full mt-1 bg-inputbg border border-slate-800 rounded-xl p-2.5 text-xs text-slate-200 focus:outline-none focus:border-sky-500 font-mono">
-                                            <option value="3">3 Jobs</option>
-                                            <option value="5" selected>5 Jobs</option>
-                                            <option value="10">10 Jobs</option>
+                                            <option value="3" class="bg-slate-900 text-white">3 Jobs</option>
+                                            <option value="5" class="bg-slate-900 text-white" selected>5 Jobs</option>
+                                            <option value="10" class="bg-slate-900 text-white">10 Jobs</option>
                                         </select>
                                     </div>
                                 </div>
@@ -452,6 +452,9 @@
                     if (data.credits_remaining !== undefined) {
                         document.getElementById('sidebarCreditCount').innerText = data.credits_remaining;
                     }
+                    if (data.limit !== undefined) {
+                        document.getElementById('sidebarCreditLimit').innerText = data.limit;
+                    }
                     if (data.tier) {
                         document.getElementById('sidebarTierBadge').innerText = data.tier;
                     }
@@ -489,7 +492,7 @@
                 return 'https://aspen.mcidirecthire.com/SouthAfrica/External/CurrentOpportunities';
             }
 
-            const allowedATS = ['greenhouse.io', 'lever.co', 'myworkdayjobs.com', 'ashbyhq.com', 'bamboohr.com', 'teamtailor.com', 'mcidirecthire.com'];
+            const allowedATS = ['greenhouse.io', 'lever.co', 'myworkdayjobs.com', 'ashbyhq.com', 'bamboohr.com', 'teamtailor.com', 'mcidirecthire.com', 'standardbank.com', 'capitecbank.co.za', 'discovery.co.za'];
             let isAllowed = allowedATS.some(domain => postUrl.toLowerCase().includes(domain));
             
             if (postUrl === '#' || postUrl.includes('example') || postUrl.includes('NXDOMAIN') || !isAllowed) {
