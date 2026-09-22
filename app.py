@@ -456,7 +456,7 @@ def verify_api_key_and_credits(cost: int = 1, x_api_key: str = Header(...), requ
     return {"email": email, "tier": tier, "credits": credits_left - cost if tier != "enterprise" else 99999, "ip": client_ip}
 
 async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_count: int = 3, target_locations: str = "South Africa"):
-    logger.info(f"Career Swarm Worker: Scouting 100% verified live job feeds for {target_locations}...")
+    logger.info(f"Career Swarm Worker: Scouting 100% verified live job feeds with strict quality gating for {target_locations}...")
     with db_transaction_scope() as (_, cursor):
         if user_email:
             cursor.execute("SELECT email, profile_json FROM user_profiles WHERE email = %s" if DATABASE_URL else "SELECT email, profile_json FROM user_profiles WHERE email = ?", (user_email,))
@@ -469,15 +469,23 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
         email = u_dict["email"]
         profile_content = u_dict.get('profile_json', '')
 
-        # STRICT CREDIBILITY: Query real live job market feeds via Adzuna API
-        sample_jobs = fetch_live_job_market(target_roles="Scientist OR Researcher OR Manager OR Engineer OR Developer", location=target_locations, count=requested_count)
+        # Fetch live jobs from Adzuna
+        raw_jobs = fetch_live_job_market(target_roles="Scientist OR Researcher OR Manager OR Engineer OR Developer", location=target_locations, count=requested_count * 2)
         
-        if not sample_jobs:
-            logger.warning("Live job feed returned no active listings. Ensure ADZUNA_APP_ID and ADZUNA_API_KEY are set in your .env file.")
+        # STRICT CREDIBILITY FILTER GATE: Reject any job with missing, blank, or stub descriptions (< 150 chars)
+        valid_jobs = []
+        for job in raw_jobs:
+            desc = job.get('job_description', '')
+            url = job.get('ats_portal_url', '')
+            if desc and len(desc.strip()) > 150 and url and url != '#':
+                valid_jobs.append(job)
+
+        if not valid_jobs:
+            logger.warning("Live job feed returned sparse or empty descriptions. Rejecting unverified batch to protect credibility.")
             continue
 
         evaluated_matches = []
-        for job in sample_jobs[:requested_count]:
+        for job in valid_jobs[:requested_count]:
             role = job.get('job_title', 'Specialist')
             company = job.get('company_name', 'Verified Enterprise')
             raw_url = job.get('ats_portal_url', '#')
@@ -489,13 +497,13 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
             Act as an executive career strategist. 
             Candidate Master Profile: {profile_content}
             Target Job: {role} at {company}
-            Job Description: {job.get('job_description', 'Professional technical role')}
+            Job Description: {job.get('job_description')}
 
             CRITICAL: Ensure `cv_variant`, `negotiation_strategy`, and `interview_playbook` are formatted in clean Markdown string paragraphs, NOT nested JSON objects.
 
             Generate strict JSON (no markdown backticks):
             1. "fit_score": Integer between 74 and 98.
-            2. "match_rationale": Concise 2-sentence rationale.
+            2. "match_rationale": Concise 2-sentence rationale referencing exact skills from the job description.
             3. "outreach_draft": Professional cold outreach email written FROM the candidate TO {real_lead['name']} ({real_lead['title']}).
             4. "salary_benchmark": Estimated market compensation range.
             5. "negotiation_strategy": Key leverage points in clean Markdown.
@@ -579,7 +587,7 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
                     safe_str(match_item.get('ats_portal_url'))
                 ))
 
-    await sse_broker.broadcast("career_swarm_update", {"status": "scouted", "message": "Career swarm indexed 100% verified live vacancies."})
+    await sse_broker.broadcast("career_swarm_update", {"status": "scouted", "message": "Career swarm indexed 100% quality-gated live vacancies."})
 
 app = FastAPI(
     title="QuantCode Monetized Career Swarm Apex",
