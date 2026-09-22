@@ -444,6 +444,9 @@
                 const matchId = m.id || idx + 1;
                 const postUrl = m.ats_portal_url || '#';
                 
+                // Safely encode the match object to avoid quote/newline collision in inline onclick handlers
+                const encodedMatch = encodeURIComponent(JSON.stringify(m));
+                
                 return `
                     <div id="job-card-${matchId}" class="glass-panel p-5 rounded-2xl flex flex-col justify-between hover:border-sky-500/40 transition group">
                         <div>
@@ -462,7 +465,7 @@
                                 <a href="${escapeHtml(postUrl)}" target="_blank" class="text-sky-400 hover:underline flex items-center gap-1 font-semibold">Posting ↗</a>
                             </div>
                             <div class="flex items-center gap-2">
-                                <button onclick='openMatchDrawer(${JSON.stringify(m)})' class="flex-1 py-2 bg-sky-600/20 hover:bg-sky-600/30 text-sky-300 border border-sky-500/30 rounded-xl text-xs font-bold transition">⚡ Deep Dive</button>
+                                <button onclick="openMatchDrawerFromEncoded('${encodedMatch}')" class="flex-1 py-2 bg-sky-600/20 hover:bg-sky-600/30 text-sky-300 border border-sky-500/30 rounded-xl text-xs font-bold transition">⚡ Deep Dive</button>
                                 <button onclick="openCareerOutreachModal(${matchId})" class="p-2 bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/30 rounded-xl transition" title="View Outreach">✉️</button>
                                 <button onclick="dismissJobMatch(${matchId})" class="p-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 rounded-xl transition" title="Delete Job Posting">🗑️</button>
                             </div>
@@ -470,6 +473,17 @@
                     </div>
                 `;
             }).join('');
+        }
+
+        // Helper function to decode and pass the match object securely to the drawer
+        function openMatchDrawerFromEncoded(encodedStr) {
+            try {
+                const matchObj = JSON.parse(decodeURIComponent(encodedStr));
+                openMatchDrawer(matchObj);
+            } catch (e) {
+                console.error("Failed to decode match data for drawer:", e);
+                showToast("Could not open deep dive details.", true);
+            }
         }
 
         async function dismissJobMatch(matchId) {
