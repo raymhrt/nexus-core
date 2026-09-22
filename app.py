@@ -3508,29 +3508,14 @@ async def request_key_reset(payload: ResetRequestPayload, background_tasks: Back
     finally:
         release_db(conn)
 
-    reset_url = f"[https://nexus-core-yfou.onrender.com/reset-confirm?token=](https://nexus-core-yfou.onrender.com/reset-confirm?token=){reset_token}"
-    background_tasks.add_task(send_password_reset_email, payload.email, reset_url)
-    log_audit_event(payload.email, "KEY_RESET_REQUESTED", "API key reset requested", request.client.host if request.client else "unknown")
-    return {"status": "success", "message": "Password/Key reset instructions sent to your inbox."}
-
-        reset_token = secrets.token_urlsafe(32)
-        expires_at = datetime.now(timezone.utc) + timedelta(minutes=15)
-
-        if DATABASE_URL:
-            cursor.execute("UPDATE subscribers SET reset_token = %s, reset_expires_at = %s WHERE email = %s", (reset_token, expires_at, email))
-        else:
-            cursor.execute("UPDATE subscribers SET reset_token = ?, reset_expires_at = ? WHERE email = ?", (reset_token, expires_at, email))
-        conn.commit()
-        cursor.close()
-    finally:
-        release_db(conn)
-
     client_ip = request.client.host if request and request.client else "unknown"
-    log_audit_event(email, "KEY_RESET_REQUEST", "Requested password/key reset link", client_ip)
-    reset_url = f"[https://nexus-core-yfou.onrender.com/reset-confirm?token=](https://nexus-core-yfou.onrender.com/reset-confirm?token=){reset_token}"
+    log_audit_event(payload.email, "KEY_RESET_REQUEST", "Requested password/key reset link", client_ip)
+    
+    reset_url = f"https://nexus-core-yfou.onrender.com/reset-confirm?token={reset_token}"
     if background_tasks:
-        background_tasks.add_task(send_password_reset_email, email, reset_url)
-    return {"status": "success", "message": f"API key reset link sent to {email}."}
+        background_tasks.add_task(send_password_reset_email, payload.email, reset_url)
+        
+    return {"status": "success", "message": f"API key reset link sent to {payload.email}."}
 
 @app.get("/api/v1/keys")
 async def list_subscriber_keys(request: Request, auth: dict = Depends(verify_api_key)):
