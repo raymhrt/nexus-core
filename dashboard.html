@@ -452,10 +452,10 @@
                 const fitScore = m.fit_score || 88;
                 const matchId = m.id || idx + 1;
                 
-                // Fix for NXDOMAIN / broken portal URLs: fallback to LinkedIn / Google jobs search
                 let postUrl = m.ats_portal_url || '#';
                 if (postUrl === '#' || postUrl.includes('example') || postUrl.includes('NXDOMAIN') || postUrl.includes('jobs.roche.com')) {
-                    postUrl = `https://www.linkedin.com/jobs/search/?keywords=${encodeURIComponent(m.role_title + ' ' + m.company_name)}`;
+                    // Updated modern LinkedIn search redirect format
+                    postUrl = `https://www.linkedin.com/jobs/search?keywords=${encodeURIComponent(m.role_title + ' ' + m.company_name)}`;
                 }
 
                 return `
@@ -631,7 +631,8 @@
             
             let postUrl = match.ats_portal_url || '#';
             if (postUrl === '#' || postUrl.includes('example') || postUrl.includes('NXDOMAIN') || postUrl.includes('jobs.roche.com')) {
-                postUrl = `https://www.linkedin.com/jobs/search/?keywords=${encodeURIComponent(match.role_title + ' ' + match.company_name)}`;
+                // Updated modern LinkedIn search redirect format
+                postUrl = `https://www.linkedin.com/jobs/search?keywords=${encodeURIComponent(match.role_title + ' ' + match.company_name)}`;
             }
 
             content.innerHTML = `
