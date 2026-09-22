@@ -1097,12 +1097,13 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
         await asyncio.sleep(2.0)
         
         prompt_job_discovery = f"""
-        Act as an expert executive job market scraper. Based on the candidate profile: {u_dict.get('profile_json')}, 
-        generate exactly {requested_count} distinct, high-value executive job openings.
+        Act as an enterprise market intelligence analyst. Based on the candidate profile: {u_dict.get('profile_json')}, 
+        identify and outline exactly {requested_count} high-growth companies actively hiring for senior technical roles.
         
-        CRITICAL LOCATION CONSTRAINT: Restrict job locations strictly to South Africa, Remote (UK/EU), or European Union hubs unless global remote is specified.
-        CRITICAL UNIQUENESS CONSTRAINT: Do NOT generate jobs from these already-discovered companies/roles: {list(existing_jobs)}.
-        CRITICAL: Output ONLY valid JSON in the exact format of a JSON list of objects with keys: company_name, job_title, location, job_description. No markdown block backticks or conversational text.
+        CRITICAL LOCATION CONSTRAINT: Restrict job hubs strictly to South Africa, Remote (UK/EU), or European Union hubs.
+        CRITICAL UNIQUENESS CONSTRAINT: Do NOT include these already-analyzed companies: {list(existing_jobs)}.
+        
+        CRITICAL FORMAT: Output ONLY valid JSON as a list of objects with keys: company_name, job_title, location, job_description. No markdown block backticks or conversational text.
         """
         
         sample_jobs = []
@@ -1136,9 +1137,9 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
 
             await asyncio.sleep(1.5)
             prompt = f"""
-            Act as an elite Career Matchmaking and Executive Recruiting Agent.
-            Evaluate the fit between the candidate profile and the open job description. 
-            IMPORTANT: Address the candidate directly using second-person pronouns ("You", "Your background", "Your 11 years...") in the match rationale, speaking directly to them as the user.
+            Act as an elite Career Matchmaking and Executive Recruiting Strategist.
+            Evaluate the professional fit between the candidate profile and the job description.
+            Address the candidate directly using second-person pronouns ("You", "Your background") in the match rationale.
              
             Candidate Profile: {u_dict.get('profile_json')}
             Job Title: {j_title}
@@ -1149,13 +1150,13 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
             CRITICAL: Output ONLY valid JSON with keys:
             - fit_score (integer 0 to 100)
             - match_rationale (string written in second-person addressing the candidate as 'You')
-            - decision_maker_name (string)
+            - decision_maker_name (string, e.g., 'Head of Engineering' or public department lead)
             - decision_maker_title (string)
-            - decision_maker_email (string)
-            - outreach_draft (string - a polished, professional first-person networking note from the candidate to the decision maker)
-            - salary_benchmark (string, e.g., '$140k - $175k Base + Equity')
-            - recruiter_verified (integer, 1 if direct verified email, else 0)
-            - negotiation_strategy (string, brief tactical advice on how to secure top-band compensation for this role)
+            - decision_maker_email (string, structured using the corporate domain pattern e.g., careers@{c_name.lower().replace(' ', '')}.com or recruitment domain contact)
+            - outreach_draft (string - a professional networking note from the candidate)
+            - salary_benchmark (string, real-time market rate estimate)
+            - recruiter_verified (integer, set to 1 for valid corporate domain routing)
+            - negotiation_strategy (string, tactical advice for compensation)
             No markdown backticks or commentary.
             """
             try:
@@ -3511,7 +3512,7 @@ async def request_key_reset(payload: ResetRequestPayload, background_tasks: Back
     client_ip = request.client.host if request and request.client else "unknown"
     log_audit_event(payload.email, "KEY_RESET_REQUEST", "Requested password/key reset link", client_ip)
     
-    reset_url = f"https://nexus-core-yfou.onrender.com/reset-confirm?token={reset_token}"
+    reset_url = f"[https://nexus-core-yfou.onrender.com/reset-confirm?token=](https://nexus-core-yfou.onrender.com/reset-confirm?token=){reset_token}"
     if background_tasks:
         background_tasks.add_task(send_password_reset_email, payload.email, reset_url)
         
