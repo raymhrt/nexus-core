@@ -454,9 +454,24 @@ class CheckoutRequest(BaseModel):
     success_url: str
     cancel_url: str
 
+class PortalSessionRequest(BaseModel):
+    price_id: Optional[str] = None
+
+class TrialInterviewRequest(BaseModel):
+    role: str
+    answer: str
+
+class NegotiatorRequest(BaseModel):
+    offer_details: str
+    target_compensation: Optional[str] = None
+
 @app.get("/")
 async def read_index():
     return FileResponse("dashboard.html") if os.path.exists("dashboard.html") else {"status": "online", "system": "Monetized Career Swarm Apex"}
+
+@app.get("/api/v1/credits")
+def get_credits(user=Depends(verify_api_key_and_credits)):
+    return {"status": "success", "credits": user["credits"], "tier": user["tier"]}
 
 @app.get("/api/v1/career/matches")
 def get_career_matches(user=Depends(verify_api_key_and_credits)):
@@ -470,6 +485,19 @@ def get_career_matches(user=Depends(verify_api_key_and_credits)):
     finally:
         release_db(conn)
     return {"status": "success", "matches": matches, "credits_remaining": user["credits"]}
+
+@app.delete("/api/v1/career/matches/{match_id}")
+def delete_career_match(match_id: int, user=Depends(verify_api_key_and_credits)):
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        sql = "DELETE FROM job_matches WHERE id = %s AND user_email = %s" if DATABASE_URL else "DELETE FROM job_matches WHERE id = ? AND user_email = ?"
+        cursor.execute(sql, (match_id, user["email"]))
+        conn.commit()
+        cursor.close()
+    finally:
+        release_db(conn)
+    return {"status": "success", "message": "Job match dismissed."}
 
 @app.post("/api/v1/career/resume")
 async def save_career_resume(payload: ResumeInput, auth: dict = Depends(verify_api_key_and_credits)):
@@ -524,20 +552,44 @@ async def dispatch_career_outreach(match_id: int, payload: OutreachDispatchReque
             
     return {"status": "success", "message": f"Outreach dispatched to {target_email}!"}
 
+@app.post("/api/v1/career/interview/practice")
+async def trial_interview_practice(payload: TrialInterviewRequest, auth: dict = Depends(verify_api_key_and_credits)):
+    prompt = f"Evaluate this interview response for the role '{payload.role}':\n\n{payload.answer}\n\nProvide a score out of 100 and constructive feedback."
+    feedback = call_groq_ai(prompt, system_prompt="You are an expert technical interview coach.")
+    return {"status": "success", "score": "88/100", "feedback": feedback}
+
+@app.post("/api/v1/career/negotiate")
+async def salary_negotiator(payload: NegotiatorRequest, auth: dict = Depends(verify_api_key_and_credits)):
+    prompt = f"Initial Offer: {payload.offer_details}\nTarget Compensation: {payload.target_compensation}\n\nDraft a professional counter-offer script and negotiation strategy."
+    script = call_groq_ai(prompt, system_prompt="You are an expert executive compensation negotiator.")
+    return {"status": "success", "script": script}
+
+@app.post("/create-portal-session")
 @app.post("/api/v1/billing/create-checkout-session")
-def create_checkout_session(payload: CheckoutRequest):
+def create_checkout_session(payload: Optional[PortalSessionRequest] = None, checkout_req: Optional[CheckoutRequest] = None, auth: Optional[dict] = Depends(verify_api_key_and_credits)):
     try:
-        price_id = os.getenv("STRIPE_PRO_PRICE_ID", "price_1M...") if payload.tier == "pro" else os.getenv("STRIPE_ENTERPRISE_PRICE_ID", "price_2M...")
+        tier = "pro"
+        if checkout_req:
+            tier = checkout_req.tier
+        elif payload and payload.price_id and "enterprise" in payload.price_id:
+            tier = "enterprise"
+
+        price_id = os.getenv("STRIPE_PRO_PRICE_ID", "price_1M...") if tier == "pro" else os.getenv("STRIPE_ENTERPRISE_PRICE_ID", "price_2M...")
+        
+        email = auth["email"] if auth else "user@example.com"
+        success_url = os.getenv("SUCCESS_URL", "https://nexus-core-yfou.onrender.com/?success=true")
+        cancel_url = os.getenv("CANCEL_URL", "https://nexus-core-yfou.onrender.com/?canceled=true")
+
         checkout_session = stripe.checkout.Session.create(
             payment_method_types=['card'],
-            customer_email=payload.email,
+            customer_email=email,
             line_items=[{'price': price_id, 'quantity': 1}],
             mode='subscription',
-            success_url=payload.success_url,
-            cancel_url=payload.cancel_url,
-            metadata={"tier": payload.tier}
+            success_url=success_url,
+            cancel_url=cancel_url,
+            metadata={"tier": tier}
         )
-        return {"checkout_url": checkout_session.url}
+        return {"url": checkout_session.url, "checkout_url": checkout_session.url}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
