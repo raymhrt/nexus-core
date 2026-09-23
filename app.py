@@ -377,7 +377,7 @@ async def fetch_live_job_market_granular(target_roles_str: str, location: str, c
                     site_name=sites,
                     search_term=role,
                     location=location,
-                    results_wanted=count * 4,
+                    results_wanted=count * 6,
                     hours_old=168,
                     country_indeed=country_val
                 )
@@ -559,7 +559,8 @@ def verify_api_key_only(x_api_key: str = Header(...), request: Request = None):
 
 REQUIRED_DOMAIN_KEYWORDS = [
     "molecular", "research", "scientist", "biotech", "biology", 
-    "laboratory", "r&d", "assay", "biophysical", "clinical", "diagnostic"
+    "laboratory", "r&d", "assay", "biophysical", "clinical", "diagnostic",
+    "chemist", "microbiologist", "pharmacologist", "researcher", "technical manager"
 ]
 
 async def evaluate_single_job_async(job: Dict, profile_content: str, email: str) -> Optional[Dict]:
@@ -567,11 +568,13 @@ async def evaluate_single_job_async(job: Dict, profile_content: str, email: str)
     company = job.get('company_name', 'Verified Enterprise')
     raw_url = job.get('ats_portal_url', '#')
     desc = job.get('job_description', '').lower()
+    role_lower = role.lower()
 
-    # STRICT DOMAIN CHECK: Reject non-scientific / misaligned roles immediately
-    title_and_desc = (role + " " + desc).lower()
-    has_valid_domain = any(kw in title_and_desc for kw in REQUIRED_DOMAIN_KEYWORDS)
-    if not has_valid_domain:
+    # FLEXIBLE SCIENTIFIC GATE: Pass if either the title explicitly indicates a scientific/research role OR the description contains domain keywords
+    title_indicates_science = any(kw in role_lower for kw in ["scientist", "research", "biologist", "chemist", "r&d", "lab", "molecular", "clinical"])
+    desc_indicates_science = any(kw in desc for kw in REQUIRED_DOMAIN_KEYWORDS)
+
+    if not title_indicates_science and not desc_indicates_science:
         logger.info(f"Discarding misaligned role '{role}' at '{company}' (Failed strict scientific domain whitelist)")
         return None
 
@@ -579,10 +582,10 @@ async def evaluate_single_job_async(job: Dict, profile_content: str, email: str)
     Act as an uncompromising executive science recruiter.
     Candidate Master Resume Profile: {profile_content}
     Target Job Title: {role} at {company}
-    Job Description: {desc}
+    Job Description: {desc[:1000]}
 
     CRITICAL INSTRUCTIONS:
-    Evaluate if this is an exact, authentic scientific or R&D match for a Molecular/Biophysical Scientist. If it is an industrial manufacturing, sales, or non-scientific management role, set "is_valid_match" to false and "fit_score" to 0.
+    Evaluate if this is a credible scientific, technical, or R&D match. If it is entirely unrelated (like retail sales or general admin), set "is_valid_match" to false and "fit_score" to 0. Otherwise, provide an honest fit score (70 to 99).
     Return strict JSON (no markdown backticks):
     - "is_valid_match": boolean (true/false)
     - "fit_score": integer (0 to 99)
@@ -602,8 +605,7 @@ async def evaluate_single_job_async(job: Dict, profile_content: str, email: str)
     except Exception:
         return None
 
-    # Enforce strict 85+ fit score threshold. No weak or fallback matches allowed.
-    if not eval_data.get("is_valid_match", False) or safe_int(eval_data.get('fit_score'), 0) < 85:
+    if not eval_data.get("is_valid_match", False) or safe_int(eval_data.get('fit_score'), 0) < 75:
         return None
 
     safe_portal_url = sanitize_ats_url(raw_url, role, company)
@@ -615,13 +617,13 @@ async def evaluate_single_job_async(job: Dict, profile_content: str, email: str)
         "job_title": role,
         "job_description": desc,
         "location": job.get('location', "South Africa"),
-        "fit_score": safe_int(eval_data.get('fit_score'), 85),
+        "fit_score": safe_int(eval_data.get('fit_score'), 78),
         "match_rationale": eval_data.get('match_rationale', "Your background aligns directly with core role requirements."),
         "decision_maker_name": real_lead["name"],
         "decision_maker_title": real_lead["title"],
         "decision_maker_email": real_lead["email"],
         "warm_intro_pathway": real_lead.get("pathway", "Direct Corporate Match"),
-        "outreach_draft": f"Hi {real_lead['name']},\n\nI noted your team's work at {company} regarding the {role} position. My background in molecular research aligns directly with your technical requirements.",
+        "outreach_draft": f"Hi {real_lead['name']},\n\nI noted your team's work at {company} regarding the {role} position. My background aligns directly with your technical requirements.",
         "salary_benchmark": eval_data.get('salary_benchmark', "Competitive Market Rate"),
         "negotiation_strategy": eval_data.get('negotiation_strategy', "Emphasize past specialized delivery impact."),
         "cv_variant": eval_data.get('cv_variant', "# Resume Variant\n- Tailored domain achievements."),
@@ -823,7 +825,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="QuantCode Monetized Career Swarm Apex",
-    version="6.8.2",
+    version="6.8.3",
     description="Autonomous Career Matching, Pgvector Semantic Search, ATS Auto-Pilot, and Stateful Interviews.",
     lifespan=lifespan
 )
