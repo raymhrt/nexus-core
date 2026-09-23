@@ -364,7 +364,7 @@ async def fetch_live_job_market_granular(target_roles_str: str, location: str, c
                     location=location,
                     results_wanted=count * 2,
                     hours_old=72,
-                    country_indeed='ZA' if 'south africa' in location.lower() else 'US'
+                    country_indeed='south africa' if 'south africa' in location.lower() else 'usa'
                 )
             )
             
