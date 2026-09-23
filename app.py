@@ -353,18 +353,22 @@ async def fetch_live_job_market_granular(target_roles_str: str, location: str, c
     aggregated_pool = []
     seen_signatures = set()
 
+    is_sa = 'south africa' in location.lower()
+    sites = ["linkedin", "indeed"] if is_sa else ["linkedin", "indeed", "glassdoor"]
+    country_val = 'south africa' if is_sa else 'usa'
+
     for role in individual_roles:
         try:
             loop = asyncio.get_running_loop()
             df_jobs = await loop.run_in_executor(
                 None,
                 lambda: scrape_jobs(
-                    site_name=["linkedin", "indeed", "glassdoor"],
+                    site_name=sites,
                     search_term=role,
                     location=location,
                     results_wanted=count * 2,
                     hours_old=72,
-                    country_indeed='south africa' if 'south africa' in location.lower() else 'usa'
+                    country_indeed=country_val
                 )
             )
             
