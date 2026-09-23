@@ -491,9 +491,70 @@ def verify_api_key_only(x_api_key: str = Header(...), request: Request = None):
         "ip": client_ip
     }
 
+async def evaluate_single_job_async(job: Dict, profile_content: str, email: str) -> Optional[Dict]:
+    """
+    Asynchronously evaluates a single job listing against the user profile using Groq AI.
+    """
+    role = job.get('job_title', 'Target Role')
+    company = job.get('company_name', 'Verified Enterprise')
+    raw_url = job.get('ats_portal_url', '#')
+    desc = job.get('job_description', '')
+    
+    safe_portal_url = sanitize_ats_url(raw_url, role, company)
+    real_lead = discover_real_decision_maker(company, role)
+
+    eval_prompt = f"""
+    Act as an elite executive recruiter enforcing strict qualification standards.
+    Candidate Master Resume Profile: {profile_content}
+    Target Job Title: {role} at {company}
+    Job Description: {desc}
+
+    CRITICAL INSTRUCTIONS:
+    Analyze if the candidate's core expertise genuinely matches this job. If there is a fundamental domain mismatch, set "is_valid_match" to false and "fit_score" below 60. If it is a true, authentic fit, provide the accurate score (70 to 99).
+    Return strict JSON (no markdown backticks):
+    - "is_valid_match": boolean (true/false)
+    - "fit_score": integer (0 to 99)
+    - "match_rationale": 2-sentence rigorous explanation connecting exact master resume skills to the job requirements.
+    - "outreach_draft": Professional cold outreach email to {real_lead['name']} ({real_lead['title']}).
+    - "salary_benchmark": Estimated market compensation range.
+    - "negotiation_strategy": Key leverage points in clean Markdown.
+    - "cv_variant": Bullet points tailoring the resume in clean Markdown.
+    - "interview_playbook": 3-stage interview brief tailored strictly to this job description.
+    """
+    try:
+        loop = asyncio.get_running_loop()
+        raw_eval = await loop.run_in_executor(None, call_groq_ai, eval_prompt)
+        
+        import re as regex_re
+        jm_eval = regex_re.search(r'\{.*\}', raw_eval, regex_re.DOTALL)
+        eval_data = json.loads(jm_eval.group(0) if jm_eval else raw_eval)
+    except Exception:
+        eval_data = {"is_valid_match": True, "fit_score": 80}
+
+    if not eval_data.get("is_valid_match", True) or safe_int(eval_data.get('fit_score'), 80) < 65:
+        return None
+
+    return {
+        "company_name": company,
+        "job_title": role,
+        "job_description": desc,
+        "location": job.get('location', "South Africa"),
+        "fit_score": safe_int(eval_data.get('fit_score'), 82),
+        "match_rationale": eval_data.get('match_rationale', "Your background aligns directly with core role requirements."),
+        "decision_maker_name": real_lead["name"],
+        "decision_maker_title": real_lead["title"],
+        "decision_maker_email": real_lead["email"],
+        "outreach_draft": eval_data.get('outreach_draft', f"Hi {real_lead['name']},\n\nI noticed your team is expanding at {company}."),
+        "salary_benchmark": eval_data.get('salary_benchmark', "Competitive Market Rate"),
+        "negotiation_strategy": eval_data.get('negotiation_strategy', "Emphasize past specialized delivery impact."),
+        "cv_variant": eval_data.get('cv_variant', "# Resume Variant\n- Tailored domain achievements."),
+        "interview_playbook": eval_data.get('interview_playbook', "### Elite Interview Playbook\n- Review core competencies."),
+        "ats_portal_url": safe_portal_url
+    }
+
 # Background Task Worker (Replaces Celery)
 async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_count: int = 3, target_locations: str = "South Africa", target_roles: str = "Scientist"):
-    logger.info(f"Background Swarm Worker: Executing vector alignment for '{target_roles}' in '{target_locations}'...")
+    logger.info(f"Elite Background Swarm Worker: Executing concurrent vector alignment for '{target_roles}' in '{target_locations}'...")
     
     with db_transaction_scope() as (_, cursor):
         if user_email:
@@ -507,7 +568,7 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
         email = u_dict["email"]
         profile_content = u_dict.get('profile_json', '')
 
-        raw_jobs = await fetch_live_job_market_granular(target_roles, target_locations, requested_count * 2)
+        raw_jobs = await fetch_live_job_market_granular(target_roles, target_locations, requested_count * 3)
         
         if not raw_jobs:
             logger.warning("Strict Zero-Mock Policy: Multi-source live feeds returned zero verified postings. 0 credits deducted.")
@@ -517,66 +578,10 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
             })
             continue
 
-        evaluated_matches = []
-        for job in raw_jobs:
-            role = job.get('job_title', target_roles)
-            company = job.get('company_name', 'Verified Enterprise')
-            raw_url = job.get('ats_portal_url', '#')
-            desc = job.get('job_description', '')
-            
-            safe_portal_url = sanitize_ats_url(raw_url, role, company)
-            real_lead = discover_real_decision_maker(company, role)
-
-            eval_prompt = f"""
-            Act as an elite executive recruiter enforcing strict qualification standards.
-            Candidate Master Resume Profile: {profile_content}
-            Target Job Title: {role} at {company}
-            Job Description: {desc}
-
-            CRITICAL INSTRUCTIONS:
-            Analyze if the candidate's core expertise genuinely matches this job. If there is a fundamental domain mismatch, set "is_valid_match" to false and "fit_score" below 60. If it is a true, authentic fit, provide the accurate score (70 to 99).
-            Return strict JSON (no markdown backticks):
-            - "is_valid_match": boolean (true/false)
-            - "fit_score": integer (0 to 99)
-            - "match_rationale": 2-sentence rigorous explanation connecting exact master resume skills to the job requirements.
-            - "outreach_draft": Professional cold outreach email to {real_lead['name']} ({real_lead['title']}).
-            - "salary_benchmark": Estimated market compensation range.
-            - "negotiation_strategy": Key leverage points in clean Markdown.
-            - "cv_variant": Bullet points tailoring the resume in clean Markdown.
-            - "interview_playbook": 3-stage interview brief tailored strictly to this job description.
-            """
-            try:
-                raw_eval = call_groq_ai(eval_prompt)
-                import re as regex_re
-                jm_eval = regex_re.search(r'\{.*\}', raw_eval, regex_re.DOTALL)
-                eval_data = json.loads(jm_eval.group(0) if jm_eval else raw_eval)
-            except Exception:
-                eval_data = {"is_valid_match": True, "fit_score": 80}
-
-            if not eval_data.get("is_valid_match", True) or safe_int(eval_data.get('fit_score'), 80) < 65:
-                continue
-
-            match_obj = {
-                "company_name": company,
-                "job_title": role,
-                "job_description": desc,
-                "location": job.get('location', target_locations),
-                "fit_score": safe_int(eval_data.get('fit_score'), 82),
-                "match_rationale": eval_data.get('match_rationale', "Your background aligns directly with core role requirements."),
-                "decision_maker_name": real_lead["name"],
-                "decision_maker_title": real_lead["title"],
-                "decision_maker_email": real_lead["email"],
-                "outreach_draft": eval_data.get('outreach_draft', f"Hi {real_lead['name']},\n\nI noticed your team is expanding at {company}. I'd love to connect regarding the {role} position."),
-                "salary_benchmark": eval_data.get('salary_benchmark', "Competitive Market Rate"),
-                "negotiation_strategy": eval_data.get('negotiation_strategy', "Emphasize past specialized delivery impact."),
-                "cv_variant": eval_data.get('cv_variant', "# Resume Variant\n- Tailored domain achievements."),
-                "interview_playbook": eval_data.get('interview_playbook', "### Elite Interview Playbook\n- Review core competencies and prepare STAR method responses."),
-                "ats_portal_url": safe_portal_url
-            }
-            evaluated_matches.append(match_obj)
-            
-            if len(evaluated_matches) >= requested_count:
-                break
+        evaluation_tasks = [evaluate_single_job_async(job, profile_content, email) for job in raw_jobs]
+        results = await asyncio.gather(*evaluation_tasks)
+        
+        evaluated_matches = [m for m in results if m is not None][:requested_count]
 
         if not evaluated_matches:
             logger.warning("Strict Zero-Mock Policy: Multi-source feeds returned jobs, but AI qualification agent filtered out 100% due to domain misalignment. 0 credits deducted.")
@@ -598,7 +603,6 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
                     logger.warning(f"Credit limit reached for {email}. Halting further match indexing.")
                     break
 
-                # Use RETURNING id to verify if the insert actually happened (avoids counting duplicates or skipped inserts)
                 sql = """
                     INSERT INTO job_matches (user_email, company_name, job_title, job_description, location, fit_score, match_rationale, decision_maker_name, decision_maker_title, decision_maker_email, outreach_draft, salary_benchmark, negotiation_strategy, cv_variant, interview_playbook, ats_portal_url, status)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'discovered')
@@ -628,7 +632,6 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
                     safe_str(match_item.get('ats_portal_url'))
                 ))
                 
-                # Check if row was actually inserted (PostgreSQL returns rowcount or fetched id)
                 inserted = False
                 if DATABASE_URL:
                     row_res = ic.fetchone()
@@ -644,11 +647,11 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
                         ic.execute(deduct_sql, (email,))
                     saved_count += 1
 
-    await sse_broker.broadcast("career_swarm_update", {"status": "scouted", "message": f"Career swarm indexed {saved_count} verified live matches (1 credit deducted per match)."})
+    await sse_broker.broadcast("career_swarm_update", {"status": "scouted", "message": f"Elite career swarm indexed {saved_count} verified live matches concurrently."})
 
 app = FastAPI(
     title="QuantCode Monetized Career Swarm Apex",
-    version="6.6.5",
+    version="6.6.6",
     description="Autonomous Career Matching, Resume Vectorization, Stripe Billing, and Real-Time SSE Telemetry."
 )
 
