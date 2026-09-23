@@ -602,11 +602,11 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
         results = await asyncio.gather(*evaluation_tasks)
         evaluated_matches = [m for m in results if m is not None][:requested_count]
 
+        saved_count = 0  # <--- Safely initialized here to prevent UnboundLocalError
         if not evaluated_matches:
             continue
 
         with db_transaction_scope() as (_, ic):
-            saved_count = 0
             for match_item in evaluated_matches:
                 ic.execute("SELECT tier, credits_remaining FROM subscribers s JOIN subscriber_credits c ON s.email = c.email WHERE s.email = %s" if DATABASE_URL else "SELECT tier, credits_remaining FROM subscribers s JOIN subscriber_credits c ON s.email = c.email WHERE s.email = ?", (email,))
                 sub_row = ic.fetchone()
