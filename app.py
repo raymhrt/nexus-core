@@ -9,6 +9,7 @@ import hmac
 import time
 import random
 import uuid
+import re
 from typing import List, Dict, Optional, Any
 from datetime import datetime, timedelta, timezone
 from contextlib import asynccontextmanager, contextmanager
@@ -306,7 +307,7 @@ async def fetch_live_job_market_granular(target_roles_str: str, location: str, c
         individual_roles = [target_roles_str.strip()]
 
     aggregated_pool = []
-    seen_signatures = set() # Global batch deduplication tracker
+    seen_signatures = set()
 
     for role in individual_roles:
         logger.info(f"Granular Aggregator: Scanning live channels for discrete role '{role}' in '{location}'...")
@@ -316,8 +317,13 @@ async def fetch_live_job_market_granular(target_roles_str: str, location: str, c
         
         for job in (adzuna_res + muse_res + jsearch_res):
             company = job.get('company_name', '').lower().strip()
-            title = job.get('job_title', '').lower().strip()
-            signature = f"{company}-{title}"
+            raw_title = job.get('job_title', '').lower().strip()
+            
+            # Normalize title by removing common prefixes/suffixes like 'remote', hyphens, and commas
+            normalized_title = re.sub(r'\b(remote|hybrid|onsite)\b', '', raw_title)
+            normalized_title = re.sub(r'[^a-z0-9]', '', normalized_title)
+            
+            signature = f"{company}-{normalized_title}"
             url = job.get('ats_portal_url', '')
             
             if signature not in seen_signatures and 'example.com' not in url:
@@ -431,7 +437,8 @@ def init_career_database():
                 cv_variant TEXT,
                 interview_playbook TEXT DEFAULT '',
                 ats_portal_url TEXT,
-                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                CONSTRAINT unique_user_job UNIQUE (user_email, company_name, job_title)
             )
         """)
 
@@ -572,8 +579,10 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
                 sql = """
                     INSERT INTO job_matches (user_email, company_name, job_title, job_description, location, fit_score, match_rationale, decision_maker_name, decision_maker_title, decision_maker_email, outreach_draft, salary_benchmark, negotiation_strategy, cv_variant, interview_playbook, ats_portal_url, status)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'discovered')
+                    ON CONFLICT (user_email, company_name, job_title) DO NOTHING
                 """ if DATABASE_URL else """
-                    INSERT INTO job_matches (user_email, company_name, job_title, job_description, location, fit_score, match_rationale, decision_maker_name, decision_maker_title, decision_maker_email, outreach_draft, salary_benchmark, negotiation_strategy, cv_variant, interview_playbook, ats_portal_url, 'discovered')
+                    INSERT OR IGNORE INTO job_matches (user_email, company_name, job_title, job_description, location, fit_score, match_rationale, decision_maker_name, decision_maker_title, decision_maker_email, outreach_draft, salary_benchmark, negotiation_strategy, cv_variant, interview_playbook, ats_portal_url, status)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'discovered')
                 """
                 ic.execute(sql, (
                     email,
@@ -604,7 +613,7 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
 
 app = FastAPI(
     title="QuantCode Monetized Career Swarm Apex",
-    version="6.6.1",
+    version="6.6.2",
     description="Autonomous Career Matching, Resume Vectorization, Stripe Billing, and Real-Time SSE Telemetry."
 )
 
