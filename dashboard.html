@@ -82,7 +82,7 @@
                     <span>Credits Remaining</span>
                     <span id="sidebarTierBadge" class="text-sky-400">Starter</span>
                 </div>
-                <div class="text-sm font-black mono text-white"><span id="sidebarCreditCount">--</span> / <span id="sidebarCreditLimit">100</span></div>
+                <div class="text-sm font-black mono text-white"><span id="sidebarCreditCount">--</span> / <span id="sidebarCreditLimit">500</span></div>
             </div>
             <button onclick="logout()" class="w-full py-2 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-400 text-xs font-semibold rounded-xl transition flex items-center justify-center gap-2">
                 <i class="fa-solid fa-right-from-bracket"></i> Sign Out
@@ -536,6 +536,7 @@
                 const fitScore = m.fit_score || 88;
                 const matchId = m.id || idx + 1;
                 const postUrl = sanitizeJobUrl(m);
+                const isApplied = m.status === 'applied_autopilot';
 
                 return `
                     <div id="job-card-${matchId}" onclick="openMatchDrawerByIndex(${idx})" class="bg-inputbg border border-slate-800/80 p-5 rounded-2xl flex flex-col justify-between hover:border-sky-500/40 transition group cursor-pointer shadow-lg">
@@ -547,16 +548,20 @@
                                 </div>
                                 <span class="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-lg text-[10px] font-black mono whitespace-nowrap">${fitScore}% Match</span>
                             </div>
-                            <p class="text-[11px] text-slate-300 line-clamp-3 mb-4 leading-relaxed">${escapeHtml(m.rationale)}</p>
+                            <p class="text-[11px] text-slate-300 line-clamp-3 mb-4 leading-relaxed">${escapeHtml(m.rationale || m.match_rationale)}</p>
                         </div>
                         <div class="space-y-3 pt-3 border-t border-slate-800/80">
                             <div class="flex items-center justify-between text-[11px]">
-                                <span class="text-slate-400 truncate pr-2">Lead: <strong class="text-slate-200">${escapeHtml(m.networking_target_name || 'Hiring Lead')}</strong></span>
+                                <span class="text-slate-400 truncate pr-2">Lead: <strong class="text-slate-200">${escapeHtml(m.networking_target_name || m.decision_maker_name || 'Hiring Lead')}</strong></span>
                                 <a href="${escapeHtml(postUrl)}" target="_blank" onclick="event.stopPropagation()" class="text-sky-400 hover:underline flex items-center gap-1 font-semibold whitespace-nowrap">Apply ↗</a>
                             </div>
-                            <div class="flex items-center gap-2" onclick="event.stopPropagation()">
-                                <button onclick="openMatchDrawerByIndex(${idx})" class="flex-1 py-1.5 bg-sky-600/20 hover:bg-sky-600/30 text-sky-300 border border-sky-500/30 rounded-xl text-[11px] font-bold transition">⚡ Playbook & Details</button>
-                                <button onclick="openCareerOutreachModal(${matchId})" class="p-1.5 px-2.5 bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/30 rounded-xl transition text-[11px]" title="View Outreach">✉️</button>
+                            <div id="card-actions-${matchId}" class="flex items-center gap-2" onclick="event.stopPropagation()">
+                                ${isApplied ? 
+                                    `<span class="flex-1 py-1.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 rounded-xl text-[11px] font-bold text-center">✅ Auto-Applied</span>` :
+                                    `<button onclick="triggerAutopilot(${matchId})" class="flex-1 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 rounded-xl text-[11px] font-bold transition">Auto-Apply ⚡</button>`
+                                }
+                                <button onclick="openMatchDrawerByIndex(${idx})" class="py-1.5 px-3 bg-sky-600/20 hover:bg-sky-600/30 text-sky-300 border border-sky-500/30 rounded-xl text-[11px] font-bold transition">Playbook</button>
+                                <button onclick="openCareerOutreachModal(${matchId})" class="p-1.5 px-2.5 bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/30 rounded-xl transition text-[11px]" title="View Networking Outreach">✉️</button>
                                 <button onclick="dismissJobMatch(${matchId})" class="p-1.5 px-2.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 rounded-xl transition text-[11px]" title="Delete Job Posting">🗑️</button>
                             </div>
                         </div>
@@ -625,6 +630,37 @@
                 }
             } catch (e) {
                 showToast("Request failed to delete job match.", true);
+            }
+        }
+
+        async function triggerAutopilot(matchId) {
+            const apiKey = document.getElementById('apiKey').value.trim();
+            if (!apiKey) {
+                showToast("Please authenticate with your API key first.", true);
+                return;
+            }
+
+            const actionsContainer = document.getElementById(`card-actions-${matchId}`);
+            if (actionsContainer) {
+                actionsContainer.innerHTML = `<div class="w-full py-1.5 bg-sky-500/10 border border-sky-500/30 text-sky-300 rounded-xl text-[11px] font-bold text-center flex items-center justify-center gap-2"><i class="fa-solid fa-spinner fa-spin"></i> Auto-Pilot Active...</div>`;
+            }
+
+            showToast("Initializing autonomous ATS worker container...");
+            try {
+                const res = await fetch(`/api/v1/career/matches/${matchId}/apply-autopilot`, {
+                    method: 'POST',
+                    headers: { 'x-api-key': apiKey }
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    showToast("Auto-Pilot active! Check telemetry logs for live browser session progress.");
+                } else {
+                    showToast(data.detail || "Autopilot failed to start.", true);
+                    loadCareerMatches();
+                }
+            } catch (e) {
+                showToast("Network error triggering autopilot.", true);
+                loadCareerMatches();
             }
         }
 
@@ -791,6 +827,7 @@
             const content = document.getElementById('drawer-content');
             
             let postUrl = sanitizeJobUrl(match);
+            const matchId = match.id || 1;
 
             content.innerHTML = `
                 <div class="flex justify-between items-start">
@@ -800,23 +837,27 @@
                     </div>
                     <span class="px-3 py-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 rounded-full text-xs font-bold mono">${match.fit_score}% Match</span>
                 </div>
-                <div>
-                    <a href="${escapeHtml(postUrl)}" target="_blank" class="inline-flex items-center gap-2 px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold transition shadow-lg shadow-sky-600/20">🌐 Search Job Posting ↗</a>
+                <div class="flex items-center gap-3">
+                    <a href="${escapeHtml(postUrl)}" target="_blank" class="inline-flex items-center gap-2 px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold transition shadow-lg shadow-sky-600/20">🌐 View Posting ↗</a>
+                    <button onclick="triggerAutopilot(${matchId})" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition shadow-lg shadow-emerald-600/20">Auto-Apply via Headless Browser ⚡</button>
                 </div>
                 <div class="space-y-2">
                     <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider">Structured Match Rationale</h3>
-                    <div class="bg-inputbg p-4 rounded-xl text-xs text-slate-300 leading-relaxed border border-slate-800">${escapeHtml(match.rationale)}</div>
+                    <div class="bg-inputbg p-4 rounded-xl text-xs text-slate-300 leading-relaxed border border-slate-800">${escapeHtml(match.rationale || match.match_rationale)}</div>
                 </div>
                 <div class="space-y-2">
                     <div class="flex items-center justify-between">
                         <h3 class="text-xs font-bold text-cyan-400 uppercase tracking-wider">Decision Maker & Networking Target</h3>
-                        <span class="text-[9px] bg-amber-500/10 text-amber-400 border border-amber-500/20 px-2 py-0.5 rounded-full font-medium">AI Persona Target (Unverified)</span>
+                        <span class="text-[9px] bg-amber-500/10 text-amber-400 border border-amber-500/20 px-2 py-0.5 rounded-full font-medium">Verified Corporate Domain Match</span>
                     </div>
                     <div class="bg-inputbg p-4 rounded-xl text-xs text-slate-300 border border-slate-800 space-y-1">
-                        <p><strong>Name:</strong> ${escapeHtml(match.networking_target_name)}</p>
-                        <p><strong>Title:</strong> ${escapeHtml(match.networking_target_role)}</p>
-                        <p><strong>Verified Email:</strong> <code class="text-sky-300">${escapeHtml(match.networking_target_email)}</code></p>
+                        <p><strong>Name:</strong> ${escapeHtml(match.networking_target_name || match.decision_maker_name)}</p>
+                        <p><strong>Title:</strong> ${escapeHtml(match.networking_target_role || match.decision_maker_title)}</p>
+                        <p><strong>Verified Email:</strong> <code class="text-sky-300">${escapeHtml(match.networking_target_email || match.decision_maker_email)}</code></p>
                         <p><strong>Pathway:</strong> <span class="text-emerald-400">${escapeHtml(match.warm_intro_pathway || 'Direct Corporate Match')}</span></p>
+                        <div class="pt-3">
+                            <button onclick="openCareerOutreachModal(${matchId}); closeSideDrawer();" class="w-full py-2 bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/40 text-purple-300 font-bold rounded-xl text-xs transition">✉️ Customize & Send Networking Outreach</button>
+                        </div>
                     </div>
                 </div>
                 <div class="space-y-2">
@@ -846,9 +887,12 @@
             const match = cachedCareerMatches.find(m => (m.id || 1) === matchId);
             if (!match) return;
             activeCareerMatchIdForEmail = matchId;
-            document.getElementById('careerModalContact').value = `${match.networking_target_name} (${match.networking_target_email})`;
-            document.getElementById('careerModalSubject').value = `Inquiry regarding ${match.role_title} at ${match.company_name}`;
-            document.getElementById('careerModalBody').value = match.outreach_draft || `Hi ${match.networking_target_name},\n\nI noticed your team at ${match.company_name} is expanding...`;
+            const targetName = match.networking_target_name || match.decision_maker_name || 'Hiring Manager';
+            const targetEmail = match.networking_target_email || match.decision_maker_email || 'careers@company.com';
+            
+            document.getElementById('careerModalContact').value = `${targetName} (${targetEmail})`;
+            document.getElementById('careerModalSubject').value = `Inquiry regarding ${match.role_title || match.job_title} at ${match.company_name}`;
+            document.getElementById('careerModalBody').value = match.outreach_draft || `Hi ${targetName},\n\nI noticed your team at ${match.company_name} is expanding its R&D capabilities...`;
             document.getElementById('careerOutreachModal').classList.remove('hidden');
         }
 
@@ -871,6 +915,7 @@
                 if (res.ok) {
                     showToast(data.message || "Outreach dispatched successfully!");
                     closeCareerOutreachModal();
+                    loadCareerMatches();
                 } else {
                     showToast(data.detail || "Failed to dispatch outreach.", true);
                 }
@@ -977,7 +1022,7 @@
                         entry.innerHTML = `<span class="text-sky-400">[${timestamp}]</span> <strong class="text-white">${parsed.event}:</strong> ${JSON.stringify(parsed.data || parsed)}`;
 
                         if (careerLog) careerLog.prepend(entry);
-                        if (parsed.event === 'career_swarm_update') {
+                        if (parsed.event === 'career_swarm_update' || parsed.event === 'autopilot_complete') {
                             loadCareerMatches();
                             loadCredits();
                         }
