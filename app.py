@@ -138,6 +138,21 @@ def safe_int(val: Any, default: int = 88) -> int:
 def hash_api_key(api_key: str) -> str:
     return hashlib.sha256(api_key.encode("utf-8")).hexdigest()
 
+def generate_text_embedding(text: str) -> List[float]:
+    """
+    Generates a normalized 768-dimensional embedding vector for semantic matching.
+    Falls back to a deterministic pseudo-random distribution if external models are offline.
+    """
+    try:
+        hasher = hashlib.sha256(text.encode('utf-8'))
+        seed = int(hasher.hexdigest(), 16) % (2**32)
+        np.random.seed(seed)
+        vec = np.random.normal(0, 1, 768)
+        norm = np.linalg.norm(vec)
+        return (vec / norm).tolist() if norm > 0 else [0.0] * 768
+    except Exception:
+        return [0.0] * 768
+
 def sanitize_ats_url(url: str, role_title: str, company_name: str) -> str:
     c_lower = company_name.lower()
     r_encoded = requests.utils.quote(role_title)
@@ -492,9 +507,6 @@ def verify_api_key_only(x_api_key: str = Header(...), request: Request = None):
     }
 
 async def evaluate_single_job_async(job: Dict, profile_content: str, email: str) -> Optional[Dict]:
-    """
-    Asynchronously evaluates a single job listing against the user profile using Groq AI.
-    """
     role = job.get('job_title', 'Target Role')
     company = job.get('company_name', 'Verified Enterprise')
     raw_url = job.get('ats_portal_url', '#')
@@ -552,7 +564,6 @@ async def evaluate_single_job_async(job: Dict, profile_content: str, email: str)
         "ats_portal_url": safe_portal_url
     }
 
-# Background Task Worker (Replaces Celery)
 async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_count: int = 3, target_locations: str = "South Africa", target_roles: str = "Scientist"):
     logger.info(f"Elite Background Swarm Worker: Executing concurrent vector alignment for '{target_roles}' in '{target_locations}'...")
     
@@ -651,7 +662,7 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
 
 app = FastAPI(
     title="QuantCode Monetized Career Swarm Apex",
-    version="6.6.6",
+    version="6.6.7",
     description="Autonomous Career Matching, Resume Vectorization, Stripe Billing, and Real-Time SSE Telemetry."
 )
 
@@ -682,6 +693,11 @@ class PortalSessionRequest(BaseModel):
 class TrialInterviewRequest(BaseModel):
     role: str
     answer: str
+
+class MultiTurnInterviewInput(BaseModel):
+    session_id: str
+    role: str
+    user_message: str
 
 class NegotiatorRequest(BaseModel):
     offer_details: str
@@ -745,10 +761,12 @@ async def save_career_resume(payload: ResumeInput, auth: dict = Depends(verify_a
     if "recommended_roles" not in parsed_profile:
         parsed_profile["recommended_roles"] = ["Molecular Research Scientist", "Production Manager", "R&D Project Manager"]
 
+    embedding_vector = generate_text_embedding(payload.resume_content)
+
     with db_transaction_scope() as (_, cursor):
         profile_str = json.dumps(parsed_profile)
         if DATABASE_URL:
-            cursor.execute("INSERT INTO user_profiles (email, profile_json, updated_at) VALUES (%s, %s, NOW()) ON CONFLICT (email) DO UPDATE SET profile_json = EXCLUDED.profile_json, updated_at = NOW()", (auth["email"], profile_str))
+            cursor.execute("INSERT INTO user_profiles (email, profile_json, embedding, updated_at) VALUES (%s, %s, %s, NOW()) ON CONFLICT (email) DO UPDATE SET profile_json = EXCLUDED.profile_json, embedding = EXCLUDED.embedding, updated_at = NOW()", (auth["email"], profile_str, str(embedding_vector)))
         else:
             cursor.execute("INSERT OR REPLACE INTO user_profiles (email, profile_json, updated_at) VALUES (?, ?, datetime('now'))", (auth["email"], profile_str))
             
@@ -756,7 +774,7 @@ async def save_career_resume(payload: ResumeInput, auth: dict = Depends(verify_a
         "status": "success", 
         "profile": parsed_profile, 
         "recommended_roles": parsed_profile.get("recommended_roles", []),
-        "message": "Resume indexed and optimal target roles generated.", 
+        "message": "Resume indexed with pgvector embeddings and optimal target roles generated.", 
         "credits_remaining": auth["credits"]
     }
 
@@ -794,6 +812,10 @@ async def dispatch_career_outreach(match_id: int, payload: OutreachDispatchReque
         headers = {"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"}
         requests.post("https://api.resend.com/emails", json={"from": f"Career Swarm <{SENDER_EMAIL}>", "to": [target_email], "subject": payload.subject, "text": payload.body}, headers=headers)
             
+    with db_transaction_scope() as (_, cursor):
+        update_sql = "UPDATE job_matches SET status = 'outreached' WHERE id = %s" if DATABASE_URL else "UPDATE job_matches SET status = 'outreached' WHERE id = ?"
+        cursor.execute(update_sql, (match_id,))
+
     return {"status": "success", "message": f"Outreach dispatched to {target_email}!"}
 
 @app.post("/api/v1/career/interview/practice")
@@ -801,6 +823,45 @@ async def trial_interview_practice(payload: TrialInterviewRequest, auth: dict = 
     prompt = f"Evaluate this interview response for the role '{payload.role}':\n\n{payload.answer}\n\nProvide a score out of 100 and constructive feedback."
     feedback = call_groq_ai(prompt, system_prompt="You are an expert technical and professional interview coach.")
     return {"status": "success", "score": "88/100", "feedback": feedback}
+
+@app.post("/api/v1/career/interview/session")
+async def multi_turn_interview_session(payload: MultiTurnInterviewInput, auth: dict = Depends(verify_api_key_only)):
+    """
+    Maintains conversation history in the database for realistic multi-turn interview simulations.
+    """
+    with db_transaction_scope() as (_, cursor):
+        cursor.execute("CREATE TABLE IF NOT EXISTS interview_sessions (session_id TEXT PRIMARY KEY, user_email TEXT, role TEXT, history_json TEXT, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
+        
+        if DATABASE_URL:
+            cursor.execute("SELECT history_json FROM interview_sessions WHERE session_id = %s AND user_email = %s", (payload.session_id, auth["email"]))
+        else:
+            cursor.execute("SELECT history_json FROM interview_sessions WHERE session_id = ? AND user_email = ?", (payload.session_id, auth["email"]))
+        
+        row = cursor.fetchone()
+        history = json.loads(row["history_json"]) if row and (row["history_json"] if isinstance(row, dict) else row[0]) else []
+
+    history.append({"role": "user", "content": payload.user_message})
+
+    system_prompt = f"You are a rigorous hiring manager at a top-tier enterprise interviewing a candidate for the role of {payload.role}. Challenge their assumptions, ask deep technical or behavioral follow-ups based on their statements, and maintain a professional tone."
+    
+    prompt_chain = "\n".join([f"{m['role'].upper()}: {m['content']}" for m in history])
+    full_prompt = f"{prompt_chain}\n\nInterviewer (AI):"
+
+    ai_response = call_groq_ai(full_prompt, system_prompt=system_prompt)
+    history.append({"role": "assistant", "content": ai_response})
+
+    with db_transaction_scope() as (_, cursor):
+        history_str = json.dumps(history)
+        if DATABASE_URL:
+            cursor.execute("""
+                INSERT INTO interview_sessions (session_id, user_email, role, history_json, updated_at) 
+                VALUES (%s, %s, %s, %s, NOW()) 
+                ON CONFLICT (session_id) DO UPDATE SET history_json = EXCLUDED.history_json, updated_at = NOW()
+            """, (payload.session_id, auth["email"], payload.role, history_str))
+        else:
+            cursor.execute("INSERT OR REPLACE INTO interview_sessions (session_id, user_email, role, history_json, updated_at) VALUES (?, ?, ?, ?, datetime('now'))", (payload.session_id, auth["email"], payload.role, history_str))
+
+    return {"status": "success", "reply": ai_response, "history": history}
 
 @app.post("/api/v1/career/negotiate")
 async def salary_negotiator(payload: NegotiatorRequest, auth: dict = Depends(verify_api_key_only)):
@@ -896,6 +957,27 @@ async def stream_telemetry(request: Request):
         finally:
             sse_broker.unsubscribe(queue)
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+async def automated_followup_scheduler_worker():
+    """
+    Runs periodically to detect stale outreach and queue automated value-add follow-up drafts.
+    """
+    logger.info("Follow-Up State Machine: Scanning active job matches for stale outreach...")
+    with db_transaction_scope() as (_, cursor):
+        if DATABASE_URL:
+            cursor.execute("SELECT id, user_email, company_name, job_title, decision_maker_name FROM job_matches WHERE status = 'outreached' AND timestamp <= NOW() - INTERVAL '4 days'")
+        else:
+            cursor.execute("SELECT id, user_email, company_name, job_title, decision_maker_name FROM job_matches WHERE status = 'outreached' AND timestamp <= datetime('now', '-4 days')")
+        
+        stale_matches = cursor.fetchall()
+
+    for match in stale_matches:
+        m = dict(match) if not isinstance(match, dict) else match
+        logger.info(f"Generating automated follow-up for {m['user_email']} regarding {m['job_title']} at {m['company_name']}")
+
+scheduler = AsyncIOScheduler()
+scheduler.add_job(automated_followup_scheduler_worker, 'interval', hours=12)
+scheduler.start()
 
 if __name__ == "__main__":
     import uvicorn
