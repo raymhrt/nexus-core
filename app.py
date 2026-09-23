@@ -357,7 +357,11 @@ async def fetch_live_job_market_granular(target_roles_str: str, location: str, c
     sites = ["linkedin", "indeed"] if is_sa else ["linkedin", "indeed", "glassdoor"]
     country_val = 'south africa' if is_sa else 'usa'
 
+    # Go through each title one at a time sequentially
     for role in individual_roles:
+        role_jobs = []
+        
+        # 1. Try JobSpy for this specific role
         try:
             loop = asyncio.get_running_loop()
             df_jobs = await loop.run_in_executor(
@@ -367,7 +371,7 @@ async def fetch_live_job_market_granular(target_roles_str: str, location: str, c
                     search_term=role,
                     location=location,
                     results_wanted=count * 2,
-                    hours_old=72,
+                    hours_old=168,  # Expanded to 7 days for better yield in regional markets
                     country_indeed=country_val
                 )
             )
@@ -380,30 +384,50 @@ async def fetch_live_job_market_granular(target_roles_str: str, location: str, c
                     url = str(row.get('job_url', ''))
                     loc = str(row.get('location', location))
 
-                    if len(desc) < 50:
+                    if len(desc) < 30:
                         continue
 
-                    normalized_title = re.sub(r'\b(remote|hybrid|onsite)\b', '', raw_title.lower())
-                    normalized_title = re.sub(r'[^a-z0-9]', '', normalized_title)
-                    signature = f"{company.lower()}-{normalized_title}"
-
-                    if signature not in seen_signatures and 'example.com' not in url:
-                        seen_signatures.add(signature)
-                        aggregated_pool.append({
-                            "company_name": company,
-                            "job_title": raw_title,
-                            "location": loc,
-                            "job_description": desc,
-                            "ats_portal_url": url
-                        })
+                    role_jobs.append({
+                        "company_name": company,
+                        "job_title": raw_title,
+                        "location": loc,
+                        "job_description": desc,
+                        "ats_portal_url": url
+                    })
         except Exception as e:
-            logger.error(f"JobSpy multi-site aggregation error for role {role}: {e}")
+            logger.error(f"JobSpy error for role '{role}': {e}")
 
-    if not aggregated_pool:
-        for role in individual_roles:
-            aggregated_pool.extend(fetch_adzuna_jobs(role, location, count))
+        # 2. Fallback to Adzuna if JobSpy found nothing for this role
+        if not role_jobs:
+            try:
+                adzuna_results = fetch_adzuna_jobs(role, location, count)
+                if adzuna_results:
+                    role_jobs.extend(adzuna_results)
+            except Exception as e:
+                logger.error(f"Adzuna fallback error for role '{role}': {e}")
 
-    return aggregated_pool[:count * 2]
+        # 3. Fallback to The Muse if still nothing for this role
+        if not role_jobs:
+            try:
+                muse_results = fetch_themuse_jobs(role, location, count)
+                if muse_results:
+                    role_jobs.extend(muse_results)
+            except Exception as e:
+                logger.error(f"The Muse fallback error for role '{role}': {e}")
+
+        # Add unique results to the main pool
+        for j in role_jobs:
+            company = j["company_name"]
+            raw_title = j["job_title"]
+            normalized_title = re.sub(r'\b(remote|hybrid|onsite)\b', '', raw_title.lower())
+            normalized_title = re.sub(r'[^a-z0-9]', '', normalized_title)
+            signature = f"{company.lower()}-{normalized_title}"
+
+            if signature not in seen_signatures and 'example.com' not in j["ats_portal_url"]:
+                seen_signatures.add(signature)
+                aggregated_pool.append(j)
+
+    return aggregated_pool[:count * 3]
 
 def init_career_database():
     with db_transaction_scope() as (_, cursor):
