@@ -479,8 +479,6 @@ def init_career_database():
             except Exception:
                 pass
 
-init_career_database()
-
 def verify_api_key_only(x_api_key: str = Header(...), request: Request = None):
     incoming_hash = hash_api_key(x_api_key)
     client_ip = request.client.host if request and request.client else "127.0.0.1"
@@ -660,10 +658,38 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
 
     await sse_broker.broadcast("career_swarm_update", {"status": "scouted", "message": f"Elite career swarm indexed {saved_count} verified live matches concurrently."})
 
+async def automated_followup_scheduler_worker():
+    logger.info("Follow-Up State Machine: Scanning active job matches for stale outreach...")
+    with db_transaction_scope() as (_, cursor):
+        if DATABASE_URL:
+            cursor.execute("SELECT id, user_email, company_name, job_title, decision_maker_name FROM job_matches WHERE status = 'outreached' AND timestamp <= NOW() - INTERVAL '4 days'")
+        else:
+            cursor.execute("SELECT id, user_email, company_name, job_title, decision_maker_name FROM job_matches WHERE status = 'outreached' AND timestamp <= datetime('now', '-4 days')")
+        
+        stale_matches = cursor.fetchall()
+
+    for match in stale_matches:
+        m = dict(match) if not isinstance(match, dict) else match
+        logger.info(f"Generating automated follow-up for {m['user_email']} regarding {m['job_title']} at {m['company_name']}")
+
+scheduler = AsyncIOScheduler()
+scheduler.add_job(automated_followup_scheduler_worker, 'interval', hours=12)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_career_database()
+    if not scheduler.running:
+        scheduler.start()
+        logger.info("APScheduler started successfully inside FastAPI lifespan.")
+    yield
+    if scheduler.running:
+        scheduler.shutdown()
+
 app = FastAPI(
     title="QuantCode Monetized Career Swarm Apex",
-    version="6.6.7",
-    description="Autonomous Career Matching, Resume Vectorization, Stripe Billing, and Real-Time SSE Telemetry."
+    version="6.6.9",
+    description="Autonomous Career Matching, Resume Vectorization, Stripe Billing, and Real-Time SSE Telemetry.",
+    lifespan=lifespan
 )
 
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=["nexus-core-yfou.onrender.com", "localhost", "127.0.0.1", "testserver"])
@@ -826,9 +852,6 @@ async def trial_interview_practice(payload: TrialInterviewRequest, auth: dict = 
 
 @app.post("/api/v1/career/interview/session")
 async def multi_turn_interview_session(payload: MultiTurnInterviewInput, auth: dict = Depends(verify_api_key_only)):
-    """
-    Maintains conversation history in the database for realistic multi-turn interview simulations.
-    """
     with db_transaction_scope() as (_, cursor):
         cursor.execute("CREATE TABLE IF NOT EXISTS interview_sessions (session_id TEXT PRIMARY KEY, user_email TEXT, role TEXT, history_json TEXT, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
         
@@ -957,27 +980,6 @@ async def stream_telemetry(request: Request):
         finally:
             sse_broker.unsubscribe(queue)
     return StreamingResponse(event_generator(), media_type="text/event-stream")
-
-async def automated_followup_scheduler_worker():
-    """
-    Runs periodically to detect stale outreach and queue automated value-add follow-up drafts.
-    """
-    logger.info("Follow-Up State Machine: Scanning active job matches for stale outreach...")
-    with db_transaction_scope() as (_, cursor):
-        if DATABASE_URL:
-            cursor.execute("SELECT id, user_email, company_name, job_title, decision_maker_name FROM job_matches WHERE status = 'outreached' AND timestamp <= NOW() - INTERVAL '4 days'")
-        else:
-            cursor.execute("SELECT id, user_email, company_name, job_title, decision_maker_name FROM job_matches WHERE status = 'outreached' AND timestamp <= datetime('now', '-4 days')")
-        
-        stale_matches = cursor.fetchall()
-
-    for match in stale_matches:
-        m = dict(match) if not isinstance(match, dict) else match
-        logger.info(f"Generating automated follow-up for {m['user_email']} regarding {m['job_title']} at {m['company_name']}")
-
-scheduler = AsyncIOScheduler()
-scheduler.add_job(automated_followup_scheduler_worker, 'interval', hours=12)
-scheduler.start()
 
 if __name__ == "__main__":
     import uvicorn
