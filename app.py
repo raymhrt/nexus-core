@@ -211,8 +211,15 @@ def discover_real_decision_maker(company_name: str, job_title: str, job_descript
             pass
 
     if not verified_contact:
+        manager_title = "Hiring Committee"
+        if GROQ_API_KEY:
+            try:
+                manager_title = call_groq_ai(f"What is the exact executive or department head title responsible for a '{job_title}' at '{actual_company}'? Return just the clean title like 'Head of R&D' or 'Director of Engineering'.", system_prompt="Keep it concise.").strip()
+            except Exception:
+                pass
+
         return {
-            "name": f"Hiring Committee @ {actual_company}",
+            "name": f"{manager_title} @ {actual_company}",
             "title": f"Executive Decision Maker for {job_title}",
             "email": "",
             "pathway": f"Requires Direct ATS Portal Application ({actual_company})"
