@@ -306,25 +306,26 @@ async def fetch_live_job_market_granular(target_roles_str: str, location: str, c
         individual_roles = [target_roles_str.strip()]
 
     aggregated_pool = []
+    seen_signatures = set() # Global batch deduplication tracker
+
     for role in individual_roles:
         logger.info(f"Granular Aggregator: Scanning live channels for discrete role '{role}' in '{location}'...")
         adzuna_res = fetch_adzuna_jobs(role, location, count)
         muse_res = fetch_themuse_jobs(role, location, count)
         jsearch_res = fetch_jsearch_rapidapi(role, location, count)
-        aggregated_pool.extend(adzuna_res + muse_res + jsearch_res)
+        
+        for job in (adzuna_res + muse_res + jsearch_res):
+            company = job.get('company_name', '').lower().strip()
+            title = job.get('job_title', '').lower().strip()
+            signature = f"{company}-{title}"
+            url = job.get('ats_portal_url', '')
+            
+            if signature not in seen_signatures and 'example.com' not in url:
+                seen_signatures.add(signature)
+                aggregated_pool.append(job)
 
-    unique_jobs = {}
-    for job in aggregated_pool:
-        company = job.get('company_name', '').lower().strip()
-        title = job.get('job_title', '').lower().strip()
-        signature = f"{company}-{title}"
-        url = job.get('ats_portal_url', '')
-        if signature not in unique_jobs and 'example.com' not in url:
-            unique_jobs[signature] = job
-
-    final_list = list(unique_jobs.values())
-    logger.info(f"Granular Aggregator successfully collected {len(final_list)} unique verified live listings.")
-    return final_list[:count * 2]
+    logger.info(f"Granular Aggregator successfully collected {len(aggregated_pool)} unique verified live listings.")
+    return aggregated_pool[:count * 2]
 
 def discover_real_decision_maker(company_name: str) -> Dict[str, str]:
     c_lower = company_name.lower()
@@ -603,7 +604,7 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
 
 app = FastAPI(
     title="QuantCode Monetized Career Swarm Apex",
-    version="6.6.0",
+    version="6.6.1",
     description="Autonomous Career Matching, Resume Vectorization, Stripe Billing, and Real-Time SSE Telemetry."
 )
 
