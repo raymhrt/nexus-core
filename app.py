@@ -474,7 +474,7 @@ def init_career_database():
             )
         """)
         
-        # Self-healing migration for existing tables missing warm_intro_pathway
+        # Robust forced migration to guarantee column presence on existing deployments
         if DATABASE_URL:
             try:
                 cursor.execute("ALTER TABLE job_matches ADD COLUMN IF NOT EXISTS warm_intro_pathway TEXT DEFAULT '';")
@@ -731,7 +731,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="QuantCode Monetized Career Swarm Apex",
-    version="6.7.2",
+    version="6.7.3",
     description="Autonomous Career Matching, Pgvector Semantic Search, ATS Auto-Pilot, and Stateful Interviews.",
     lifespan=lifespan
 )
