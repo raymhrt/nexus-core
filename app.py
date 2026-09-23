@@ -335,11 +335,6 @@ async def fetch_live_job_market_granular(target_roles_str: str, location: str, c
     return aggregated_pool[:count * 2]
 
 def discover_real_decision_maker(company_name: str, job_title: str) -> Dict[str, str]:
-    """
-    Production-grade contact discovery. 
-    Queries Hunter.io API if configured, otherwise falls back to 
-    verified professional routing links (Zero Mock Data Policy).
-    """
     c_lower = company_name.lower()
     if "samrc" in c_lower or "medical research council" in c_lower:
         clean_domain = "mrc.ac.za"
@@ -456,10 +451,18 @@ def init_career_database():
                 cv_variant TEXT,
                 interview_playbook TEXT DEFAULT '',
                 ats_portal_url TEXT,
-                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                CONSTRAINT unique_user_job UNIQUE (user_email, company_name, job_title)
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        if DATABASE_URL:
+            try:
+                cursor.execute("""
+                    ALTER TABLE job_matches 
+                    ADD CONSTRAINT unique_user_job 
+                    UNIQUE (user_email, company_name, job_title);
+                """)
+            except Exception:
+                pass
 
 init_career_database()
 
@@ -632,7 +635,7 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
 
 app = FastAPI(
     title="QuantCode Monetized Career Swarm Apex",
-    version="6.6.3",
+    version="6.6.4",
     description="Autonomous Career Matching, Resume Vectorization, Stripe Billing, and Real-Time SSE Telemetry."
 )
 
