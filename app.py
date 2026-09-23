@@ -163,7 +163,7 @@ def sanitize_ats_url(url: str, role_title: str, company_name: str) -> str:
     if url and any(domain in url.lower() for domain in stable_ats_domains) and 'example' not in url and 'google.com' not in url:
         return url
         
-    return f"https://www.google.com/search?q={requests.utils.quote(role_title + ' ' + company_name + ' careers site:greenhouse.io OR site:lever.co OR site:myworkdayjobs.com OR site:teamtailor.com')}"
+    return f"https://www.linkedin.com/jobs/search/?keywords={requests.utils.quote(role_title + ' ' + company_name)}"
 
 def discover_real_decision_maker(company_name: str, job_title: str, job_description: str = "") -> Dict[str, Any]:
     c_lower = company_name.lower()
@@ -345,6 +345,13 @@ def fetch_themuse_jobs(target_roles: str, location: str, count: int) -> List[Dic
         logger.error(f"The Muse API fetch error: {e}")
     return jobs[:count]
 
+# List of known recruitment agency keywords to filter out aggregator spam
+AGENCY_BLACKLIST = [
+    "placements", "recruiting", "recruiters", "talent", "staffing", 
+    "solutions", "adcorp", "network recruitment", "kelly services", 
+    "michael page", "hays", "robert walters", "express employment"
+]
+
 async def fetch_live_job_market_granular(target_roles_str: str, location: str, count: int = 5) -> List[Dict]:
     individual_roles = [r.strip() for r in target_roles_str.split(",") if r.strip()]
     if not individual_roles:
@@ -357,11 +364,9 @@ async def fetch_live_job_market_granular(target_roles_str: str, location: str, c
     sites = ["linkedin", "indeed"] if is_sa else ["linkedin", "indeed", "glassdoor"]
     country_val = 'south africa' if is_sa else 'usa'
 
-    # Go through each title one at a time sequentially
+    # Go through each title one at a time sequentially with direct-employer filters
     for role in individual_roles:
         role_jobs = []
-        
-        # 1. Try JobSpy for this specific role
         try:
             loop = asyncio.get_running_loop()
             df_jobs = await loop.run_in_executor(
@@ -370,8 +375,8 @@ async def fetch_live_job_market_granular(target_roles_str: str, location: str, c
                     site_name=sites,
                     search_term=role,
                     location=location,
-                    results_wanted=count * 2,
-                    hours_old=168,  # Expanded to 7 days for better yield in regional markets
+                    results_wanted=count * 4,  # Fetch extra to account for agency filtering
+                    hours_old=168,  # Expanded to 7 days for regional market depth
                     country_indeed=country_val
                 )
             )
@@ -385,6 +390,12 @@ async def fetch_live_job_market_granular(target_roles_str: str, location: str, c
                     loc = str(row.get('location', location))
 
                     if len(desc) < 30:
+                        continue
+
+                    # STRICT AGENCY FILTER: Drop if company is a known recruitment agency
+                    company_lower = company.lower()
+                    if any(agency_kw in company_lower for agency_kw in AGENCY_BLACKLIST):
+                        logger.info(f"Skipping recruitment agency listing: {company} for role {raw_title}")
                         continue
 
                     role_jobs.append({
@@ -402,7 +413,9 @@ async def fetch_live_job_market_granular(target_roles_str: str, location: str, c
             try:
                 adzuna_results = fetch_adzuna_jobs(role, location, count)
                 if adzuna_results:
-                    role_jobs.extend(adzuna_results)
+                    for j in adzuna_results:
+                        if not any(kw in j["company_name"].lower() for kw in AGENCY_BLACKLIST):
+                            role_jobs.append(j)
             except Exception as e:
                 logger.error(f"Adzuna fallback error for role '{role}': {e}")
 
@@ -411,11 +424,13 @@ async def fetch_live_job_market_granular(target_roles_str: str, location: str, c
             try:
                 muse_results = fetch_themuse_jobs(role, location, count)
                 if muse_results:
-                    role_jobs.extend(muse_results)
+                    for j in muse_results:
+                        if not any(kw in j["company_name"].lower() for kw in AGENCY_BLACKLIST):
+                            role_jobs.append(j)
             except Exception as e:
                 logger.error(f"The Muse fallback error for role '{role}': {e}")
 
-        # Add unique results to the main pool
+        # Add unique direct employer results to the main pool
         for j in role_jobs:
             company = j["company_name"]
             raw_title = j["job_title"]
@@ -606,7 +621,7 @@ async def evaluate_single_job_async(job: Dict, profile_content: str, email: str)
     }
 
 async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_count: int = 3, target_locations: str = "South Africa", target_roles: str = "Scientist"):
-    saved_count = 0  # <--- Initialized globally for the entire worker execution
+    saved_count = 0  # Initialized globally for the entire worker execution
 
     with db_transaction_scope() as (_, cursor):
         if user_email:
@@ -704,7 +719,7 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
                         ic.execute(deduct_sql, (email,))
                     saved_count += 1
 
-    await sse_broker.broadcast("career_swarm_update", {"status": "scouted", "message": f"Elite career swarm indexed {saved_count} verified live matches concurrently."})
+    await sse_broker.broadcast("career_swarm_update", {"status": "scouted", "message": f"Elite career swarm indexed {saved_count} verified live direct-employer matches."})
 
 async def run_autonomous_ats_autopilot_worker(match_id: int, user_email: str, ats_url: str):
     steps = [
