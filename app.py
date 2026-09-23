@@ -153,13 +153,18 @@ def sanitize_ats_url(url: str, role_title: str, company_name: str) -> str:
     c_lower = company_name.lower()
     r_encoded = requests.utils.quote(role_title)
     
-    if "biovac" in c_lower: return f"https://biovac.teamtailor.com/jobs?query={r_encoded}"
-    if "samrc" in c_lower: return f"https://samrcjobs.mcidirecthire.com/Search/Index?q={r_encoded}"
-    if "aspen" in c_lower: return f"https://aspen.mcidirecthire.com/SouthAfrica/External/CurrentOpportunities?q={r_encoded}"
-    if "csir" in c_lower: return f"https://www.csir.co.za/vacancies"
-    if "standard bank" in c_lower: return f"https://www.standardbank.com/sbg/standard-bank-group/careers"
+    if "csir" in c_lower: 
+        return f"https://candidate.csir.co.za/psc/EMPLOYEE/HRMS/c/HRS_HRAM_FL.HRS_CG_SEARCH_FL.GBL?Page=HRS_APP_SCHJOB_FL&FOCUS=Applicant&SEARCH_TEXT={r_encoded}"
+    if "biovac" in c_lower: 
+        return f"https://biovac.teamtailor.com/jobs?query={r_encoded}"
+    if "samrc" in c_lower: 
+        return f"https://samrcjobs.mcidirecthire.com/Search/Index?q={r_encoded}"
+    if "aspen" in c_lower: 
+        return f"https://aspen.mcidirecthire.com/SouthAfrica/External/CurrentOpportunities?q={r_encoded}"
+    if "standard bank" in c_lower: 
+        return f"https://www.standardbank.com/sbg/standard-bank-group/careers"
 
-    stable_ats_domains = ['greenhouse.io', 'lever.co', 'myworkdayjobs.com', 'ashbyhq.com', 'teamtailor.com', 'mcidirecthire.com']
+    stable_ats_domains = ['greenhouse.io', 'lever.co', 'myworkdayjobs.com', 'ashbyhq.com', 'teamtailor.com', 'mcidirecthire.com', 'csir.co.za']
     if url and any(domain in url.lower() for domain in stable_ats_domains) and 'example' not in url and 'google.com' not in url:
         return url
         
@@ -294,14 +299,13 @@ async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count
     """
     is_sa = "south africa" in location.lower()
     
-    # Pre-seeded enterprise database for South African & international research/tech entities
     seeded_enterprise_pool = [
         {
             "company_name": "CSIR (Council for Scientific and Industrial Research)",
             "job_title": "Senior Molecular Research Scientist",
             "location": "Pretoria, Gauteng, South Africa",
             "job_description": "Seeking an experienced Molecular Research Scientist to lead biotechnology assay development, molecular diagnostics, and genomic sequencing workflows within our national research laboratories.",
-            "ats_portal_url": "https://www.csir.co.za/vacancies"
+            "ats_portal_url": "https://candidate.csir.co.za/psc/EMPLOYEE/HRMS/c/HRS_HRAM_FL.HRS_CG_SEARCH_FL.GBL?FOCUS=Applicant"
         },
         {
             "company_name": "The Biovac Institute",
@@ -333,7 +337,6 @@ async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count
         }
     ]
 
-    # Additional dynamic query expansion using Arbeitnow or open job feeds if needed
     dynamic_jobs = []
     try:
         url = f"https://www.arbeitnow.com/api/job-board-api?search={urllib.parse.quote(target_roles)}"
@@ -489,7 +492,6 @@ async def evaluate_single_job_async(job: Dict, profile_content: str, email: str)
     desc = job.get('job_description', '').lower()
     role_lower = role.lower()
 
-    # FLEXIBLE VECTOR-FIRST PRE-FILTERING GATE
     title_indicates_match = any(kw in role_lower for kw in ["scientist", "research", "biologist", "chemist", "r&d", "lab", "molecular", "clinical", "engineer", "manager", "quant"])
     desc_indicates_match = any(kw in desc for kw in REQUIRED_DOMAIN_KEYWORDS)
 
@@ -564,7 +566,6 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
         email = u_dict["email"]
         profile_content = u_dict.get('profile_json', '')
 
-        # Fetch pristine verified enterprise listings
         raw_jobs = await fetch_verified_enterprise_jobs(target_roles, target_locations, requested_count * 3)
         if not raw_jobs:
             continue
@@ -734,8 +735,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="QuantCode Monetized Career Swarm Apex",
-    version="7.0.0",
-    description="Enterprise ATS Seeding, Pgvector Semantic Search, and Autonomous Career Swarm.",
+    version="7.1.0",
+    description="Enterprise ATS Deep-Link Seeding, Pgvector Semantic Search, and Autonomous Career Swarm.",
     lifespan=lifespan
 )
 
