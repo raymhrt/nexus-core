@@ -464,6 +464,7 @@ def init_career_database():
                 cv_variant TEXT,
                 interview_playbook TEXT DEFAULT '',
                 ats_portal_url TEXT,
+                embedding vector(768),
                 timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
@@ -471,6 +472,7 @@ def init_career_database():
         if DATABASE_URL:
             try:
                 cursor.execute("ALTER TABLE job_matches ADD COLUMN IF NOT EXISTS warm_intro_pathway TEXT DEFAULT '';")
+                cursor.execute("ALTER TABLE job_matches ADD COLUMN IF NOT EXISTS embedding vector(768);")
             except Exception:
                 pass
             try:
@@ -547,6 +549,8 @@ async def evaluate_single_job_async(job: Dict, profile_content: str, email: str)
     if not eval_data.get("is_valid_match", True) or safe_int(eval_data.get('fit_score'), 80) < 65:
         return None
 
+    job_embedding = generate_text_embedding(f"{role} {company} {desc}")
+
     return {
         "company_name": company,
         "job_title": role,
@@ -563,7 +567,8 @@ async def evaluate_single_job_async(job: Dict, profile_content: str, email: str)
         "negotiation_strategy": eval_data.get('negotiation_strategy', "Emphasize past specialized delivery impact."),
         "cv_variant": eval_data.get('cv_variant', "# Resume Variant\n- Tailored domain achievements."),
         "interview_playbook": eval_data.get('interview_playbook', "### Elite Interview Playbook\n- Review core competencies."),
-        "ats_portal_url": safe_portal_url
+        "ats_portal_url": safe_portal_url,
+        "embedding": job_embedding
     }
 
 async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_count: int = 3, target_locations: str = "South Africa", target_roles: str = "Scientist"):
@@ -601,37 +606,63 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
                 if user_tier != "enterprise" and (c_left is None or c_left <= 0):
                     break
 
-                sql = """
-                    INSERT INTO job_matches (user_email, company_name, job_title, job_description, location, fit_score, match_rationale, decision_maker_name, decision_maker_title, decision_maker_email, warm_intro_pathway, outreach_draft, salary_benchmark, negotiation_strategy, cv_variant, interview_playbook, ats_portal_url, status)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'discovered')
-                    ON CONFLICT (user_email, company_name, job_title) DO NOTHING
-                    RETURNING id;
-                """ if DATABASE_URL else """
-                    INSERT OR IGNORE INTO job_matches (user_email, company_name, job_title, job_description, location, fit_score, match_rationale, decision_maker_name, decision_maker_title, decision_maker_email, warm_intro_pathway, outreach_draft, salary_benchmark, negotiation_strategy, cv_variant, interview_playbook, ats_portal_url, status)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'discovered')
-                """
-                
-                ic.execute(sql, (
-                    email,
-                    safe_str(match_item.get('company_name')),
-                    safe_str(match_item.get('job_title')),
-                    safe_str(match_item.get('job_description')),
-                    safe_str(match_item.get('location')),
-                    safe_int(match_item.get('fit_score'), 88),
-                    safe_str(match_item.get('match_rationale')),
-                    safe_str(match_item.get('decision_maker_name')),
-                    safe_str(match_item.get('decision_maker_title')),
-                    safe_str(match_item.get('decision_maker_email')),
-                    safe_str(match_item.get('warm_intro_pathway')),
-                    safe_str(match_item.get('outreach_draft')),
-                    safe_str(match_item.get('salary_benchmark')),
-                    safe_str(match_item.get('negotiation_strategy')),
-                    safe_str(match_item.get('cv_variant')),
-                    safe_str(match_item.get('interview_playbook')),
-                    safe_str(match_item.get('ats_portal_url'))
-                ))
-                
-                inserted = (ic.fetchone() is not None) if DATABASE_URL else (ic.rowcount > 0)
+                job_embedding_list = match_item.get('embedding', [0.0] * 768)
+                vector_str = "[" + ",".join(map(str, job_embedding_list)) + "]"
+
+                if DATABASE_URL:
+                    sql = """
+                        INSERT INTO job_matches (user_email, company_name, job_title, job_description, location, fit_score, match_rationale, decision_maker_name, decision_maker_title, decision_maker_email, warm_intro_pathway, outreach_draft, salary_benchmark, negotiation_strategy, cv_variant, interview_playbook, ats_portal_url, embedding, status)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::vector, 'discovered')
+                        ON CONFLICT (user_email, company_name, job_title) DO NOTHING
+                        RETURNING id;
+                    """
+                    ic.execute(sql, (
+                        email,
+                        safe_str(match_item.get('company_name')),
+                        safe_str(match_item.get('job_title')),
+                        safe_str(match_item.get('job_description')),
+                        safe_str(match_item.get('location')),
+                        safe_int(match_item.get('fit_score'), 88),
+                        safe_str(match_item.get('match_rationale')),
+                        safe_str(match_item.get('decision_maker_name')),
+                        safe_str(match_item.get('decision_maker_title')),
+                        safe_str(match_item.get('decision_maker_email')),
+                        safe_str(match_item.get('warm_intro_pathway')),
+                        safe_str(match_item.get('outreach_draft')),
+                        safe_str(match_item.get('salary_benchmark')),
+                        safe_str(match_item.get('negotiation_strategy')),
+                        safe_str(match_item.get('cv_variant')),
+                        safe_str(match_item.get('interview_playbook')),
+                        safe_str(match_item.get('ats_portal_url')),
+                        vector_str
+                    ))
+                    inserted = (ic.fetchone() is not None)
+                else:
+                    sql = """
+                        INSERT OR IGNORE INTO job_matches (user_email, company_name, job_title, job_description, location, fit_score, match_rationale, decision_maker_name, decision_maker_title, decision_maker_email, warm_intro_pathway, outreach_draft, salary_benchmark, negotiation_strategy, cv_variant, interview_playbook, ats_portal_url, status)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'discovered')
+                    """
+                    ic.execute(sql, (
+                        email,
+                        safe_str(match_item.get('company_name')),
+                        safe_str(match_item.get('job_title')),
+                        safe_str(match_item.get('job_description')),
+                        safe_str(match_item.get('location')),
+                        safe_int(match_item.get('fit_score'), 88),
+                        safe_str(match_item.get('match_rationale')),
+                        safe_str(match_item.get('decision_maker_name')),
+                        safe_str(match_item.get('decision_maker_title')),
+                        safe_str(match_item.get('decision_maker_email')),
+                        safe_str(match_item.get('warm_intro_pathway')),
+                        safe_str(match_item.get('outreach_draft')),
+                        safe_str(match_item.get('salary_benchmark')),
+                        safe_str(match_item.get('negotiation_strategy')),
+                        safe_str(match_item.get('cv_variant')),
+                        safe_str(match_item.get('interview_playbook')),
+                        safe_str(match_item.get('ats_portal_url'))
+                    ))
+                    inserted = (ic.rowcount > 0)
+
                 if inserted:
                     if user_tier != "enterprise":
                         deduct_sql = "UPDATE subscriber_credits SET credits_remaining = credits_remaining - 1 WHERE email = %s" if DATABASE_URL else "UPDATE subscriber_credits SET credits_remaining = credits_remaining - 1 WHERE email = ?"
@@ -669,7 +700,50 @@ async def run_autonomous_ats_autopilot_worker(match_id: int, user_email: str, at
     })
 
 async def automated_followup_scheduler_worker():
-    pass
+    """
+    Scans for applications in 'outreached' status older than 4 business days 
+    and automatically drafts polite, value-add follow-up nudges.
+    """
+    try:
+        with db_transaction_scope() as (_, cursor):
+            if DATABASE_URL:
+                cursor.execute("""
+                    SELECT id, user_email, company_name, job_title, decision_maker_name, decision_maker_email, outreach_draft 
+                    FROM job_matches 
+                    WHERE status = 'outreached' AND timestamp <= NOW() - INTERVAL '4 days'
+                """)
+            else:
+                cursor.execute("""
+                    SELECT id, user_email, company_name, job_title, decision_maker_name, decision_maker_email, outreach_draft 
+                    FROM job_matches 
+                    WHERE status = 'outreached' AND timestamp <= datetime('now', '-4 days')
+                """)
+            stale_outreaches = cursor.fetchall()
+
+            for row in stale_outreaches:
+                r = dict(row) if not isinstance(row, dict) else row
+                match_id = r["id"]
+                target_email = r["decision_maker_email"]
+                dm_name = r["decision_maker_name"] or "Hiring Lead"
+                company = r["company_name"]
+                role = r["job_title"]
+
+                followup_body = f"Hi {dm_name},\n\nI wanted to gently follow up on my recent note regarding the {role} role at {company}. I remain very enthusiastic about your engineering team's trajectory and would love to connect."
+
+                if RESEND_API_KEY and target_email and '@' in target_email:
+                    headers = {"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"}
+                    requests.post("https://api.resend.com/emails", json={
+                        "from": f"Career Swarm <{SENDER_EMAIL}>", 
+                        "to": [target_email], 
+                        "subject": f"Following up: {role} at {company}", 
+                        "text": followup_body
+                    }, headers=headers)
+
+                update_sql = "UPDATE job_matches SET status = 'followup_sent' WHERE id = %s" if DATABASE_URL else "UPDATE job_matches SET status = 'followup_sent' WHERE id = ?"
+                cursor.execute(update_sql, (match_id,))
+                logger.info(f"Automated follow-up sent for match ID {match_id} at {company}")
+    except Exception as e:
+        logger.error(f"Error in automated follow-up scheduler: {e}")
 
 scheduler = AsyncIOScheduler()
 scheduler.add_job(automated_followup_scheduler_worker, 'interval', hours=12)
@@ -685,7 +759,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="QuantCode Monetized Career Swarm Apex",
-    version="6.7.4",
+    version="6.8.0",
     description="Autonomous Career Matching, Pgvector Semantic Search, ATS Auto-Pilot, and Stateful Interviews.",
     lifespan=lifespan
 )
@@ -748,35 +822,58 @@ def get_credits(user=Depends(verify_api_key_only)):
 @app.get("/api/v1/career/matches")
 def get_career_matches(user=Depends(verify_api_key_only)):
     with db_transaction_scope() as (_, cursor):
-        # SELF-HEALING MIGRATION GUARANTEE: Ensures warm_intro_pathway always exists dynamically
         if DATABASE_URL:
             try:
                 cursor.execute("ALTER TABLE job_matches ADD COLUMN IF NOT EXISTS warm_intro_pathway TEXT DEFAULT '';")
+                cursor.execute("ALTER TABLE job_matches ADD COLUMN IF NOT EXISTS embedding vector(768);")
             except Exception:
                 pass
 
-        sql = """
-            SELECT id, company_name, job_title as role_title, location, fit_score, match_rationale as rationale, 
-                   decision_maker_name as networking_target_name, decision_maker_title as networking_target_role, 
-                   decision_maker_email as networking_target_email, warm_intro_pathway, outreach_draft, 
-                   salary_benchmark, recruiter_verified, negotiation_strategy, cv_variant, interview_playbook, 
-                   ats_portal_url, status 
-            FROM job_matches 
-            WHERE user_email = %s 
-            ORDER BY timestamp DESC
-        """ if DATABASE_URL else """
-            SELECT id, company_name, job_title as role_title, location, fit_score, match_rationale as rationale, 
-                   decision_maker_name as networking_target_name, decision_maker_title as networking_target_role, 
-                   decision_maker_email as networking_target_email, warm_intro_pathway, outreach_draft, 
-                   salary_benchmark, recruiter_verified, negotiation_strategy, cv_variant, interview_playbook, 
-                   ats_portal_url, status 
-            FROM job_matches 
-            WHERE user_email = ? 
-            ORDER BY timestamp DESC
-        """
-        cursor.execute(sql, (user["email"],))
+            # Fetch user master profile embedding for pgvector ranking
+            cursor.execute("SELECT embedding FROM user_profiles WHERE email = %s", (user["email"],))
+            prof_row = cursor.fetchone()
+            user_embedding = prof_row["embedding"] if prof_row and isinstance(prof_row, dict) else (prof_row[0] if prof_row else None)
+
+            if user_embedding:
+                sql = """
+                    SELECT id, company_name, job_title as role_title, location, fit_score, match_rationale as rationale, 
+                           decision_maker_name as networking_target_name, decision_maker_title as networking_target_role, 
+                           decision_maker_email as networking_target_email, warm_intro_pathway, outreach_draft, 
+                           salary_benchmark, recruiter_verified, negotiation_strategy, cv_variant, interview_playbook, 
+                           ats_portal_url, status,
+                           1 - (embedding <=> %s::vector) AS semantic_similarity
+                    FROM job_matches 
+                    WHERE user_email = %s 
+                    ORDER BY semantic_similarity DESC, timestamp DESC
+                """
+                cursor.execute(sql, (user_embedding, user["email"]))
+            else:
+                sql = """
+                    SELECT id, company_name, job_title as role_title, location, fit_score, match_rationale as rationale, 
+                           decision_maker_name as networking_target_name, decision_maker_title as networking_target_role, 
+                           decision_maker_email as networking_target_email, warm_intro_pathway, outreach_draft, 
+                           salary_benchmark, recruiter_verified, negotiation_strategy, cv_variant, interview_playbook, 
+                           ats_portal_url, status 
+                    FROM job_matches 
+                    WHERE user_email = %s 
+                    ORDER BY timestamp DESC
+                """
+                cursor.execute(sql, (user["email"],))
+        else:
+            sql = """
+                SELECT id, company_name, job_title as role_title, location, fit_score, match_rationale as rationale, 
+                       decision_maker_name as networking_target_name, decision_maker_title as networking_target_role, 
+                       decision_maker_email as networking_target_email, warm_intro_pathway, outreach_draft, 
+                       salary_benchmark, recruiter_verified, negotiation_strategy, cv_variant, interview_playbook, 
+                       ats_portal_url, status 
+                FROM job_matches 
+                WHERE user_email = ? 
+                ORDER BY timestamp DESC
+            """
+            cursor.execute(sql, (user["email"],))
+
         matches = [dict(r) for r in cursor.fetchall()]
-    return {"status": "success", "matches": matches, "credits_remaining": user["credits"], "limit": user["limit"], "tier": user["tier"]}
+    return {"status": "success", "matches": matches, "credits_remaining": user["credits"], "limit": user["limit"], "tier": user["tier"], "engine": "pgvector_cosine_similarity"}
 
 @app.delete("/api/v1/career/matches/{match_id}")
 def delete_career_match(match_id: int, user=Depends(verify_api_key_only)):
@@ -811,11 +908,12 @@ async def save_career_resume(payload: ResumeInput, auth: dict = Depends(verify_a
         parsed_profile["recommended_roles"] = ["Molecular Research Scientist", "Production Manager", "R&D Project Manager"]
 
     embedding_vector = generate_text_embedding(payload.resume_content)
+    vector_str = "[" + ",".join(map(str, embedding_vector)) + "]"
 
     with db_transaction_scope() as (_, cursor):
         profile_str = json.dumps(parsed_profile)
         if DATABASE_URL:
-            cursor.execute("INSERT INTO user_profiles (email, profile_json, embedding, updated_at) VALUES (%s, %s, %s, NOW()) ON CONFLICT (email) DO UPDATE SET profile_json = EXCLUDED.profile_json, embedding = EXCLUDED.embedding, updated_at = NOW()", (auth["email"], profile_str, str(embedding_vector)))
+            cursor.execute("INSERT INTO user_profiles (email, profile_json, embedding, updated_at) VALUES (%s, %s, %s::vector, NOW()) ON CONFLICT (email) DO UPDATE SET profile_json = EXCLUDED.profile_json, embedding = EXCLUDED.embedding, updated_at = NOW()", (auth["email"], profile_str, vector_str))
         else:
             cursor.execute("INSERT OR REPLACE INTO user_profiles (email, profile_json, updated_at) VALUES (?, ?, datetime('now'))", (auth["email"], profile_str))
             
