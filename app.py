@@ -582,6 +582,8 @@ async def evaluate_single_job_async(job: Dict, profile_content: str, email: str)
     }
 
 async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_count: int = 3, target_locations: str = "South Africa", target_roles: str = "Scientist"):
+    saved_count = 0  # <--- Initialized globally for the entire worker execution
+
     with db_transaction_scope() as (_, cursor):
         if user_email:
             cursor.execute("SELECT email, profile_json FROM user_profiles WHERE email = %s" if DATABASE_URL else "SELECT email, profile_json FROM user_profiles WHERE email = ?", (user_email,))
@@ -602,7 +604,6 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
         results = await asyncio.gather(*evaluation_tasks)
         evaluated_matches = [m for m in results if m is not None][:requested_count]
 
-        saved_count = 0  # <--- Safely initialized here to prevent UnboundLocalError
         if not evaluated_matches:
             continue
 
