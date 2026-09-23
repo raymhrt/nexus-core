@@ -12,3 +12,4 @@ psycopg2-binary
 pydantic[email]
 email-validator
 celery
+python-jobspy
