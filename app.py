@@ -167,32 +167,58 @@ def sanitize_ats_url(url: str, role_title: str, company_name: str) -> str:
 def discover_real_decision_maker(company_name: str, job_title: str, job_description: str = "") -> Dict[str, Any]:
     c_lower = company_name.lower()
     
-    agency_keywords = ["placements", "recruiting", "recruiters", "talent", "staffing", "solutions", "hr"]
+    agency_keywords = ["placements", "recruiting", "recruiters", "talent", "staffing", "solutions", "hr", "adcorp", "network recruitment"]
     is_agency = any(kw in c_lower for kw in agency_keywords)
     
     actual_company = company_name
-    if is_agency and job_description:
-        import re
-        match = re.search(r'(?:at|join|for|client:)\s+([A-Z][A-Za-z0-9\s,\.]+?)(?:\.|\n|role|position)', job_description)
-        if match:
-            extracted = match.group(1).strip()
-            if len(extracted) < 30 and not any(kw in extracted.lower() for kw in agency_keywords):
+    if is_agency and job_description and GROQ_API_KEY:
+        prompt = f"Extract the name of the actual end-client company hiring for this role from the job description below. If the client is confidential or not mentioned, return '{company_name}'. Return ONLY the company name as plain text:\n\n{job_description[:600]}"
+        try:
+            extracted = call_groq_ai(prompt, system_prompt="You extract exact company names and nothing else.").strip()
+            if extracted and len(extracted) < 40 and not any(kw in extracted.lower() for kw in agency_keywords):
                 actual_company = extracted
+        except Exception:
+            pass
 
     c_clean = actual_company.lower().replace(" ", "").replace(",", "").replace(".", "").replace("pty", "").replace("ltd", "")
-    clean_domain = f"{c_clean}.co.za" if "south africa" in c_lower or "south africa" in job_description.lower() else f"{c_clean}.com"
-
+    
+    clean_domain = None
     if "samrc" in c_clean or "medical research" in c_clean: clean_domain = "mrc.ac.za"
     elif "biovac" in c_clean: clean_domain = "biovac.co.za"
     elif "aspen" in c_clean: clean_domain = "aspenpharma.com"
     elif "csir" in c_clean: clean_domain = "csir.co.za"
+    elif "standard bank" in c_clean: clean_domain = "standardbank.co.za"
+    else:
+        clean_domain = f"{c_clean}.co.za" if "south africa" in c_lower or "south africa" in job_description.lower() else f"{c_clean}.com"
 
-    return {
-        "name": f"Head of R&D / Hiring Committee @ {actual_company}",
-        "title": f"Executive Decision Maker for {job_title}",
-        "email": f"hiring@{clean_domain}",
-        "pathway": f"Direct Corporate Domain Match ({actual_company})"
-    }
+    verified_contact = None
+    if HUNTER_API_KEY and clean_domain:
+        try:
+            url = f"https://api.hunter.io/v2/domain-search?domain={clean_domain}&department=hr&api_key={HUNTER_API_KEY}"
+            res = requests.get(url, timeout=5)
+            if res.status_code == 200:
+                data = res.json().get("data", {})
+                emails = data.get("emails", [])
+                if emails:
+                    top_contact = emails[0]
+                    verified_contact = {
+                        "name": f"{top_contact.get('first_name', 'Hiring')} {top_contact.get('last_name', 'Manager')}",
+                        "title": f"Talent Acquisition / Hiring Team at {actual_company}",
+                        "email": top_contact.get('value'),
+                        "pathway": f"Verified Live Corporate Domain Match ({clean_domain})"
+                    }
+        except Exception:
+            pass
+
+    if not verified_contact:
+        return {
+            "name": f"Hiring Committee @ {actual_company}",
+            "title": f"Executive Decision Maker for {job_title}",
+            "email": "",
+            "pathway": f"Requires Direct ATS Portal Application ({actual_company})"
+        }
+
+    return verified_contact
 
 def get_cached_ai_response(cache_key: str) -> Optional[str]:
     try:
