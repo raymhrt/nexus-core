@@ -583,6 +583,7 @@ async def evaluate_single_job_async(job: Dict, profile_content: str, email: str)
 
 async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_count: int = 3, target_locations: str = "South Africa", target_roles: str = "Scientist\):
     saved_count = 0
+    saved_count = 0
     saved_count = 0  # <--- Initialized globally for the entire worker execution
 
     with db_transaction_scope() as (_, cursor):
