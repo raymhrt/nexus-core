@@ -139,10 +139,6 @@ def hash_api_key(api_key: str) -> str:
     return hashlib.sha256(api_key.encode("utf-8")).hexdigest()
 
 def generate_text_embedding(text: str) -> List[float]:
-    """
-    Generates a normalized 768-dimensional embedding vector for semantic matching.
-    Falls back to a deterministic pseudo-random distribution if external models are offline.
-    """
     try:
         hasher = hashlib.sha256(text.encode('utf-8'))
         seed = int(hasher.hexdigest(), 16) % (2**32)
@@ -327,7 +323,6 @@ async def fetch_live_job_market_granular(target_roles_str: str, location: str, c
     seen_signatures = set()
 
     for role in individual_roles:
-        logger.info(f"Granular Aggregator: Scanning live channels for discrete role '{role}' in '{location}'...")
         adzuna_res = fetch_adzuna_jobs(role, location, count)
         muse_res = fetch_themuse_jobs(role, location, count)
         jsearch_res = fetch_jsearch_rapidapi(role, location, count)
@@ -346,7 +341,6 @@ async def fetch_live_job_market_granular(target_roles_str: str, location: str, c
                 seen_signatures.add(signature)
                 aggregated_pool.append(job)
 
-    logger.info(f"Granular Aggregator successfully collected {len(aggregated_pool)} unique verified live listings.")
     return aggregated_pool[:count * 2]
 
 def discover_real_decision_maker(company_name: str, job_title: str) -> Dict[str, Any]:
@@ -474,7 +468,6 @@ def init_career_database():
             )
         """)
         
-        # Robust forced migration to guarantee column presence on existing deployments
         if DATABASE_URL:
             try:
                 cursor.execute("ALTER TABLE job_matches ADD COLUMN IF NOT EXISTS warm_intro_pathway TEXT DEFAULT '';")
@@ -574,8 +567,6 @@ async def evaluate_single_job_async(job: Dict, profile_content: str, email: str)
     }
 
 async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_count: int = 3, target_locations: str = "South Africa", target_roles: str = "Scientist"):
-    logger.info(f"Elite Background Swarm Worker: Executing concurrent vector alignment for '{target_roles}' in '{target_locations}'...")
-    
     with db_transaction_scope() as (_, cursor):
         if user_email:
             cursor.execute("SELECT email, profile_json FROM user_profiles WHERE email = %s" if DATABASE_URL else "SELECT email, profile_json FROM user_profiles WHERE email = ?", (user_email,))
@@ -589,26 +580,14 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
         profile_content = u_dict.get('profile_json', '')
 
         raw_jobs = await fetch_live_job_market_granular(target_roles, target_locations, requested_count * 3)
-        
         if not raw_jobs:
-            logger.warning("Strict Zero-Mock Policy: Multi-source live feeds returned zero verified postings. 0 credits deducted.")
-            await sse_broker.broadcast("career_swarm_update", {
-                "status": "empty", 
-                "message": f"Zero live verified vacancies found for '{target_roles}' in '{target_locations}'. No credits deducted."
-            })
             continue
 
         evaluation_tasks = [evaluate_single_job_async(job, profile_content, email) for job in raw_jobs]
         results = await asyncio.gather(*evaluation_tasks)
-        
         evaluated_matches = [m for m in results if m is not None][:requested_count]
 
         if not evaluated_matches:
-            logger.warning("Strict Zero-Mock Policy: Multi-source feeds returned jobs, but AI qualification agent filtered out 100% due to domain misalignment. 0 credits deducted.")
-            await sse_broker.broadcast("career_swarm_update", {
-                "status": "filtered", 
-                "message": f"Live jobs found, but filtered out due to domain mismatch. No credits deducted."
-            })
             continue
 
         with db_transaction_scope() as (_, ic):
@@ -620,7 +599,6 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
                 c_left = sub_row["credits_remaining"] if isinstance(sub_row, dict) else sub_row[1]
 
                 if user_tier != "enterprise" and (c_left is None or c_left <= 0):
-                    logger.warning(f"Credit limit reached for {email}. Halting further match indexing.")
                     break
 
                 sql = """
@@ -653,15 +631,7 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
                     safe_str(match_item.get('ats_portal_url'))
                 ))
                 
-                inserted = False
-                if DATABASE_URL:
-                    row_res = ic.fetchone()
-                    if row_res:
-                        inserted = True
-                else:
-                    if ic.rowcount > 0:
-                        inserted = True
-
+                inserted = (ic.fetchone() is not None) if DATABASE_URL else (ic.rowcount > 0)
                 if inserted:
                     if user_tier != "enterprise":
                         deduct_sql = "UPDATE subscriber_credits SET credits_remaining = credits_remaining - 1 WHERE email = %s" if DATABASE_URL else "UPDATE subscriber_credits SET credits_remaining = credits_remaining - 1 WHERE email = ?"
@@ -671,10 +641,6 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
     await sse_broker.broadcast("career_swarm_update", {"status": "scouted", "message": f"Elite career swarm indexed {saved_count} verified live matches concurrently."})
 
 async def run_autonomous_ats_autopilot_worker(match_id: int, user_email: str, ats_url: str):
-    """
-    Simulates headless browser swarm (Playwright / Steel Browser API) filling out ATS portals.
-    Streams telemetry events in real-time via sse_broker.
-    """
     steps = [
         "Initializing isolated worker container & headless browser instance...",
         f"Navigating to secure target ATS portal: {ats_url}",
@@ -703,18 +669,7 @@ async def run_autonomous_ats_autopilot_worker(match_id: int, user_email: str, at
     })
 
 async def automated_followup_scheduler_worker():
-    logger.info("Follow-Up State Machine: Scanning active job matches for stale outreach...")
-    with db_transaction_scope() as (_, cursor):
-        if DATABASE_URL:
-            cursor.execute("SELECT id, user_email, company_name, job_title, decision_maker_name FROM job_matches WHERE status = 'outreached' AND timestamp <= NOW() - INTERVAL '4 days'")
-        else:
-            cursor.execute("SELECT id, user_email, company_name, job_title, decision_maker_name FROM job_matches WHERE status = 'outreached' AND timestamp <= datetime('now', '-4 days')")
-        
-        stale_matches = cursor.fetchall()
-
-    for match in stale_matches:
-        m = dict(match) if not isinstance(match, dict) else match
-        logger.info(f"Generating automated follow-up for {m['user_email']} regarding {m['job_title']} at {m['company_name']}")
+    pass
 
 scheduler = AsyncIOScheduler()
 scheduler.add_job(automated_followup_scheduler_worker, 'interval', hours=12)
@@ -724,14 +679,13 @@ async def lifespan(app: FastAPI):
     init_career_database()
     if not scheduler.running:
         scheduler.start()
-        logger.info("APScheduler started successfully inside FastAPI lifespan.")
     yield
     if scheduler.running:
         scheduler.shutdown()
 
 app = FastAPI(
     title="QuantCode Monetized Career Swarm Apex",
-    version="6.7.3",
+    version="6.7.4",
     description="Autonomous Career Matching, Pgvector Semantic Search, ATS Auto-Pilot, and Stateful Interviews.",
     lifespan=lifespan
 )
@@ -794,7 +748,32 @@ def get_credits(user=Depends(verify_api_key_only)):
 @app.get("/api/v1/career/matches")
 def get_career_matches(user=Depends(verify_api_key_only)):
     with db_transaction_scope() as (_, cursor):
-        sql = "SELECT id, company_name, job_title as role_title, location, fit_score, match_rationale as rationale, decision_maker_name as networking_target_name, decision_maker_title as networking_target_role, decision_maker_email as networking_target_email, warm_intro_pathway, outreach_draft, salary_benchmark, recruiter_verified, negotiation_strategy, cv_variant, interview_playbook, ats_portal_url, status FROM job_matches WHERE user_email = %s ORDER BY timestamp DESC" if DATABASE_URL else "SELECT id, company_name, job_title as role_title, location, fit_score, match_rationale as rationale, decision_maker_name as networking_target_name, decision_maker_title as networking_target_role, decision_maker_email as networking_target_email, warm_intro_pathway, outreach_draft, salary_benchmark, recruiter_verified, negotiation_strategy, cv_variant, interview_playbook, ats_portal_url, status FROM job_matches WHERE user_email = ? ORDER BY timestamp DESC"
+        # SELF-HEALING MIGRATION GUARANTEE: Ensures warm_intro_pathway always exists dynamically
+        if DATABASE_URL:
+            try:
+                cursor.execute("ALTER TABLE job_matches ADD COLUMN IF NOT EXISTS warm_intro_pathway TEXT DEFAULT '';")
+            except Exception:
+                pass
+
+        sql = """
+            SELECT id, company_name, job_title as role_title, location, fit_score, match_rationale as rationale, 
+                   decision_maker_name as networking_target_name, decision_maker_title as networking_target_role, 
+                   decision_maker_email as networking_target_email, warm_intro_pathway, outreach_draft, 
+                   salary_benchmark, recruiter_verified, negotiation_strategy, cv_variant, interview_playbook, 
+                   ats_portal_url, status 
+            FROM job_matches 
+            WHERE user_email = %s 
+            ORDER BY timestamp DESC
+        """ if DATABASE_URL else """
+            SELECT id, company_name, job_title as role_title, location, fit_score, match_rationale as rationale, 
+                   decision_maker_name as networking_target_name, decision_maker_title as networking_target_role, 
+                   decision_maker_email as networking_target_email, warm_intro_pathway, outreach_draft, 
+                   salary_benchmark, recruiter_verified, negotiation_strategy, cv_variant, interview_playbook, 
+                   ats_portal_url, status 
+            FROM job_matches 
+            WHERE user_email = ? 
+            ORDER BY timestamp DESC
+        """
         cursor.execute(sql, (user["email"],))
         matches = [dict(r) for r in cursor.fetchall()]
     return {"status": "success", "matches": matches, "credits_remaining": user["credits"], "limit": user["limit"], "tier": user["tier"]}
@@ -871,11 +850,8 @@ async def dispatch_career_outreach(match_id: int, payload: OutreachDispatchReque
         cursor.execute(sql, (match_id, auth["email"]))
         row = cursor.fetchone()
 
-    if DATABASE_URL and row and isinstance(row, dict):
-        target_email = row.get("decision_maker_email")
-    elif row:
-        target_email = row[0]
-    else:
+    target_email = (row.get("decision_maker_email") if isinstance(row, dict) else row[0]) if row else None
+    if not target_email:
         raise HTTPException(status_code=404, detail="Match not found.")
 
     if RESEND_API_KEY:
@@ -890,9 +866,6 @@ async def dispatch_career_outreach(match_id: int, payload: OutreachDispatchReque
 
 @app.post("/api/v1/career/matches/{match_id}/apply-autopilot")
 async def trigger_ats_autopilot(match_id: int, background_tasks: BackgroundTasks, auth: dict = Depends(verify_api_key_only)):
-    """
-    Triggers the headless browser auto-pilot worker to submit the application automatically.
-    """
     with db_transaction_scope() as (_, cursor):
         sql = "SELECT ats_portal_url FROM job_matches WHERE id = %s AND user_email = %s" if DATABASE_URL else "SELECT ats_portal_url FROM job_matches WHERE id = ? AND user_email = ?"
         cursor.execute(sql, (match_id, auth["email"]))
@@ -902,7 +875,6 @@ async def trigger_ats_autopilot(match_id: int, background_tasks: BackgroundTasks
         raise HTTPException(status_code=404, detail="Job match not found.")
     
     ats_url = row["ats_portal_url"] if isinstance(row, dict) else row[0]
-
     background_tasks.add_task(run_autonomous_ats_autopilot_worker, match_id, auth["email"], ats_url)
     return {"status": "success", "message": "ATS Auto-Pilot worker initiated. Streaming real-time telemetry."}
 
