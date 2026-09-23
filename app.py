@@ -598,14 +598,17 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
                     logger.warning(f"Credit limit reached for {email}. Halting further match indexing.")
                     break
 
+                # Use RETURNING id to verify if the insert actually happened (avoids counting duplicates or skipped inserts)
                 sql = """
                     INSERT INTO job_matches (user_email, company_name, job_title, job_description, location, fit_score, match_rationale, decision_maker_name, decision_maker_title, decision_maker_email, outreach_draft, salary_benchmark, negotiation_strategy, cv_variant, interview_playbook, ats_portal_url, status)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'discovered')
                     ON CONFLICT (user_email, company_name, job_title) DO NOTHING
+                    RETURNING id;
                 """ if DATABASE_URL else """
                     INSERT OR IGNORE INTO job_matches (user_email, company_name, job_title, job_description, location, fit_score, match_rationale, decision_maker_name, decision_maker_title, decision_maker_email, outreach_draft, salary_benchmark, negotiation_strategy, cv_variant, interview_playbook, ats_portal_url, status)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'discovered')
                 """
+                
                 ic.execute(sql, (
                     email,
                     safe_str(match_item.get('company_name')),
@@ -624,18 +627,28 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
                     safe_str(match_item.get('interview_playbook')),
                     safe_str(match_item.get('ats_portal_url'))
                 ))
+                
+                # Check if row was actually inserted (PostgreSQL returns rowcount or fetched id)
+                inserted = False
+                if DATABASE_URL:
+                    row_res = ic.fetchone()
+                    if row_res:
+                        inserted = True
+                else:
+                    if ic.rowcount > 0:
+                        inserted = True
 
-                if user_tier != "enterprise":
-                    deduct_sql = "UPDATE subscriber_credits SET credits_remaining = credits_remaining - 1 WHERE email = %s" if DATABASE_URL else "UPDATE subscriber_credits SET credits_remaining = credits_remaining - 1 WHERE email = ?"
-                    ic.execute(deduct_sql, (email,))
-
-                saved_count += 1
+                if inserted:
+                    if user_tier != "enterprise":
+                        deduct_sql = "UPDATE subscriber_credits SET credits_remaining = credits_remaining - 1 WHERE email = %s" if DATABASE_URL else "UPDATE subscriber_credits SET credits_remaining = credits_remaining - 1 WHERE email = ?"
+                        ic.execute(deduct_sql, (email,))
+                    saved_count += 1
 
     await sse_broker.broadcast("career_swarm_update", {"status": "scouted", "message": f"Career swarm indexed {saved_count} verified live matches (1 credit deducted per match)."})
 
 app = FastAPI(
     title="QuantCode Monetized Career Swarm Apex",
-    version="6.6.4",
+    version="6.6.5",
     description="Autonomous Career Matching, Resume Vectorization, Stripe Billing, and Real-Time SSE Telemetry."
 )
 
