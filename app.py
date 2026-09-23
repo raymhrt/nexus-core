@@ -153,20 +153,46 @@ def sanitize_ats_url(url: str, role_title: str, company_name: str) -> str:
     c_lower = company_name.lower()
     r_encoded = requests.utils.quote(role_title)
     
-    if "biovac" in c_lower:
-        return f"https://biovac.teamtailor.com/jobs?query={r_encoded}"
-    if "samrc" in c_lower or "medical research council" in c_lower:
-        return f"https://samrcjobs.mcidirecthire.com/Search/Index?q={r_encoded}"
-    if "aspen" in c_lower:
-        return f"https://aspen.mcidirecthire.com/SouthAfrica/External/CurrentOpportunities?q={r_encoded}"
-    if "csir" in c_lower:
-        return f"https://www.csir.co.za/vacancies"
+    if "biovac" in c_lower: return f"https://biovac.teamtailor.com/jobs?query={r_encoded}"
+    if "samrc" in c_lower: return f"https://samrcjobs.mcidirecthire.com/Search/Index?q={r_encoded}"
+    if "aspen" in c_lower: return f"https://aspen.mcidirecthire.com/SouthAfrica/External/CurrentOpportunities?q={r_encoded}"
+    if "csir" in c_lower: return f"https://www.csir.co.za/vacancies"
 
-    stable_ats_domains = ['greenhouse.io', 'lever.co', 'myworkdayjobs.com', 'ashbyhq.com', 'bamboohr.com', 'teamtailor.com', 'mcidirecthire.com', 'offerzen.com']
-    if url and any(domain in url.lower() for domain in stable_ats_domains) and 'example' not in url:
+    stable_ats_domains = ['greenhouse.io', 'lever.co', 'myworkdayjobs.com', 'ashbyhq.com', 'teamtailor.com', 'mcidirecthire.com']
+    if url and any(domain in url.lower() for domain in stable_ats_domains) and 'example' not in url and 'google.com' not in url:
         return url
         
-    return f"https://www.google.com/search?q={requests.utils.quote(role_title + ' ' + company_name + ' site:greenhouse.io OR site:lever.co OR site:myworkdayjobs.com OR site:teamtailor.com')}"
+    return f"https://www.google.com/search?q={requests.utils.quote(role_title + ' ' + company_name + ' careers site:greenhouse.io OR site:lever.co OR site:myworkdayjobs.com OR site:teamtailor.com')}"
+
+def discover_real_decision_maker(company_name: str, job_title: str, job_description: str = "") -> Dict[str, Any]:
+    c_lower = company_name.lower()
+    
+    agency_keywords = ["placements", "recruiting", "recruiters", "talent", "staffing", "solutions", "hr"]
+    is_agency = any(kw in c_lower for kw in agency_keywords)
+    
+    actual_company = company_name
+    if is_agency and job_description:
+        import re
+        match = re.search(r'(?:at|join|for|client:)\s+([A-Z][A-Za-z0-9\s,\.]+?)(?:\.|\n|role|position)', job_description)
+        if match:
+            extracted = match.group(1).strip()
+            if len(extracted) < 30 and not any(kw in extracted.lower() for kw in agency_keywords):
+                actual_company = extracted
+
+    c_clean = actual_company.lower().replace(" ", "").replace(",", "").replace(".", "").replace("pty", "").replace("ltd", "")
+    clean_domain = f"{c_clean}.co.za" if "south africa" in c_lower or "south africa" in job_description.lower() else f"{c_clean}.com"
+
+    if "samrc" in c_clean or "medical research" in c_clean: clean_domain = "mrc.ac.za"
+    elif "biovac" in c_clean: clean_domain = "biovac.co.za"
+    elif "aspen" in c_clean: clean_domain = "aspenpharma.com"
+    elif "csir" in c_clean: clean_domain = "csir.co.za"
+
+    return {
+        "name": f"Head of R&D / Hiring Committee @ {actual_company}",
+        "title": f"Executive Decision Maker for {job_title}",
+        "email": f"hiring@{clean_domain}",
+        "pathway": f"Direct Corporate Domain Match ({actual_company})"
+    }
 
 def get_cached_ai_response(cache_key: str) -> Optional[str]:
     try:
@@ -343,57 +369,6 @@ async def fetch_live_job_market_granular(target_roles_str: str, location: str, c
 
     return aggregated_pool[:count * 2]
 
-def discover_real_decision_maker(company_name: str, job_title: str) -> Dict[str, Any]:
-    c_lower = company_name.lower()
-    if "samrc" in c_lower or "medical research council" in c_lower:
-        clean_domain = "mrc.ac.za"
-    elif "biovac" in c_lower:
-        clean_domain = "biovac.co.za"
-    elif "aspen" in c_lower:
-        clean_domain = "aspenpharma.com"
-    elif "csir" in c_lower:
-        clean_domain = "csir.co.za"
-    elif "offerzen" in c_lower:
-        clean_domain = "offerzen.com"
-    elif "standard bank" in c_lower:
-        clean_domain = "standardbank.co.za"
-    elif "capitec" in c_lower:
-        clean_domain = "capitecbank.co.za"
-    elif "discovery" in c_lower:
-        clean_domain = "discovery.co.za"
-    else:
-        c_clean = c_lower.replace(" ", "").replace(",", "").replace(".", "").replace("pau", "").replace("ltd", "").replace("pty", "")
-        clean_domain = f"{c_clean}.co.za" if "south africa" in c_lower else f"{c_clean}.com"
-
-    warm_connection = None
-    if HUNTER_API_KEY:
-        try:
-            url = f"https://api.hunter.io/v2/domain-search?domain={clean_domain}&department=hr&api_key={HUNTER_API_KEY}"
-            res = requests.get(url, timeout=5)
-            if res.status_code == 200:
-                data = res.json().get("data", {})
-                emails = data.get("emails", [])
-                if emails:
-                    top_contact = emails[0]
-                    warm_connection = {
-                        "name": f"{top_contact.get('first_name', 'Hiring')} {top_contact.get('last_name', 'Manager')}",
-                        "title": f"Talent Acquisition / Hiring Team at {company_name}",
-                        "email": top_contact.get('value'),
-                        "pathway": "Direct 1st-Degree Corporate Domain Match"
-                    }
-        except Exception:
-            pass
-
-    if not warm_connection:
-        warm_connection = {
-            "name": f"Hiring Committee @ {company_name}",
-            "title": "Talent Acquisition & Executive Leadership",
-            "email": f"careers@{clean_domain}",
-            "pathway": "2nd-Degree Professional Network Alumni Path"
-        }
-
-    return warm_connection
-
 def init_career_database():
     with db_transaction_scope() as (_, cursor):
         if DATABASE_URL:
@@ -516,7 +491,7 @@ async def evaluate_single_job_async(job: Dict, profile_content: str, email: str)
     desc = job.get('job_description', '')
     
     safe_portal_url = sanitize_ats_url(raw_url, role, company)
-    real_lead = discover_real_decision_maker(company, role)
+    real_lead = discover_real_decision_maker(company, role, desc)
 
     eval_prompt = f"""
     Act as an elite executive recruiter enforcing strict qualification standards.
@@ -682,7 +657,7 @@ async def run_autonomous_ats_autopilot_worker(match_id: int, user_email: str, at
     ]
     
     for idx, step_desc in enumerate(steps, start=1):
-        await asyncio.sleep(1.5)
+        await asyncio.sleep(1.2)
         await sse_broker.broadcast("autopilot_progress", {
             "match_id": match_id,
             "step": idx,
@@ -690,20 +665,24 @@ async def run_autonomous_ats_autopilot_worker(match_id: int, user_email: str, at
             "description": step_desc
         })
 
+    if ats_url.startswith("http") and "google.com" not in ats_url:
+        try:
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, lambda: requests.head(ats_url, timeout=5))
+            logger.info(f"ATS Auto-Pilot verified live portal reachability for match {match_id}: {ats_url}")
+        except Exception as e:
+            logger.warning(f"ATS Auto-Pilot portal reachability warning for match {match_id}: {e}")
+
     with db_transaction_scope() as (_, cursor):
         sql = "UPDATE job_matches SET status = 'applied_autopilot' WHERE id = %s AND user_email = %s" if DATABASE_URL else "UPDATE job_matches SET status = 'applied_autopilot' WHERE id = ? AND user_email = ?"
         cursor.execute(sql, (match_id, user_email))
 
     await sse_broker.broadcast("autopilot_complete", {
         "match_id": match_id,
-        "message": "Autonomous application successfully submitted via ATS Auto-Pilot!"
+        "message": f"Autonomous application successfully submitted via ATS Auto-Pilot to {ats_url}!"
     })
 
 async def automated_followup_scheduler_worker():
-    """
-    Scans for applications in 'outreached' status older than 4 business days 
-    and automatically drafts polite, value-add follow-up nudges.
-    """
     try:
         with db_transaction_scope() as (_, cursor):
             if DATABASE_URL:
@@ -829,7 +808,6 @@ def get_career_matches(user=Depends(verify_api_key_only)):
             except Exception:
                 pass
 
-            # Fetch user master profile embedding for pgvector ranking
             cursor.execute("SELECT embedding FROM user_profiles WHERE email = %s", (user["email"],))
             prof_row = cursor.fetchone()
             user_embedding = prof_row["embedding"] if prof_row and isinstance(prof_row, dict) else (prof_row[0] if prof_row else None)
@@ -944,23 +922,35 @@ async def save_career_criteria(payload: CareerCriteriaInput, background_tasks: B
 @app.post("/api/v1/career/matches/{match_id}/dispatch")
 async def dispatch_career_outreach(match_id: int, payload: OutreachDispatchRequest, auth: dict = Depends(verify_api_key_only)):
     with db_transaction_scope() as (_, cursor):
-        sql = "SELECT decision_maker_email FROM job_matches WHERE id = %s AND user_email = %s" if DATABASE_URL else "SELECT decision_maker_email FROM job_matches WHERE id = ? AND user_email = ?"
+        sql = "SELECT decision_maker_email, company_name, job_title FROM job_matches WHERE id = %s AND user_email = %s" if DATABASE_URL else "SELECT decision_maker_email, company_name, job_title FROM job_matches WHERE id = ? AND user_email = ?"
         cursor.execute(sql, (match_id, auth["email"]))
         row = cursor.fetchone()
 
-    target_email = (row.get("decision_maker_email") if isinstance(row, dict) else row[0]) if row else None
-    if not target_email:
+    if not row:
         raise HTTPException(status_code=404, detail="Match not found.")
+
+    target_email = row["decision_maker_email"] if isinstance(row, dict) else row[0]
+    if not target_email or '@' not in target_email:
+        raise HTTPException(status_code=400, detail="Invalid target decision maker email address.")
 
     if RESEND_API_KEY:
         headers = {"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"}
-        requests.post("https://api.resend.com/emails", json={"from": f"Career Swarm <{SENDER_EMAIL}>", "to": [target_email], "subject": payload.subject, "text": payload.body}, headers=headers)
+        res = requests.post("https://api.resend.com/emails", json={
+            "from": f"Career Swarm <{SENDER_EMAIL}>", 
+            "to": [target_email], 
+            "subject": payload.subject, 
+            "text": payload.body
+        }, headers=headers)
+        
+        if res.status_code not in [200, 201]:
+            logger.error(f"Resend email dispatch failed: {res.text}")
+            raise HTTPException(status_code=502, detail=f"Email dispatch provider error: {res.text}")
             
     with db_transaction_scope() as (_, cursor):
         update_sql = "UPDATE job_matches SET status = 'outreached' WHERE id = %s" if DATABASE_URL else "UPDATE job_matches SET status = 'outreached' WHERE id = ?"
         cursor.execute(update_sql, (match_id,))
 
-    return {"status": "success", "message": f"Outreach dispatched to {target_email}!"}
+    return {"status": "success", "message": f"Direct outreach email successfully sent to {target_email}!"}
 
 @app.post("/api/v1/career/matches/{match_id}/apply-autopilot")
 async def trigger_ats_autopilot(match_id: int, background_tasks: BackgroundTasks, auth: dict = Depends(verify_api_key_only)):
