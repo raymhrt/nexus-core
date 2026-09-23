@@ -515,9 +515,6 @@ async def evaluate_single_job_async(job: Dict, profile_content: str, email: str)
     company = job.get('company_name', 'Verified Enterprise')
     raw_url = job.get('ats_portal_url', '#')
     desc = job.get('job_description', '')
-    
-    safe_portal_url = sanitize_ats_url(raw_url, role, company)
-    real_lead = discover_real_decision_maker(company, role, desc)
 
     eval_prompt = f"""
     Act as an elite executive recruiter enforcing strict qualification standards.
@@ -531,7 +528,6 @@ async def evaluate_single_job_async(job: Dict, profile_content: str, email: str)
     - "is_valid_match": boolean (true/false)
     - "fit_score": integer (0 to 99)
     - "match_rationale": 2-sentence rigorous explanation connecting exact master resume skills to the job requirements.
-    - "outreach_draft": Professional cold outreach email to {real_lead['name']} ({real_lead['title']}).
     - "salary_benchmark": Estimated market compensation range.
     - "negotiation_strategy": Key leverage points in clean Markdown.
     - "cv_variant": Bullet points tailoring the resume in clean Markdown.
@@ -547,8 +543,13 @@ async def evaluate_single_job_async(job: Dict, profile_content: str, email: str)
     except Exception:
         eval_data = {"is_valid_match": True, "fit_score": 80}
 
+    # Gatekeeper check: Drop immediately if it fails qualification
     if not eval_data.get("is_valid_match", True) or safe_int(eval_data.get('fit_score'), 80) < 65:
         return None
+
+    # ONLY executed for jobs that pass the gatekeeper, saving Hunter API credits
+    safe_portal_url = sanitize_ats_url(raw_url, role, company)
+    real_lead = discover_real_decision_maker(company, role, desc)
 
     job_embedding = generate_text_embedding(f"{role} {company} {desc}")
 
@@ -563,7 +564,7 @@ async def evaluate_single_job_async(job: Dict, profile_content: str, email: str)
         "decision_maker_title": real_lead["title"],
         "decision_maker_email": real_lead["email"],
         "warm_intro_pathway": real_lead.get("pathway", "Direct Corporate Match"),
-        "outreach_draft": eval_data.get('outreach_draft', f"Hi {real_lead['name']},\n\nI noticed your team is expanding at {company}."),
+        "outreach_draft": f"Hi {real_lead['name']},\n\nI noticed your team is expanding at {company} regarding the {role} position. My background in molecular research and technical operations aligns directly with your requirements.",
         "salary_benchmark": eval_data.get('salary_benchmark', "Competitive Market Rate"),
         "negotiation_strategy": eval_data.get('negotiation_strategy', "Emphasize past specialized delivery impact."),
         "cv_variant": eval_data.get('cv_variant', "# Resume Variant\n- Tailored domain achievements."),
