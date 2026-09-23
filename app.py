@@ -212,10 +212,14 @@ def discover_real_decision_maker(company_name: str, job_title: str, job_descript
             pass
 
     if not verified_contact:
-        manager_title = "Hiring Committee"
+        manager_title = "Head of R&D / Department"
         if GROQ_API_KEY:
             try:
-                manager_title = call_groq_ai(f"What is the exact executive or department head title responsible for a '{job_title}' at '{actual_company}'? Return just the clean title like 'Head of R&D' or 'Director of Engineering'.", system_prompt="Keep it concise.").strip()
+                raw_title = call_groq_ai(f"What is the exact executive or department head title responsible for a '{job_title}' at '{actual_company}'? Return just the clean title like 'Head of R&D' or 'Director of Engineering'.", system_prompt="Keep it concise.").strip()
+                if "i'm sorry" in raw_title.lower() or "cannot" in raw_title.lower() or len(raw_title) > 50:
+                    manager_title = "Head of R&D"
+                else:
+                    manager_title = raw_title
             except Exception:
                 pass
 
@@ -345,7 +349,6 @@ def fetch_themuse_jobs(target_roles: str, location: str, count: int) -> List[Dic
         logger.error(f"The Muse API fetch error: {e}")
     return jobs[:count]
 
-# List of known recruitment agency keywords to filter out aggregator spam
 AGENCY_BLACKLIST = [
     "placements", "recruiting", "recruiters", "talent", "staffing", 
     "solutions", "adcorp", "network recruitment", "kelly services", 
@@ -364,7 +367,6 @@ async def fetch_live_job_market_granular(target_roles_str: str, location: str, c
     sites = ["linkedin", "indeed"] if is_sa else ["linkedin", "indeed", "glassdoor"]
     country_val = 'south africa' if is_sa else 'usa'
 
-    # Go through each title one at a time sequentially with direct-employer filters
     for role in individual_roles:
         role_jobs = []
         try:
@@ -375,8 +377,8 @@ async def fetch_live_job_market_granular(target_roles_str: str, location: str, c
                     site_name=sites,
                     search_term=role,
                     location=location,
-                    results_wanted=count * 4,  # Fetch extra to account for agency filtering
-                    hours_old=168,  # Expanded to 7 days for regional market depth
+                    results_wanted=count * 4,
+                    hours_old=168,
                     country_indeed=country_val
                 )
             )
@@ -392,7 +394,6 @@ async def fetch_live_job_market_granular(target_roles_str: str, location: str, c
                     if len(desc) < 30:
                         continue
 
-                    # STRICT AGENCY FILTER: Drop if company is a known recruitment agency
                     company_lower = company.lower()
                     if any(agency_kw in company_lower for agency_kw in AGENCY_BLACKLIST):
                         logger.info(f"Skipping recruitment agency listing: {company} for role {raw_title}")
@@ -408,7 +409,6 @@ async def fetch_live_job_market_granular(target_roles_str: str, location: str, c
         except Exception as e:
             logger.error(f"JobSpy error for role '{role}': {e}")
 
-        # 2. Fallback to Adzuna if JobSpy found nothing for this role
         if not role_jobs:
             try:
                 adzuna_results = fetch_adzuna_jobs(role, location, count)
@@ -419,7 +419,6 @@ async def fetch_live_job_market_granular(target_roles_str: str, location: str, c
             except Exception as e:
                 logger.error(f"Adzuna fallback error for role '{role}': {e}")
 
-        # 3. Fallback to The Muse if still nothing for this role
         if not role_jobs:
             try:
                 muse_results = fetch_themuse_jobs(role, location, count)
@@ -430,7 +429,6 @@ async def fetch_live_job_market_granular(target_roles_str: str, location: str, c
             except Exception as e:
                 logger.error(f"The Muse fallback error for role '{role}': {e}")
 
-        # Add unique direct employer results to the main pool
         for j in role_jobs:
             company = j["company_name"]
             raw_title = j["job_title"]
@@ -559,28 +557,40 @@ def verify_api_key_only(x_api_key: str = Header(...), request: Request = None):
         "ip": client_ip
     }
 
+REQUIRED_DOMAIN_KEYWORDS = [
+    "molecular", "research", "scientist", "biotech", "biology", 
+    "laboratory", "r&d", "assay", "biophysical", "clinical", "diagnostic"
+]
+
 async def evaluate_single_job_async(job: Dict, profile_content: str, email: str) -> Optional[Dict]:
     role = job.get('job_title', 'Target Role')
     company = job.get('company_name', 'Verified Enterprise')
     raw_url = job.get('ats_portal_url', '#')
-    desc = job.get('job_description', '')
+    desc = job.get('job_description', '').lower()
+
+    # STRICT DOMAIN CHECK: Reject non-scientific / misaligned roles immediately
+    title_and_desc = (role + " " + desc).lower()
+    has_valid_domain = any(kw in title_and_desc for kw in REQUIRED_DOMAIN_KEYWORDS)
+    if not has_valid_domain:
+        logger.info(f"Discarding misaligned role '{role}' at '{company}' (Failed strict scientific domain whitelist)")
+        return None
 
     eval_prompt = f"""
-    Act as an elite executive recruiter enforcing strict qualification standards.
+    Act as an uncompromising executive science recruiter.
     Candidate Master Resume Profile: {profile_content}
     Target Job Title: {role} at {company}
     Job Description: {desc}
 
     CRITICAL INSTRUCTIONS:
-    Analyze if the candidate's core expertise genuinely matches this job. If there is a fundamental domain mismatch, set "is_valid_match" to false and "fit_score" below 60. If it is a true, authentic fit, provide the accurate score (70 to 99).
+    Evaluate if this is an exact, authentic scientific or R&D match for a Molecular/Biophysical Scientist. If it is an industrial manufacturing, sales, or non-scientific management role, set "is_valid_match" to false and "fit_score" to 0.
     Return strict JSON (no markdown backticks):
     - "is_valid_match": boolean (true/false)
     - "fit_score": integer (0 to 99)
-    - "match_rationale": 2-sentence rigorous explanation connecting exact master resume skills to the job requirements.
-    - "salary_benchmark": Estimated market compensation range.
-    - "negotiation_strategy": Key leverage points in clean Markdown.
-    - "cv_variant": Bullet points tailoring the resume in clean Markdown.
-    - "interview_playbook": 3-stage interview brief tailored strictly to this job description.
+    - "match_rationale": Rigorous 2-sentence explanation connecting exact master resume skills.
+    - "salary_benchmark": Estimated compensation.
+    - "negotiation_strategy": Key leverage points.
+    - "cv_variant": Tailored resume bullets.
+    - "interview_playbook": 3-stage interview brief.
     """
     try:
         loop = asyncio.get_running_loop()
@@ -590,14 +600,14 @@ async def evaluate_single_job_async(job: Dict, profile_content: str, email: str)
         jm_eval = regex_re.search(r'\{.*\}', raw_eval, regex_re.DOTALL)
         eval_data = json.loads(jm_eval.group(0) if jm_eval else raw_eval)
     except Exception:
-        eval_data = {"is_valid_match": True, "fit_score": 80}
+        return None
 
-    if not eval_data.get("is_valid_match", True) or safe_int(eval_data.get('fit_score'), 80) < 65:
+    # Enforce strict 85+ fit score threshold. No weak or fallback matches allowed.
+    if not eval_data.get("is_valid_match", False) or safe_int(eval_data.get('fit_score'), 0) < 85:
         return None
 
     safe_portal_url = sanitize_ats_url(raw_url, role, company)
     real_lead = discover_real_decision_maker(company, role, desc)
-
     job_embedding = generate_text_embedding(f"{role} {company} {desc}")
 
     return {
@@ -605,13 +615,13 @@ async def evaluate_single_job_async(job: Dict, profile_content: str, email: str)
         "job_title": role,
         "job_description": desc,
         "location": job.get('location', "South Africa"),
-        "fit_score": safe_int(eval_data.get('fit_score'), 82),
+        "fit_score": safe_int(eval_data.get('fit_score'), 85),
         "match_rationale": eval_data.get('match_rationale', "Your background aligns directly with core role requirements."),
         "decision_maker_name": real_lead["name"],
         "decision_maker_title": real_lead["title"],
         "decision_maker_email": real_lead["email"],
         "warm_intro_pathway": real_lead.get("pathway", "Direct Corporate Match"),
-        "outreach_draft": f"Hi {real_lead['name']},\n\nI noticed your team is expanding at {company} regarding the {role} position. My background in molecular research and technical operations aligns directly with your requirements.",
+        "outreach_draft": f"Hi {real_lead['name']},\n\nI noted your team's work at {company} regarding the {role} position. My background in molecular research aligns directly with your technical requirements.",
         "salary_benchmark": eval_data.get('salary_benchmark', "Competitive Market Rate"),
         "negotiation_strategy": eval_data.get('negotiation_strategy', "Emphasize past specialized delivery impact."),
         "cv_variant": eval_data.get('cv_variant', "# Resume Variant\n- Tailored domain achievements."),
@@ -621,7 +631,7 @@ async def evaluate_single_job_async(job: Dict, profile_content: str, email: str)
     }
 
 async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_count: int = 3, target_locations: str = "South Africa", target_roles: str = "Scientist"):
-    saved_count = 0  # Initialized globally for the entire worker execution
+    saved_count = 0
 
     with db_transaction_scope() as (_, cursor):
         if user_email:
@@ -813,7 +823,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="QuantCode Monetized Career Swarm Apex",
-    version="6.8.0",
+    version="6.8.2",
     description="Autonomous Career Matching, Pgvector Semantic Search, ATS Auto-Pilot, and Stateful Interviews.",
     lifespan=lifespan
 )
