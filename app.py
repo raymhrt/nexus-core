@@ -29,6 +29,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from dotenv import load_dotenv
 from psycopg2 import pool
 from psycopg2.extras import RealDictCursor
+from jobspy import scrape_jobs
 
 load_dotenv()
 
@@ -344,35 +345,6 @@ def fetch_themuse_jobs(target_roles: str, location: str, count: int) -> List[Dic
         logger.error(f"The Muse API fetch error: {e}")
     return jobs[:count]
 
-def fetch_jsearch_rapidapi(target_roles: str, location: str, count: int) -> List[Dict]:
-    rapid_api_key = os.getenv("RAPID_API_KEY")
-    if not rapid_api_key:
-        return []
-
-    url = "https://jsearch.p.rapidapi.com/search"
-    querystring = {"query": f"{target_roles} in {location}", "page": "1", "num_pages": "1"}
-    headers = {
-        "X-RapidAPI-Key": rapid_api_key,
-        "X-RapidAPI-Host": "jsearch.p.rapidapi.com"
-    }
-    jobs = []
-    try:
-        res = requests.get(url, headers=headers, params=querystring, timeout=15)
-        if res.status_code == 200:
-            for item in res.json().get("data", []):
-                desc = item.get("job_description", "")
-                if desc and len(desc.strip()) > 50:
-                    jobs.append({
-                        "company_name": item.get("employer_name", "Verified Enterprise"),
-                        "job_title": item.get("job_title"),
-                        "location": f"{item.get('job_city', '')}, {item.get('job_country', location)}".strip(", "),
-                        "job_description": desc,
-                        "ats_portal_url": item.get("job_apply_link") or item.get("job_google_link")
-                    })
-    except Exception as e:
-        logger.error(f"JSearch RapidAPI fetch error: {e}")
-    return jobs[:count]
-
 async def fetch_live_job_market_granular(target_roles_str: str, location: str, count: int = 5) -> List[Dict]:
     individual_roles = [r.strip() for r in target_roles_str.split(",") if r.strip()]
     if not individual_roles:
@@ -382,23 +354,50 @@ async def fetch_live_job_market_granular(target_roles_str: str, location: str, c
     seen_signatures = set()
 
     for role in individual_roles:
-        adzuna_res = fetch_adzuna_jobs(role, location, count)
-        muse_res = fetch_themuse_jobs(role, location, count)
-        jsearch_res = fetch_jsearch_rapidapi(role, location, count)
-        
-        for job in (adzuna_res + muse_res + jsearch_res):
-            company = job.get('company_name', '').lower().strip()
-            raw_title = job.get('job_title', '').lower().strip()
+        try:
+            loop = asyncio.get_running_loop()
+            df_jobs = await loop.run_in_executor(
+                None,
+                lambda: scrape_jobs(
+                    site_name=["linkedin", "indeed", "glassdoor"],
+                    search_term=role,
+                    location=location,
+                    results_wanted=count * 2,
+                    hours_old=72,
+                    country_indeed='ZA' if 'south africa' in location.lower() else 'US'
+                )
+            )
             
-            normalized_title = re.sub(r'\b(remote|hybrid|onsite)\b', '', raw_title)
-            normalized_title = re.sub(r'[^a-z0-9]', '', normalized_title)
-            
-            signature = f"{company}-{normalized_title}"
-            url = job.get('ats_portal_url', '')
-            
-            if signature not in seen_signatures and 'example.com' not in url:
-                seen_signatures.add(signature)
-                aggregated_pool.append(job)
+            if df_jobs is not None and not df_jobs.empty:
+                for _, row in df_jobs.iterrows():
+                    company = str(row.get('company', 'Verified Enterprise')).strip()
+                    raw_title = str(row.get('title', role)).strip()
+                    desc = str(row.get('description', ''))
+                    url = str(row.get('job_url', ''))
+                    loc = str(row.get('location', location))
+
+                    if len(desc) < 50:
+                        continue
+
+                    normalized_title = re.sub(r'\b(remote|hybrid|onsite)\b', '', raw_title.lower())
+                    normalized_title = re.sub(r'[^a-z0-9]', '', normalized_title)
+                    signature = f"{company.lower()}-{normalized_title}"
+
+                    if signature not in seen_signatures and 'example.com' not in url:
+                        seen_signatures.add(signature)
+                        aggregated_pool.append({
+                            "company_name": company,
+                            "job_title": raw_title,
+                            "location": loc,
+                            "job_description": desc,
+                            "ats_portal_url": url
+                        })
+        except Exception as e:
+            logger.error(f"JobSpy multi-site aggregation error for role {role}: {e}")
+
+    if not aggregated_pool:
+        for role in individual_roles:
+            aggregated_pool.extend(fetch_adzuna_jobs(role, location, count))
 
     return aggregated_pool[:count * 2]
 
@@ -550,11 +549,9 @@ async def evaluate_single_job_async(job: Dict, profile_content: str, email: str)
     except Exception:
         eval_data = {"is_valid_match": True, "fit_score": 80}
 
-    # Gatekeeper check: Drop immediately if it fails qualification
     if not eval_data.get("is_valid_match", True) or safe_int(eval_data.get('fit_score'), 80) < 65:
         return None
 
-    # ONLY executed for jobs that pass the gatekeeper, saving Hunter API credits
     safe_portal_url = sanitize_ats_url(raw_url, role, company)
     real_lead = discover_real_decision_maker(company, role, desc)
 
