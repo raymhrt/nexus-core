@@ -977,6 +977,20 @@
             
             localStorage.setItem('nexus_target_roles', target_roles);
             localStorage.setItem('nexus_target_locations', locations);
+
+            // Immediately show a loading state on matches container so user knows swarm is active
+            const container = document.getElementById('jobMatchesContainer');
+            if (container) {
+                container.innerHTML = `
+                    <div class="col-span-full py-12 px-6 text-center bg-inputbg rounded-2xl border border-sky-500/30 space-y-3 animate-pulse">
+                        <div class="w-12 h-12 bg-sky-500/20 text-sky-400 rounded-2xl flex items-center justify-center mx-auto text-lg">
+                            <i class="fa-solid fa-satellite-dish fa-spin"></i>
+                        </div>
+                        <h4 class="text-sm font-bold text-white">Career Swarm is Actively Scouting...</h4>
+                        <p class="text-xs text-slate-400 max-w-md mx-auto">Autonomous agents are indexing live multi-source feeds concurrently. Matches will appear here automatically via live telemetry once indexed.</p>
+                    </div>
+                `;
+            }
             
             try {
                 const res = await fetch('/api/v1/career/criteria', {
@@ -989,7 +1003,6 @@
                     btn.innerHTML = `✅ Swarm Deployed!`;
                     btn.classList.add('bg-emerald-600');
                     showToast(data.message || "Criteria saved & swarm deployed!");
-                    loadCareerMatches();
                     loadCredits();
                     setTimeout(() => {
                         btn.innerHTML = originalText;
@@ -1022,7 +1035,13 @@
                         entry.innerHTML = `<span class="text-sky-400">[${timestamp}]</span> <strong class="text-white">${parsed.event}:</strong> ${JSON.stringify(parsed.data || parsed)}`;
 
                         if (careerLog) careerLog.prepend(entry);
-                        if (parsed.event === 'career_swarm_update' || parsed.event === 'autopilot_complete') {
+                        
+                        // Automatically refresh matches and notify when swarm updates or completes
+                        if (parsed.event === 'career_swarm_update') {
+                            loadCareerMatches();
+                            loadCredits();
+                            showToast("Swarm complete! New verified matches loaded.");
+                        } else if (parsed.event === 'autopilot_complete') {
                             loadCareerMatches();
                             loadCredits();
                         }
