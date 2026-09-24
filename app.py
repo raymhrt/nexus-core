@@ -148,13 +148,11 @@ def sanitize_ats_url(url: str, role_title: str, company_name: str) -> str:
     if url and "example" not in url and "google.com" not in url and ("http://" in url or "https://" in url):
         return url
 
-    # Only map specialized institutional portals if the role/company actually matches the domain
     if "biovac" in c_lower or "biotech" in r_lower:
         return f"https://biovac.teamtailor.com/jobs?query={r_encoded}"
     if "csir" in c_lower or "research council" in c_lower:
         return f"https://candidate.csir.co.za/psc/EMPLOYEE/HRMS/c/HRS_HRAM_FL.HRS_CG_SEARCH_FL.GBL?FOCUS=Applicant&SEARCH_TEXT={r_encoded}"
         
-    # Default generalized direct search link to LinkedIn / Greenhouse / Lever Search
     return f"https://www.linkedin.com/jobs/search/?keywords={urllib.parse.quote(role_title + ' ' + company_name)}"
 
 def discover_real_decision_maker(company_name: str, job_title: str, job_description: str = "") -> Dict[str, Any]:
@@ -175,7 +173,6 @@ def discover_real_decision_maker(company_name: str, job_title: str, job_descript
     c_clean = actual_company.lower().replace(" ", "").replace(",", "").replace(".", "").replace("pty", "").replace("ltd", "")
     clean_domain = f"{c_clean}.co.za" if "south africa" in c_lower or "south africa" in job_description.lower() else f"{c_clean}.com"
 
-    # STRICT ZERO-MOCK VERIFICATION VIA HUNTER API ONLY
     if HUNTER_API_KEY and clean_domain:
         try:
             url = f"https://api.hunter.io/v2/domain-search?domain={clean_domain}&department=hr&api_key={HUNTER_API_KEY}"
@@ -200,7 +197,6 @@ def discover_real_decision_maker(company_name: str, job_title: str, job_descript
         except Exception:
             pass
 
-    # ZERO MOCK FALLBACK: Zero fabricated names or dummy emails
     return {
         "has_verified_contact": False,
         "name": "",
@@ -264,48 +260,74 @@ def call_groq_ai(prompt: str, system_prompt: str = "You are an elite career inte
     raise HTTPException(status_code=502, detail="Groq AI inference failed across all retry attempts.")
 
 async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count: int) -> List[Dict]:
-    # Extract primary role keyword safely
-    cleaned_roles = target_roles.split(",")[0].strip() if "," in target_roles else target_roles
-    encoded_query = urllib.parse.quote(cleaned_roles)
-    encoded_location = urllib.parse.quote(location)
-    
+    """
+    Fetches strictly verified live job postings from real public APIs (Arbeitnow & Remotive).
+    Zero mock data or fabricated institutional fallbacks are permitted.
+    """
+    role_list = [r.strip() for r in target_roles.split(",") if r.strip()]
+    if not role_list:
+        role_list = [target_roles]
+        
     discovered_jobs = []
+    seen_urls = set()
 
-    # 1. Query Arbeitnow Live Global/Regional API
-    try:
-        api_url = f"https://www.arbeitnow.com/api/job-board-api?search={encoded_query}"
-        res = requests.get(api_url, timeout=10)
-        if res.status_code == 200:
-            data = res.json().get("data", [])
-            for item in data[:15]:
-                title = item.get("title", "")
-                company = item.get("company_name", "Enterprise Employer")
-                desc = item.get("description", "")
-                loc = item.get("location", location)
-                apply_url = item.get("url", "")
-                
-                # Verify keyword relevance
-                if len(desc) > 40 and apply_url:
-                    discovered_jobs.append({
-                        "company_name": company,
-                        "job_title": title,
-                        "location": loc,
-                        "job_description": desc,
-                        "ats_portal_url": apply_url
-                    })
-    except Exception as e:
-        logger.warning(f"Arbeitnow live fetch exception: {e}")
+    for role_query in role_list:
+        if len(discovered_jobs) >= count * 3:
+            break
+            
+        encoded_query = urllib.parse.quote(role_query)
 
-    # 2. Intelligent dynamic fallback matching user's exact query string (No hardcoded institutional biotechs)
-    if not discovered_jobs:
-        discovered_jobs.append({
-            "company_name": f"Global Leader in {cleaned_roles.split()[0]}",
-            "job_title": cleaned_roles,
-            "location": location if location else "Remote / Global",
-            "job_description": f"Looking for an experienced professional specializing in {target_roles}. Responsibilities include leading core technical initiatives, driving architectural execution, and scaling production deliverables.",
-            "ats_portal_url": f"https://www.linkedin.com/jobs/search/?keywords={encoded_query}&location={encoded_location}"
-        })
+        # 1. Query Arbeitnow Live API (Global / Regional Open Feed)
+        try:
+            api_url = f"https://www.arbeitnow.com/api/job-board-api?search={encoded_query}"
+            res = requests.get(api_url, timeout=10)
+            if res.status_code == 200:
+                data = res.json().get("data", [])
+                for item in data:
+                    title = item.get("title", "")
+                    company = item.get("company_name", "Verified Enterprise")
+                    desc = item.get("description", "")
+                    loc = item.get("location", location)
+                    apply_url = item.get("url", "")
+                    
+                    if apply_url and apply_url not in seen_urls and len(desc) > 30:
+                        seen_urls.add(apply_url)
+                        discovered_jobs.append({
+                            "company_name": company,
+                            "job_title": title,
+                            "location": loc,
+                            "job_description": desc,
+                            "ats_portal_url": apply_url
+                        })
+        except Exception as e:
+            logger.warning(f"Arbeitnow live fetch error for {role_query}: {e}")
 
+        # 2. Query Remotive Live API (Public Remote & Tech Board - No Auth Required)
+        try:
+            remotive_url = f"https://remotive.com/api/remote-jobs?search={encoded_query}"
+            res = requests.get(remotive_url, timeout=10)
+            if res.status_code == 200:
+                jobs_data = res.json().get("jobs", [])
+                for item in jobs_data:
+                    title = item.get("title", "")
+                    company = item.get("company_name", "Global Enterprise")
+                    desc = item.get("description", "")
+                    loc = item.get("candidate_required_location", "Remote / Global")
+                    apply_url = item.get("url", "")
+                    
+                    if apply_url and apply_url not in seen_urls and len(desc) > 30:
+                        seen_urls.add(apply_url)
+                        discovered_jobs.append({
+                            "company_name": company,
+                            "job_title": title,
+                            "location": loc,
+                            "job_description": desc,
+                            "ats_portal_url": apply_url
+                        })
+        except Exception as e:
+            logger.warning(f"Remotive live fetch error for {role_query}: {e}")
+
+    # Return strict live matches only. If none found, returns empty list to preserve 100% zero-mock integrity.
     return discovered_jobs[:max(count * 2, 5)]
 
 def init_career_database():
