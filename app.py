@@ -469,20 +469,23 @@ async def evaluate_single_job_async(job: Dict, profile_content: str, email: str)
     desc = job.get('job_description', '')
 
     eval_prompt = f"""
-    Act as an uncompromising executive talent recruiter and interview coach at {company}.
-    Candidate Master Resume Profile: {profile_content}
+    Act as an uncompromising executive talent recruiter and domain expert.
+    Candidate Master Resume Profile / Expertise: {profile_content}
     Target Job Title: {role} at {company}
     Full Job Description: {desc}
 
-    CRITICAL INSTRUCTIONS:
-    Evaluate if this is a credible professional match. Return strict JSON (no markdown backticks, raw JSON only) containing these exact keys:
+    CRITICAL DOMAIN GUARDRAILS:
+    1. Check if the job's industry/domain completely contradicts the candidate's core profession (e.g., matching a Molecular Biologist/Scientist to a Marketing Account Manager, Sales Executive, or Frontend Web Developer must be evaluated as FALSE).
+    2. If the domains are fundamentally incompatible, set "is_valid_match": false immediately.
+
+    Return strict JSON (no markdown backticks, raw JSON only) containing these exact keys:
     - "is_valid_match": boolean (true/false)
-    - "fit_score": integer (70 to 99)
-    - "match_rationale": Rigorous 2-sentence explanation connecting exact master resume skills to the role.
+    - "fit_score": integer (0 to 99)
+    - "match_rationale": Rigorous explanation connecting exact master resume skills to the role. If mismatched, explain why.
     - "salary_benchmark": Estimated compensation range.
     - "negotiation_strategy": Key leverage points.
     - "cv_variant": Markdown formatted tailored resume bullets highlighting exact achievements for this specific role.
-    - "interview_playbook": A comprehensive 3-stage Markdown interview prep guide including technical core topics, STAR behavioral questions, and strategic questions for the candidate to ask.
+    - "interview_playbook": A comprehensive 3-stage Markdown interview prep guide.
     """
     try:
         loop = asyncio.get_running_loop()
@@ -494,7 +497,8 @@ async def evaluate_single_job_async(job: Dict, profile_content: str, email: str)
     except Exception:
         return None
 
-    if not eval_data.get("is_valid_match", False) or safe_int(eval_data.get('fit_score'), 0) < 70:
+    # Strict enforcement: Drop cross-domain mismatches and low scores
+    if not eval_data.get("is_valid_match", False) or safe_int(eval_data.get('fit_score'), 0) < 75:
         return None
 
     safe_portal_url = sanitize_ats_url(raw_url, role, company)
@@ -518,14 +522,14 @@ async def evaluate_single_job_async(job: Dict, profile_content: str, email: str)
         "job_description": desc,
         "location": job.get('location', "Global / Remote"),
         "fit_score": safe_int(eval_data.get('fit_score'), 85),
-        "match_rationale": eval_data.get('match_rationale', "Your background aligns directly with core role requirements."),
+        "match_rationale": eval_data.get('match_rationale', "Direct alignment verified."),
         "decision_maker_name": real_lead["name"],
         "decision_maker_title": real_lead["title"],
         "decision_maker_email": real_lead["email"],
         "warm_intro_pathway": real_lead.get("pathway", "Direct Corporate Match"),
-        "outreach_draft": f"Hi Team,\n\nI noted your team's work at {company} regarding the {role} position. My background aligns directly with your technical requirements.",
+        "outreach_draft": f"Hi Team,\n\nI noted your work at {company} regarding the {role} position...",
         "salary_benchmark": eval_data.get('salary_benchmark', "Competitive Market Rate"),
-        "negotiation_strategy": eval_data.get('negotiation_strategy', "Emphasize past specialized delivery impact."),
+        "negotiation_strategy": eval_data.get('negotiation_strategy', "Emphasize specialized domain delivery."),
         "cv_variant": eval_data.get('cv_variant', default_cv),
         "interview_playbook": eval_data.get('interview_playbook', default_playbook),
         "ats_portal_url": safe_portal_url,
