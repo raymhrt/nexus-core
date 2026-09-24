@@ -52,6 +52,8 @@ if not GROQ_API_KEY:
 RESEND_API_KEY = os.getenv("RESEND_API_KEY")
 SENDER_EMAIL = os.getenv("SENDER_EMAIL", "onboarding@resend.dev")
 HUNTER_API_KEY = os.getenv("HUNTER_API_KEY")
+ADZUNA_APP_ID = os.getenv("ADZUNA_APP_ID")
+ADZUNA_APP_KEY = os.getenv("ADZUNA_APP_KEY")
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 TRUSTED_ORIGINS = [origin.strip() for origin in os.getenv("TRUSTED_ORIGINS", "https://nexus-core-yfou.onrender.com,http://localhost:3000,http://127.0.0.1:8000").split(",") if origin.strip()]
@@ -261,9 +263,8 @@ def call_groq_ai(prompt: str, system_prompt: str = "You are an elite career inte
 
 async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count: int) -> List[Dict]:
     """
-    Fetches strictly verified live job postings from real public APIs (Arbeitnow & Remotive).
-    Implements recursive query broadening to automatically generalize hyper-niche titles 
-    until valid live matches are found, maintaining 0% mock data.
+    Fetches strictly verified live job postings from real public APIs (Adzuna, Arbeitnow, Remotive).
+    Supports multi-region and multi-vertical querying while maintaining 0% mock data.
     """
     raw_roles = [r.strip() for r in target_roles.split(",") if r.strip()]
     if not raw_roles:
@@ -271,6 +272,9 @@ async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count
         
     discovered_jobs = []
     seen_urls = set()
+
+    loc_lower = location.lower()
+    adzuna_country = "za" if "south africa" in loc_lower else "us"
 
     for role_query in raw_roles:
         if len(discovered_jobs) >= count * 3:
@@ -284,7 +288,7 @@ async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count
             " ".join(tokens[:2]) if len(tokens) > 1 else "",
             base_keyword,
             "Research",
-            "Engineer"
+            "Scientist"
         ]
         search_terms = list(dict.fromkeys([t for t in search_terms if t]))
 
@@ -293,7 +297,35 @@ async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count
                 break
                 
             encoded_query = urllib.parse.quote(term)
+            encoded_location = urllib.parse.quote(location if location else "South Africa")
 
+            # 1. Query Adzuna Live API
+            if ADZUNA_APP_ID and ADZUNA_APP_KEY:
+                try:
+                    adzuna_url = f"https://api.adzuna.com/v1/api/jobs/{adzuna_country}/search/1?app_id={ADZUNA_APP_ID}&app_key={ADZUNA_APP_KEY}&what={encoded_query}&where={encoded_location}&content-type=application/json"
+                    res = requests.get(adzuna_url, timeout=10)
+                    if res.status_code == 200:
+                        results = res.json().get("results", [])
+                        for item in results:
+                            title = item.get("title", "")
+                            company = item.get("company", {}).get("display_name", "Verified Enterprise")
+                            desc = item.get("description", "")
+                            loc = item.get("location", {}).get("display_name", location)
+                            apply_url = item.get("redirect_url", "")
+                            
+                            if apply_url and apply_url not in seen_urls and len(desc) > 30:
+                                seen_urls.add(apply_url)
+                                discovered_jobs.append({
+                                    "company_name": company,
+                                    "job_title": title,
+                                    "location": loc,
+                                    "job_description": desc,
+                                    "ats_portal_url": apply_url
+                                })
+                except Exception as e:
+                    logger.warning(f"Adzuna live fetch error for {term}: {e}")
+
+            # 2. Query Arbeitnow Live API
             try:
                 api_url = f"https://www.arbeitnow.com/api/job-board-api?search={encoded_query}"
                 res = requests.get(api_url, timeout=10)
@@ -316,8 +348,9 @@ async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count
                                 "ats_portal_url": apply_url
                             })
             except Exception as e:
-                logger.warning(f"Arbeitnow live fetch error for broad term {term}: {e}")
+                logger.warning(f"Arbeitnow live fetch error for {term}: {e}")
 
+            # 3. Query Remotive Live API
             try:
                 remotive_url = f"https://remotive.com/api/remote-jobs?search={encoded_query}"
                 res = requests.get(remotive_url, timeout=10)
@@ -340,7 +373,7 @@ async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count
                                 "ats_portal_url": apply_url
                             })
             except Exception as e:
-                logger.warning(f"Remotive live fetch error for broad term {term}: {e}")
+                logger.warning(f"Remotive live fetch error for {term}: {e}")
 
             if len(discovered_jobs) >= count * 2:
                 break
@@ -497,7 +530,6 @@ async def evaluate_single_job_async(job: Dict, profile_content: str, email: str)
     except Exception:
         return None
 
-    # Strict enforcement: Drop cross-domain mismatches and low scores
     if not eval_data.get("is_valid_match", False) or safe_int(eval_data.get('fit_score'), 0) < 75:
         return None
 
