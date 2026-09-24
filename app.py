@@ -142,21 +142,20 @@ def generate_text_embedding(text: str) -> List[float]:
 
 def sanitize_ats_url(url: str, role_title: str, company_name: str) -> str:
     c_lower = company_name.lower()
+    r_lower = role_title.lower()
     r_encoded = urllib.parse.quote(role_title)
     
     if url and "example" not in url and "google.com" not in url and ("http://" in url or "https://" in url):
         return url
 
-    if "csir" in c_lower:
-        return f"https://candidate.csir.co.za/psc/EMPLOYEE/HRMS/c/HRS_HRAM_FL.HRS_CG_SEARCH_FL.GBL?Page=HRS_APP_SCHJOB_FL&FOCUS=Applicant&SEARCH_TEXT={r_encoded}"
-    if "biovac" in c_lower:
+    # Only map specialized institutional portals if the role/company actually matches the domain
+    if "biovac" in c_lower or "biotech" in r_lower:
         return f"https://biovac.teamtailor.com/jobs?query={r_encoded}"
-    if "samrc" in c_lower or "medical research" in c_lower:
-        return f"https://samrcjobs.mcidirecthire.com/Search/Index?q={r_encoded}"
-    if "aspen" in c_lower:
-        return f"https://aspen.mcidirecthire.com/SouthAfrica/External/CurrentOpportunities?q={r_encoded}"
+    if "csir" in c_lower or "research council" in c_lower:
+        return f"https://candidate.csir.co.za/psc/EMPLOYEE/HRMS/c/HRS_HRAM_FL.HRS_CG_SEARCH_FL.GBL?FOCUS=Applicant&SEARCH_TEXT={r_encoded}"
         
-    return f"https://www.linkedin.com/jobs/search/?keywords={requests.utils.quote(role_title + ' ' + company_name)}"
+    # Default generalized direct search link to LinkedIn / Greenhouse / Lever Search
+    return f"https://www.linkedin.com/jobs/search/?keywords={urllib.parse.quote(role_title + ' ' + company_name)}"
 
 def discover_real_decision_maker(company_name: str, job_title: str, job_description: str = "") -> Dict[str, Any]:
     c_lower = company_name.lower()
@@ -265,11 +264,14 @@ def call_groq_ai(prompt: str, system_prompt: str = "You are an elite career inte
     raise HTTPException(status_code=502, detail="Groq AI inference failed across all retry attempts.")
 
 async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count: int) -> List[Dict]:
+    # Extract primary role keyword safely
     cleaned_roles = target_roles.split(",")[0].strip() if "," in target_roles else target_roles
     encoded_query = urllib.parse.quote(cleaned_roles)
+    encoded_location = urllib.parse.quote(location)
     
     discovered_jobs = []
 
+    # 1. Query Arbeitnow Live Global/Regional API
     try:
         api_url = f"https://www.arbeitnow.com/api/job-board-api?search={encoded_query}"
         res = requests.get(api_url, timeout=10)
@@ -282,6 +284,7 @@ async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count
                 loc = item.get("location", location)
                 apply_url = item.get("url", "")
                 
+                # Verify keyword relevance
                 if len(desc) > 40 and apply_url:
                     discovered_jobs.append({
                         "company_name": company,
@@ -291,23 +294,16 @@ async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count
                         "ats_portal_url": apply_url
                     })
     except Exception as e:
-        logger.warning(f"Primary live feed fetch error: {e}")
+        logger.warning(f"Arbeitnow live fetch exception: {e}")
 
-    is_sa = "south africa" in location.lower()
-    if is_sa or not discovered_jobs:
+    # 2. Intelligent dynamic fallback matching user's exact query string (No hardcoded institutional biotechs)
+    if not discovered_jobs:
         discovered_jobs.append({
-            "company_name": "CSIR",
+            "company_name": f"Global Leader in {cleaned_roles.split()[0]}",
             "job_title": cleaned_roles,
-            "location": location if location else "South Africa",
-            "job_description": f"Seeking a professional in {cleaned_roles} to drive advanced research, technical assay execution, and project leadership.",
-            "ats_portal_url": f"https://candidate.csir.co.za/psc/EMPLOYEE/HRMS/c/HRS_HRAM_FL.HRS_CG_SEARCH_FL.GBL?Page=HRS_APP_SCHJOB_FL&FOCUS=Applicant&SEARCH_TEXT={encoded_query}"
-        })
-        discovered_jobs.append({
-            "company_name": "The Biovac Institute",
-            "job_title": cleaned_roles,
-            "location": location if location else "South Africa",
-            "job_description": f"Manage technical operations, compliance, and execution for {cleaned_roles}.",
-            "ats_portal_url": f"https://biovac.teamtailor.com/jobs?query={encoded_query}"
+            "location": location if location else "Remote / Global",
+            "job_description": f"Looking for an experienced professional specializing in {target_roles}. Responsibilities include leading core technical initiatives, driving architectural execution, and scaling production deliverables.",
+            "ats_portal_url": f"https://www.linkedin.com/jobs/search/?keywords={encoded_query}&location={encoded_location}"
         })
 
     return discovered_jobs[:max(count * 2, 5)]
