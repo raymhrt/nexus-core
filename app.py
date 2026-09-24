@@ -262,72 +262,89 @@ def call_groq_ai(prompt: str, system_prompt: str = "You are an elite career inte
 async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count: int) -> List[Dict]:
     """
     Fetches strictly verified live job postings from real public APIs (Arbeitnow & Remotive).
-    Zero mock data or fabricated institutional fallbacks are permitted.
+    Implements recursive query broadening to automatically generalize hyper-niche titles 
+    until valid live matches are found, maintaining 0% mock data.
     """
-    role_list = [r.strip() for r in target_roles.split(",") if r.strip()]
-    if not role_list:
-        role_list = [target_roles]
+    raw_roles = [r.strip() for r in target_roles.split(",") if r.strip()]
+    if not raw_roles:
+        raw_roles = [target_roles]
         
     discovered_jobs = []
     seen_urls = set()
 
-    for role_query in role_list:
+    for role_query in raw_roles:
         if len(discovered_jobs) >= count * 3:
             break
             
-        encoded_query = urllib.parse.quote(role_query)
+        tokens = [t for t in re.split(r'[\s–—-]+', role_query) if len(t) > 2]
+        base_keyword = tokens[0] if tokens else role_query
+        
+        search_terms = [
+            role_query,
+            " ".join(tokens[:2]) if len(tokens) > 1 else "",
+            base_keyword,
+            "Research",
+            "Engineer"
+        ]
+        search_terms = list(dict.fromkeys([t for t in search_terms if t]))
 
-        # 1. Query Arbeitnow Live API (Global / Regional Open Feed)
-        try:
-            api_url = f"https://www.arbeitnow.com/api/job-board-api?search={encoded_query}"
-            res = requests.get(api_url, timeout=10)
-            if res.status_code == 200:
-                data = res.json().get("data", [])
-                for item in data:
-                    title = item.get("title", "")
-                    company = item.get("company_name", "Verified Enterprise")
-                    desc = item.get("description", "")
-                    loc = item.get("location", location)
-                    apply_url = item.get("url", "")
-                    
-                    if apply_url and apply_url not in seen_urls and len(desc) > 30:
-                        seen_urls.add(apply_url)
-                        discovered_jobs.append({
-                            "company_name": company,
-                            "job_title": title,
-                            "location": loc,
-                            "job_description": desc,
-                            "ats_portal_url": apply_url
-                        })
-        except Exception as e:
-            logger.warning(f"Arbeitnow live fetch error for {role_query}: {e}")
+        for term in search_terms:
+            if len(discovered_jobs) >= count * 3:
+                break
+                
+            encoded_query = urllib.parse.quote(term)
 
-        # 2. Query Remotive Live API (Public Remote & Tech Board - No Auth Required)
-        try:
-            remotive_url = f"https://remotive.com/api/remote-jobs?search={encoded_query}"
-            res = requests.get(remotive_url, timeout=10)
-            if res.status_code == 200:
-                jobs_data = res.json().get("jobs", [])
-                for item in jobs_data:
-                    title = item.get("title", "")
-                    company = item.get("company_name", "Global Enterprise")
-                    desc = item.get("description", "")
-                    loc = item.get("candidate_required_location", "Remote / Global")
-                    apply_url = item.get("url", "")
-                    
-                    if apply_url and apply_url not in seen_urls and len(desc) > 30:
-                        seen_urls.add(apply_url)
-                        discovered_jobs.append({
-                            "company_name": company,
-                            "job_title": title,
-                            "location": loc,
-                            "job_description": desc,
-                            "ats_portal_url": apply_url
-                        })
-        except Exception as e:
-            logger.warning(f"Remotive live fetch error for {role_query}: {e}")
+            try:
+                api_url = f"https://www.arbeitnow.com/api/job-board-api?search={encoded_query}"
+                res = requests.get(api_url, timeout=10)
+                if res.status_code == 200:
+                    data = res.json().get("data", [])
+                    for item in data:
+                        title = item.get("title", "")
+                        company = item.get("company_name", "Verified Enterprise")
+                        desc = item.get("description", "")
+                        loc = item.get("location", location)
+                        apply_url = item.get("url", "")
+                        
+                        if apply_url and apply_url not in seen_urls and len(desc) > 30:
+                            seen_urls.add(apply_url)
+                            discovered_jobs.append({
+                                "company_name": company,
+                                "job_title": title,
+                                "location": loc,
+                                "job_description": desc,
+                                "ats_portal_url": apply_url
+                            })
+            except Exception as e:
+                logger.warning(f"Arbeitnow live fetch error for broad term {term}: {e}")
 
-    # Return strict live matches only. If none found, returns empty list to preserve 100% zero-mock integrity.
+            try:
+                remotive_url = f"https://remotive.com/api/remote-jobs?search={encoded_query}"
+                res = requests.get(remotive_url, timeout=10)
+                if res.status_code == 200:
+                    jobs_data = res.json().get("jobs", [])
+                    for item in jobs_data:
+                        title = item.get("title", "")
+                        company = item.get("company_name", "Global Enterprise")
+                        desc = item.get("description", "")
+                        loc = item.get("candidate_required_location", "Remote / Global")
+                        apply_url = item.get("url", "")
+                        
+                        if apply_url and apply_url not in seen_urls and len(desc) > 30:
+                            seen_urls.add(apply_url)
+                            discovered_jobs.append({
+                                "company_name": company,
+                                "job_title": title,
+                                "location": loc,
+                                "job_description": desc,
+                                "ats_portal_url": apply_url
+                            })
+            except Exception as e:
+                logger.warning(f"Remotive live fetch error for broad term {term}: {e}")
+
+            if len(discovered_jobs) >= count * 2:
+                break
+
     return discovered_jobs[:max(count * 2, 5)]
 
 def init_career_database():
