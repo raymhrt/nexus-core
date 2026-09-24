@@ -264,7 +264,8 @@ def call_groq_ai(prompt: str, system_prompt: str = "You are an elite career inte
 async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count: int) -> List[Dict]:
     """
     Fetches strictly verified live job postings from real public APIs (Adzuna, Arbeitnow, Remotive).
-    Supports multi-region and multi-vertical querying while maintaining 0% mock data.
+    Dynamically adapts search terms relative to the user's specific input query by stripping 
+    seniority modifiers and extracting core domain tokens, ensuring 0% hardcoded bias and 0% mock data.
     """
     raw_roles = [r.strip() for r in target_roles.split(",") if r.strip()]
     if not raw_roles:
@@ -276,19 +277,23 @@ async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count
     loc_lower = location.lower()
     adzuna_country = "za" if "south africa" in loc_lower else "us"
 
+    seniority_stop_words = {
+        "senior", "junior", "lead", "principal", "chief", "director", 
+        "head", "staff", "associate", "expert", "specialist", "executive", "manager"
+    }
+
     for role_query in raw_roles:
         if len(discovered_jobs) >= count * 3:
             break
             
-        tokens = [t for t in re.split(r'[\s–—-]+', role_query) if len(t) > 2]
-        base_keyword = tokens[0] if tokens else role_query
+        tokens = [t for t in re.split(r'[\s–—-,/]+', role_query.lower()) if len(t) > 2]
+        core_tokens = [t for t in tokens if t not in seniority_stop_words]
         
         search_terms = [
             role_query,
-            " ".join(tokens[:2]) if len(tokens) > 1 else "",
-            base_keyword,
-            "Research",
-            "Scientist"
+            " ".join(core_tokens[:2]) if len(core_tokens) >= 2 else role_query,
+            core_tokens[-1] if core_tokens else role_query,
+            " ".join(core_tokens) if core_tokens else role_query
         ]
         search_terms = list(dict.fromkeys([t for t in search_terms if t]))
 
