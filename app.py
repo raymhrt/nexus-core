@@ -286,7 +286,8 @@ async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count
         if len(discovered_jobs) >= count * 3:
             break
             
-        tokens = [t for t in re.split(r'[\s–—-,/]+', role_query.lower()) if len(t) > 2]
+        # Fixed regex pattern with properly escaped dashes for Python 3.14 compatibility
+        tokens = [t for t in re.split(r'[\s\–—\-,/]+', role_query.lower()) if len(t) > 2]
         core_tokens = [t for t in tokens if t not in seniority_stop_words]
         
         search_terms = [
