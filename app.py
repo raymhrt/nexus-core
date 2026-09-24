@@ -32,27 +32,18 @@ from psycopg2.extras import RealDictCursor
 
 load_dotenv()
 
-# Configure structured logging
 logging.basicConfig(
     level=logging.INFO,
     format='{"time": "%(asctime)s", "level": "%(levelname)s", "logger": "%(name)s", "message": "%(message)s"}'
 )
-logger = logging.getLogger("nexus-career-universal-apex")
+logger = logging.getLogger("nexus-career-zeromock-apex")
 
 SENTRY_DSN = os.getenv("SENTRY_DSN")
 if SENTRY_DSN:
-    sentry_sdk.init(
-        dsn=SENTRY_DSN,
-        integrations=[FastApiIntegration()],
-        traces_sample_rate=1.0,
-    )
+    sentry_sdk.init(dsn=SENTRY_DSN, integrations=[FastApiIntegration()], traces_sample_rate=1.0)
 
 stripe.api_key = os.getenv("STRIPE_API_KEY", "your_stripe_key_here")
-WEBHOOK_SIGNING_SECRET = os.getenv("WEBHOOK_SIGNING_SECRET")
-if not WEBHOOK_SIGNING_SECRET:
-    logger.critical("FATAL: WEBHOOK_SIGNING_SECRET environment variable is missing! Webhook verification insecure.")
-    WEBHOOK_SIGNING_SECRET = "fallback_insecure_secret_for_dev_mode"
-
+WEBHOOK_SIGNING_SECRET = os.getenv("WEBHOOK_SIGNING_SECRET", "fallback_insecure_secret_for_dev_mode")
 ADMIN_SECRET_KEY = os.getenv("ADMIN_SECRET_KEY")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 if not GROQ_API_KEY:
@@ -150,11 +141,6 @@ def generate_text_embedding(text: str) -> List[float]:
         return [0.0] * 768
 
 def sanitize_ats_url(url: str, role_title: str, company_name: str) -> str:
-    """
-    Ensures every job match provides a direct, legitimate application link.
-    If the scraped feed provides a valid direct application URL, it is preserved.
-    Otherwise, it constructs a direct query-encoded ATS search portal URL.
-    """
     c_lower = company_name.lower()
     r_encoded = urllib.parse.quote(role_title)
     
@@ -190,7 +176,7 @@ def discover_real_decision_maker(company_name: str, job_title: str, job_descript
     c_clean = actual_company.lower().replace(" ", "").replace(",", "").replace(".", "").replace("pty", "").replace("ltd", "")
     clean_domain = f"{c_clean}.co.za" if "south africa" in c_lower or "south africa" in job_description.lower() else f"{c_clean}.com"
 
-    verified_contact = None
+    # STRICT ZERO-MOCK VERIFICATION VIA HUNTER API ONLY
     if HUNTER_API_KEY and clean_domain:
         try:
             url = f"https://api.hunter.io/v2/domain-search?domain={clean_domain}&department=hr&api_key={HUNTER_API_KEY}"
@@ -200,24 +186,29 @@ def discover_real_decision_maker(company_name: str, job_title: str, job_descript
                 emails = data.get("emails", [])
                 if emails:
                     top_contact = emails[0]
-                    verified_contact = {
-                        "name": f"{top_contact.get('first_name', 'Hiring')} {top_contact.get('last_name', 'Manager')}",
-                        "title": f"Talent Acquisition / Hiring Team at {actual_company}",
-                        "email": top_contact.get('value'),
-                        "pathway": f"Verified Live Corporate Domain Match ({clean_domain})"
-                    }
+                    first_name = top_contact.get('first_name')
+                    last_name = top_contact.get('last_name')
+                    email_val = top_contact.get('value')
+                    
+                    if first_name and email_val:
+                        return {
+                            "has_verified_contact": True,
+                            "name": f"{first_name} {last_name or ''}".strip(),
+                            "title": top_contact.get('position', f'Talent Acquisition at {actual_company}'),
+                            "email": email_val,
+                            "pathway": f"Live Verified Corporate Domain Match ({clean_domain})"
+                        }
         except Exception:
             pass
 
-    if not verified_contact:
-        return {
-            "name": f"Head of Talent / Hiring Committee @ {actual_company}",
-            "title": f"Executive Decision Maker for {job_title}",
-            "email": "",
-            "pathway": f"Requires Direct ATS Portal Application ({actual_company})"
-        }
-
-    return verified_contact
+    # ZERO MOCK FALLBACK: Zero fabricated names or dummy emails
+    return {
+        "has_verified_contact": False,
+        "name": "",
+        "title": "",
+        "email": "",
+        "pathway": f"Strict Direct ATS Portal Submission at {actual_company} (No public recruiter profile indexed)"
+    }
 
 def get_cached_ai_response(cache_key: str) -> Optional[str]:
     try:
@@ -273,20 +264,12 @@ def call_groq_ai(prompt: str, system_prompt: str = "You are an elite career inte
             time.sleep(3.0)
     raise HTTPException(status_code=502, detail="Groq AI inference failed across all retry attempts.")
 
-# ==============================================================================
-# UNIVERSAL LIVE-FEED JOB WORKER & ATS DEEP-LINKING
-# ==============================================================================
 async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count: int) -> List[Dict]:
-    """
-    Universally queries live professional job feeds based on the user's custom roles and location,
-    extracting true direct ATS application links.
-    """
     cleaned_roles = target_roles.split(",")[0].strip() if "," in target_roles else target_roles
     encoded_query = urllib.parse.quote(cleaned_roles)
     
     discovered_jobs = []
 
-    # 1. Dynamic Live Public Job Aggregator API (Arbeitnow & Open Board Feed)
     try:
         api_url = f"https://www.arbeitnow.com/api/job-board-api?search={encoded_query}"
         res = requests.get(api_url, timeout=10)
@@ -310,7 +293,6 @@ async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count
     except Exception as e:
         logger.warning(f"Primary live feed fetch error: {e}")
 
-    # 2. Universal Regional/Enterprise Deep-Link Injector (Guarantees local active portals)
     is_sa = "south africa" in location.lower()
     if is_sa or not discovered_jobs:
         discovered_jobs.append({
@@ -449,7 +431,7 @@ async def evaluate_single_job_async(job: Dict, profile_content: str, email: str)
     role = job.get('job_title', 'Target Role')
     company = job.get('company_name', 'Verified Enterprise')
     raw_url = job.get('ats_portal_url', '#')
-    desc = job.get('job_description', '').lower()
+    desc = job.get('job_description', '')
 
     eval_prompt = f"""
     Act as an uncompromising executive talent recruiter and interview coach at {company}.
@@ -506,7 +488,7 @@ async def evaluate_single_job_async(job: Dict, profile_content: str, email: str)
         "decision_maker_title": real_lead["title"],
         "decision_maker_email": real_lead["email"],
         "warm_intro_pathway": real_lead.get("pathway", "Direct Corporate Match"),
-        "outreach_draft": f"Hi {real_lead['name']},\n\nI noted your team's work at {company} regarding the {role} position. My background aligns directly with your technical requirements.",
+        "outreach_draft": f"Hi Team,\n\nI noted your team's work at {company} regarding the {role} position. My background aligns directly with your technical requirements.",
         "salary_benchmark": eval_data.get('salary_benchmark', "Competitive Market Rate"),
         "negotiation_strategy": eval_data.get('negotiation_strategy', "Emphasize past specialized delivery impact."),
         "cv_variant": eval_data.get('cv_variant', default_cv),
@@ -665,7 +647,7 @@ async def automated_followup_scheduler_worker():
                 r = dict(row) if not isinstance(row, dict) else row
                 match_id = r["id"]
                 target_email = r["decision_maker_email"]
-                dm_name = r["decision_maker_name"] or "Hiring Lead"
+                dm_name = r["decision_maker_name"] or "Hiring Team"
                 company = r["company_name"]
                 role = r["job_title"]
 
@@ -699,8 +681,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="QuantCode Universal Career Swarm Apex",
-    version="8.0.0",
-    description="Universal Live-Feed Ingestion, Direct ATS Deep-Linking, and Pgvector Multi-Tenant Matching.",
+    version="8.1.0",
+    description="Universal Live-Feed Ingestion, Direct ATS Deep-Linking, and Zero-Mock Contact Verification.",
     lifespan=lifespan
 )
 
