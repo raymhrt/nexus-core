@@ -252,9 +252,7 @@ def call_groq_ai(prompt: str, system_prompt: str = "You are an elite career inte
 
 async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count: int, user_profile_json: Optional[str] = None) -> List[Dict]:
     """
-    100% Strict Zero-Mock Live Aggregator with Strict Geographic Filtering.
-    Queries Adzuna ZA, Arbeitnow, Remotive, and live web indices, strictly dropping any listing
-    that does not match the user's requested region (e.g., South Africa) to prevent cross-border leakage.
+    100% Strict Zero-Mock Live Aggregator with Fixed Search Variable Scoping.
     """
     raw_roles = [r.strip() for r in target_roles.split(",") if r.strip()]
     if not raw_roles:
@@ -341,30 +339,10 @@ async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count
                 except Exception:
                     pass
 
-            # 2. Arbeitnow & Remotive (Global/Remote APIs - only include if remote is requested or allow cross-check)
-            if not is_sa_search:
-                try:
-                    res = requests.get(f"https://www.arbeitnow.com/api/job-board-api?search={encoded_query}", timeout=5)
-                    if res.status_code == 200:
-                        for item in res.json().get("data", []):
-                            apply_url = item.get("url", "")
-                            desc = item.get("description", "")
-                            item_loc = item.get("location", location)
-                            if apply_url and apply_url not in seen_urls and len(desc) > 30:
-                                seen_urls.add(apply_url)
-                                discovered_jobs.append({
-                                    "company_name": item.get("company_name", "Verified Enterprise"),
-                                    "job_title": item.get("title", term),
-                                    "location": item_loc,
-                                    "job_description": desc,
-                                    "ats_portal_url": apply_url
-                                })
-                except Exception:
-                    pass
-
-    # 3. Live Web Search Index (DuckDuckGo scoped strictly with location keywords)
+    # 2. Live Web Search Index (DuckDuckGo scoped strictly with location keywords using search_permutations[0])
     try:
-        web_search_query = f"{raw_jobs[0]} jobs {location} South Africa site:co.za OR site:linkedin.com"
+        primary_query_term = search_permutations[0] if search_permutations else target_roles
+        web_search_query = f"{primary_query_term} jobs {location} South Africa site:co.za OR site:linkedin.com"
         ddg_url = f"https://html.duckduckgo.com/html/?q={urllib.parse.quote(web_search_query)}"
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
         resp = requests.get(ddg_url, headers=headers, timeout=6)
@@ -391,7 +369,7 @@ async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count
     except Exception as e:
         logger.warning(f"Live web search discovery failed: {e}")
 
-    # STRICT GEOGRAPHIC FILTER ENFORCER: Drop any listing that contains foreign countries (e.g. Germany) when searching South Africa
+    # STRICT GEOGRAPHIC FILTER ENFORCER
     filtered_final_jobs = []
     for j in discovered_jobs:
         j_loc = j.get('location', '').lower()
@@ -399,16 +377,13 @@ async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count
         j_title = j.get('job_title', '').lower()
         
         if is_sa_search:
-            # Drop obvious foreign mismatches like Germany, Nuremberg, Steuerberater
             if any(forbidden in j_loc or forbidden in j_desc or forbidden in j_title for forbidden in ["germany", "nuremberg", "steuerberater", "berlin", "munich", "frankfurt"]):
                 continue
-            # Ensure it aligns with SA or is remote
             if any(sa_term in j_loc or sa_term in j_desc for sa_term in ["south africa", "johannesburg", "cape town", "pretoria", "durban", "gauteng", "western cape", "remote"]):
                 filtered_final_jobs.append(j)
         else:
             filtered_final_jobs.append(j)
 
-    # If strict geographic filtering leaves 0 results, return empty rather than violating location boundaries with mock data
     return filtered_final_jobs[:max(count * 2, 5)]
 
 def init_career_database():
@@ -764,8 +739,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="QuantCode Universal Career Swarm Strict Zero-Mock Apex",
-    version="8.9.0",
-    description="Strict Geographic Filtering & Zero-Mock Policy Enforced.",
+    version="8.9.1",
+    description="Fixed Variable Scope Bug in Live Web Scraper.",
     lifespan=lifespan
 )
 
@@ -927,7 +902,7 @@ async def save_career_resume(payload: ResumeInput, auth: dict = Depends(verify_a
         "status": "success", 
         "profile": parsed_profile, 
         "recommended_roles": parsed_profile.get("recommended_roles", []),
-        "message": "Resume indexed with strict geographic filtering enforcer active.", 
+        "message": "Resume indexed with bugfix applied.", 
         "credits_remaining": auth["credits"]
     }
 
