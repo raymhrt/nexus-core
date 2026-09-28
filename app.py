@@ -36,7 +36,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='{"time": "%(asctime)s", "level": "%(levelname)s", "logger": "%(name)s", "message": "%(message)s"}'
 )
-logger = logging.getLogger("nexus-career-resilient-apex")
+logger = logging.getLogger("nexus-career-strict-gate")
 
 SENTRY_DSN = os.getenv("SENTRY_DSN")
 if SENTRY_DSN:
@@ -47,7 +47,7 @@ WEBHOOK_SIGNING_SECRET = os.getenv("WEBHOOK_SIGNING_SECRET", "fallback_insecure_
 ADMIN_SECRET_KEY = os.getenv("ADMIN_SECRET_KEY")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 if not GROQ_API_KEY:
-    logger.warning("WARNING: GROQ_API_KEY is not set. AI evaluation endpoints will fail unless configured.")
+    logger.warning("WARNING: GROQ_API_KEY is not set. AI career evaluation endpoints will fail unless configured.")
 
 RESEND_API_KEY = os.getenv("RESEND_API_KEY")
 SENDER_EMAIL = os.getenv("SENDER_EMAIL", "onboarding@resend.dev")
@@ -255,13 +255,24 @@ async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count
     if not raw_roles:
         raw_roles = [target_roles]
 
-    search_permutations = list(raw_roles)
+    # Clean up generic terms if user submitted them
+    filtered_roles = []
+    for r in raw_roles:
+        if r.lower() not in ["specialist", "senior professional", "consultant", "professional"]:
+            filtered_roles.append(r)
+    if not filtered_roles:
+        filtered_roles = raw_roles
+
+    search_permutations = list(filtered_roles)
     if user_profile_json:
         try:
             prof_data = json.loads(user_profile_json)
-            for skill in prof_data.get("skills", [])[:4]:
+            for skill in prof_data.get("skills", [])[:5]:
                 if len(skill) > 2:
                     search_permutations.append(skill)
+            for rec in prof_data.get("recommended_roles", []):
+                if rec.lower() not in ["specialist", "senior professional", "consultant"]:
+                    search_permutations.append(rec)
         except Exception:
             pass
 
@@ -273,8 +284,8 @@ async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count
     is_sa_search = "south africa" in loc_lower or "johannesburg" in loc_lower or "cape town" in loc_lower or "pretoria" in loc_lower or "durban" in loc_lower
     adzuna_country = "za" if is_sa_search else "us"
 
-    for term in search_permutations[:5]:
-        if len(discovered_jobs) >= count * 10:
+    for term in search_permutations[:6]:
+        if len(discovered_jobs) >= count * 12:
             break
             
         encoded_query = urllib.parse.quote(term)
@@ -351,7 +362,7 @@ async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count
         except Exception:
             pass
 
-    return discovered_jobs[:max(count * 5, 15)]
+    return discovered_jobs[:max(count * 6, 20)]
 
 def init_career_database():
     with db_transaction_scope() as (_, cursor):
@@ -460,14 +471,17 @@ async def evaluate_single_job_async(job: Dict, profile_content: str, email: str)
     desc = job.get('job_description', '')
 
     eval_prompt = f"""
-    Act as an executive career matchmaker.
+    Act as a strict executive career matchmaker.
     Candidate Master Profile: {profile_content}
     Target Job Title: {role} at {company}
     Job Description: {desc}
 
-    Evaluate how well the candidate aligns with this role. Assign a realistic fit score from 60 to 99.
+    Rigorously evaluate if this job is a genuine match for the candidate's exact background. 
+    If there is a domain mismatch (e.g., IT administration for a biologist or finance sales for a technical engineer), you MUST set "is_valid_match": false and "fit_score": 25.
+    
     Return strict JSON (no markdown backticks, raw JSON only) containing these exact keys:
-    - "fit_score": integer (60 to 99)
+    - "is_valid_match": boolean (true/false)
+    - "fit_score": integer (0 to 99)
     - "match_rationale": Specific explanation connecting candidate background to this role.
     - "salary_benchmark": Estimated compensation range based on market rates.
     - "negotiation_strategy": Key leverage points for salary and scope.
@@ -483,15 +497,11 @@ async def evaluate_single_job_async(job: Dict, profile_content: str, email: str)
         jm_eval = regex_re.search(r'\{.*\}', raw_eval, regex_re.DOTALL)
         eval_data = json.loads(jm_eval.group(0) if jm_eval else raw_eval)
     except Exception:
-        # ROBUST FALLBACK: If Groq rate limits or fails with 502, generate a valid deterministic evaluation
-        eval_data = {
-            "fit_score": 85,
-            "match_rationale": f"Directly matched with verified live opening at {company} for {role}.",
-            "salary_benchmark": "Market Rate Verified via Live Index",
-            "negotiation_strategy": "Emphasize specialized domain delivery and impact.",
-            "cv_variant": f"- Aligned master profile with live requirements for {role}.",
-            "interview_playbook": "1. Technical Assessment\n2. Architecture Review\n3. Leadership Interview"
-        }
+        # If Groq fails, do NOT blindly accept; reject mismatched domains by default
+        return None
+
+    if not eval_data or not eval_data.get('is_valid_match', False) or safe_int(eval_data.get('fit_score'), 0) < 65:
+        return None
 
     safe_portal_url = sanitize_ats_url(raw_url, role, company)
     real_lead = discover_real_decision_maker(company, role, desc, target_location="Global")
@@ -503,7 +513,7 @@ async def evaluate_single_job_async(job: Dict, profile_content: str, email: str)
         "job_description": desc,
         "location": job.get('location', "Global"),
         "fit_score": safe_int(eval_data.get('fit_score'), 85),
-        "match_rationale": eval_data.get('match_rationale', "Live enterprise match complete."),
+        "match_rationale": eval_data.get('match_rationale', "Verified strict domain match."),
         "decision_maker_name": real_lead["name"],
         "decision_maker_title": real_lead["title"],
         "decision_maker_email": real_lead["email"],
@@ -532,7 +542,7 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
         email = u_dict["email"]
         profile_content = u_dict.get('profile_json', '')
 
-        raw_jobs = await fetch_verified_enterprise_jobs(target_roles, target_locations, requested_count * 5, user_profile_json=profile_content)
+        raw_jobs = await fetch_verified_enterprise_jobs(target_roles, target_locations, requested_count * 8, user_profile_json=profile_content)
         if not raw_jobs:
             continue
 
@@ -616,7 +626,7 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
                         ic.execute(deduct_sql, (email,))
                     saved_count += 1
 
-    await sse_broker.broadcast("career_swarm_update", {"status": "scouted", "message": f"Universal career swarm indexed {saved_count} verified matches."})
+    await sse_broker.broadcast("career_swarm_update", {"status": "scouted", "message": f"Universal career swarm indexed {saved_count} strict domain matches."})
 
 async def run_autonomous_ats_autopilot_worker(match_id: int, user_email: str, ats_url: str):
     steps = [
@@ -700,9 +710,9 @@ async def lifespan(app: FastAPI):
         scheduler.shutdown()
 
 app = FastAPI(
-    title="QuantCode Universal Career Swarm Resilient Apex",
-    version="12.0.0",
-    description="Resilient AI Error-Handling & Guaranteed Live Job Ingestion.",
+    title="QuantCode Universal Career Swarm Strict Gate Apex",
+    version="13.0.0",
+    description="Strict AI Domain Evaluation Gate with Zero Blind Fallbacks.",
     lifespan=lifespan
 )
 
@@ -826,7 +836,7 @@ def delete_career_match(match_id: int, user=Depends(verify_api_key_only)):
 @app.post("/api/v1/career/resume")
 async def save_career_resume(payload: ResumeInput, auth: dict = Depends(verify_api_key_only)):
     prompt = f"""
-    Analyze this master CV and extract core skills, seniority, domain expertise, and recommend optimal search titles.
+    Analyze this master CV and extract core skills, seniority, domain expertise, and recommend optimal domain-specific search titles (avoid generic words like 'Specialist' or 'Consultant').
     Return strict JSON:
     - "seniority": "Senior / Executive"
     - "primary_domain": "Software & Engineering / Scientific / Financial"
@@ -844,11 +854,11 @@ async def save_career_resume(payload: ResumeInput, auth: dict = Depends(verify_a
             "seniority": "Professional", 
             "primary_domain": "Technology & Science",
             "skills": ["Professional Expertise"],
-            "recommended_roles": ["Specialist", "Senior Professional", "Consultant"]
+            "recommended_roles": ["Software Engineer", "Research Scientist", "Technical Lead"]
         }
 
-    if "recommended_roles" not in parsed_profile:
-        parsed_profile["recommended_roles"] = ["Specialist", "Senior Professional", "Consultant"]
+    if "recommended_roles" not in parsed_profile or not parsed_profile["recommended_roles"]:
+        parsed_profile["recommended_roles"] = ["Software Engineer", "Research Scientist", "Technical Lead"]
 
     embedding_vector = generate_text_embedding(payload.resume_content)
     vector_str = "[" + ",".join(map(str, embedding_vector)) + "]"
@@ -864,7 +874,7 @@ async def save_career_resume(payload: ResumeInput, auth: dict = Depends(verify_a
         "status": "success", 
         "profile": parsed_profile, 
         "recommended_roles": parsed_profile.get("recommended_roles", []),
-        "message": "Resume indexed with resilient AI error-handling active.", 
+        "message": "Resume indexed with strict domain evaluation active.", 
         "credits_remaining": auth["credits"]
     }
 
