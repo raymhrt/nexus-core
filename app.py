@@ -36,7 +36,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='{"time": "%(asctime)s", "level": "%(levelname)s", "logger": "%(name)s", "message": "%(message)s"}'
 )
-logger = logging.getLogger("nexus-nomock-strict")
+logger = logging.getLogger("nexus-multitenant-swarm")
 
 SENTRY_DSN = os.getenv("SENTRY_DSN")
 if SENTRY_DSN:
@@ -143,7 +143,6 @@ def generate_text_embedding(text: str) -> List[float]:
         return [0.0] * 768
 
 def validate_real_world_job(job: dict) -> bool:
-    """Strict No-Mock Policy Guard: Filters out placeholder/test records."""
     required = ["job_title", "company_name", "ats_portal_url", "job_description"]
     for field in required:
         if not job.get(field):
@@ -250,7 +249,7 @@ def set_cached_ai_response(cache_key: str, response_text: str):
     except Exception:
         pass
 
-def call_groq_ai(prompt: str, system_prompt: str = "You are the 11-agent hyper-swarm intelligence core adhering strictly to real verified data.") -> str:
+def call_groq_ai(prompt: str, system_prompt: str = "You are the multi-tenant 11-agent intelligence core adhering strictly to real verified data.") -> str:
     if not GROQ_API_KEY:
         raise HTTPException(status_code=500, detail="GROQ_API_KEY not configured.")
     
@@ -282,8 +281,7 @@ def call_groq_ai(prompt: str, system_prompt: str = "You are the 11-agent hyper-s
             time.sleep(2.0)
     raise HTTPException(status_code=502, detail="Groq AI inference failed across all retry attempts.")
 
-async def eleven_agent_recursive_discovery_and_infiltration(target_roles: str, location: str, count: int, user_profile_json: Optional[str] = None) -> List[Dict]:
-    """Strict No-Mock Infiltration Engine: Fetches real live listings from Adzuna and RSS feeds."""
+async def multi_tenant_job_infiltration(target_roles: str, location: str, count: int, user_profile_json: Optional[str] = None) -> List[Dict]:
     raw_roles = [r.strip() for r in target_roles.split(",") if r.strip()]
     if not raw_roles:
         raw_roles = [target_roles]
@@ -299,14 +297,15 @@ async def eleven_agent_recursive_discovery_and_infiltration(target_roles: str, l
     if user_profile_json:
         try:
             prof_data = json.loads(user_profile_json)
-            for skill in prof_data.get("skills", [])[:15]:
-                if len(skill) > 3:
+            for skill in prof_data.get("skills", [])[:10]:
+                if len(skill) > 2:
                     search_permutations.append(skill)
             for rec in prof_data.get("recommended_roles", []):
                 search_permutations.append(rec)
         except Exception:
             pass
 
+    search_permutations.extend(["Research Scientist", "Engineer", "Specialist", "Manager", "Analyst"])
     search_permutations = list(dict.fromkeys([t for t in search_permutations if t]))
     
     discovered_jobs = []
@@ -316,8 +315,8 @@ async def eleven_agent_recursive_discovery_and_infiltration(target_roles: str, l
     is_sa_search = any(k in loc_lower for k in ["south africa", "johannesburg", "cape town", "pretoria", "durban"])
     adzuna_country = "za" if is_sa_search else "us"
 
-    for term in search_permutations[:12]:
-        if len(discovered_jobs) >= count * 35:
+    for term in search_permutations[:15]:
+        if len(discovered_jobs) >= count * 40:
             break
             
         encoded_query = urllib.parse.quote(term)
@@ -348,7 +347,7 @@ async def eleven_agent_recursive_discovery_and_infiltration(target_roles: str, l
             f"https://www.biospace.com/jobs/rss/?q={encoded_query}"
         ]:
             try:
-                res = requests.get(feed_base, timeout=6, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) NexusStrict/16.1"})
+                res = requests.get(feed_base, timeout=6, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) NexusMultiTenant/16.4"})
                 if res.status_code == 200:
                     from bs4 import BeautifulSoup
                     soup = BeautifulSoup(res.text, 'xml')
@@ -372,28 +371,28 @@ async def eleven_agent_recursive_discovery_and_infiltration(target_roles: str, l
             except Exception:
                 pass
 
-    return discovered_jobs[:max(count * 8, 30)]
+    return discovered_jobs[:max(count * 10, 40)]
 
-async def evaluate_job_via_11_agent_syndicate(job: Dict, profile_content: str, email: str) -> Optional[Dict]:
+async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email: str) -> Optional[Dict]:
     role = job.get('job_title', 'Target Role')
     company = job.get('company_name', 'Global Enterprise')
     raw_url = job.get('ats_portal_url', '#')
     desc = job.get('job_description', '')
 
     prompt = f"""
-    You are the 11-Agent Hyper-Swarm Intelligence Core. Strictly adhere to real verified data.
-    Candidate Master Profile: {profile_content}
+    You are the Multi-Tenant 11-Agent Intelligence Core evaluating this job specifically for user {email}.
+    Candidate Master Profile / CV: {profile_content}
     Target Job Title: {role} at {company}
     Job Description: {desc}
 
-    Execute rigorous multi-agent consensus. Return strict JSON (no markdown backticks, raw JSON only) with these exact keys:
-    - "is_valid_match": boolean (true if fit score >= 50 and domain aligns reasonably)
+    Execute rigorous multi-agent consensus tailored precisely to this user's distinct background. Return strict JSON (no markdown backticks, raw JSON only) with these exact keys:
+    - "is_valid_match": boolean (true if fit score >= 40 and domain aligns reasonably)
     - "fit_score": integer (0 to 99)
-    - "match_rationale": Specific 11-agent consensus explanation connecting candidate background to this role.
+    - "match_rationale": Specific consensus explanation connecting this specific user's background to this role.
     - "salary_benchmark": Estimated compensation range based on market rates.
-    - "negotiation_strategy": Key leverage points for salary and scope formulated by the Compensation Economist.
-    - "cv_variant": Markdown formatted tailored resume bullets highlighting achievements crafted by the Persona Architect.
-    - "interview_playbook": A comprehensive 3-stage Markdown interview prep guide designed by the 11-Agent Review Board.
+    - "negotiation_strategy": Key leverage points for salary and scope.
+    - "cv_variant": Markdown formatted tailored resume bullets highlighting achievements for this user.
+    - "interview_playbook": A comprehensive 3-stage Markdown interview prep guide.
     """
     
     eval_data = None
@@ -406,7 +405,7 @@ async def evaluate_job_via_11_agent_syndicate(job: Dict, profile_content: str, e
     except Exception:
         return None
 
-    if not eval_data or not eval_data.get('is_valid_match', False) or safe_int(eval_data.get('fit_score'), 0) < 50:
+    if not eval_data or not eval_data.get('is_valid_match', False) or safe_int(eval_data.get('fit_score'), 0) < 40:
         return None
 
     safe_portal_url = sanitize_ats_url(raw_url, role, company)
@@ -418,16 +417,16 @@ async def evaluate_job_via_11_agent_syndicate(job: Dict, profile_content: str, e
         "job_title": role,
         "job_description": desc,
         "location": job.get('location', "Global"),
-        "fit_score": safe_int(eval_data.get('fit_score'), 82),
-        "match_rationale": eval_data.get('match_rationale', "Verified 11-agent peer-reviewed domain match."),
+        "fit_score": safe_int(eval_data.get('fit_score'), 80),
+        "match_rationale": eval_data.get('match_rationale', "Verified peer-reviewed domain match for user profile."),
         "decision_maker_name": real_lead["name"],
         "decision_maker_title": real_lead["title"],
         "decision_maker_email": real_lead["email"],
-        "warm_intro_pathway": real_lead.get("pathway", "11-Agent Org-Chart Verified Direct Match"),
-        "outreach_draft": f"Hi {real_lead['name']},\n\nOur 11-agent intelligence core analyzed {company}'s opening for a {role}. With my deep domain background, I would welcome a discussion on how my expertise directly accelerates your objectives.",
+        "warm_intro_pathway": real_lead.get("pathway", "Org-Chart Verified Direct Match"),
+        "outreach_draft": f"Hi {real_lead['name']},\n\nOur intelligence core analyzed {company}'s opening for a {role}. With my specific background, I would welcome a discussion on how my expertise directly accelerates your objectives.",
         "salary_benchmark": eval_data.get('salary_benchmark', "Market Rate"),
         "negotiation_strategy": eval_data.get('negotiation_strategy', "Emphasize specialized domain delivery and execution velocity."),
-        "cv_variant": eval_data.get('cv_variant', "- Tailored impact bullets by Persona Architect."),
+        "cv_variant": eval_data.get('cv_variant', "- Tailored impact bullets for user profile."),
         "interview_playbook": eval_data.get('interview_playbook', "1. Technical Architecture Review\n2. Domain Expertise Deep-Dive\n3. Leadership & Vision Interview"),
         "ats_portal_url": safe_portal_url,
         "embedding": job_embedding
@@ -533,130 +532,117 @@ def verify_api_key_only(x_api_key: str = Header(...), request: Request = None):
         "ip": client_ip
     }
 
-async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_count: int = 3, target_locations: str = "Global", target_roles: str = "Engineer"):
+async def isolated_user_job_scouting_worker(user_email: str, requested_count: int, target_locations: str, target_roles: str):
     saved_count = 0
-    logger.info(f"🌐 Strict No-Mock 11-Agent Swarm triggered for user: {user_email} | Roles: {target_roles} | Location: {target_locations}")
+    logger.info(f"🌐 Multi-Tenant Swarm triggered for specific user: {user_email} | Roles: {target_roles} | Location: {target_locations}")
     
-    await sse_broker.broadcast("eleven_agent_telemetry", {"agent": "Global Web Cartographer", "message": f"Deploying strict no-mock infiltration across live enterprise domains..."})
+    await sse_broker.broadcast("multi_tenant_telemetry", {"user": user_email, "message": f"Infiltrating live listings tailored for {user_email}..."})
 
     try:
         with db_transaction_scope() as (_, cursor):
-            if user_email:
-                cursor.execute("SELECT email, profile_json FROM user_profiles WHERE email = %s" if DATABASE_URL else "SELECT email, profile_json FROM user_profiles WHERE email = ?", (user_email,))
-            else:
-                cursor.execute("SELECT email, profile_json FROM user_profiles")
-            users = cursor.fetchall()
+            cursor.execute("SELECT email, profile_json FROM user_profiles WHERE email = %s" if DATABASE_URL else "SELECT email, profile_json FROM user_profiles WHERE email = ?", (user_email,))
+            user_row = cursor.fetchone()
 
-        if not users:
-            logger.warning("⚠️ Swarm found zero user profiles in database! Please upload a resume first via POST /api/v1/career/resume.")
+        if not user_row:
+            logger.warning(f"⚠️ No profile found for user {user_email}. Aborting isolated swarm worker.")
             return
 
-        for user in users:
-            u_dict = dict(user) if not isinstance(user, dict) else user
-            email = u_dict["email"]
-            profile_content = u_dict.get('profile_json', '')
+        u_dict = dict(user_row) if not isinstance(user_row, dict) else user_row
+        profile_content = u_dict.get('profile_json', '')
 
-            logger.info(f"📥 Swarm fetching live verified jobs for {email}...")
-            raw_jobs = await eleven_agent_recursive_discovery_and_infiltration(target_roles, target_locations, requested_count * 15, user_profile_json=profile_content)
-            logger.info(f"🔍 Raw live jobs fetched: {len(raw_jobs)}")
+        raw_jobs = await multi_tenant_job_infiltration(target_roles, target_locations, requested_count * 15, user_profile_json=profile_content)
+        logger.info(f"🔍 Raw live jobs fetched for {user_email}: {len(raw_jobs)}")
 
-            await sse_broker.broadcast("eleven_agent_telemetry", {"agent": "Vector Aligner", "message": f"Fetched {len(raw_jobs)} live records. Executing strict peer review..."})
+        if not raw_jobs:
+            logger.warning(f"⚠️ Zero raw jobs found for {user_email}. Strict No-Mock Policy active.")
+            return
 
-            if not raw_jobs:
-                logger.warning("⚠️ External job infiltration returned 0 listings. Strict No-Mock Policy active: Zero bogus fallback jobs created.")
-                await sse_broker.broadcast("eleven_agent_telemetry", {"agent": "Strict Policy Enforcement", "message": "Zero verified live listings found. No mock data generated."})
-                continue
+        evaluation_tasks = [evaluate_job_for_specific_user(job, profile_content, user_email) for job in raw_jobs[:25]]
+        results = await asyncio.gather(*evaluation_tasks)
+        
+        valid_results = [m for m in results if m is not None]
+        logger.info(f"🧠 Peer Review approved {len(valid_results)} matches for {user_email}.")
+        
+        if not valid_results:
+            return
 
-            evaluation_tasks = [evaluate_job_via_11_agent_syndicate(job, profile_content, email) for job in raw_jobs[:25]]
-            results = await asyncio.gather(*evaluation_tasks)
-            
-            valid_results = [m for m in results if m is not None]
-            logger.info(f"🧠 Peer Review approved {len(valid_results)} out of {min(len(raw_jobs), 25)} jobs.")
-            
-            if not valid_results:
-                logger.warning("⚠️ Strict No-Mock Policy Active: Evaluator rejected all raw listings as domain-mismatched. Zero mock jobs created.")
-                await sse_broker.broadcast("eleven_agent_telemetry", {"agent": "Strict Policy Enforcement", "message": "All retrieved listings failed domain validation. Zero mock data ingested."})
-                continue
+        valid_results.sort(key=lambda x: x.get('fit_score', 0), reverse=True)
+        evaluated_matches = valid_results[:requested_count]
 
-            valid_results.sort(key=lambda x: x.get('fit_score', 0), reverse=True)
-            evaluated_matches = valid_results[:requested_count]
+        with db_transaction_scope() as (_, ic):
+            for match_item in evaluated_matches:
+                ic.execute("SELECT tier, credits_remaining FROM subscribers s JOIN subscriber_credits c ON s.email = c.email WHERE s.email = %s" if DATABASE_URL else "SELECT tier, credits_remaining FROM subscribers s JOIN subscriber_credits c ON s.email = c.email WHERE s.email = ?", (user_email,))
+                sub_row = ic.fetchone()
+                user_tier = sub_row["tier"] if isinstance(sub_row, dict) else sub_row[0]
 
-            await sse_broker.broadcast("eleven_agent_telemetry", {"agent": "Orchestrator Syndicate", "message": f"Successfully resolved verified decision-makers and generated bespoke executive playbooks for {len(evaluated_matches)} genuine matches."})
+                job_embedding_list = match_item.get('embedding', [0.0] * 768)
+                vector_str = "[" + ",".join(map(str, job_embedding_list)) + "]"
 
-            with db_transaction_scope() as (_, ic):
-                for match_item in evaluated_matches:
-                    ic.execute("SELECT tier, credits_remaining FROM subscribers s JOIN subscriber_credits c ON s.email = c.email WHERE s.email = %s" if DATABASE_URL else "SELECT tier, credits_remaining FROM subscribers s JOIN subscriber_credits c ON s.email = c.email WHERE s.email = ?", (email,))
-                    sub_row = ic.fetchone()
-                    user_tier = sub_row["tier"] if isinstance(sub_row, dict) else sub_row[0]
+                if DATABASE_URL:
+                    sql = """
+                        INSERT INTO job_matches (user_email, company_name, job_title, job_description, location, fit_score, match_rationale, decision_maker_name, decision_maker_title, decision_maker_email, warm_intro_pathway, outreach_draft, salary_benchmark, negotiation_strategy, cv_variant, interview_playbook, ats_portal_url, embedding, status)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::vector, 'discovered')
+                        ON CONFLICT DO NOTHING
+                        RETURNING id;
+                    """
+                    ic.execute(sql, (
+                        user_email,
+                        safe_str(match_item.get('company_name')),
+                        safe_str(match_item.get('job_title')),
+                        safe_str(match_item.get('job_description')),
+                        safe_str(match_item.get('location')),
+                        safe_int(match_item.get('fit_score'), 88),
+                        safe_str(match_item.get('match_rationale')),
+                        safe_str(match_item.get('decision_maker_name')),
+                        safe_str(match_item.get('decision_maker_title')),
+                        safe_str(match_item.get('decision_maker_email')),
+                        safe_str(match_item.get('warm_intro_pathway')),
+                        safe_str(match_item.get('outreach_draft')),
+                        safe_str(match_item.get('salary_benchmark')),
+                        safe_str(match_item.get('negotiation_strategy')),
+                        safe_str(match_item.get('cv_variant')),
+                        safe_str(match_item.get('interview_playbook')),
+                        safe_str(match_item.get('ats_portal_url')),
+                        vector_str
+                    ))
+                    inserted = (ic.fetchone() is not None)
+                else:
+                    sql = """
+                        INSERT OR IGNORE INTO job_matches (user_email, company_name, job_title, job_description, location, fit_score, match_rationale, decision_maker_name, decision_maker_title, decision_maker_email, warm_intro_pathway, outreach_draft, salary_benchmark, negotiation_strategy, cv_variant, interview_playbook, ats_portal_url, status)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'discovered')
+                    """
+                    ic.execute(sql, (
+                        user_email,
+                        safe_str(match_item.get('company_name')),
+                        safe_str(match_item.get('job_title')),
+                        safe_str(match_item.get('job_description')),
+                        safe_str(match_item.get('location')),
+                        safe_int(match_item.get('fit_score'), 88),
+                        safe_str(match_item.get('match_rationale')),
+                        safe_str(match_item.get('decision_maker_name')),
+                        safe_str(match_item.get('decision_maker_title')),
+                        safe_str(match_item.get('decision_maker_email')),
+                        safe_str(match_item.get('warm_intro_pathway')),
+                        safe_str(match_item.get('outreach_draft')),
+                        safe_str(match_item.get('salary_benchmark')),
+                        safe_str(match_item.get('negotiation_strategy')),
+                        safe_str(match_item.get('cv_variant')),
+                        safe_str(match_item.get('interview_playbook')),
+                        safe_str(match_item.get('ats_portal_url'))
+                    ))
+                    inserted = (ic.rowcount > 0)
 
-                    job_embedding_list = match_item.get('embedding', [0.0] * 768)
-                    vector_str = "[" + ",".join(map(str, job_embedding_list)) + "]"
+                if inserted:
+                    if user_tier != "enterprise":
+                        deduct_sql = "UPDATE subscriber_credits SET credits_remaining = credits_remaining - 1 WHERE email = %s" if DATABASE_URL else "UPDATE subscriber_credits SET credits_remaining = credits_remaining - 1 WHERE email = ?"
+                        ic.execute(deduct_sql, (user_email,))
+                    saved_count += 1
 
-                    if DATABASE_URL:
-                        sql = """
-                            INSERT INTO job_matches (user_email, company_name, job_title, job_description, location, fit_score, match_rationale, decision_maker_name, decision_maker_title, decision_maker_email, warm_intro_pathway, outreach_draft, salary_benchmark, negotiation_strategy, cv_variant, interview_playbook, ats_portal_url, embedding, status)
-                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::vector, 'discovered')
-                            ON CONFLICT DO NOTHING
-                            RETURNING id;
-                        """
-                        ic.execute(sql, (
-                            email,
-                            safe_str(match_item.get('company_name')),
-                            safe_str(match_item.get('job_title')),
-                            safe_str(match_item.get('job_description')),
-                            safe_str(match_item.get('location')),
-                            safe_int(match_item.get('fit_score'), 88),
-                            safe_str(match_item.get('match_rationale')),
-                            safe_str(match_item.get('decision_maker_name')),
-                            safe_str(match_item.get('decision_maker_title')),
-                            safe_str(match_item.get('decision_maker_email')),
-                            safe_str(match_item.get('warm_intro_pathway')),
-                            safe_str(match_item.get('outreach_draft')),
-                            safe_str(match_item.get('salary_benchmark')),
-                            safe_str(match_item.get('negotiation_strategy')),
-                            safe_str(match_item.get('cv_variant')),
-                            safe_str(match_item.get('interview_playbook')),
-                            safe_str(match_item.get('ats_portal_url')),
-                            vector_str
-                        ))
-                        inserted = (ic.fetchone() is not None)
-                    else:
-                        sql = """
-                            INSERT OR IGNORE INTO job_matches (user_email, company_name, job_title, job_description, location, fit_score, match_rationale, decision_maker_name, decision_maker_title, decision_maker_email, warm_intro_pathway, outreach_draft, salary_benchmark, negotiation_strategy, cv_variant, interview_playbook, ats_portal_url, status)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'discovered')
-                        """
-                        ic.execute(sql, (
-                            email,
-                            safe_str(match_item.get('company_name')),
-                            safe_str(match_item.get('job_title')),
-                            safe_str(match_item.get('job_description')),
-                            safe_str(match_item.get('location')),
-                            safe_int(match_item.get('fit_score'), 88),
-                            safe_str(match_item.get('match_rationale')),
-                            safe_str(match_item.get('decision_maker_name')),
-                            safe_str(match_item.get('decision_maker_title')),
-                            safe_str(match_item.get('decision_maker_email')),
-                            safe_str(match_item.get('warm_intro_pathway')),
-                            safe_str(match_item.get('outreach_draft')),
-                            safe_str(match_item.get('salary_benchmark')),
-                            safe_str(match_item.get('negotiation_strategy')),
-                            safe_str(match_item.get('cv_variant')),
-                            safe_str(match_item.get('interview_playbook')),
-                            safe_str(match_item.get('ats_portal_url'))
-                        ))
-                        inserted = (ic.rowcount > 0)
-
-                    if inserted:
-                        if user_tier != "enterprise":
-                            deduct_sql = "UPDATE subscriber_credits SET credits_remaining = credits_remaining - 1 WHERE email = %s" if DATABASE_URL else "UPDATE subscriber_credits SET credits_remaining = credits_remaining - 1 WHERE email = ?"
-                            ic.execute(deduct_sql, (email,))
-                        saved_count += 1
-
-        logger.info(f"✅ Swarm successfully indexed {saved_count} strict verified matches.")
-        await sse_broker.broadcast("career_swarm_update", {"status": "scouted", "message": f"Strict Swarm indexed {saved_count} verified matches."})
+        logger.info(f"✅ Multi-Tenant Swarm successfully indexed {saved_count} matches for {user_email}.")
+        await sse_broker.broadcast("career_swarm_update", {"user": user_email, "status": "scouted", "message": f"Indexed {saved_count} verified matches."})
 
     except Exception as e:
-        logger.error(f"❌ CRITICAL error in job_scouting_swarm_worker: {str(e)}", exc_info=True)
+        logger.error(f"❌ CRITICAL error in isolated worker for {user_email}: {str(e)}", exc_info=True)
 
 async def run_autonomous_ats_autopilot_worker(match_id: int, user_email: str, ats_url: str):
     steps = [
@@ -740,9 +726,9 @@ async def lifespan(app: FastAPI):
         scheduler.shutdown()
 
 app = FastAPI(
-    title="Strict No-Mock 11-Agent Career Civilization Apex",
-    version="16.2.0",
-    description="Strict No-Mock Policy Enforced: Real Live Data Infiltration & Domain Analysis.",
+    title="Multi-Tenant 11-Agent Career Civilization Apex",
+    version="16.4.0",
+    description="Multi-User Isolation with Distinct CV Embedding & Live Infiltration.",
     lifespan=lifespan
 )
 
@@ -866,7 +852,7 @@ def delete_career_match(match_id: int, user=Depends(verify_api_key_only)):
 @app.post("/api/v1/career/resume")
 async def save_career_resume(payload: ResumeInput, auth: dict = Depends(verify_api_key_only)):
     prompt = f"""
-    Analyze this master CV and extract core skills, seniority, domain expertise, and recommend optimal domain-specific search titles based strictly on the text provided. Do not assume software engineering unless explicitly present.
+    Analyze this master CV for user {auth['email']} and extract core skills, seniority, domain expertise, and recommend optimal domain-specific search titles based strictly on the text provided.
     Return strict JSON:
     - "seniority": "Senior / Executive"
     - "primary_domain": "Extracted Domain"
@@ -901,22 +887,22 @@ async def save_career_resume(payload: ResumeInput, auth: dict = Depends(verify_a
         "status": "success", 
         "profile": parsed_profile, 
         "recommended_roles": parsed_profile.get("recommended_roles", []),
-        "message": "Resume indexed with strict No-Mock domain extraction active.", 
+        "message": "User CV indexed successfully in multi-tenant isolation.", 
         "credits_remaining": auth["credits"]
     }
 
 @app.post("/api/v1/career/criteria")
 async def save_career_criteria(payload: CareerCriteriaInput, background_tasks: BackgroundTasks, auth: dict = Depends(verify_api_key_only)):
     background_tasks.add_task(
-        job_scouting_swarm_worker,
+        isolated_user_job_scouting_worker,
         user_email=auth["email"],
         requested_count=payload.job_count,
         target_locations=payload.locations,
         target_roles=payload.target_roles
     )
     
-    await sse_broker.broadcast("eleven_agent_launched", {"roles": payload.target_roles, "locations": payload.locations})
-    return {"status": "success", "message": "Strict No-Mock Swarm dispatched to background processor.", "credits_remaining": auth["credits"]}
+    await sse_broker.broadcast("multi_tenant_launched", {"user": auth["email"], "roles": payload.target_roles, "locations": payload.locations})
+    return {"status": "success", "message": f"Multi-Tenant Swarm dispatched in isolation for {auth['email']}.", "credits_remaining": auth["credits"]}
 
 @app.post("/api/v1/career/matches/{match_id}/dispatch")
 async def dispatch_career_outreach(match_id: int, payload: OutreachDispatchRequest, auth: dict = Depends(verify_api_key_only)):
@@ -946,8 +932,8 @@ async def dispatch_career_outreach(match_id: int, payload: OutreachDispatchReque
             raise HTTPException(status_code=502, detail=f"Email dispatch provider error: {res.text}")
             
     with db_transaction_scope() as (_, cursor):
-        update_sql = "UPDATE job_matches SET status = 'outreached' WHERE id = %s" if DATABASE_URL else "UPDATE job_matches SET status = 'outreached' WHERE id = ?"
-        cursor.execute(update_sql, (match_id,))
+        update_sql = "UPDATE job_matches SET status = 'outreached' WHERE id = %s AND user_email = %s" if DATABASE_URL else "UPDATE job_matches SET status = 'outreached' WHERE id = ? AND user_email = ?"
+        cursor.execute(update_sql, (match_id, auth["email"]))
 
     return {"status": "success", "message": f"Direct outreach email successfully sent to {target_email}!"}
 
@@ -963,12 +949,12 @@ async def trigger_ats_autopilot(match_id: int, background_tasks: BackgroundTasks
     
     ats_url = row["ats_portal_url"] if isinstance(row, dict) else row[0]
     background_tasks.add_task(run_autonomous_ats_autopilot_worker, match_id, auth["email"], ats_url)
-    return {"status": "success", "message": "ATS Auto-Pilot worker initiated. Streaming real-time telemetry."}
+    return {"status": "success", "message": "ATS Auto-Pilot worker initiated for user. Streaming real-time telemetry."}
 
 @app.post("/api/v1/career/interview/practice")
 async def trial_interview_practice(payload: TrialInterviewRequest, auth: dict = Depends(verify_api_key_only)):
-    prompt = f"Evaluate this interview response for the role '{payload.role}':\n\n{payload.answer}\n\nProvide a score out of 100 and constructive feedback."
-    feedback = call_groq_ai(prompt, system_prompt="You are the Lead Interview Coach of the Swarm.")
+    prompt = f"Evaluate this interview response for user {auth['email']} targeting role '{payload.role}':\n\n{payload.answer}\n\nProvide a score out of 100 and constructive feedback."
+    feedback = call_groq_ai(prompt, system_prompt="You are the Lead Interview Coach.")
     return {"status": "success", "score": "88/100", "feedback": feedback}
 
 @app.post("/api/v1/career/interview/session")
@@ -986,7 +972,7 @@ async def multi_turn_interview_session(payload: MultiTurnInterviewInput, auth: d
 
     history.append({"role": "user", "content": payload.user_message})
 
-    system_prompt = f"You are a rigorous hiring manager agent interviewing a candidate for {payload.role}. Challenge their assumptions and maintain a professional tone."
+    system_prompt = f"You are a rigorous hiring manager agent interviewing candidate {auth['email']} for {payload.role}. Challenge their assumptions and maintain a professional tone."
     
     prompt_chain = "\n".join([f"{m['role'].upper()}: {m['content']}" for m in history])
     full_prompt = f"{prompt_chain}\n\nInterviewer (AI):"
@@ -1009,7 +995,7 @@ async def multi_turn_interview_session(payload: MultiTurnInterviewInput, auth: d
 
 @app.post("/api/v1/career/negotiate")
 async def salary_negotiator(payload: NegotiatorRequest, auth: dict = Depends(verify_api_key_only)):
-    prompt = f"Initial Offer: {payload.offer_details}\nTarget Compensation: {payload.target_compensation}\n\nDraft a professional counter-offer script and negotiation strategy."
+    prompt = f"User: {auth['email']}\nInitial Offer: {payload.offer_details}\nTarget Compensation: {payload.target_compensation}\n\nDraft a professional counter-offer script and negotiation strategy."
     script = call_groq_ai(prompt, system_prompt="You are the Compensation Economist agent.")
     return {"status": "success", "script": script}
 
