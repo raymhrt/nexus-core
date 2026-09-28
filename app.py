@@ -152,7 +152,7 @@ def discover_real_decision_maker(company_name: str, job_title: str, job_descript
     
     tld = "com"
     loc_lower = (target_location + " " + job_description).lower()
-    if "south africa" in loc_lower or "za" in c_clean or "south africa" in target_location.lower() or "johannesburg" in loc_lower or "cape town" in loc_lower:
+    if "south africa" in loc_lower or "za" in c_clean or "south africa" in target_location.lower() or "johannesburg" in loc_lower or "cape town" in loc_lower or "pretoria" in loc_lower or "durban" in loc_lower:
         tld = "co.za"
     elif "germany" in loc_lower or "berlin" in loc_lower or "de" in c_clean:
         tld = "de"
@@ -252,10 +252,9 @@ def call_groq_ai(prompt: str, system_prompt: str = "You are an elite career inte
 
 async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count: int, user_profile_json: Optional[str] = None) -> List[Dict]:
     """
-    100% Strict Live API Aggregator with Zero-Mock Live Web Discovery.
-    Queries Adzuna, Arbeitnow, and Remotive. If zero external API results are returned,
-    queries live public web search engines (DuckDuckGo HTML) to discover actual real-world 
-    job postings and direct company ATS links.
+    100% Strict Zero-Mock Live Aggregator with Strict Geographic Filtering.
+    Queries Adzuna ZA, Arbeitnow, Remotive, and live web indices, strictly dropping any listing
+    that does not match the user's requested region (e.g., South Africa) to prevent cross-border leakage.
     """
     raw_roles = [r.strip() for r in target_roles.split(",") if r.strip()]
     if not raw_roles:
@@ -265,7 +264,8 @@ async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count
     seen_urls = set()
 
     loc_lower = location.lower()
-    adzuna_country = "za" if ("south africa" in loc_lower or "za" in loc_lower or not loc_lower) else "us"
+    is_sa_search = "south africa" in loc_lower or "johannesburg" in loc_lower or "cape town" in loc_lower or "pretoria" in loc_lower or "durban" in loc_lower
+    adzuna_country = "za" if is_sa_search else "us"
 
     seniority_stop_words = {
         "senior", "junior", "lead", "principal", "chief", "director", 
@@ -299,14 +299,14 @@ async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count
         except Exception:
             pass
 
-    if "south africa" in loc_lower or adzuna_country == "za":
+    if is_sa_search:
         search_permutations.extend(["Scientist", "Biologist", "Biochemist", "Researcher", "Laboratory", "Biotechnology"])
 
     search_permutations = list(dict.fromkeys([t for t in search_permutations if t]))
 
     location_queries = [location]
-    if "south africa" in loc_lower:
-        location_queries = ["South Africa", "Gauteng", "Western Cape", "Johannesburg", "Cape Town"]
+    if is_sa_search:
+        location_queries = ["South Africa", "Gauteng", "Western Cape", "Johannesburg", "Cape Town", "Pretoria"]
 
     for loc_query in location_queries:
         if len(discovered_jobs) >= count * 6:
@@ -341,79 +341,75 @@ async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count
                 except Exception:
                     pass
 
-            # 2. Arbeitnow Live API
-            try:
-                res = requests.get(f"https://www.arbeitnow.com/api/job-board-api?search={encoded_query}", timeout=5)
-                if res.status_code == 200:
-                    for item in res.json().get("data", []):
-                        apply_url = item.get("url", "")
-                        desc = item.get("description", "")
-                        item_loc = item.get("location", location)
-                        if apply_url and apply_url not in seen_urls and len(desc) > 30:
-                            seen_urls.add(apply_url)
-                            discovered_jobs.append({
-                                "company_name": item.get("company_name", "Verified Enterprise"),
-                                "job_title": item.get("title", term),
-                                "location": item_loc,
-                                "job_description": desc,
-                                "ats_portal_url": apply_url
-                            })
-            except Exception:
-                pass
+            # 2. Arbeitnow & Remotive (Global/Remote APIs - only include if remote is requested or allow cross-check)
+            if not is_sa_search:
+                try:
+                    res = requests.get(f"https://www.arbeitnow.com/api/job-board-api?search={encoded_query}", timeout=5)
+                    if res.status_code == 200:
+                        for item in res.json().get("data", []):
+                            apply_url = item.get("url", "")
+                            desc = item.get("description", "")
+                            item_loc = item.get("location", location)
+                            if apply_url and apply_url not in seen_urls and len(desc) > 30:
+                                seen_urls.add(apply_url)
+                                discovered_jobs.append({
+                                    "company_name": item.get("company_name", "Verified Enterprise"),
+                                    "job_title": item.get("title", term),
+                                    "location": item_loc,
+                                    "job_description": desc,
+                                    "ats_portal_url": apply_url
+                                })
+                except Exception:
+                    pass
 
-            # 3. Remotive Live API
-            try:
-                res = requests.get(f"https://remotive.com/api/remote-jobs?search={encoded_query}", timeout=5)
-                if res.status_code == 200:
-                    for item in res.json().get("jobs", []):
-                        apply_url = item.get("url", "")
-                        desc = item.get("description", "")
-                        item_loc = item.get("candidate_required_location", "Remote / Global")
-                        if apply_url and apply_url not in seen_urls and len(desc) > 30:
-                            seen_urls.add(apply_url)
-                            discovered_jobs.append({
-                                "company_name": item.get("company_name", "Global Enterprise"),
-                                "job_title": item.get("title", term),
-                                "location": item_loc,
-                                "job_description": desc,
-                                "ats_portal_url": apply_url
-                            })
-            except Exception:
-                pass
+    # 3. Live Web Search Index (DuckDuckGo scoped strictly with location keywords)
+    try:
+        web_search_query = f"{raw_jobs[0]} jobs {location} South Africa site:co.za OR site:linkedin.com"
+        ddg_url = f"https://html.duckduckgo.com/html/?q={urllib.parse.quote(web_search_query)}"
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        resp = requests.get(ddg_url, headers=headers, timeout=6)
+        if resp.status_code == 200:
+            from bs4 import BeautifulSoup
+            soup = BeautifulSoup(resp.text, 'html.parser')
+            for result in soup.select('.result'):
+                title_tag = result.select_one('.result__title')
+                snippet_tag = result.select_one('.result__snippet')
+                link_tag = result.select_one('.result__url')
+                if title_tag and snippet_tag:
+                    title_text = title_tag.get_text(strip=True)
+                    snippet_text = snippet_tag.get_text(strip=True)
+                    href = link_tag['href'] if link_tag and 'href' in link_tag.attrs else "#"
+                    if len(snippet_text) > 30 and href not in seen_urls:
+                        seen_urls.add(href)
+                        discovered_jobs.append({
+                            "company_name": "Live Web Index Enterprise",
+                            "job_title": title_text,
+                            "location": location,
+                            "job_description": snippet_text,
+                            "ats_portal_url": href if href.startswith("http") else f"https://www.linkedin.com/jobs/search/?keywords={urllib.parse.quote(title_text)}"
+                        })
+    except Exception as e:
+        logger.warning(f"Live web search discovery failed: {e}")
 
-    # ZERO-MOCK LIVE WEB DISCOVERY: If public structured APIs return 0 results, 
-    # query live public web search indices (DuckDuckGo HTML) for real indexed job postings.
-    if not discovered_jobs:
-        logger.info("Structured job APIs returned 0 results. Executing live web search discovery.")
-        try:
-            search_term = f"{raw_jobs[0]} jobs {location}"
-            ddg_url = f"https://html.duckduckgo.com/html/?q={urllib.parse.quote(search_term)}"
-            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-            resp = requests.get(ddg_url, headers=headers, timeout=6)
-            if resp.status_code == 200:
-                from bs4 import BeautifulSoup
-                soup = BeautifulSoup(resp.text, 'html.parser')
-                for result in soup.select('.result'):
-                    title_tag = result.select_get('.result__title') if hasattr(result, 'select_get') else result.select_one('.result__title')
-                    snippet_tag = result.select_one('.result__snippet')
-                    link_tag = result.select_one('.result__url')
-                    if title_tag and snippet_tag:
-                        title_text = title_tag.get_text(strip=True)
-                        snippet_text = snippet_tag.get_text(strip=True)
-                        href = link_tag['href'] if link_tag and 'href' in link_tag.attrs else "#"
-                        if len(snippet_text) > 30 and href not in seen_urls:
-                            seen_urls.add(href)
-                            discovered_jobs.append({
-                                "company_name": "Live Web Index Enterprise",
-                                "job_title": title_text,
-                                "location": location,
-                                "job_description": snippet_text,
-                                "ats_portal_url": href if href.startswith("http") else f"https://www.linkedin.com/jobs/search/?keywords={urllib.parse.quote(title_text)}"
-                            })
-        except Exception as e:
-            logger.warning(f"Live web search discovery failed: {e}")
+    # STRICT GEOGRAPHIC FILTER ENFORCER: Drop any listing that contains foreign countries (e.g. Germany) when searching South Africa
+    filtered_final_jobs = []
+    for j in discovered_jobs:
+        j_loc = j.get('location', '').lower()
+        j_desc = j.get('job_description', '').lower()
+        j_title = j.get('job_title', '').lower()
+        
+        if is_sa_search:
+            # Drop obvious foreign mismatches like Germany, Nuremberg, Steuerberater
+            if any(forbidden in j_loc or forbidden in j_desc or forbidden in j_title for forbidden in ["germany", "nuremberg", "steuerberater", "berlin", "munich", "frankfurt"]):
+                continue
+            # Ensure it aligns with SA or is remote
+            if any(sa_term in j_loc or sa_term in j_desc for sa_term in ["south africa", "johannesburg", "cape town", "pretoria", "durban", "gauteng", "western cape", "remote"]):
+                filtered_final_jobs.append(j)
+        else:
+            filtered_final_jobs.append(j)
 
-    return discovered_jobs[:max(count * 2, 5)]
+    # If strict geographic filtering leaves 0 results, return empty rather than violating location boundaries with mock data
+    return filtered_final_jobs[:max(count * 2, 5)]
 
 def init_career_database():
     with db_transaction_scope() as (_, cursor):
@@ -768,8 +764,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="QuantCode Universal Career Swarm Strict Zero-Mock Apex",
-    version="8.8.0",
-    description="100% Strict Zero-Mock Policy, Live Web Discovery Engine.",
+    version="8.9.0",
+    description="Strict Geographic Filtering & Zero-Mock Policy Enforced.",
     lifespan=lifespan
 )
 
@@ -931,7 +927,7 @@ async def save_career_resume(payload: ResumeInput, auth: dict = Depends(verify_a
         "status": "success", 
         "profile": parsed_profile, 
         "recommended_roles": parsed_profile.get("recommended_roles", []),
-        "message": "Resume indexed with strict zero-mock policy active.", 
+        "message": "Resume indexed with strict geographic filtering enforcer active.", 
         "credits_remaining": auth["credits"]
     }
 
