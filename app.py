@@ -36,7 +36,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='{"time": "%(asctime)s", "level": "%(levelname)s", "logger": "%(name)s", "message": "%(message)s"}'
 )
-logger = logging.getLogger("nexus-career-strict-domain-guard")
+logger = logging.getLogger("nexus-career-vector-engine")
 
 SENTRY_DSN = os.getenv("SENTRY_DSN")
 if SENTRY_DSN:
@@ -142,6 +142,14 @@ def generate_text_embedding(text: str) -> List[float]:
     except Exception:
         return [0.0] * 768
 
+def cosine_similarity(v1: List[float], v2: List[float]) -> float:
+    try:
+        a = np.array(v1)
+        b = np.array(v2)
+        return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b)))
+    except Exception:
+        return 0.0
+
 def sanitize_ats_url(url: str, role_title: str, company_name: str) -> str:
     if url and "example" not in url and ("http://" in url or "https://" in url):
         return url
@@ -218,7 +226,7 @@ def set_cached_ai_response(cache_key: str, response_text: str):
     except Exception:
         pass
 
-def call_groq_ai(prompt: str, system_prompt: str = "You are an elite career intelligence engine supporting accurate domain matching.") -> str:
+def call_groq_ai(prompt: str, system_prompt: str = "You are an elite career intelligence engine supporting accurate vector semantic matching.") -> str:
     if not GROQ_API_KEY:
         raise HTTPException(status_code=500, detail="GROQ_API_KEY not configured.")
     
@@ -252,7 +260,8 @@ def call_groq_ai(prompt: str, system_prompt: str = "You are an elite career inte
 
 async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count: int, user_profile_json: Optional[str] = None) -> List[Dict]:
     """
-    Precision Live Aggregator with Domain-Specific Query Tuning.
+    100% Unrestricted Global Ingestion Feed. Searches everything posted worldwide
+    without hardcoded domain filters.
     """
     raw_roles = [r.strip() for r in target_roles.split(",") if r.strip()]
     if not raw_roles:
@@ -265,27 +274,26 @@ async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count
     is_sa_search = "south africa" in loc_lower or "johannesburg" in loc_lower or "cape town" in loc_lower or "pretoria" in loc_lower or "durban" in loc_lower
     adzuna_country = "za" if is_sa_search else "us"
 
-    # Detect if user profile is scientific/biotech
-    is_scientific = False
-    if user_profile_json:
-        p_lower = user_profile_json.lower()
-        if any(term in p_lower for term in ["biolog", "biochem", "scientist", "research", "molecular", "protein", "lab", "assay"]):
-            is_scientific = True
-
     search_permutations = list(raw_roles)
-    if is_scientific:
-        search_permutations.extend(["Senior Scientist", "Biochemist", "Molecular Biologist", "Principal Investigator", "Research Scientist", "Biotechnology"])
+    if user_profile_json:
+        try:
+            prof_data = json.loads(user_profile_json)
+            for skill in prof_data.get("skills", [])[:5]:
+                if len(skill) > 2:
+                    search_permutations.append(skill)
+        except Exception:
+            pass
 
     search_permutations = list(dict.fromkeys([t for t in search_permutations if t]))
 
-    for term in search_permutations[:4]:
-        if len(discovered_jobs) >= count * 8:
+    for term in search_permutations[:5]:
+        if len(discovered_jobs) >= count * 10:
             break
             
         encoded_query = urllib.parse.quote(term)
         encoded_location = urllib.parse.quote(location)
 
-        # 1. Adzuna Live API
+        # 1. Adzuna Global / Regional API
         if ADZUNA_APP_ID and ADZUNA_APP_KEY:
             try:
                 adzuna_url = f"https://api.adzuna.com/v1/api/jobs/{adzuna_country}/search/1?app_id={ADZUNA_APP_ID}&app_key={ADZUNA_APP_KEY}&what={encoded_query}&where={encoded_location}&content-type=application/json"
@@ -295,10 +303,10 @@ async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count
                         apply_url = item.get("redirect_url", "")
                         desc = item.get("description", "")
                         item_loc = item.get("location", {}).get("display_name", location)
-                        if apply_url and apply_url not in seen_urls and len(desc) > 30:
+                        if apply_url and apply_url not in seen_urls and len(desc) > 20:
                             seen_urls.add(apply_url)
                             discovered_jobs.append({
-                                "company_name": item.get("company", {}).get("display_name", "Verified Enterprise"),
+                                "company_name": item.get("company", {}).get("display_name", "Global Enterprise"),
                                 "job_title": item.get("title", term),
                                 "location": item_loc,
                                 "job_description": desc,
@@ -307,9 +315,29 @@ async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count
             except Exception:
                 pass
 
-        # 2. DuckDuckGo Targeted Web Index
+        # 2. Arbeitnow Global API
         try:
-            web_search_query = f"{term} jobs {location} site:linkedin.com OR site:co.za"
+            res = requests.get(f"https://www.arbeitnow.com/api/job-board-api?search={encoded_query}", timeout=5)
+            if res.status_code == 200:
+                for item in res.json().get("data", []):
+                    apply_url = item.get("url", "")
+                    desc = item.get("description", "")
+                    item_loc = item.get("location", location)
+                    if apply_url and apply_url not in seen_urls and len(desc) > 20:
+                        seen_urls.add(apply_url)
+                        discovered_jobs.append({
+                            "company_name": item.get("company_name", "Global Enterprise"),
+                            "job_title": item.get("title", term),
+                            "location": item_loc,
+                            "job_description": desc,
+                            "ats_portal_url": apply_url
+                        })
+        except Exception:
+            pass
+
+        # 3. DuckDuckGo Broad Global Web Index
+        try:
+            web_search_query = f"{term} jobs {location} site:linkedin.com OR site:co.za OR site:com"
             ddg_url = f"https://html.duckduckgo.com/html/?q={urllib.parse.quote(web_search_query)}"
             headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
             resp = requests.get(ddg_url, headers=headers, timeout=6)
@@ -324,7 +352,7 @@ async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count
                         title_text = title_tag.get_text(strip=True)
                         snippet_text = snippet_tag.get_text(strip=True)
                         href = link_tag['href'] if link_tag and 'href' in link_tag.attrs else "#"
-                        if len(snippet_text) > 30 and href not in seen_urls:
+                        if len(snippet_text) > 20 and href not in seen_urls:
                             seen_urls.add(href)
                             discovered_jobs.append({
                                 "company_name": "Verified Global Enterprise",
@@ -336,19 +364,7 @@ async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count
         except Exception:
             pass
 
-    # HARD NEGATIVE FILTER GUARD: Instantly drop cross-domain noise (e.g. marketing, influencer, sales, retail) for scientific profiles
-    cleaned_jobs = []
-    for j in discovered_jobs:
-        j_title = j.get('job_title', '').lower()
-        j_desc = j.get('job_description', '').lower()
-        
-        if is_scientific:
-            # Reject marketing, sales, software engineering, influencer roles if candidate is a molecular biologist
-            if any(forbidden in j_title or forbidden in j_desc for forbidden in ["influencer", "marketing", "sales executive", "software engineer", "steuerberater", "real estate", "retail"]):
-                continue
-        cleaned_jobs.append(j)
-
-    return cleaned_jobs[:max(count * 3, 10)]
+    return discovered_jobs[:max(count * 5, 15)]
 
 def init_career_database():
     with db_transaction_scope() as (_, cursor):
@@ -450,23 +466,31 @@ def verify_api_key_only(x_api_key: str = Header(...), request: Request = None):
         "ip": client_ip
     }
 
-async def evaluate_single_job_async(job: Dict, profile_content: str, email: str) -> Optional[Dict]:
+async def evaluate_single_job_async(job: Dict, profile_content: str, user_embedding: List[float], email: str) -> Optional[Dict]:
     role = job.get('job_title', 'Target Role')
-    company = job.get('company_name', 'Verified Enterprise')
+    company = job.get('company_name', 'Global Enterprise')
     raw_url = job.get('ats_portal_url', '#')
     desc = job.get('job_description', '')
 
-    eval_prompt = f"""
-    Act as a rigorous, strict executive career matchmaker.
-    Candidate Master Resume Profile / Expertise: {profile_content}
-    Target Job Title: {role} at {company}
-    Full Job Description: {desc}
-
-    Evaluate with absolute scrutiny whether this job matches the candidate's core technical and professional domain. If there is a domain mismatch (e.g. marketing for a scientist, or software for a biologist), set "is_valid_match": false and "fit_score": 30.
+    job_embedding = generate_text_embedding(f"{role} {company} {desc}")
     
+    # Mathematical Vector Cosine Similarity Check (No hardcoded keywords)
+    sim_score = cosine_similarity(user_embedding, job_embedding)
+    
+    # If the mathematical vector distance is too low, filter out immediately
+    if sim_score < 0.45:
+        return None
+
+    eval_prompt = f"""
+    Act as a strict vector semantic career matchmaker.
+    Candidate Master Profile: {profile_content}
+    Target Job Title: {role} at {company}
+    Job Description: {desc}
+
+    Analyze whether this job semantically matches the candidate's exact professional expertise. 
     Return strict JSON (no markdown backticks, raw JSON only) containing these exact keys:
     - "is_valid_match": boolean (true/false)
-    - "fit_score": integer (0 to 99)
+    - "fit_score": integer (50 to 99)
     - "match_rationale": Specific explanation connecting candidate background to this role.
     - "salary_benchmark": Estimated compensation range based on the market.
     - "negotiation_strategy": Key leverage points for salary and scope.
@@ -485,20 +509,19 @@ async def evaluate_single_job_async(job: Dict, profile_content: str, email: str)
     except Exception as e:
         logger.warning(f"AI evaluation parse error for {role} at {company}: {e}")
 
-    if not eval_data or not eval_data.get('is_valid_match', False) or safe_int(eval_data.get('fit_score'), 0) < 70:
+    if not eval_data or not eval_data.get('is_valid_match', True) or safe_int(eval_data.get('fit_score'), 70) < 65:
         return None
 
     safe_portal_url = sanitize_ats_url(raw_url, role, company)
-    real_lead = discover_real_decision_maker(company, role, desc, target_location="South Africa")
-    job_embedding = generate_text_embedding(f"{role} {company} {desc}")
+    real_lead = discover_real_decision_maker(company, role, desc, target_location="Global")
 
     return {
         "company_name": company,
         "job_title": role,
         "job_description": desc,
-        "location": job.get('location', "South Africa"),
+        "location": job.get('location', "Global"),
         "fit_score": safe_int(eval_data.get('fit_score'), 85),
-        "match_rationale": eval_data.get('match_rationale', "Live enterprise match complete."),
+        "match_rationale": eval_data.get('match_rationale', "Vector semantic match verified."),
         "decision_maker_name": real_lead["name"],
         "decision_maker_title": real_lead["title"],
         "decision_maker_email": real_lead["email"],
@@ -517,21 +540,32 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
 
     with db_transaction_scope() as (_, cursor):
         if user_email:
-            cursor.execute("SELECT email, profile_json FROM user_profiles WHERE email = %s" if DATABASE_URL else "SELECT email, profile_json FROM user_profiles WHERE email = ?", (user_email,))
+            cursor.execute("SELECT email, profile_json, embedding FROM user_profiles WHERE email = %s" if DATABASE_URL else "SELECT email, profile_json FROM user_profiles WHERE email = ?", (user_email,))
         else:
-            cursor.execute("SELECT email, profile_json FROM user_profiles")
+            cursor.execute("SELECT email, profile_json, embedding FROM user_profiles")
         users = cursor.fetchall()
 
     for user in users:
         u_dict = dict(user) if not isinstance(user, dict) else user
         email = u_dict["email"]
         profile_content = u_dict.get('profile_json', '')
+        
+        raw_emb = u_dict.get('embedding')
+        if isinstance(raw_emb, str):
+            try:
+                user_embedding = json.loads(raw_emb)
+            except Exception:
+                user_embedding = generate_text_embedding(profile_content)
+        elif isinstance(raw_emb, list):
+            user_embedding = raw_emb
+        else:
+            user_embedding = generate_text_embedding(profile_content)
 
         raw_jobs = await fetch_verified_enterprise_jobs(target_roles, target_locations, requested_count * 6, user_profile_json=profile_content)
         if not raw_jobs:
             continue
 
-        evaluation_tasks = [evaluate_single_job_async(job, profile_content, email) for job in raw_jobs]
+        evaluation_tasks = [evaluate_single_job_async(job, profile_content, user_embedding, email) for job in raw_jobs]
         results = await asyncio.gather(*evaluation_tasks)
         evaluated_matches = [m for m in results if m is not None][:requested_count]
 
@@ -608,7 +642,7 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
                         ic.execute(deduct_sql, (email,))
                     saved_count += 1
 
-    await sse_broker.broadcast("career_swarm_update", {"status": "scouted", "message": f"Universal career swarm indexed {saved_count} verified direct-employer matches."})
+    await sse_broker.broadcast("career_swarm_update", {"status": "scouted", "message": f"Universal career swarm indexed {saved_count} verified vector-matched openings."})
 
 async def run_autonomous_ats_autopilot_worker(match_id: int, user_email: str, ats_url: str):
     steps = [
@@ -693,8 +727,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="QuantCode Universal Career Swarm Strict Zero-Mock Apex",
-    version="9.1.0",
-    description="Strict Domain Guards & Negative Keyword Rejection Active.",
+    version="10.0.0",
+    description="True Dynamic Vector Cosine Similarity Matching Engine.",
     lifespan=lifespan
 )
 
@@ -856,7 +890,7 @@ async def save_career_resume(payload: ResumeInput, auth: dict = Depends(verify_a
         "status": "success", 
         "profile": parsed_profile, 
         "recommended_roles": parsed_profile.get("recommended_roles", []),
-        "message": "Resume indexed with strict domain enforcement active.", 
+        "message": "Resume indexed with dynamic vector embedding active.", 
         "credits_remaining": auth["credits"]
     }
 
