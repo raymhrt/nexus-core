@@ -301,7 +301,7 @@ async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count
     adzuna_country = "za" if is_sa_search else "us"
 
     for term in search_permutations[:8]:
-        if len(discovered_jobs) >= count * 20:
+        if len(discovered_jobs) >= count * 25:
             break
             
         encoded_query = urllib.parse.quote(term)
@@ -314,7 +314,7 @@ async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count
             f"https://www.biospace.com/jobs/rss/?q={encoded_query}"
         ]:
             try:
-                res = requests.get(feed_base, timeout=5, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+                res = requests.get(feed_base, timeout=6, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
                 if res.status_code == 200:
                     from bs4 import BeautifulSoup
                     soup = BeautifulSoup(res.text, 'xml')
@@ -326,19 +326,23 @@ async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count
                         
                         if title and link:
                             job_item = {
-                                "company_name": "Global Life Sciences & Pharma Institution",
+                                "company_name": "Global Life Sciences & Biotechnology Institution",
                                 "job_title": title.get_text(strip=True),
                                 "location": pub_loc.get_text(strip=True) if pub_loc else location,
                                 "job_description": desc.get_text(strip=True) if desc else title.get_text(strip=True),
                                 "ats_portal_url": link.get_text(strip=True)
                             }
+                            title_desc_blob = f"{job_item['job_title']} {job_item['job_description']}".lower()
+                            if any(tech in title_desc_blob for tech in ["react", "nodejs", "full stack", "software engineer", "frontend", "backend"]) and not any(bio in title_desc_blob for bio in ["bio", "cheminformatics", "computational biology", "molecular"]):
+                                continue
+
                             if validate_real_world_job(job_item) and job_item["ats_portal_url"] not in seen_urls:
                                 seen_urls.add(job_item["ats_portal_url"])
                                 discovered_jobs.append(job_item)
             except Exception:
                 pass
 
-        # 2. Adzuna Enterprise & Executive API
+        # 2. Adzuna Global / Regional Executive Search API
         if ADZUNA_APP_ID and ADZUNA_APP_KEY:
             try:
                 adzuna_url = f"https://api.adzuna.com/v1/api/jobs/{adzuna_country}/search/1?app_id={ADZUNA_APP_ID}&app_key={ADZUNA_APP_KEY}&what={encoded_query}&where={encoded_location}&content-type=application/json"
@@ -346,7 +350,7 @@ async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count
                 if res.status_code == 200:
                     for item in res.json().get("results", []):
                         job_item = {
-                            "company_name": item.get("company", {}).get("display_name", "Enterprise Global Corp"),
+                            "company_name": item.get("company", {}).get("display_name", "Global Enterprise Corp"),
                             "job_title": item.get("title", term),
                             "location": item.get("location", {}).get("display_name", location),
                             "job_description": item.get("description", ""),
@@ -357,24 +361,6 @@ async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count
                             discovered_jobs.append(job_item)
             except Exception:
                 pass
-
-        # 3. Arbeitnow Global Tech & Research Board
-        try:
-            res = requests.get(f"https://www.arbeitnow.com/api/job-board-api?search={encoded_query}", timeout=5)
-            if res.status_code == 200:
-                for item in res.json().get("data", []):
-                    job_item = {
-                        "company_name": item.get("company_name", "Global Enterprise"),
-                        "job_title": item.get("title", term),
-                        "location": item.get("location", location),
-                        "job_description": item.get("description", ""),
-                        "ats_portal_url": item.get("url", "")
-                    }
-                    if validate_real_world_job(job_item) and job_item["ats_portal_url"] not in seen_urls:
-                        seen_urls.add(job_item["ats_portal_url"])
-                        discovered_jobs.append(job_item)
-        except Exception:
-            pass
 
     return discovered_jobs[:max(count * 8, 25)]
 
@@ -490,9 +476,9 @@ async def evaluate_single_job_async(job: Dict, profile_content: str, email: str)
     Target Job Title: {role} at {company}
     Job Description: {desc}
 
-    Evaluate if this job is a reasonable professional match for the candidate's background. 
+    Evaluate if this job is a rigorous professional match for the candidate's exact domain expertise. 
     Return strict JSON (no markdown backticks, raw JSON only) containing these exact keys:
-    - "is_valid_match": boolean (true if fit score >= 55)
+    - "is_valid_match": boolean (true if fit score >= 65 and domain aligns precisely)
     - "fit_score": integer (0 to 99)
     - "match_rationale": Specific explanation connecting candidate background to this role.
     - "salary_benchmark": Estimated compensation range based on market rates.
@@ -511,7 +497,7 @@ async def evaluate_single_job_async(job: Dict, profile_content: str, email: str)
     except Exception:
         return None
 
-    if not eval_data or not eval_data.get('is_valid_match', False) or safe_int(eval_data.get('fit_score'), 0) < 55:
+    if not eval_data or not eval_data.get('is_valid_match', False) or safe_int(eval_data.get('fit_score'), 0) < 65:
         return None
 
     safe_portal_url = sanitize_ats_url(raw_url, role, company)
@@ -562,53 +548,32 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
             profile_content = u_dict.get('profile_json', '')
 
             logger.info(f"📥 Fetching raw verified jobs for {email}...")
-            raw_jobs = await fetch_verified_enterprise_jobs(target_roles, target_locations, requested_count * 10, user_profile_json=profile_content)
+            raw_jobs = await fetch_verified_enterprise_jobs(target_roles, target_locations, requested_count * 15, user_profile_json=profile_content)
             logger.info(f"🔍 Raw verified jobs fetched: {len(raw_jobs)}")
 
             await sse_broker.broadcast("swarm_telemetry", {"agent": "Vector Alignment Agent", "message": f"Fetched {len(raw_jobs)} raw records. Executing semantic vector alignment & skill intersection..."})
 
             if not raw_jobs:
                 logger.warning("⚠️ External job APIs returned 0 listings.")
+                await sse_broker.broadcast("swarm_telemetry", {"agent": "Strict Policy Enforcement", "message": "Zero verified listings met the strict domain threshold. No mock data generated."})
                 continue
 
-            evaluation_tasks = [evaluate_single_job_async(job, profile_content, email) for job in raw_jobs[:20]]
+            evaluation_tasks = [evaluate_single_job_async(job, profile_content, email) for job in raw_jobs[:25]]
             results = await asyncio.gather(*evaluation_tasks)
             
             valid_results = [m for m in results if m is not None]
-            logger.info(f"🧠 AI Evaluator approved {len(valid_results)} out of {min(len(raw_jobs), 20)} jobs.")
+            logger.info(f"🧠 AI Evaluator approved {len(valid_results)} out of {min(len(raw_jobs), 25)} jobs.")
             
-            if not valid_results and raw_jobs:
-                await sse_broker.broadcast("swarm_telemetry", {"agent": "Executive Synthesizer", "message": f"Synthesizing high-confidence executive placement record for target domain..."})
-                fallback_job = raw_jobs[0]
-                role = fallback_job.get('job_title', target_roles)
-                company = fallback_job.get('company_name', 'Global Biotechnology Research Institute')
-                desc = fallback_job.get('job_description', 'Directing core technical initiatives and executive architecture.')
-                real_lead = discover_real_decision_maker(company, role, desc, target_location=target_locations)
-                
-                valid_results = [{
-                    "company_name": company,
-                    "job_title": role,
-                    "job_description": desc,
-                    "location": fallback_job.get('location', target_locations),
-                    "fit_score": 94,
-                    "match_rationale": "Exceptional vector alignment with candidate's professional expertise and technical delivery record.",
-                    "decision_maker_name": real_lead["name"],
-                    "decision_maker_title": real_lead["title"],
-                    "decision_maker_email": real_lead["email"],
-                    "warm_intro_pathway": real_lead.get("pathway", "Verified Executive Domain Match"),
-                    "outreach_draft": f"Dear {real_lead['name']},\n\nI've been following {company}'s pioneering work. Given my extensive background leading engineering and research initiatives, I would welcome an executive dialogue regarding your strategic goals.",
-                    "salary_benchmark": "$180,000 - $240,000 + Executive Equity",
-                    "negotiation_strategy": "Leverage domain rarity, leadership track record, and technical mastery.",
-                    "cv_variant": "- Headed multi-disciplinary teams focusing on high-impact scalable delivery.\n- Published seminal papers and architectural frameworks.",
-                    "interview_playbook": "1. Executive Technical Architecture Review\n2. Cross-Functional R&D Leadership Panel\n3. C-Suite Strategic Vision Alignment",
-                    "ats_portal_url": sanitize_ats_url(fallback_job.get('ats_portal_url', ''), role, company),
-                    "embedding": generate_text_embedding(f"{role} {company} {desc}")
-                }]
+            # STRICT NO-MOCK POLICY: If AI approves 0 jobs, we do NOT fall back to fake software jobs. We record 0 matches.
+            if not valid_results:
+                logger.warning("⚠️ Strict No-Mock Policy Active: AI evaluator rejected all raw listings as domain-mismatched. Zero bogus fallback jobs created.")
+                await sse_broker.broadcast("swarm_telemetry", {"agent": "Strict Policy Enforcement", "message": "All retrieved listings failed strict domain validation. Zero mock data ingested."})
+                continue
 
             valid_results.sort(key=lambda x: x.get('fit_score', 0), reverse=True)
             evaluated_matches = valid_results[:requested_count]
 
-            await sse_broker.broadcast("swarm_telemetry", {"agent": "Recruiter Agent", "message": f"Successfully resolved verified decision-makers and generated bespoke executive playbooks for {len(evaluated_matches)} matches."})
+            await sse_broker.broadcast("swarm_telemetry", {"agent": "Recruiter Agent", "message": f"Successfully resolved verified decision-makers and generated bespoke executive playbooks for {len(evaluated_matches)} genuine matches."})
 
             with db_transaction_scope() as (_, ic):
                 for match_item in evaluated_matches:
@@ -679,8 +644,8 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
                             ic.execute(deduct_sql, (email,))
                         saved_count += 1
 
-        logger.info(f"✅ Swarm Worker successfully indexed {saved_count} matches.")
-        await sse_broker.broadcast("career_swarm_update", {"status": "scouted", "message": f"Universal career swarm indexed {saved_count} strict domain matches."})
+        logger.info(f"✅ Swarm Worker successfully indexed {saved_count} credible matches.")
+        await sse_broker.broadcast("career_swarm_update", {"status": "scouted", "message": f"Universal career swarm indexed {saved_count} strict domain-verified matches."})
 
     except Exception as e:
         logger.error(f"❌ CRITICAL error in job_scouting_swarm_worker: {str(e)}", exc_info=True)
