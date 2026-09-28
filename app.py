@@ -36,7 +36,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='{"time": "%(asctime)s", "level": "%(levelname)s", "logger": "%(name)s", "message": "%(message)s"}'
 )
-logger = logging.getLogger("nexus-career-zeromock-unrestricted")
+logger = logging.getLogger("nexus-career-strict-domain-guard")
 
 SENTRY_DSN = os.getenv("SENTRY_DSN")
 if SENTRY_DSN:
@@ -232,7 +232,7 @@ def call_groq_ai(prompt: str, system_prompt: str = "You are an elite career inte
     payload = {
         "model": "openai/gpt-oss-120b",
         "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}],
-        "temperature": 0.2
+        "temperature": 0.1
     }
 
     base_delay = 3.0
@@ -252,8 +252,7 @@ def call_groq_ai(prompt: str, system_prompt: str = "You are an elite career inte
 
 async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count: int, user_profile_json: Optional[str] = None) -> List[Dict]:
     """
-    100% Unrestricted Multi-Source Ingestion. Queries all global and regional feeds
-    without premature filtering, allowing the AI evaluation engine to determine exact CV alignment.
+    Precision Live Aggregator with Domain-Specific Query Tuning.
     """
     raw_roles = [r.strip() for r in target_roles.split(",") if r.strip()]
     if not raw_roles:
@@ -266,21 +265,21 @@ async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count
     is_sa_search = "south africa" in loc_lower or "johannesburg" in loc_lower or "cape town" in loc_lower or "pretoria" in loc_lower or "durban" in loc_lower
     adzuna_country = "za" if is_sa_search else "us"
 
-    search_permutations = list(raw_roles)
+    # Detect if user profile is scientific/biotech
+    is_scientific = False
     if user_profile_json:
-        try:
-            prof_data = json.loads(user_profile_json)
-            for skill in prof_data.get("skills", [])[:6]:
-                if len(skill) > 2:
-                    search_permutations.append(skill)
-        except Exception:
-            pass
+        p_lower = user_profile_json.lower()
+        if any(term in p_lower for term in ["biolog", "biochem", "scientist", "research", "molecular", "protein", "lab", "assay"]):
+            is_scientific = True
+
+    search_permutations = list(raw_roles)
+    if is_scientific:
+        search_permutations.extend(["Senior Scientist", "Biochemist", "Molecular Biologist", "Principal Investigator", "Research Scientist", "Biotechnology"])
 
     search_permutations = list(dict.fromkeys([t for t in search_permutations if t]))
 
-    # Execute parallel queries across Adzuna, Arbeitnow, Remotive, and DuckDuckGo Live Search
     for term in search_permutations[:4]:
-        if len(discovered_jobs) >= count * 10:
+        if len(discovered_jobs) >= count * 8:
             break
             
         encoded_query = urllib.parse.quote(term)
@@ -296,7 +295,7 @@ async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count
                         apply_url = item.get("redirect_url", "")
                         desc = item.get("description", "")
                         item_loc = item.get("location", {}).get("display_name", location)
-                        if apply_url and apply_url not in seen_urls and len(desc) > 20:
+                        if apply_url and apply_url not in seen_urls and len(desc) > 30:
                             seen_urls.add(apply_url)
                             discovered_jobs.append({
                                 "company_name": item.get("company", {}).get("display_name", "Verified Enterprise"),
@@ -308,57 +307,48 @@ async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count
             except Exception:
                 pass
 
-        # 2. Arbeitnow API
+        # 2. DuckDuckGo Targeted Web Index
         try:
-            res = requests.get(f"https://www.arbeitnow.com/api/job-board-api?search={encoded_query}", timeout=5)
-            if res.status_code == 200:
-                for item in res.json().get("data", []):
-                    apply_url = item.get("url", "")
-                    desc = item.get("description", "")
-                    item_loc = item.get("location", location)
-                    if apply_url and apply_url not in seen_urls and len(desc) > 20:
-                        seen_urls.add(apply_url)
-                        discovered_jobs.append({
-                            "company_name": item.get("company_name", "Verified Enterprise"),
-                            "job_title": item.get("title", term),
-                            "location": item_loc,
-                            "job_description": desc,
-                            "ats_portal_url": apply_url
-                        })
+            web_search_query = f"{term} jobs {location} site:linkedin.com OR site:co.za"
+            ddg_url = f"https://html.duckduckgo.com/html/?q={urllib.parse.quote(web_search_query)}"
+            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+            resp = requests.get(ddg_url, headers=headers, timeout=6)
+            if resp.status_code == 200:
+                from bs4 import BeautifulSoup
+                soup = BeautifulSoup(resp.text, 'html.parser')
+                for result in soup.select('.result'):
+                    title_tag = result.select_one('.result__title')
+                    snippet_tag = result.select_one('.result__snippet')
+                    link_tag = result.select_one('.result__url')
+                    if title_tag and snippet_tag:
+                        title_text = title_tag.get_text(strip=True)
+                        snippet_text = snippet_tag.get_text(strip=True)
+                        href = link_tag['href'] if link_tag and 'href' in link_tag.attrs else "#"
+                        if len(snippet_text) > 30 and href not in seen_urls:
+                            seen_urls.add(href)
+                            discovered_jobs.append({
+                                "company_name": "Verified Global Enterprise",
+                                "job_title": title_text,
+                                "location": location,
+                                "job_description": snippet_text,
+                                "ats_portal_url": href if href.startswith("http") else f"https://www.linkedin.com/jobs/search/?keywords={urllib.parse.quote(title_text)}"
+                            })
         except Exception:
             pass
 
-    # 3. DuckDuckGo Broad Web Index
-    try:
-        web_search_query = f"{search_permutations[0]} jobs {location} site:linkedin.com OR site:co.za OR site:com"
-        ddg_url = f"https://html.duckduckgo.com/html/?q={urllib.parse.quote(web_search_query)}"
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-        resp = requests.get(ddg_url, headers=headers, timeout=6)
-        if resp.status_code == 200:
-            from bs4 import BeautifulSoup
-            soup = BeautifulSoup(resp.text, 'html.parser')
-            for result in soup.select('.result'):
-                title_tag = result.select_one('.result__title')
-                snippet_tag = result.select_one('.result__snippet')
-                link_tag = result.select_one('.result__url')
-                if title_tag and snippet_tag:
-                    title_text = title_tag.get_text(strip=True)
-                    snippet_text = snippet_tag.get_text(strip=True)
-                    href = link_tag['href'] if link_tag and 'href' in link_tag.attrs else "#"
-                    if len(snippet_text) > 20 and href not in seen_urls:
-                        seen_urls.add(href)
-                        discovered_jobs.append({
-                            "company_name": "Verified Global Enterprise",
-                            "job_title": title_text,
-                            "location": location,
-                            "job_description": snippet_text,
-                            "ats_portal_url": href if href.startswith("http") else f"https://www.linkedin.com/jobs/search/?keywords={urllib.parse.quote(title_text)}"
-                        })
-    except Exception as e:
-        logger.warning(f"Live web search discovery failed: {e}")
+    # HARD NEGATIVE FILTER GUARD: Instantly drop cross-domain noise (e.g. marketing, influencer, sales, retail) for scientific profiles
+    cleaned_jobs = []
+    for j in discovered_jobs:
+        j_title = j.get('job_title', '').lower()
+        j_desc = j.get('job_description', '').lower()
+        
+        if is_scientific:
+            # Reject marketing, sales, software engineering, influencer roles if candidate is a molecular biologist
+            if any(forbidden in j_title or forbidden in j_desc for forbidden in ["influencer", "marketing", "sales executive", "software engineer", "steuerberater", "real estate", "retail"]):
+                continue
+        cleaned_jobs.append(j)
 
-    # Return discovered jobs unconstrained so the AI evaluation engine can perform the exact CV matching
-    return discovered_jobs[: max(count * 3, 10)]
+    return cleaned_jobs[:max(count * 3, 10)]
 
 def init_career_database():
     with db_transaction_scope() as (_, cursor):
@@ -467,15 +457,16 @@ async def evaluate_single_job_async(job: Dict, profile_content: str, email: str)
     desc = job.get('job_description', '')
 
     eval_prompt = f"""
-    Act as an elite executive career matchmaker and vector alignment engine.
+    Act as a rigorous, strict executive career matchmaker.
     Candidate Master Resume Profile / Expertise: {profile_content}
     Target Job Title: {role} at {company}
     Full Job Description: {desc}
 
-    Rigorously evaluate whether this job is a valid match for the candidate's exact background and seniority.
+    Evaluate with absolute scrutiny whether this job matches the candidate's core technical and professional domain. If there is a domain mismatch (e.g. marketing for a scientist, or software for a biologist), set "is_valid_match": false and "fit_score": 30.
+    
     Return strict JSON (no markdown backticks, raw JSON only) containing these exact keys:
     - "is_valid_match": boolean (true/false)
-    - "fit_score": integer (50 to 99)
+    - "fit_score": integer (0 to 99)
     - "match_rationale": Specific explanation connecting candidate background to this role.
     - "salary_benchmark": Estimated compensation range based on the market.
     - "negotiation_strategy": Key leverage points for salary and scope.
@@ -494,30 +485,18 @@ async def evaluate_single_job_async(job: Dict, profile_content: str, email: str)
     except Exception as e:
         logger.warning(f"AI evaluation parse error for {role} at {company}: {e}")
 
-    if not eval_data:
-        eval_data = {
-            "is_valid_match": True,
-            "fit_score": 85,
-            "match_rationale": f"Directly matched with verified live opening at {company} for {role}.",
-            "salary_benchmark": "Market Rate Verified via Live Index",
-            "negotiation_strategy": "Emphasize leadership impact and domain expertise.",
-            "cv_variant": f"- Aligned master profile with live requirements for {role}.",
-            "interview_playbook": "1. Technical Leadership\n2. Research Methodology\n3. Executive Alignment"
-        }
-
-    # If AI determines it is not a valid match or fit score is low, filter it out
-    if not eval_data.get('is_valid_match', True) or safe_int(eval_data.get('fit_score'), 70) < 65:
+    if not eval_data or not eval_data.get('is_valid_match', False) or safe_int(eval_data.get('fit_score'), 0) < 70:
         return None
 
     safe_portal_url = sanitize_ats_url(raw_url, role, company)
-    real_lead = discover_real_decision_maker(company, role, desc, target_location="Global")
+    real_lead = discover_real_decision_maker(company, role, desc, target_location="South Africa")
     job_embedding = generate_text_embedding(f"{role} {company} {desc}")
 
     return {
         "company_name": company,
         "job_title": role,
         "job_description": desc,
-        "location": job.get('location', "Global"),
+        "location": job.get('location', "South Africa"),
         "fit_score": safe_int(eval_data.get('fit_score'), 85),
         "match_rationale": eval_data.get('match_rationale', "Live enterprise match complete."),
         "decision_maker_name": real_lead["name"],
@@ -548,7 +527,7 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
         email = u_dict["email"]
         profile_content = u_dict.get('profile_json', '')
 
-        raw_jobs = await fetch_verified_enterprise_jobs(target_roles, target_locations, requested_count * 5, user_profile_json=profile_content)
+        raw_jobs = await fetch_verified_enterprise_jobs(target_roles, target_locations, requested_count * 6, user_profile_json=profile_content)
         if not raw_jobs:
             continue
 
@@ -714,8 +693,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="QuantCode Universal Career Swarm Strict Zero-Mock Apex",
-    version="9.0.0",
-    description="Unrestricted Multi-Source Ingestion & AI Vector CV Matching.",
+    version="9.1.0",
+    description="Strict Domain Guards & Negative Keyword Rejection Active.",
     lifespan=lifespan
 )
 
@@ -877,7 +856,7 @@ async def save_career_resume(payload: ResumeInput, auth: dict = Depends(verify_a
         "status": "success", 
         "profile": parsed_profile, 
         "recommended_roles": parsed_profile.get("recommended_roles", []),
-        "message": "Resume indexed with unrestricted multi-source AI matching active.", 
+        "message": "Resume indexed with strict domain enforcement active.", 
         "credits_remaining": auth["credits"]
     }
 
