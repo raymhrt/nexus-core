@@ -36,7 +36,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='{"time": "%(asctime)s", "level": "%(levelname)s", "logger": "%(name)s", "message": "%(message)s"}'
 )
-logger = logging.getLogger("nexus-multitenant-swarm")
+logger = logging.getLogger("nexus-resilient-global")
 
 SENTRY_DSN = os.getenv("SENTRY_DSN")
 if SENTRY_DSN:
@@ -143,7 +143,6 @@ def generate_text_embedding(text: str) -> List[float]:
         return [0.0] * 768
 
 def validate_real_world_job(job: dict) -> bool:
-    """Relaxed network ingestion filter: Allow jobs through even if descriptions are short snippet truncations."""
     if not job.get("job_title") or not job.get("company_name"):
         return False
         
@@ -282,40 +281,23 @@ def call_groq_ai(prompt: str, system_prompt: str = "You are the multi-tenant 11-
 
 async def multi_tenant_job_infiltration(target_roles: str, location: str, count: int, user_profile_json: Optional[str] = None) -> List[Dict]:
     """
-    Expert Architecture Fix: 
-    1. Extracts atomic keywords (e.g. 'Molecular', 'Biology') instead of massive string blocks.
-    2. Uses progressive broadening to guarantee live network hits, relying on the AI to filter strictly later.
+    Resilient Global Infiltration Engine:
+    Extracts atomic single-word keywords (e.g., 'Biology', 'Biochemistry', 'Scientist') 
+    and queries both regional and global feeds with geographic fallback.
     """
-    # 1. Strip special characters and split massive job titles into individual search words
     clean_role_string = re.sub(r'[^a-zA-Z0-9\s]', ' ', target_roles)
-    words = [w.strip() for w in clean_role_string.split() if len(w.strip()) > 4]
+    words = [w.strip() for w in clean_role_string.split() if len(w.strip()) > 3]
     
-    # 2. Filter out generic adjectives that break dumb APIs
     stop_words = {'senior', 'principal', 'lead', 'research', 'applied', 'investigator'}
     atomic_keywords = [w for w in words if w.lower() not in stop_words]
     
     search_permutations = []
-    
-    # Add combinations of atomic words (e.g. "Molecular Biology", "Biophysics")
     for i in range(len(atomic_keywords) - 1):
         search_permutations.append(f"{atomic_keywords[i]} {atomic_keywords[i+1]}")
     
-    # Add singular atomic words as safety nets
     search_permutations.extend(atomic_keywords)
-
-    if user_profile_json:
-        try:
-            prof_data = json.loads(user_profile_json)
-            for skill in prof_data.get("skills", [])[:5]:
-                if len(skill) > 3:
-                    search_permutations.append(skill.split()[0]) # Take first word of skill
-        except Exception:
-            pass
-
-    # Extreme fallback: If all else fails, just search the absolute broadest category
-    search_permutations.extend(["Scientist", "Biology", "Laboratory", "Biotech", "Research"])
+    search_permutations.extend(["Biology", "Biochemistry", "Scientist", "Research", "Laboratory", "Biotech"])
     
-    # Remove duplicates but preserve order of highly specific -> broad
     seen = set()
     search_permutations = [x for x in search_permutations if not (x.lower() in seen or seen.add(x.lower()))]
     
@@ -324,69 +306,66 @@ async def multi_tenant_job_infiltration(target_roles: str, location: str, count:
 
     loc_lower = location.lower()
     is_sa_search = any(k in loc_lower for k in ["south africa", "johannesburg", "cape town", "pretoria", "durban"])
-    adzuna_country = "za" if is_sa_search else "us"
     
-    # Clean location for Adzuna (e.g. "South Africa" -> "South Africa")
-    clean_location = location.replace(",", "").strip()
+    # Try local search first, then global fallback if local returns nothing
+    countries_to_try = ["za", "us"] if is_sa_search else ["us"]
 
-    logger.info(f"🧬 Tokenized progressive search phrases: {search_permutations[:8]}")
+    logger.info(f"🧬 Resilient atomic search permutations: {search_permutations[:10]} | Countries: {countries_to_try}")
 
-    for term in search_permutations[:12]:
+    for country in countries_to_try:
         if len(discovered_jobs) >= count * 15:
             break
             
-        encoded_query = urllib.parse.quote(term)
-        encoded_location = urllib.parse.quote(clean_location)
-
-        if ADZUNA_APP_ID and ADZUNA_APP_KEY:
-            try:
-                adzuna_url = f"https://api.adzuna.com/v1/api/jobs/{adzuna_country}/search/1?app_id={ADZUNA_APP_ID}&app_key={ADZUNA_APP_KEY}&what={encoded_query}&where={encoded_location}&content-type=application/json"
-                res = requests.get(adzuna_url, timeout=5)
-                if res.status_code == 200:
-                    results = res.json().get("results", [])
-                    for item in results:
-                        job_item = {
-                            "company_name": item.get("company", {}).get("display_name", "Global Enterprise Corp"),
-                            "job_title": item.get("title", term),
-                            "location": item.get("location", {}).get("display_name", location),
-                            "job_description": item.get("description", "Refer to direct ATS portal link for full specifications."),
-                            "ats_portal_url": item.get("redirect_url", "")
-                        }
-                        if validate_real_world_job(job_item) and job_item["ats_portal_url"] not in seen_urls:
-                            seen_urls.add(job_item["ats_portal_url"])
-                            discovered_jobs.append(job_item)
-            except Exception as e:
-                logger.warning(f"Adzuna API query error for term '{term}': {e}")
-
-        # Global Science RSS Feeds (These don't use location parameters natively, so we pass keyword only)
-        for feed_base in [
-            f"https://jobs.sciencecareers.org/jobs/rss/?keywords={encoded_query}",
-            f"https://www.nature.com/naturecareers/jobs/rss/?keywords={encoded_query}"
-        ]:
-            try:
-                res = requests.get(feed_base, timeout=6, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) NexusMultiTenant/16.5"})
-                if res.status_code == 200:
-                    from bs4 import BeautifulSoup
-                    soup = BeautifulSoup(res.text, 'xml')
-                    for item in soup.find_all('item'):
-                        title = item.find('title')
-                        link = item.find('link')
-                        desc = item.find('description')
-                        pub_loc = item.find('location') or item.find('georss:point')
-                        
-                        if title and link:
+        for term in search_permutations[:8]:
+            encoded_query = urllib.parse.quote(term)
+            
+            if ADZUNA_APP_ID and ADZUNA_APP_KEY:
+                try:
+                    adzuna_url = f"https://api.adzuna.com/v1/api/jobs/{country}/search/1?app_id={ADZUNA_APP_ID}&app_key={ADZUNA_APP_KEY}&what={encoded_query}&content-type=application/json"
+                    res = requests.get(adzuna_url, timeout=5)
+                    if res.status_code == 200:
+                        results = res.json().get("results", [])
+                        for item in results:
                             job_item = {
-                                "company_name": "Global Research Institution",
-                                "job_title": title.get_text(strip=True),
-                                "location": pub_loc.get_text(strip=True) if pub_loc else "Global",
-                                "job_description": desc.get_text(strip=True) if desc else "Refer to portal for full job specs.",
-                                "ats_portal_url": link.get_text(strip=True)
+                                "company_name": item.get("company", {}).get("display_name", "Global Enterprise Corp"),
+                                "job_title": item.get("title", term),
+                                "location": item.get("location", {}).get("display_name", "Global / Remote" if country == "us" else location),
+                                "job_description": item.get("description", "Refer to direct ATS portal link for full specifications."),
+                                "ats_portal_url": item.get("redirect_url", "")
                             }
                             if validate_real_world_job(job_item) and job_item["ats_portal_url"] not in seen_urls:
                                 seen_urls.add(job_item["ats_portal_url"])
                                 discovered_jobs.append(job_item)
-            except Exception:
-                pass
+                except Exception as e:
+                    logger.warning(f"Adzuna API query error ({country}) for term '{term}': {e}")
+
+            for feed_base in [
+                f"https://jobs.sciencecareers.org/jobs/rss/?keywords={encoded_query}",
+                f"https://www.nature.com/naturecareers/jobs/rss/?keywords={encoded_query}"
+            ]:
+                try:
+                    res = requests.get(feed_base, timeout=6, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) NexusGlobal/16.6"})
+                    if res.status_code == 200:
+                        from bs4 import BeautifulSoup
+                        soup = BeautifulSoup(res.text, 'xml')
+                        for item in soup.find_all('item'):
+                            title = item.find('title')
+                            link = item.find('link')
+                            desc = item.find('description')
+                            
+                            if title and link:
+                                job_item = {
+                                    "company_name": "Global Research Institution",
+                                    "job_title": title.get_text(strip=True),
+                                    "location": "Global / Remote",
+                                    "job_description": desc.get_text(strip=True) if desc else "Refer to portal for full job specs.",
+                                    "ats_portal_url": link.get_text(strip=True)
+                                }
+                                if validate_real_world_job(job_item) and job_item["ats_portal_url"] not in seen_urls:
+                                    seen_urls.add(job_item["ats_portal_url"])
+                                    discovered_jobs.append(job_item)
+                except Exception:
+                    pass
 
     return discovered_jobs[:max(count * 8, 40)]
 
@@ -402,9 +381,8 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
     Target Job Title: {role} at {company}
     Job Description Snippet: {desc}
 
-    Execute rigorous multi-agent consensus. Because network feeds provide limited text, infer the match based heavily on the Job Title and Company versus the User's Domain Expertise.
-    Return strict JSON (no markdown backticks, raw JSON only) with these exact keys:
-    - "is_valid_match": boolean (true if fit score >= 40 and domain aligns reasonably)
+    Execute rigorous multi-agent consensus. Return strict JSON (no markdown backticks, raw JSON only) with these exact keys:
+    - "is_valid_match": boolean (true if fit score >= 35 and domain aligns reasonably)
     - "fit_score": integer (0 to 99)
     - "match_rationale": Specific consensus explanation connecting this specific user's background to this role.
     - "salary_benchmark": Estimated compensation range based on market rates.
@@ -423,7 +401,7 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
     except Exception:
         return None
 
-    if not eval_data or not eval_data.get('is_valid_match', False) or safe_int(eval_data.get('fit_score'), 0) < 40:
+    if not eval_data or not eval_data.get('is_valid_match', False) or safe_int(eval_data.get('fit_score'), 0) < 35:
         return None
 
     safe_portal_url = sanitize_ats_url(raw_url, role, company)
@@ -435,7 +413,7 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
         "job_title": role,
         "job_description": desc,
         "location": job.get('location', "Global"),
-        "fit_score": safe_int(eval_data.get('fit_score'), 80),
+        "fit_score": safe_int(eval_data.get('fit_score'), 78),
         "match_rationale": eval_data.get('match_rationale', "Verified peer-reviewed domain match for user profile."),
         "decision_maker_name": real_lead["name"],
         "decision_maker_title": real_lead["title"],
@@ -552,9 +530,9 @@ def verify_api_key_only(x_api_key: str = Header(...), request: Request = None):
 
 async def isolated_user_job_scouting_worker(user_email: str, requested_count: int, target_locations: str, target_roles: str):
     saved_count = 0
-    logger.info(f"🌐 Smart Tokenization Swarm triggered for specific user: {user_email} | Roles: {target_roles} | Location: {target_locations}")
+    logger.info(f"🌐 Resilient Global Swarm triggered for specific user: {user_email} | Roles: {target_roles} | Location: {target_locations}")
     
-    await sse_broker.broadcast("multi_tenant_telemetry", {"user": user_email, "message": f"Infiltrating live listings tailored for {user_email}..."})
+    await sse_broker.broadcast("multi_tenant_telemetry", {"user": user_email, "message": f"Infiltrating global and regional listings for {user_email}..."})
 
     try:
         with db_transaction_scope() as (_, cursor):
@@ -656,7 +634,7 @@ async def isolated_user_job_scouting_worker(user_email: str, requested_count: in
                         ic.execute(deduct_sql, (user_email,))
                     saved_count += 1
 
-        logger.info(f"✅ Multi-Tenant Swarm successfully indexed {saved_count} matches for {user_email}.")
+        logger.info(f"✅ Swarm successfully indexed {saved_count} matches for {user_email}.")
         await sse_broker.broadcast("career_swarm_update", {"user": user_email, "status": "scouted", "message": f"Indexed {saved_count} verified matches."})
 
     except Exception as e:
@@ -744,9 +722,9 @@ async def lifespan(app: FastAPI):
         scheduler.shutdown()
 
 app = FastAPI(
-    title="Multi-Tenant 11-Agent Career Civilization Apex",
-    version="16.5.0",
-    description="Smart Tokenization, Progressive API Queries & Relaxed Ingestion Filter.",
+    title="Resilient Global 11-Agent Career Civilization Apex",
+    version="16.6.0",
+    description="Resilient Global Infiltration with Geographic & Atomic Fallbacks.",
     lifespan=lifespan
 )
 
@@ -905,7 +883,7 @@ async def save_career_resume(payload: ResumeInput, auth: dict = Depends(verify_a
         "status": "success", 
         "profile": parsed_profile, 
         "recommended_roles": parsed_profile.get("recommended_roles", []),
-        "message": "User CV indexed successfully in multi-tenant isolation.", 
+        "message": "User CV indexed successfully with resilient global fallback active.", 
         "credits_remaining": auth["credits"]
     }
 
@@ -920,7 +898,7 @@ async def save_career_criteria(payload: CareerCriteriaInput, background_tasks: B
     )
     
     await sse_broker.broadcast("multi_tenant_launched", {"user": auth["email"], "roles": payload.target_roles, "locations": payload.locations})
-    return {"status": "success", "message": f"Multi-Tenant Swarm dispatched in isolation for {auth['email']}.", "credits_remaining": auth["credits"]}
+    return {"status": "success", "message": f"Resilient Global Swarm dispatched in isolation for {auth['email']}.", "credits_remaining": auth["credits"]}
 
 @app.post("/api/v1/career/matches/{match_id}/dispatch")
 async def dispatch_career_outreach(match_id: int, payload: OutreachDispatchRequest, auth: dict = Depends(verify_api_key_only)):
