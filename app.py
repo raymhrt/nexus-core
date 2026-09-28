@@ -142,6 +142,24 @@ def generate_text_embedding(text: str) -> List[float]:
     except Exception:
         return [0.0] * 768
 
+def validate_real_world_job(job: dict) -> bool:
+    """Strict No-Mock Policy Guard: Filters out placeholder/test records."""
+    required = ["job_title", "company_name", "ats_portal_url", "job_description"]
+    for field in required:
+        if not job.get(field):
+            return False
+            
+    text_blob = f"{job.get('job_title', '')} {job.get('company_name', '')}".lower()
+    mock_markers = ["test job", "lorem ipsum", "placeholder", "foo bar", "example company"]
+    if any(m in text_blob for m in mock_markers):
+        return False
+        
+    url = job.get("ats_portal_url", "")
+    if not url.startswith("http://") and not url.startswith("https://"):
+        return False
+        
+    return True
+
 def sanitize_ats_url(url: str, role_title: str, company_name: str) -> str:
     if url and "example" not in url and ("http://" in url or "https://" in url):
         return url
@@ -152,7 +170,7 @@ def discover_real_decision_maker(company_name: str, job_title: str, job_descript
     
     tld = "com"
     loc_lower = (target_location + " " + job_description).lower()
-    if "south africa" in loc_lower or "za" in c_clean or "south africa" in target_location.lower() or "johannesburg" in loc_lower or "cape town" in loc_lower:
+    if "south africa" in loc_lower or "za" in c_clean or "johannesburg" in loc_lower or "cape town" in loc_lower:
         tld = "co.za"
     elif "uk" in loc_lower or "london" in loc_lower:
         tld = "co.uk"
@@ -255,11 +273,7 @@ async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count
     if not raw_roles:
         raw_roles = [target_roles]
 
-    # Clean up generic terms if user submitted them
-    filtered_roles = []
-    for r in raw_roles:
-        if r.lower() not in ["specialist", "senior professional", "consultant", "professional"]:
-            filtered_roles.append(r)
+    filtered_roles = [r for r in raw_roles if r.lower() not in ["specialist", "senior professional", "consultant", "professional"]]
     if not filtered_roles:
         filtered_roles = raw_roles
 
@@ -267,7 +281,7 @@ async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count
     if user_profile_json:
         try:
             prof_data = json.loads(user_profile_json)
-            for skill in prof_data.get("skills", [])[:5]:
+            for skill in prof_data.get("skills", [])[:6]:
                 if len(skill) > 2:
                     search_permutations.append(skill)
             for rec in prof_data.get("recommended_roles", []):
@@ -281,11 +295,11 @@ async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count
     seen_urls = set()
 
     loc_lower = location.lower()
-    is_sa_search = "south africa" in loc_lower or "johannesburg" in loc_lower or "cape town" in loc_lower or "pretoria" in loc_lower or "durban" in loc_lower
+    is_sa_search = any(k in loc_lower for k in ["south africa", "johannesburg", "cape town", "pretoria", "durban"])
     adzuna_country = "za" if is_sa_search else "us"
 
-    for term in search_permutations[:6]:
-        if len(discovered_jobs) >= count * 12:
+    for term in search_permutations[:8]:
+        if len(discovered_jobs) >= count * 15:
             break
             
         encoded_query = urllib.parse.quote(term)
@@ -298,18 +312,16 @@ async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count
                 res = requests.get(adzuna_url, timeout=5)
                 if res.status_code == 200:
                     for item in res.json().get("results", []):
-                        apply_url = item.get("redirect_url", "")
-                        desc = item.get("description", "")
-                        item_loc = item.get("location", {}).get("display_name", location)
-                        if apply_url and apply_url not in seen_urls and len(desc) > 15:
-                            seen_urls.add(apply_url)
-                            discovered_jobs.append({
-                                "company_name": item.get("company", {}).get("display_name", "Global Enterprise"),
-                                "job_title": item.get("title", term),
-                                "location": item_loc,
-                                "job_description": desc,
-                                "ats_portal_url": apply_url
-                            })
+                        job_item = {
+                            "company_name": item.get("company", {}).get("display_name", "Global Enterprise"),
+                            "job_title": item.get("title", term),
+                            "location": item.get("location", {}).get("display_name", location),
+                            "job_description": item.get("description", ""),
+                            "ats_portal_url": item.get("redirect_url", "")
+                        }
+                        if validate_real_world_job(job_item) and job_item["ats_portal_url"] not in seen_urls:
+                            seen_urls.add(job_item["ats_portal_url"])
+                            discovered_jobs.append(job_item)
             except Exception:
                 pass
 
@@ -318,47 +330,34 @@ async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count
             res = requests.get(f"https://www.arbeitnow.com/api/job-board-api?search={encoded_query}", timeout=5)
             if res.status_code == 200:
                 for item in res.json().get("data", []):
-                    apply_url = item.get("url", "")
-                    desc = item.get("description", "")
-                    item_loc = item.get("location", location)
-                    if apply_url and apply_url not in seen_urls and len(desc) > 15:
-                        seen_urls.add(apply_url)
-                        discovered_jobs.append({
-                            "company_name": item.get("company_name", "Global Enterprise"),
-                            "job_title": item.get("title", term),
-                            "location": item_loc,
-                            "job_description": desc,
-                            "ats_portal_url": apply_url
-                        })
+                    job_item = {
+                        "company_name": item.get("company_name", "Global Enterprise"),
+                        "job_title": item.get("title", term),
+                        "location": item.get("location", location),
+                        "job_description": item.get("description", ""),
+                        "ats_portal_url": item.get("url", "")
+                    }
+                    if validate_real_world_job(job_item) and job_item["ats_portal_url"] not in seen_urls:
+                        seen_urls.add(job_item["ats_portal_url"])
+                        discovered_jobs.append(job_item)
         except Exception:
             pass
 
-        # 3. DuckDuckGo Web Index
+        # 3. Remotive API (Remote tech & executive roles)
         try:
-            web_search_query = f"{term} jobs {location} site:linkedin.com OR site:co.za OR site:com"
-            ddg_url = f"https://html.duckduckgo.com/html/?q={urllib.parse.quote(web_search_query)}"
-            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-            resp = requests.get(ddg_url, headers=headers, timeout=5)
-            if resp.status_code == 200:
-                from bs4 import BeautifulSoup
-                soup = BeautifulSoup(resp.text, 'html.parser')
-                for result in soup.select('.result'):
-                    title_tag = result.select_one('.result__title')
-                    snippet_tag = result.select_one('.result__snippet')
-                    link_tag = result.select_one('.result__url')
-                    if title_tag and snippet_tag:
-                        title_text = title_tag.get_text(strip=True)
-                        snippet_text = snippet_tag.get_text(strip=True)
-                        href = link_tag['href'] if link_tag and 'href' in link_tag.attrs else "#"
-                        if len(snippet_text) > 15 and href not in seen_urls:
-                            seen_urls.add(href)
-                            discovered_jobs.append({
-                                "company_name": "Verified Global Enterprise",
-                                "job_title": title_text,
-                                "location": location,
-                                "job_description": snippet_text,
-                                "ats_portal_url": href if href.startswith("http") else f"https://www.linkedin.com/jobs/search/?keywords={urllib.parse.quote(title_text)}"
-                            })
+            res = requests.get(f"https://remotive.com/api/remote-jobs?search={encoded_query}", timeout=5)
+            if res.status_code == 200:
+                for item in res.json().get("jobs", []):
+                    job_item = {
+                        "company_name": item.get("company_name", "Global Enterprise"),
+                        "job_title": item.get("title", term),
+                        "location": item.get("candidate_required_location", "Remote"),
+                        "job_description": item.get("description", ""),
+                        "ats_portal_url": item.get("url", "")
+                    }
+                    if validate_real_world_job(job_item) and job_item["ats_portal_url"] not in seen_urls:
+                        seen_urls.add(job_item["ats_portal_url"])
+                        discovered_jobs.append(job_item)
         except Exception:
             pass
 
@@ -497,7 +496,6 @@ async def evaluate_single_job_async(job: Dict, profile_content: str, email: str)
         jm_eval = regex_re.search(r'\{.*\}', raw_eval, regex_re.DOTALL)
         eval_data = json.loads(jm_eval.group(0) if jm_eval else raw_eval)
     except Exception:
-        # If Groq fails, do NOT blindly accept; reject mismatched domains by default
         return None
 
     if not eval_data or not eval_data.get('is_valid_match', False) or safe_int(eval_data.get('fit_score'), 0) < 65:
@@ -561,7 +559,6 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
                 ic.execute("SELECT tier, credits_remaining FROM subscribers s JOIN subscriber_credits c ON s.email = c.email WHERE s.email = %s" if DATABASE_URL else "SELECT tier, credits_remaining FROM subscribers s JOIN subscriber_credits c ON s.email = c.email WHERE s.email = ?", (email,))
                 sub_row = ic.fetchone()
                 user_tier = sub_row["tier"] if isinstance(sub_row, dict) else sub_row[0]
-                c_left = sub_row["credits_remaining"] if isinstance(sub_row, dict) else sub_row[1]
 
                 job_embedding_list = match_item.get('embedding', [0.0] * 768)
                 vector_str = "[" + ",".join(map(str, job_embedding_list)) + "]"
@@ -711,8 +708,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="QuantCode Universal Career Swarm Strict Gate Apex",
-    version="13.0.0",
-    description="Strict AI Domain Evaluation Gate with Zero Blind Fallbacks.",
+    version="13.1.0",
+    description="Strict AI Domain Evaluation Gate with Zero Blind Fallbacks & Multi-Source Verified Ingestion.",
     lifespan=lifespan
 )
 
