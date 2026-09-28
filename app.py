@@ -36,7 +36,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='{"time": "%(asctime)s", "level": "%(levelname)s", "logger": "%(name)s", "message": "%(message)s"}'
 )
-logger = logging.getLogger("nexus-resilient-global")
+logger = logging.getLogger("nexus-adaptable-swarm")
 
 SENTRY_DSN = os.getenv("SENTRY_DSN")
 if SENTRY_DSN:
@@ -247,7 +247,7 @@ def set_cached_ai_response(cache_key: str, response_text: str):
     except Exception:
         pass
 
-def call_groq_ai(prompt: str, system_prompt: str = "You are the multi-tenant 11-agent intelligence core adhering strictly to real verified data.") -> str:
+def call_groq_ai(prompt: str, system_prompt: str = "You are the adaptable multi-tenant 11-agent intelligence core adhering strictly to real verified data.") -> str:
     if not GROQ_API_KEY:
         raise HTTPException(status_code=500, detail="GROQ_API_KEY not configured.")
     
@@ -261,7 +261,7 @@ def call_groq_ai(prompt: str, system_prompt: str = "You are the multi-tenant 11-
     payload = {
         "model": "openai/gpt-oss-120b",
         "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}],
-        "temperature": 0.1
+        "temperature": 0.2
     }
 
     base_delay = 2.0
@@ -279,25 +279,48 @@ def call_groq_ai(prompt: str, system_prompt: str = "You are the multi-tenant 11-
             time.sleep(2.0)
     raise HTTPException(status_code=502, detail="Groq AI inference failed across all retry attempts.")
 
+async def ai_adaptable_role_expansion(target_roles: str, user_profile_json: Optional[str] = None) -> List[str]:
+    """
+    Expert Adaptable Architecture:
+    Uses Groq AI to dynamically analyze target roles and generate semantic variations,
+    synonyms, abbreviations, and related job titles guaranteed to match public job board indexes.
+    """
+    prompt = f"""
+    You are the Senior Search Strategist of the 11-Agent Swarm.
+    The user is targeting these roles: "{target_roles}"
+    User Profile / CV context: {user_profile_json or 'None'}
+
+    Your task is to generate a comprehensive JSON array of 12 to 15 optimized, highly adaptable search phrases (ranging from exact titles to broader semantic variations, industry abbreviations, and allied scientific/technical roles) that will yield active job postings on public job aggregators like Adzuna and ScienceCareers.
+    Return ONLY a valid JSON array of strings (no markdown backticks, raw JSON only), e.g. ["Molecular Biologist", "Biochemist", "Research Scientist", "Protein Engineer", "Life Sciences Researcher", "Biophysicist"].
+    """
+    try:
+        raw_ai = call_groq_ai(prompt, system_prompt="You are an expert recruitment data engineer returning raw JSON arrays.")
+        import re as regex_re
+        jm = regex_re.search(r'\[.*\]', raw_ai, regex_re.DOTALL)
+        phrases = json.loads(jm.group(0) if jm else raw_ai)
+        if isinstance(phrases, list) and phrases:
+            return [str(p).strip() for p in phrases if str(p).strip()]
+    except Exception:
+        pass
+
+    # Fallback if AI parsing fails
+    return [target_roles, "Research Scientist", "Biochemist", "Biologist", "Scientist", "Laboratory Manager", "Biotech"]
+
 async def multi_tenant_job_infiltration(target_roles: str, location: str, count: int, user_profile_json: Optional[str] = None) -> List[Dict]:
     """
-    Resilient Global Infiltration Engine:
-    Extracts atomic single-word keywords (e.g., 'Biology', 'Biochemistry', 'Scientist') 
-    and queries both regional and global feeds with geographic fallback.
+    Adaptable Infiltration Engine:
+    Passes target roles through the AI Search Strategist to dynamically test all semantic variations
+    across regional and global feeds.
     """
-    clean_role_string = re.sub(r'[^a-zA-Z0-9\s]', ' ', target_roles)
-    words = [w.strip() for w in clean_role_string.split() if len(w.strip()) > 3]
+    search_permutations = await ai_adaptable_role_expansion(target_roles, user_profile_json)
     
-    stop_words = {'senior', 'principal', 'lead', 'research', 'applied', 'investigator'}
-    atomic_keywords = [w for w in words if w.lower() not in stop_words]
-    
-    search_permutations = []
-    for i in range(len(atomic_keywords) - 1):
-        search_permutations.append(f"{atomic_keywords[i]} {atomic_keywords[i+1]}")
-    
-    search_permutations.extend(atomic_keywords)
-    search_permutations.extend(["Biology", "Biochemistry", "Scientist", "Research", "Laboratory", "Biotech"])
-    
+    # Ensure raw user roles are also included
+    search_permutations.insert(0, target_roles)
+    for sub in re.split(r'[-–—:,/]+', target_roles):
+        sub_c = sub.strip()
+        if len(sub_c) > 3:
+            search_permutations.append(sub_c)
+
     seen = set()
     search_permutations = [x for x in search_permutations if not (x.lower() in seen or seen.add(x.lower()))]
     
@@ -306,17 +329,15 @@ async def multi_tenant_job_infiltration(target_roles: str, location: str, count:
 
     loc_lower = location.lower()
     is_sa_search = any(k in loc_lower for k in ["south africa", "johannesburg", "cape town", "pretoria", "durban"])
-    
-    # Try local search first, then global fallback if local returns nothing
     countries_to_try = ["za", "us"] if is_sa_search else ["us"]
 
-    logger.info(f"🧬 Resilient atomic search permutations: {search_permutations[:10]} | Countries: {countries_to_try}")
+    logger.info(f"🧠 AI Adaptable Swarm generated search variations: {search_permutations[:10]}")
 
     for country in countries_to_try:
         if len(discovered_jobs) >= count * 15:
             break
             
-        for term in search_permutations[:8]:
+        for term in search_permutations[:10]:
             encoded_query = urllib.parse.quote(term)
             
             if ADZUNA_APP_ID and ADZUNA_APP_KEY:
@@ -344,7 +365,7 @@ async def multi_tenant_job_infiltration(target_roles: str, location: str, count:
                 f"https://www.nature.com/naturecareers/jobs/rss/?keywords={encoded_query}"
             ]:
                 try:
-                    res = requests.get(feed_base, timeout=6, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) NexusGlobal/16.6"})
+                    res = requests.get(feed_base, timeout=6, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) NexusAdaptable/16.7"})
                     if res.status_code == 200:
                         from bs4 import BeautifulSoup
                         soup = BeautifulSoup(res.text, 'xml')
@@ -376,7 +397,7 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
     desc = job.get('job_description', '')
 
     prompt = f"""
-    You are the Multi-Tenant 11-Agent Intelligence Core evaluating this live job posting specifically for user {email}.
+    You are the Adaptable Multi-Tenant 11-Agent Intelligence Core evaluating this live job posting specifically for user {email}.
     Candidate Master Profile / CV: {profile_content}
     Target Job Title: {role} at {company}
     Job Description Snippet: {desc}
@@ -530,9 +551,9 @@ def verify_api_key_only(x_api_key: str = Header(...), request: Request = None):
 
 async def isolated_user_job_scouting_worker(user_email: str, requested_count: int, target_locations: str, target_roles: str):
     saved_count = 0
-    logger.info(f"🌐 Resilient Global Swarm triggered for specific user: {user_email} | Roles: {target_roles} | Location: {target_locations}")
+    logger.info(f"🌐 AI Adaptable Swarm triggered for specific user: {user_email} | Roles: {target_roles} | Location: {target_locations}")
     
-    await sse_broker.broadcast("multi_tenant_telemetry", {"user": user_email, "message": f"Infiltrating global and regional listings for {user_email}..."})
+    await sse_broker.broadcast("multi_tenant_telemetry", {"user": user_email, "message": f"AI strategist generating semantic role variations for {user_email}..."})
 
     try:
         with db_transaction_scope() as (_, cursor):
@@ -722,9 +743,9 @@ async def lifespan(app: FastAPI):
         scheduler.shutdown()
 
 app = FastAPI(
-    title="Resilient Global 11-Agent Career Civilization Apex",
-    version="16.6.0",
-    description="Resilient Global Infiltration with Geographic & Atomic Fallbacks.",
+    title="AI-Adaptable 11-Agent Career Civilization Apex",
+    version="16.7.0",
+    description="AI-Driven Semantic Role Expansion and Adaptable Multi-Tier Infiltration.",
     lifespan=lifespan
 )
 
@@ -883,7 +904,7 @@ async def save_career_resume(payload: ResumeInput, auth: dict = Depends(verify_a
         "status": "success", 
         "profile": parsed_profile, 
         "recommended_roles": parsed_profile.get("recommended_roles", []),
-        "message": "User CV indexed successfully with resilient global fallback active.", 
+        "message": "User CV indexed successfully with AI-adaptable expansion active.", 
         "credits_remaining": auth["credits"]
     }
 
@@ -898,7 +919,7 @@ async def save_career_criteria(payload: CareerCriteriaInput, background_tasks: B
     )
     
     await sse_broker.broadcast("multi_tenant_launched", {"user": auth["email"], "roles": payload.target_roles, "locations": payload.locations})
-    return {"status": "success", "message": f"Resilient Global Swarm dispatched in isolation for {auth['email']}.", "credits_remaining": auth["credits"]}
+    return {"status": "success", "message": f"AI-Adaptable Swarm dispatched in isolation for {auth['email']}.", "credits_remaining": auth["credits"]}
 
 @app.post("/api/v1/career/matches/{match_id}/dispatch")
 async def dispatch_career_outreach(match_id: int, payload: OutreachDispatchRequest, auth: dict = Depends(verify_api_key_only)):
