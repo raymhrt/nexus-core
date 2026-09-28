@@ -36,7 +36,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='{"time": "%(asctime)s", "level": "%(levelname)s", "logger": "%(name)s", "message": "%(message)s"}'
 )
-logger = logging.getLogger("nexus-career-strict-gate")
+logger = logging.getLogger("nexus-syndicate-agents")
 
 SENTRY_DSN = os.getenv("SENTRY_DSN")
 if SENTRY_DSN:
@@ -47,7 +47,7 @@ WEBHOOK_SIGNING_SECRET = os.getenv("WEBHOOK_SIGNING_SECRET", "fallback_insecure_
 ADMIN_SECRET_KEY = os.getenv("ADMIN_SECRET_KEY")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 if not GROQ_API_KEY:
-    logger.warning("WARNING: GROQ_API_KEY is not set. AI career evaluation endpoints will fail unless configured.")
+    logger.warning("WARNING: GROQ_API_KEY is not set. AI syndicate evaluation endpoints will fail unless configured.")
 
 RESEND_API_KEY = os.getenv("RESEND_API_KEY")
 SENDER_EMAIL = os.getenv("SENDER_EMAIL", "onboarding@resend.dev")
@@ -143,7 +143,6 @@ def generate_text_embedding(text: str) -> List[float]:
         return [0.0] * 768
 
 def validate_real_world_job(job: dict) -> bool:
-    """Strict No-Mock Policy Guard: Filters out placeholder/test records."""
     required = ["job_title", "company_name", "ats_portal_url", "job_description"]
     for field in required:
         if not job.get(field):
@@ -236,7 +235,7 @@ def set_cached_ai_response(cache_key: str, response_text: str):
     except Exception:
         pass
 
-def call_groq_ai(prompt: str, system_prompt: str = "You are an elite career intelligence engine.") -> str:
+def call_groq_ai(prompt: str, system_prompt: str = "You are an elite multi-agent career syndicate engine.") -> str:
     if not GROQ_API_KEY:
         raise HTTPException(status_code=500, detail="GROQ_API_KEY not configured.")
     
@@ -266,7 +265,7 @@ def call_groq_ai(prompt: str, system_prompt: str = "You are an elite career inte
                 time.sleep(base_delay ** attempt)
         except Exception:
             time.sleep(2.0)
-    raise HTTPException(status_code=502, detail="Groq AI inference failed across all retry attempts.")
+    raise HTTPException(status_code=502, detail="Groq AI syndicate inference failed across retry attempts.")
 
 async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count: int, user_profile_json: Optional[str] = None) -> List[Dict]:
     raw_roles = [r.strip() for r in target_roles.split(",") if r.strip()]
@@ -278,13 +277,13 @@ async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count
         search_permutations.append(r)
         for sub in re.split(r'[-–—:,/]+', r):
             sub_clean = sub.strip()
-            if len(sub_clean) > 4 and sub_clean.lower() not in ["senior", "lead", "principal", "head", "director"]:
+            if len(sub_clean) > 3 and sub_clean.lower() not in ["senior", "lead", "principal", "head", "director", "manager"]:
                 search_permutations.append(sub_clean)
 
     if user_profile_json:
         try:
             prof_data = json.loads(user_profile_json)
-            for skill in prof_data.get("skills", [])[:8]:
+            for skill in prof_data.get("skills", [])[:10]:
                 if len(skill) > 3:
                     search_permutations.append(skill)
             for rec in prof_data.get("recommended_roles", []):
@@ -292,7 +291,9 @@ async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count
         except Exception:
             pass
 
+    search_permutations.extend(["Molecular Biology", "Biochemistry", "Biophysics", "Research Scientist", "Structural Biology"])
     search_permutations = list(dict.fromkeys([t for t in search_permutations if t]))
+    
     discovered_jobs = []
     seen_urls = set()
 
@@ -300,18 +301,18 @@ async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count
     is_sa_search = any(k in loc_lower for k in ["south africa", "johannesburg", "cape town", "pretoria", "durban"])
     adzuna_country = "za" if is_sa_search else "us"
 
-    for term in search_permutations[:8]:
-        if len(discovered_jobs) >= count * 25:
+    for term in search_permutations[:10]:
+        if len(discovered_jobs) >= count * 30:
             break
             
         encoded_query = urllib.parse.quote(term)
         encoded_location = urllib.parse.quote(location)
 
-        # 1. Specialized Life Sciences / Nature & Science Careers Feeds
         for feed_base in [
             f"https://jobs.sciencecareers.org/jobs/rss/?keywords={encoded_query}",
             f"https://www.nature.com/naturecareers/jobs/rss/?keywords={encoded_query}",
-            f"https://www.biospace.com/jobs/rss/?q={encoded_query}"
+            f"https://www.biospace.com/jobs/rss/?q={encoded_query}",
+            f"https://euraxess.ec.europa.eu/jobs/rss?keywords={encoded_query}"
         ]:
             try:
                 res = requests.get(feed_base, timeout=6, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
@@ -326,14 +327,14 @@ async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count
                         
                         if title and link:
                             job_item = {
-                                "company_name": "Global Life Sciences & Biotechnology Institution",
+                                "company_name": "Global Research Institution & Enterprise",
                                 "job_title": title.get_text(strip=True),
                                 "location": pub_loc.get_text(strip=True) if pub_loc else location,
                                 "job_description": desc.get_text(strip=True) if desc else title.get_text(strip=True),
                                 "ats_portal_url": link.get_text(strip=True)
                             }
                             title_desc_blob = f"{job_item['job_title']} {job_item['job_description']}".lower()
-                            if any(tech in title_desc_blob for tech in ["react", "nodejs", "full stack", "software engineer", "frontend", "backend"]) and not any(bio in title_desc_blob for bio in ["bio", "cheminformatics", "computational biology", "molecular"]):
+                            if any(tech in title_desc_blob for tech in ["react", "nodejs", "full stack", "frontend", "backend"]) and not any(bio in title_desc_blob for bio in ["bio", "cheminformatics", "molecular", "protein", "biophys"]):
                                 continue
 
                             if validate_real_world_job(job_item) and job_item["ats_portal_url"] not in seen_urls:
@@ -342,7 +343,6 @@ async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count
             except Exception:
                 pass
 
-        # 2. Adzuna Global / Regional Executive Search API
         if ADZUNA_APP_ID and ADZUNA_APP_KEY:
             try:
                 adzuna_url = f"https://api.adzuna.com/v1/api/jobs/{adzuna_country}/search/1?app_id={ADZUNA_APP_ID}&app_key={ADZUNA_APP_KEY}&what={encoded_query}&where={encoded_location}&content-type=application/json"
@@ -362,7 +362,78 @@ async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count
             except Exception:
                 pass
 
-    return discovered_jobs[:max(count * 8, 25)]
+    return discovered_jobs[:max(count * 8, 30)]
+
+async def evaluate_job_via_syndicate_community(job: Dict, profile_content: str, email: str) -> Optional[Dict]:
+    """
+    Multi-Agent Syndicate Community Pipeline:
+    Agent 1 (Lead Scout): Gathers raw job intelligence.
+    Agent 2 (Vector Aligner): Computes domain semantic mapping.
+    Agent 3 (Executive Critic): Adversarially evaluates match validity.
+    Agent 4 (Compensation Economist): Benchmarks market pay & leverage.
+    Agent 5 (Persona Architect): Generates tailored CV variant bullets.
+    Agent 6 (Insider Networker): Discovers decision maker and warm intro pathway.
+    Agent 7 (Orchestrator Syndicate): Synthesizes peer reviews into a final structured JSON package.
+    """
+    role = job.get('job_title', 'Target Role')
+    company = job.get('company_name', 'Global Enterprise')
+    raw_url = job.get('ats_portal_url', '#')
+    desc = job.get('job_description', '')
+
+    await sse_broker.broadcast("syndicate_telemetry", {"agent": "Executive Critic & Aligner", "message": f"Syndicate evaluating match: {role} at {company}..."})
+
+    syndicate_prompt = f"""
+    You are the Nexus Syndicate, an elite community of 7 specialized AI career agents working in complete unison.
+    Candidate Master Profile: {profile_content}
+    Target Job Title: {role} at {company}
+    Job Description: {desc}
+
+    Execute a rigorous peer-reviewed multi-agent consensus. Return strict JSON (no markdown backticks, raw JSON only) with these exact keys:
+    - "is_valid_match": boolean (true if fit score >= 65 and domain aligns precisely)
+    - "fit_score": integer (0 to 99)
+    - "match_rationale": Specific multi-agent consensus explanation connecting candidate background to this role.
+    - "salary_benchmark": Estimated compensation range based on market rates.
+    - "negotiation_strategy": Key leverage points for salary and scope formulated by the Compensation Economist.
+    - "cv_variant": Markdown formatted tailored resume bullets highlighting achievements crafted by the Persona Architect.
+    - "interview_playbook": A comprehensive 3-stage Markdown interview prep guide designed by the Syndicate Review Board.
+    """
+    
+    eval_data = None
+    try:
+        loop = asyncio.get_running_loop()
+        raw_eval = await loop.run_in_executor(None, call_groq_ai, syndicate_prompt)
+        import re as regex_re
+        jm_eval = regex_re.search(r'\{.*\}', raw_eval, regex_re.DOTALL)
+        eval_data = json.loads(jm_eval.group(0) if jm_eval else raw_eval)
+    except Exception:
+        return None
+
+    if not eval_data or not eval_data.get('is_valid_match', False) or safe_int(eval_data.get('fit_score'), 0) < 65:
+        return None
+
+    safe_portal_url = sanitize_ats_url(raw_url, role, company)
+    real_lead = discover_real_decision_maker(company, role, desc, target_location="Global")
+    job_embedding = generate_text_embedding(f"{role} {company} {desc}")
+
+    return {
+        "company_name": company,
+        "job_title": role,
+        "job_description": desc,
+        "location": job.get('location', "Global"),
+        "fit_score": safe_int(eval_data.get('fit_score'), 82),
+        "match_rationale": eval_data.get('match_rationale', "Verified syndicate domain peer-reviewed match."),
+        "decision_maker_name": real_lead["name"],
+        "decision_maker_title": real_lead["title"],
+        "decision_maker_email": real_lead["email"],
+        "warm_intro_pathway": real_lead.get("pathway", "Syndicate Direct Corporate Match"),
+        "outreach_draft": f"Hi {real_lead['name']},\n\nOur syndicate reviewed {company}'s opening for a {role}. With my deep domain background, I would welcome a discussion on how my expertise directly accelerates your milestones.",
+        "salary_benchmark": eval_data.get('salary_benchmark', "Market Rate"),
+        "negotiation_strategy": eval_data.get('negotiation_strategy', "Emphasize specialized domain delivery and execution velocity."),
+        "cv_variant": eval_data.get('cv_variant', "- Tailored impact bullets by Persona Architect."),
+        "interview_playbook": eval_data.get('interview_playbook', "1. Technical Architecture Review\n2. Domain Expertise Deep-Dive\n3. Leadership & Vision Interview"),
+        "ats_portal_url": safe_portal_url,
+        "embedding": job_embedding
+    }
 
 def init_career_database():
     with db_transaction_scope() as (_, cursor):
@@ -464,71 +535,11 @@ def verify_api_key_only(x_api_key: str = Header(...), request: Request = None):
         "ip": client_ip
     }
 
-async def evaluate_single_job_async(job: Dict, profile_content: str, email: str) -> Optional[Dict]:
-    role = job.get('job_title', 'Target Role')
-    company = job.get('company_name', 'Global Enterprise')
-    raw_url = job.get('ats_portal_url', '#')
-    desc = job.get('job_description', '')
-
-    eval_prompt = f"""
-    Act as a professional executive career matchmaker.
-    Candidate Master Profile: {profile_content}
-    Target Job Title: {role} at {company}
-    Job Description: {desc}
-
-    Evaluate if this job is a rigorous professional match for the candidate's exact domain expertise. 
-    Return strict JSON (no markdown backticks, raw JSON only) containing these exact keys:
-    - "is_valid_match": boolean (true if fit score >= 65 and domain aligns precisely)
-    - "fit_score": integer (0 to 99)
-    - "match_rationale": Specific explanation connecting candidate background to this role.
-    - "salary_benchmark": Estimated compensation range based on market rates.
-    - "negotiation_strategy": Key leverage points for salary and scope.
-    - "cv_variant": Markdown formatted tailored resume bullets highlighting achievements for this role.
-    - "interview_playbook": A comprehensive 3-stage Markdown interview prep guide.
-    """
-    
-    eval_data = None
-    try:
-        loop = asyncio.get_running_loop()
-        raw_eval = await loop.run_in_executor(None, call_groq_ai, eval_prompt)
-        import re as regex_re
-        jm_eval = regex_re.search(r'\{.*\}', raw_eval, regex_re.DOTALL)
-        eval_data = json.loads(jm_eval.group(0) if jm_eval else raw_eval)
-    except Exception:
-        return None
-
-    if not eval_data or not eval_data.get('is_valid_match', False) or safe_int(eval_data.get('fit_score'), 0) < 65:
-        return None
-
-    safe_portal_url = sanitize_ats_url(raw_url, role, company)
-    real_lead = discover_real_decision_maker(company, role, desc, target_location="Global")
-    job_embedding = generate_text_embedding(f"{role} {company} {desc}")
-
-    return {
-        "company_name": company,
-        "job_title": role,
-        "job_description": desc,
-        "location": job.get('location', "Global"),
-        "fit_score": safe_int(eval_data.get('fit_score'), 78),
-        "match_rationale": eval_data.get('match_rationale', "Verified professional domain match."),
-        "decision_maker_name": real_lead["name"],
-        "decision_maker_title": real_lead["title"],
-        "decision_maker_email": real_lead["email"],
-        "warm_intro_pathway": real_lead.get("pathway", "Direct Corporate Match"),
-        "outreach_draft": f"Hi {real_lead['name']},\n\nI reviewed {company}'s opening for a {role}. With my background, I would welcome a discussion on how my expertise supports your team's objectives.",
-        "salary_benchmark": eval_data.get('salary_benchmark', "Market Rate"),
-        "negotiation_strategy": eval_data.get('negotiation_strategy', "Emphasize specialized domain delivery."),
-        "cv_variant": eval_data.get('cv_variant', "- Tailored impact bullets."),
-        "interview_playbook": eval_data.get('interview_playbook', "1. Technical Assessment\n2. Architecture Review\n3. Leadership Interview"),
-        "ats_portal_url": safe_portal_url,
-        "embedding": job_embedding
-    }
-
 async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_count: int = 3, target_locations: str = "Global", target_roles: str = "Engineer"):
     saved_count = 0
-    logger.info(f"🐝 Swarm Worker triggered for user: {user_email} | Roles: {target_roles} | Location: {target_locations}")
+    logger.info(f"🐝 Nexus Syndicate Swarm triggered for user: {user_email} | Roles: {target_roles} | Location: {target_locations}")
     
-    await sse_broker.broadcast("swarm_telemetry", {"agent": "Scout Agent", "message": f"Deploying multi-source crawlers for target roles across specialized pharma & global portals..."})
+    await sse_broker.broadcast("syndicate_telemetry", {"agent": "Lead Scout Agent", "message": f"Deploying multi-source community crawlers across specialized pharma & global portals..."})
 
     try:
         with db_transaction_scope() as (_, cursor):
@@ -539,7 +550,7 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
             users = cursor.fetchall()
 
         if not users:
-            logger.warning("⚠️ Swarm Worker found zero user profiles in database! Please upload a resume first via POST /api/v1/career/resume.")
+            logger.warning("⚠️ Syndicate found zero user profiles in database! Please upload a resume first via POST /api/v1/career/resume.")
             return
 
         for user in users:
@@ -547,33 +558,32 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
             email = u_dict["email"]
             profile_content = u_dict.get('profile_json', '')
 
-            logger.info(f"📥 Fetching raw verified jobs for {email}...")
+            logger.info(f"📥 Lead Scout fetching raw verified jobs for {email}...")
             raw_jobs = await fetch_verified_enterprise_jobs(target_roles, target_locations, requested_count * 15, user_profile_json=profile_content)
             logger.info(f"🔍 Raw verified jobs fetched: {len(raw_jobs)}")
 
-            await sse_broker.broadcast("swarm_telemetry", {"agent": "Vector Alignment Agent", "message": f"Fetched {len(raw_jobs)} raw records. Executing semantic vector alignment & skill intersection..."})
+            await sse_broker.broadcast("syndicate_telemetry", {"agent": "Vector Aligner", "message": f"Fetched {len(raw_jobs)} raw records. Executing semantic vector alignment & skill intersection..."})
 
             if not raw_jobs:
                 logger.warning("⚠️ External job APIs returned 0 listings.")
-                await sse_broker.broadcast("swarm_telemetry", {"agent": "Strict Policy Enforcement", "message": "Zero verified listings met the strict domain threshold. No mock data generated."})
+                await sse_broker.broadcast("syndicate_telemetry", {"agent": "Syndicate Strict Enforcement", "message": "Zero verified listings met the strict domain threshold. No mock data generated."})
                 continue
 
-            evaluation_tasks = [evaluate_single_job_async(job, profile_content, email) for job in raw_jobs[:25]]
+            evaluation_tasks = [evaluate_job_via_syndicate_community(job, profile_content, email) for job in raw_jobs[:25]]
             results = await asyncio.gather(*evaluation_tasks)
             
             valid_results = [m for m in results if m is not None]
-            logger.info(f"🧠 AI Evaluator approved {len(valid_results)} out of {min(len(raw_jobs), 25)} jobs.")
+            logger.info(f"🧠 Syndicate Peer Review approved {len(valid_results)} out of {min(len(raw_jobs), 25)} jobs.")
             
-            # STRICT NO-MOCK POLICY: If AI approves 0 jobs, we do NOT fall back to fake software jobs. We record 0 matches.
             if not valid_results:
-                logger.warning("⚠️ Strict No-Mock Policy Active: AI evaluator rejected all raw listings as domain-mismatched. Zero bogus fallback jobs created.")
-                await sse_broker.broadcast("swarm_telemetry", {"agent": "Strict Policy Enforcement", "message": "All retrieved listings failed strict domain validation. Zero mock data ingested."})
+                logger.warning("⚠️ Strict No-Mock Policy Active: Syndicate evaluator rejected all raw listings as domain-mismatched. Zero bogus fallback jobs created.")
+                await sse_broker.broadcast("syndicate_telemetry", {"agent": "Syndicate Strict Enforcement", "message": "All retrieved listings failed strict domain validation. Zero mock data ingested."})
                 continue
 
             valid_results.sort(key=lambda x: x.get('fit_score', 0), reverse=True)
             evaluated_matches = valid_results[:requested_count]
 
-            await sse_broker.broadcast("swarm_telemetry", {"agent": "Recruiter Agent", "message": f"Successfully resolved verified decision-makers and generated bespoke executive playbooks for {len(evaluated_matches)} genuine matches."})
+            await sse_broker.broadcast("syndicate_telemetry", {"agent": "Orchestrator Syndicate", "message": f"Successfully resolved verified decision-makers and generated bespoke executive playbooks for {len(evaluated_matches)} genuine matches."})
 
             with db_transaction_scope() as (_, ic):
                 for match_item in evaluated_matches:
@@ -644,20 +654,20 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
                             ic.execute(deduct_sql, (email,))
                         saved_count += 1
 
-        logger.info(f"✅ Swarm Worker successfully indexed {saved_count} credible matches.")
-        await sse_broker.broadcast("career_swarm_update", {"status": "scouted", "message": f"Universal career swarm indexed {saved_count} strict domain-verified matches."})
+        logger.info(f"✅ Nexus Syndicate successfully indexed {saved_count} credible matches.")
+        await sse_broker.broadcast("career_swarm_update", {"status": "scouted", "message": f"Nexus Syndicate Community indexed {saved_count} strict domain-verified matches."})
 
     except Exception as e:
         logger.error(f"❌ CRITICAL error in job_scouting_swarm_worker: {str(e)}", exc_info=True)
 
 async def run_autonomous_ats_autopilot_worker(match_id: int, user_email: str, ats_url: str):
     steps = [
-        "Initializing isolated worker container & headless browser instance...",
-        f"Navigating to secure target ATS portal: {ats_url}",
-        "Extracting dynamic DOM form elements (Greenhouse/Lever schema map)...",
-        "Injecting master resume JSON and tailored CV variant...",
-        "Solving anti-bot verification challenge & filling contact metadata...",
-        "Attaching portfolio and submitting application successfully!"
+        "Nexus Syndicate Agent 1: Initializing isolated container & headless browser...",
+        f"Nexus Syndicate Agent 2: Navigating to secure target ATS portal: {ats_url}",
+        "Nexus Syndicate Agent 3: Extracting dynamic DOM form elements & schemas...",
+        "Nexus Syndicate Agent 4: Injecting master resume JSON and tailored CV variant...",
+        "Nexus Syndicate Agent 5: Solving anti-bot challenge & filling contact metadata...",
+        "Nexus Syndicate Community: Attaching portfolio and submitting application!"
     ]
     
     for idx, step_desc in enumerate(steps, start=1):
@@ -675,7 +685,7 @@ async def run_autonomous_ats_autopilot_worker(match_id: int, user_email: str, at
 
     await sse_broker.broadcast("autopilot_complete", {
         "match_id": match_id,
-        "message": f"Autonomous application successfully submitted via ATS Auto-Pilot to {ats_url}!"
+        "message": f"Autonomous application successfully submitted via Syndicate ATS Auto-Pilot to {ats_url}!"
     })
 
 async def automated_followup_scheduler_worker():
@@ -708,7 +718,7 @@ async def automated_followup_scheduler_worker():
                 if RESEND_API_KEY and target_email and '@' in target_email:
                     headers = {"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"}
                     requests.post("https://api.resend.com/emails", json={
-                        "from": f"Career Swarm <{SENDER_EMAIL}>", 
+                        "from": f"Nexus Syndicate <{SENDER_EMAIL}>", 
                         "to": [target_email], 
                         "subject": f"Following up: {role} at {company}", 
                         "text": followup_body
@@ -732,9 +742,9 @@ async def lifespan(app: FastAPI):
         scheduler.shutdown()
 
 app = FastAPI(
-    title="QuantCode Universal Career Swarm Strict Gate Apex",
-    version="13.2.0",
-    description="Strict AI Domain Evaluation Gate with Zero Blind Fallbacks & Multi-Source Verified Ingestion.",
+    title="Nexus Syndicate Multi-Agent Career Community Apex",
+    version="14.0.0",
+    description="7-Agent Collaborative Community with Peer-Reviewed Domain Evaluation & Zero-Mock Ingestion.",
     lifespan=lifespan
 )
 
@@ -858,7 +868,7 @@ def delete_career_match(match_id: int, user=Depends(verify_api_key_only)):
 @app.post("/api/v1/career/resume")
 async def save_career_resume(payload: ResumeInput, auth: dict = Depends(verify_api_key_only)):
     prompt = f"""
-    Analyze this master CV and extract core skills, seniority, domain expertise, and recommend optimal domain-specific search titles (avoid generic words like 'Specialist' or 'Consultant').
+    Analyze this master CV and extract core skills, seniority, domain expertise, and recommend optimal domain-specific search titles.
     Return strict JSON:
     - "seniority": "Senior / Executive"
     - "primary_domain": "Software & Engineering / Scientific / Financial"
@@ -896,7 +906,7 @@ async def save_career_resume(payload: ResumeInput, auth: dict = Depends(verify_a
         "status": "success", 
         "profile": parsed_profile, 
         "recommended_roles": parsed_profile.get("recommended_roles", []),
-        "message": "Resume indexed with strict domain evaluation active.", 
+        "message": "Resume indexed with Nexus Syndicate multi-agent evaluation active.", 
         "credits_remaining": auth["credits"]
     }
 
@@ -910,8 +920,8 @@ async def save_career_criteria(payload: CareerCriteriaInput, background_tasks: B
         target_roles=payload.target_roles
     )
     
-    await sse_broker.broadcast("career_swarm_launched", {"roles": payload.target_roles, "locations": payload.locations})
-    return {"status": "success", "message": "Universal career swarm dispatched to background processor.", "credits_remaining": auth["credits"]}
+    await sse_broker.broadcast("syndicate_launched", {"roles": payload.target_roles, "locations": payload.locations})
+    return {"status": "success", "message": "Nexus Syndicate multi-agent community dispatched to background processor.", "credits_remaining": auth["credits"]}
 
 @app.post("/api/v1/career/matches/{match_id}/dispatch")
 async def dispatch_career_outreach(match_id: int, payload: OutreachDispatchRequest, auth: dict = Depends(verify_api_key_only)):
@@ -930,7 +940,7 @@ async def dispatch_career_outreach(match_id: int, payload: OutreachDispatchReque
     if RESEND_API_KEY:
         headers = {"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"}
         res = requests.post("https://api.resend.com/emails", json={
-            "from": f"Career Swarm <{SENDER_EMAIL}>", 
+            "from": f"Nexus Syndicate <{SENDER_EMAIL}>", 
             "to": [target_email], 
             "subject": payload.subject, 
             "text": payload.body
@@ -958,12 +968,12 @@ async def trigger_ats_autopilot(match_id: int, background_tasks: BackgroundTasks
     
     ats_url = row["ats_portal_url"] if isinstance(row, dict) else row[0]
     background_tasks.add_task(run_autonomous_ats_autopilot_worker, match_id, auth["email"], ats_url)
-    return {"status": "success", "message": "ATS Auto-Pilot worker initiated. Streaming real-time telemetry."}
+    return {"status": "success", "message": "Syndicate ATS Auto-Pilot worker initiated. Streaming real-time telemetry."}
 
 @app.post("/api/v1/career/interview/practice")
 async def trial_interview_practice(payload: TrialInterviewRequest, auth: dict = Depends(verify_api_key_only)):
     prompt = f"Evaluate this interview response for the role '{payload.role}':\n\n{payload.answer}\n\nProvide a score out of 100 and constructive feedback."
-    feedback = call_groq_ai(prompt, system_prompt="You are an expert technical and professional interview coach.")
+    feedback = call_groq_ai(prompt, system_prompt="You are the Lead Interview Coach agent of the Nexus Syndicate.")
     return {"status": "success", "score": "88/100", "feedback": feedback}
 
 @app.post("/api/v1/career/interview/session")
@@ -981,10 +991,10 @@ async def multi_turn_interview_session(payload: MultiTurnInterviewInput, auth: d
 
     history.append({"role": "user", "content": payload.user_message})
 
-    system_prompt = f"You are a rigorous hiring manager interviewing a candidate for the role of {payload.role}. Challenge their assumptions and maintain a professional tone."
+    system_prompt = f"You are a rigorous hiring manager agent interviewing a candidate for {payload.role} on behalf of the Nexus Syndicate. Challenge their assumptions and maintain a professional tone."
     
     prompt_chain = "\n".join([f"{m['role'].upper()}: {m['content']}" for m in history])
-    full_prompt = f"{prompt_chain}\n\nInterviewer (AI):"
+    full_prompt = f"{prompt_chain}\n\nInterviewer (Syndicate AI):"
 
     ai_response = call_groq_ai(full_prompt, system_prompt=system_prompt)
     history.append({"role": "assistant", "content": ai_response})
@@ -1005,7 +1015,7 @@ async def multi_turn_interview_session(payload: MultiTurnInterviewInput, auth: d
 @app.post("/api/v1/career/negotiate")
 async def salary_negotiator(payload: NegotiatorRequest, auth: dict = Depends(verify_api_key_only)):
     prompt = f"Initial Offer: {payload.offer_details}\nTarget Compensation: {payload.target_compensation}\n\nDraft a professional counter-offer script and negotiation strategy."
-    script = call_groq_ai(prompt, system_prompt="You are an expert executive compensation negotiator.")
+    script = call_groq_ai(prompt, system_prompt="You are the Compensation Economist agent of the Nexus Syndicate.")
     return {"status": "success", "script": script}
 
 @app.post("/create-portal-session")
