@@ -527,103 +527,120 @@ async def evaluate_single_job_async(job: Dict, profile_content: str, email: str)
 
 async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_count: int = 3, target_locations: str = "Global", target_roles: str = "Engineer"):
     saved_count = 0
+    logger.info(f"🐝 Swarm Worker triggered for user: {user_email} | Roles: {target_roles} | Location: {target_locations}")
 
-    with db_transaction_scope() as (_, cursor):
-        if user_email:
-            cursor.execute("SELECT email, profile_json FROM user_profiles WHERE email = %s" if DATABASE_URL else "SELECT email, profile_json FROM user_profiles WHERE email = ?", (user_email,))
-        else:
-            cursor.execute("SELECT email, profile_json FROM user_profiles")
-        users = cursor.fetchall()
+    try:
+        with db_transaction_scope() as (_, cursor):
+            if user_email:
+                cursor.execute("SELECT email, profile_json FROM user_profiles WHERE email = %s" if DATABASE_URL else "SELECT email, profile_json FROM user_profiles WHERE email = ?", (user_email,))
+            else:
+                cursor.execute("SELECT email, profile_json FROM user_profiles")
+            users = cursor.fetchall()
 
-    for user in users:
-        u_dict = dict(user) if not isinstance(user, dict) else user
-        email = u_dict["email"]
-        profile_content = u_dict.get('profile_json', '')
+        if not users:
+            logger.warning("⚠️ Swarm Worker found zero user profiles in database! Please upload a resume first via POST /api/v1/career/resume.")
+            return
 
-        raw_jobs = await fetch_verified_enterprise_jobs(target_roles, target_locations, requested_count * 8, user_profile_json=profile_content)
-        if not raw_jobs:
-            continue
+        for user in users:
+            u_dict = dict(user) if not isinstance(user, dict) else user
+            email = u_dict["email"]
+            profile_content = u_dict.get('profile_json', '')
 
-        evaluation_tasks = [evaluate_single_job_async(job, profile_content, email) for job in raw_jobs]
-        results = await asyncio.gather(*evaluation_tasks)
-        
-        valid_results = [m for m in results if m is not None]
-        valid_results.sort(key=lambda x: x.get('fit_score', 0), reverse=True)
-        evaluated_matches = valid_results[:requested_count]
+            logger.info(f"📥 Fetching raw verified jobs for {email}...")
+            raw_jobs = await fetch_verified_enterprise_jobs(target_roles, target_locations, requested_count * 8, user_profile_json=profile_content)
+            logger.info(f"🔍 Raw verified jobs fetched: {len(raw_jobs)}")
 
-        if not evaluated_matches:
-            continue
+            if not raw_jobs:
+                logger.warning("⚠️ External job APIs returned 0 listings. Check if ADZUNA_APP_ID/KEY are set or if search terms were too restrictive.")
+                continue
 
-        with db_transaction_scope() as (_, ic):
-            for match_item in evaluated_matches:
-                ic.execute("SELECT tier, credits_remaining FROM subscribers s JOIN subscriber_credits c ON s.email = c.email WHERE s.email = %s" if DATABASE_URL else "SELECT tier, credits_remaining FROM subscribers s JOIN subscriber_credits c ON s.email = c.email WHERE s.email = ?", (email,))
-                sub_row = ic.fetchone()
-                user_tier = sub_row["tier"] if isinstance(sub_row, dict) else sub_row[0]
+            evaluation_tasks = [evaluate_single_job_async(job, profile_content, email) for job in raw_jobs]
+            results = await asyncio.gather(*evaluation_tasks)
+            
+            valid_results = [m for m in results if m is not None]
+            logger.info(f"🧠 AI Evaluator approved {len(valid_results)} out of {len(raw_jobs)} jobs.")
+            
+            valid_results.sort(key=lambda x: x.get('fit_score', 0), reverse=True)
+            evaluated_matches = valid_results[:requested_count]
 
-                job_embedding_list = match_item.get('embedding', [0.0] * 768)
-                vector_str = "[" + ",".join(map(str, job_embedding_list)) + "]"
+            if not evaluated_matches:
+                logger.warning("⚠️ All fetched jobs failed strict AI domain evaluation or fit score threshold (<65).")
+                continue
 
-                if DATABASE_URL:
-                    sql = """
-                        INSERT INTO job_matches (user_email, company_name, job_title, job_description, location, fit_score, match_rationale, decision_maker_name, decision_maker_title, decision_maker_email, warm_intro_pathway, outreach_draft, salary_benchmark, negotiation_strategy, cv_variant, interview_playbook, ats_portal_url, embedding, status)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::vector, 'discovered')
-                        ON CONFLICT DO NOTHING
-                        RETURNING id;
-                    """
-                    ic.execute(sql, (
-                        email,
-                        safe_str(match_item.get('company_name')),
-                        safe_str(match_item.get('job_title')),
-                        safe_str(match_item.get('job_description')),
-                        safe_str(match_item.get('location')),
-                        safe_int(match_item.get('fit_score'), 88),
-                        safe_str(match_item.get('match_rationale')),
-                        safe_str(match_item.get('decision_maker_name')),
-                        safe_str(match_item.get('decision_maker_title')),
-                        safe_str(match_item.get('decision_maker_email')),
-                        safe_str(match_item.get('warm_intro_pathway')),
-                        safe_str(match_item.get('outreach_draft')),
-                        safe_str(match_item.get('salary_benchmark')),
-                        safe_str(match_item.get('negotiation_strategy')),
-                        safe_str(match_item.get('cv_variant')),
-                        safe_str(match_item.get('interview_playbook')),
-                        safe_str(match_item.get('ats_portal_url')),
-                        vector_str
-                    ))
-                    inserted = (ic.fetchone() is not None)
-                else:
-                    sql = """
-                        INSERT OR IGNORE INTO job_matches (user_email, company_name, job_title, job_description, location, fit_score, match_rationale, decision_maker_name, decision_maker_title, decision_maker_email, warm_intro_pathway, outreach_draft, salary_benchmark, negotiation_strategy, cv_variant, interview_playbook, ats_portal_url, status)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'discovered')
-                    """
-                    ic.execute(sql, (
-                        email,
-                        safe_str(match_item.get('company_name')),
-                        safe_str(match_item.get('job_title')),
-                        safe_str(match_item.get('job_description')),
-                        safe_str(match_item.get('location')),
-                        safe_int(match_item.get('fit_score'), 88),
-                        safe_str(match_item.get('match_rationale')),
-                        safe_str(match_item.get('decision_maker_name')),
-                        safe_str(match_item.get('decision_maker_title')),
-                        safe_str(match_item.get('decision_maker_email')),
-                        safe_str(match_item.get('warm_intro_pathway')),
-                        safe_str(match_item.get('outreach_draft')),
-                        safe_str(match_item.get('salary_benchmark')),
-                        safe_str(match_item.get('negotiation_strategy')),
-                        safe_str(match_item.get('cv_variant')),
-                        safe_str(match_item.get('interview_playbook')),
-                        safe_str(match_item.get('ats_portal_url'))
-                    ))
-                    inserted = (ic.rowcount > 0)
+            with db_transaction_scope() as (_, ic):
+                for match_item in evaluated_matches:
+                    ic.execute("SELECT tier, credits_remaining FROM subscribers s JOIN subscriber_credits c ON s.email = c.email WHERE s.email = %s" if DATABASE_URL else "SELECT tier, credits_remaining FROM subscribers s JOIN subscriber_credits c ON s.email = c.email WHERE s.email = ?", (email,))
+                    sub_row = ic.fetchone()
+                    user_tier = sub_row["tier"] if isinstance(sub_row, dict) else sub_row[0]
 
-                if inserted:
-                    if user_tier != "enterprise":
-                        deduct_sql = "UPDATE subscriber_credits SET credits_remaining = credits_remaining - 1 WHERE email = %s" if DATABASE_URL else "UPDATE subscriber_credits SET credits_remaining = credits_remaining - 1 WHERE email = ?"
-                        ic.execute(deduct_sql, (email,))
-                    saved_count += 1
+                    job_embedding_list = match_item.get('embedding', [0.0] * 768)
+                    vector_str = "[" + ",".join(map(str, job_embedding_list)) + "]"
 
-    await sse_broker.broadcast("career_swarm_update", {"status": "scouted", "message": f"Universal career swarm indexed {saved_count} strict domain matches."})
+                    if DATABASE_URL:
+                        sql = """
+                            INSERT INTO job_matches (user_email, company_name, job_title, job_description, location, fit_score, match_rationale, decision_maker_name, decision_maker_title, decision_maker_email, warm_intro_pathway, outreach_draft, salary_benchmark, negotiation_strategy, cv_variant, interview_playbook, ats_portal_url, embedding, status)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::vector, 'discovered')
+                            ON CONFLICT DO NOTHING
+                            RETURNING id;
+                        """
+                        ic.execute(sql, (
+                            email,
+                            safe_str(match_item.get('company_name')),
+                            safe_str(match_item.get('job_title')),
+                            safe_str(match_item.get('job_description')),
+                            safe_str(match_item.get('location')),
+                            safe_int(match_item.get('fit_score'), 88),
+                            safe_str(match_item.get('match_rationale')),
+                            safe_str(match_item.get('decision_maker_name')),
+                            safe_str(match_item.get('decision_maker_title')),
+                            safe_str(match_item.get('decision_maker_email')),
+                            safe_str(match_item.get('warm_intro_pathway')),
+                            safe_str(match_item.get('outreach_draft')),
+                            safe_str(match_item.get('salary_benchmark')),
+                            safe_str(match_item.get('negotiation_strategy')),
+                            safe_str(match_item.get('cv_variant')),
+                            safe_str(match_item.get('interview_playbook')),
+                            safe_str(match_item.get('ats_portal_url')),
+                            vector_str
+                        ))
+                        inserted = (ic.fetchone() is not None)
+                    else:
+                        sql = """
+                            INSERT OR IGNORE INTO job_matches (user_email, company_name, job_title, job_description, location, fit_score, match_rationale, decision_maker_name, decision_maker_title, decision_maker_email, warm_intro_pathway, outreach_draft, salary_benchmark, negotiation_strategy, cv_variant, interview_playbook, ats_portal_url, status)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'discovered')
+                        """
+                        ic.execute(sql, (
+                            email,
+                            safe_str(match_item.get('company_name')),
+                            safe_str(match_item.get('job_title')),
+                            safe_str(match_item.get('job_description')),
+                            safe_str(match_item.get('location')),
+                            safe_int(match_item.get('fit_score'), 88),
+                            safe_str(match_item.get('match_rationale')),
+                            safe_str(match_item.get('decision_maker_name')),
+                            safe_str(match_item.get('decision_maker_title')),
+                            safe_str(match_item.get('decision_maker_email')),
+                            safe_str(match_item.get('warm_intro_pathway')),
+                            safe_str(match_item.get('outreach_draft')),
+                            safe_str(match_item.get('salary_benchmark')),
+                            safe_str(match_item.get('negotiation_strategy')),
+                            safe_str(match_item.get('cv_variant')),
+                            safe_str(match_item.get('interview_playbook')),
+                            safe_str(match_item.get('ats_portal_url'))
+                        ))
+                        inserted = (ic.rowcount > 0)
+
+                    if inserted:
+                        if user_tier != "enterprise":
+                            deduct_sql = "UPDATE subscriber_credits SET credits_remaining = credits_remaining - 1 WHERE email = %s" if DATABASE_URL else "UPDATE subscriber_credits SET credits_remaining = credits_remaining - 1 WHERE email = ?"
+                            ic.execute(deduct_sql, (email,))
+                        saved_count += 1
+
+        logger.info(f"✅ Swarm Worker successfully indexed {saved_count} matches.")
+        await sse_broker.broadcast("career_swarm_update", {"status": "scouted", "message": f"Universal career swarm indexed {saved_count} strict domain matches."})
+
+    except Exception as e:
+        logger.error(f"❌ CRITICAL error in job_scouting_swarm_worker: {str(e)}", exc_info=True)
 
 async def run_autonomous_ats_autopilot_worker(match_id: int, user_email: str, ats_url: str):
     steps = [
@@ -708,7 +725,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="QuantCode Universal Career Swarm Strict Gate Apex",
-    version="13.1.0",
+    version="13.2.0",
     description="Strict AI Domain Evaluation Gate with Zero Blind Fallbacks & Multi-Source Verified Ingestion.",
     lifespan=lifespan
 )
