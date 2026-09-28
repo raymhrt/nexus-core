@@ -273,11 +273,15 @@ async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count
     if not raw_roles:
         raw_roles = [target_roles]
 
-    filtered_roles = [r for r in raw_roles if r.lower() not in ["specialist", "senior professional", "consultant", "professional"]]
-    if not filtered_roles:
-        filtered_roles = raw_roles
+    clean_role_tokens = []
+    for r in raw_roles:
+        clean_role_tokens.append(r)
+        for sub in re.split(r'[-–—:,/]+', r):
+            sub_clean = sub.strip()
+            if len(sub_clean) > 3:
+                clean_role_tokens.append(sub_clean)
 
-    search_permutations = list(filtered_roles)
+    search_permutations = list(clean_role_tokens)
     if user_profile_json:
         try:
             prof_data = json.loads(user_profile_json)
@@ -285,8 +289,7 @@ async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count
                 if len(skill) > 2:
                     search_permutations.append(skill)
             for rec in prof_data.get("recommended_roles", []):
-                if rec.lower() not in ["specialist", "senior professional", "consultant"]:
-                    search_permutations.append(rec)
+                search_permutations.append(rec)
         except Exception:
             pass
 
@@ -298,7 +301,7 @@ async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count
     is_sa_search = any(k in loc_lower for k in ["south africa", "johannesburg", "cape town", "pretoria", "durban"])
     adzuna_country = "za" if is_sa_search else "us"
 
-    for term in search_permutations[:8]:
+    for term in search_permutations[:6]:
         if len(discovered_jobs) >= count * 15:
             break
             
@@ -343,25 +346,7 @@ async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count
         except Exception:
             pass
 
-        # 3. Remotive API (Remote tech & executive roles)
-        try:
-            res = requests.get(f"https://remotive.com/api/remote-jobs?search={encoded_query}", timeout=5)
-            if res.status_code == 200:
-                for item in res.json().get("jobs", []):
-                    job_item = {
-                        "company_name": item.get("company_name", "Global Enterprise"),
-                        "job_title": item.get("title", term),
-                        "location": item.get("candidate_required_location", "Remote"),
-                        "job_description": item.get("description", ""),
-                        "ats_portal_url": item.get("url", "")
-                    }
-                    if validate_real_world_job(job_item) and job_item["ats_portal_url"] not in seen_urls:
-                        seen_urls.add(job_item["ats_portal_url"])
-                        discovered_jobs.append(job_item)
-        except Exception:
-            pass
-
-        # 4. Life Sciences / Biotech RSS & Public API Feed (ScienceCareers)
+        # 3. ScienceCareers RSS Feed
         try:
             biotech_url = f"https://jobs.sciencecareers.org/jobs/rss/?keywords={encoded_query}"
             res = requests.get(biotech_url, timeout=5, headers={"User-Agent": "Mozilla/5.0"})
@@ -497,16 +482,14 @@ async def evaluate_single_job_async(job: Dict, profile_content: str, email: str)
     desc = job.get('job_description', '')
 
     eval_prompt = f"""
-    Act as a strict executive career matchmaker.
+    Act as a professional executive career matchmaker.
     Candidate Master Profile: {profile_content}
     Target Job Title: {role} at {company}
     Job Description: {desc}
 
-    Rigorously evaluate if this job is a genuine match for the candidate's exact background. 
-    If there is a domain mismatch (e.g., IT administration for a biologist or finance sales for a technical engineer), you MUST set "is_valid_match": false and "fit_score": 25.
-    
+    Evaluate if this job is a reasonable professional match for the candidate's background (including scientific, research, technical, or engineering fields). 
     Return strict JSON (no markdown backticks, raw JSON only) containing these exact keys:
-    - "is_valid_match": boolean (true/false)
+    - "is_valid_match": boolean (true if fit score >= 55)
     - "fit_score": integer (0 to 99)
     - "match_rationale": Specific explanation connecting candidate background to this role.
     - "salary_benchmark": Estimated compensation range based on market rates.
@@ -525,7 +508,7 @@ async def evaluate_single_job_async(job: Dict, profile_content: str, email: str)
     except Exception:
         return None
 
-    if not eval_data or not eval_data.get('is_valid_match', False) or safe_int(eval_data.get('fit_score'), 0) < 65:
+    if not eval_data or not eval_data.get('is_valid_match', False) or safe_int(eval_data.get('fit_score'), 0) < 55:
         return None
 
     safe_portal_url = sanitize_ats_url(raw_url, role, company)
@@ -537,13 +520,13 @@ async def evaluate_single_job_async(job: Dict, profile_content: str, email: str)
         "job_title": role,
         "job_description": desc,
         "location": job.get('location', "Global"),
-        "fit_score": safe_int(eval_data.get('fit_score'), 85),
-        "match_rationale": eval_data.get('match_rationale', "Verified strict domain match."),
+        "fit_score": safe_int(eval_data.get('fit_score'), 78),
+        "match_rationale": eval_data.get('match_rationale', "Verified professional domain match."),
         "decision_maker_name": real_lead["name"],
         "decision_maker_title": real_lead["title"],
         "decision_maker_email": real_lead["email"],
         "warm_intro_pathway": real_lead.get("pathway", "Direct Corporate Match"),
-        "outreach_draft": f"Hi {real_lead['name']},\n\nI reviewed {company}'s opening for a {role}. With my professional background, I would welcome a discussion on how my expertise supports your team's objectives.",
+        "outreach_draft": f"Hi {real_lead['name']},\n\nI reviewed {company}'s opening for a {role}. With my background, I would welcome a discussion on how my expertise supports your team's objectives.",
         "salary_benchmark": eval_data.get('salary_benchmark', "Market Rate"),
         "negotiation_strategy": eval_data.get('negotiation_strategy', "Emphasize specialized domain delivery."),
         "cv_variant": eval_data.get('cv_variant', "- Tailored impact bullets."),
@@ -591,7 +574,7 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
             evaluated_matches = valid_results[:requested_count]
 
             if not evaluated_matches:
-                logger.warning("⚠️ All fetched jobs failed strict AI domain evaluation or fit score threshold (<65).")
+                logger.warning("⚠️ All fetched jobs failed strict AI domain evaluation or fit score threshold (<55).")
                 continue
 
             with db_transaction_scope() as (_, ic):
