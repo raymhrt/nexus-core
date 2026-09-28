@@ -361,6 +361,33 @@ async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count
         except Exception:
             pass
 
+        # 4. Life Sciences / Biotech RSS & Public API Feed (ScienceCareers)
+        try:
+            biotech_url = f"https://jobs.sciencecareers.org/jobs/rss/?keywords={encoded_query}"
+            res = requests.get(biotech_url, timeout=5, headers={"User-Agent": "Mozilla/5.0"})
+            if res.status_code == 200:
+                from bs4 import BeautifulSoup
+                soup = BeautifulSoup(res.text, 'xml')
+                for item in soup.find_all('item'):
+                    title = item.find('title')
+                    link = item.find('link')
+                    desc = item.find('description')
+                    pub_loc = item.find('location')
+                    
+                    if title and link:
+                        job_item = {
+                            "company_name": "Life Sciences & Biotech Institution",
+                            "job_title": title.get_text(strip=True),
+                            "location": pub_loc.get_text(strip=True) if pub_loc else location,
+                            "job_description": desc.get_text(strip=True) if desc else title.get_text(strip=True),
+                            "ats_portal_url": link.get_text(strip=True)
+                        }
+                        if validate_real_world_job(job_item) and job_item["ats_portal_url"] not in seen_urls:
+                            seen_urls.add(job_item["ats_portal_url"])
+                            discovered_jobs.append(job_item)
+        except Exception:
+            pass
+
     return discovered_jobs[:max(count * 6, 20)]
 
 def init_career_database():
