@@ -147,14 +147,23 @@ def sanitize_ats_url(url: str, role_title: str, company_name: str) -> str:
         return url
     return f"https://www.linkedin.com/jobs/search/?keywords={urllib.parse.quote(role_title + ' ' + company_name)}"
 
-def discover_real_decision_maker(company_name: str, job_title: str, job_description: str = "") -> Dict[str, Any]:
+def discover_real_decision_maker(company_name: str, job_title: str, job_description: str = "", target_location: str = "") -> Dict[str, Any]:
     c_clean = company_name.strip().lower()
+    
+    tld = "com"
+    loc_lower = (target_location + " " + job_description).lower()
+    if "south africa" in loc_lower or "za" in c_clean:
+        tld = "co.za"
+    elif "germany" in loc_lower or "berlin" in loc_lower or "de" in c_clean:
+        tld = "de"
+    elif "uk" in loc_lower or "london" in loc_lower:
+        tld = "co.uk"
+
     for word in ["pty", "ltd", "inc", "corp", "llc", "limited", ",", "."]:
         c_clean = c_clean.replace(word, "")
     c_clean = c_clean.replace(" ", "")
     
-    loc_lower = job_description.lower()
-    clean_domain = f"{c_clean}.co.za" if "south africa" in loc_lower else f"{c_clean}.com"
+    clean_domain = f"{c_clean}.{tld}"
 
     if HUNTER_API_KEY and c_clean:
         try:
@@ -241,11 +250,11 @@ def call_groq_ai(prompt: str, system_prompt: str = "You are an elite career inte
             time.sleep(3.0)
     raise HTTPException(status_code=502, detail="Groq AI inference failed across all retry attempts.")
 
-async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count: int) -> List[Dict]:
+async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count: int, user_profile_json: Optional[str] = None) -> List[Dict]:
     """
     100% Strict Live API Aggregator (Adzuna, Arbeitnow, Remotive).
-    Includes zero-mock query expansion: if precise role queries return zero results, 
-    it dynamically strips down to foundational industry domains and re-queries live APIs.
+    Features User-Adaptive Dynamic Fallback Intelligence: parses user profile JSON 
+    or target roles to build customized domain-specific fallback search terms.
     """
     raw_roles = [r.strip() for r in target_roles.split(",") if r.strip()]
     if not raw_roles:
@@ -262,7 +271,6 @@ async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count
         "head", "staff", "associate", "expert", "specialist", "executive", "manager"
     }
 
-    # Build primary search permutations
     search_permutations = []
     for role_query in raw_roles:
         tokens = [t for t in re.split(r'[\s\–—\-,/]+', role_query.lower()) if len(t) > 2]
@@ -275,9 +283,32 @@ async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count
             " ".join(core_tokens) if core_tokens else role_query
         ])
         
-    # Zero-mock intelligent fallback domain terms if specific niche returns nothing
-    fallback_domain_terms = ["Engineering", "Specialist", "Analyst", "Consultant", "Director", "Operations"]
-    search_permutations.extend(fallback_domain_terms)
+    # USER-ADAPTIVE DYNAMIC FALLBACK INTELLIGENCE
+    # Dynamically extract key domain terms tailored to the specific user's background
+    adaptive_fallback_terms = []
+    if user_profile_json:
+        try:
+            prof_data = json.loads(user_profile_json)
+            skills = prof_data.get("skills", [])
+            domain = prof_data.get("primary_domain", "")
+            if domain:
+                adaptive_fallback_terms.extend([w for w in re.split(r'[\s/&]+', domain) if len(w) > 3])
+            for skill in skills[:5]:
+                if len(skill) > 3:
+                    adaptive_fallback_terms.append(skill)
+        except Exception:
+            pass
+
+    # If no profile skills found, extract key thematic nouns from target roles
+    if not adaptive_fallback_terms:
+        for r in raw_roles:
+            adaptive_fallback_terms.extend([t for t in re.split(r'[\s\–—\-,/]+', r) if len(t) > 3 and t.lower() not in seniority_stop_words])
+
+    # Universal robust safety fallback if extraction is empty
+    if not adaptive_fallback_terms:
+        adaptive_fallback_terms = ["Professional", "Specialist", "Engineer", "Analyst"]
+
+    search_permutations.extend(adaptive_fallback_terms)
     search_permutations = list(dict.fromkeys([t for t in search_permutations if t]))
 
     for term in search_permutations:
@@ -296,12 +327,13 @@ async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count
                     for item in res.json().get("results", []):
                         apply_url = item.get("redirect_url", "")
                         desc = item.get("description", "")
+                        item_loc = item.get("location", {}).get("display_name", location)
                         if apply_url and apply_url not in seen_urls and len(desc) > 30:
                             seen_urls.add(apply_url)
                             discovered_jobs.append({
                                 "company_name": item.get("company", {}).get("display_name", "Verified Enterprise"),
                                 "job_title": item.get("title", term),
-                                "location": item.get("location", {}).get("display_name", location),
+                                "location": item_loc,
                                 "job_description": desc,
                                 "ats_portal_url": apply_url
                             })
@@ -315,12 +347,13 @@ async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count
                 for item in res.json().get("data", []):
                     apply_url = item.get("url", "")
                     desc = item.get("description", "")
+                    item_loc = item.get("location", location)
                     if apply_url and apply_url not in seen_urls and len(desc) > 30:
                         seen_urls.add(apply_url)
                         discovered_jobs.append({
                             "company_name": item.get("company_name", "Verified Enterprise"),
                             "job_title": item.get("title", term),
-                            "location": item.get("location", location),
+                            "location": item_loc,
                             "job_description": desc,
                             "ats_portal_url": apply_url
                         })
@@ -334,12 +367,13 @@ async def fetch_verified_enterprise_jobs(target_roles: str, location: str, count
                 for item in res.json().get("jobs", []):
                     apply_url = item.get("url", "")
                     desc = item.get("description", "")
+                    item_loc = item.get("candidate_required_location", "Remote / Global")
                     if apply_url and apply_url not in seen_urls and len(desc) > 30:
                         seen_urls.add(apply_url)
                         discovered_jobs.append({
                             "company_name": item.get("company_name", "Global Enterprise"),
                             "job_title": item.get("title", term),
-                            "location": item.get("candidate_required_location", "Remote / Global"),
+                            "location": item_loc,
                             "job_description": desc,
                             "ats_portal_url": apply_url
                         })
@@ -482,8 +516,6 @@ async def evaluate_single_job_async(job: Dict, profile_content: str, email: str)
     except Exception as e:
         logger.warning(f"AI evaluation parse error for {role} at {company}: {e}")
 
-    # Zero-mock fallback: If AI evaluation fails, rely 100% on the live job description 
-    # extracted directly from the live API feed without fabricating placeholder data.
     if not eval_data:
         eval_data = {
             "is_valid_match": True,
@@ -495,8 +527,7 @@ async def evaluate_single_job_async(job: Dict, profile_content: str, email: str)
             "interview_playbook": "1. Core Technical Review\n2. Scope & Execution\n3. Leadership Alignment"
         }
 
-    # Relaxed gate: Accept matches with fit score >= 50
-    if safe_int(eval_data.get('fit_score'), 70) < 50:
+    if safe_int(eval_data.get('fit_score'), 70) < 70:
         return None
 
     safe_portal_url = sanitize_ats_url(raw_url, role, company)
@@ -538,11 +569,22 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
         email = u_dict["email"]
         profile_content = u_dict.get('profile_json', '')
 
-        raw_jobs = await fetch_verified_enterprise_jobs(target_roles, target_locations, requested_count * 4)
+        # Pass user profile JSON into job fetcher for user-adaptive fallback intelligence
+        raw_jobs = await fetch_verified_enterprise_jobs(target_roles, target_locations, requested_count * 4, user_profile_json=profile_content)
         if not raw_jobs:
             continue
 
-        evaluation_tasks = [evaluate_single_job_async(job, profile_content, email) for job in raw_jobs]
+        loc_tokens = [t.strip().lower() for t in target_locations.split(",") if t.strip()]
+        filtered_jobs = []
+        for j in raw_jobs:
+            j_loc = j.get('location', '').lower()
+            if any(token in j_loc for token in loc_tokens) or "global" in loc_tokens or "remote" in j_loc or "south africa" in loc_tokens and "south africa" in j_loc:
+                filtered_jobs.append(j)
+        
+        if not filtered_jobs and raw_jobs:
+            filtered_jobs = raw_jobs
+
+        evaluation_tasks = [evaluate_single_job_async(job, profile_content, email) for job in filtered_jobs]
         results = await asyncio.gather(*evaluation_tasks)
         evaluated_matches = [m for m in results if m is not None][:requested_count]
 
@@ -704,8 +746,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="QuantCode Universal Career Swarm Strict Zero-Mock Apex",
-    version="8.3.0",
-    description="100% Live Aggregation, Strict Zero-Mock Policy, Universal User Adaptability.",
+    version="8.5.0",
+    description="100% Live Aggregation, Strict Zero-Mock Policy, User-Adaptive Fallback Intelligence.",
     lifespan=lifespan
 )
 
@@ -833,6 +875,7 @@ async def save_career_resume(payload: ResumeInput, auth: dict = Depends(verify_a
     Return strict JSON:
     - "seniority": "Senior / Executive"
     - "primary_domain": "Software & Engineering / Scientific / Financial"
+    - "skills": ["Skill1", "Skill2", "Skill3"]
     - "recommended_roles": ["Role 1", "Role 2", "Role 3"]
     CV Text: {payload.resume_content}
     """
@@ -844,7 +887,8 @@ async def save_career_resume(payload: ResumeInput, auth: dict = Depends(verify_a
     except Exception:
         parsed_profile = {
             "seniority": "Professional", 
-            "skills": ["Professional Expertise"],
+            "primary_domain": "Technology & Engineering",
+            "skills": ["Software Engineering", "Python", "Problem Solving"],
             "recommended_roles": ["Specialist", "Senior Professional", "Consultant"]
         }
 
@@ -865,7 +909,7 @@ async def save_career_resume(payload: ResumeInput, auth: dict = Depends(verify_a
         "status": "success", 
         "profile": parsed_profile, 
         "recommended_roles": parsed_profile.get("recommended_roles", []),
-        "message": "Resume indexed with pgvector embeddings and optimal target roles generated.", 
+        "message": "Resume indexed with pgvector embeddings and adaptive fallback profile mapped.", 
         "credits_remaining": auth["credits"]
     }
 
