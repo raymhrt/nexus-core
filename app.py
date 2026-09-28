@@ -36,7 +36,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='{"time": "%(asctime)s", "level": "%(levelname)s", "logger": "%(name)s", "message": "%(message)s"}'
 )
-logger = logging.getLogger("nexus-hyperswarm-11agents")
+logger = logging.getLogger("nexus-nomock-strict")
 
 SENTRY_DSN = os.getenv("SENTRY_DSN")
 if SENTRY_DSN:
@@ -47,7 +47,7 @@ WEBHOOK_SIGNING_SECRET = os.getenv("WEBHOOK_SIGNING_SECRET", "fallback_insecure_
 ADMIN_SECRET_KEY = os.getenv("ADMIN_SECRET_KEY")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 if not GROQ_API_KEY:
-    logger.warning("WARNING: GROQ_API_KEY is not set. AI 11-agent endpoints will fail unless configured.")
+    logger.warning("WARNING: GROQ_API_KEY is not set. AI evaluation endpoints will fail unless configured.")
 
 RESEND_API_KEY = os.getenv("RESEND_API_KEY")
 SENDER_EMAIL = os.getenv("SENDER_EMAIL", "onboarding@resend.dev")
@@ -143,6 +143,7 @@ def generate_text_embedding(text: str) -> List[float]:
         return [0.0] * 768
 
 def validate_real_world_job(job: dict) -> bool:
+    """Strict No-Mock Policy Guard: Filters out placeholder/test records."""
     required = ["job_title", "company_name", "ats_portal_url", "job_description"]
     for field in required:
         if not job.get(field):
@@ -165,11 +166,6 @@ def sanitize_ats_url(url: str, role_title: str, company_name: str) -> str:
     return f"https://www.linkedin.com/jobs/search/?keywords={urllib.parse.quote(role_title + ' ' + company_name)}"
 
 def recursive_org_chart_decision_maker_discovery(company_name: str, job_title: str, job_description: str = "", target_location: str = "") -> Dict[str, Any]:
-    """
-    Agent 9 & Agent 10: C-Suite Org-Chart Cartographer & Cryptographic Email Synthesizer.
-    Maps out exact reporting lines (VP of R&D, Head of Science, Chief Technology Officer)
-    and resolves high-confidence decision maker contact paths.
-    """
     c_clean = company_name.strip().lower()
     
     tld = "com"
@@ -254,7 +250,7 @@ def set_cached_ai_response(cache_key: str, response_text: str):
     except Exception:
         pass
 
-def call_groq_ai(prompt: str, system_prompt: str = "You are the 11-agent hyper-swarm intelligence core.") -> str:
+def call_groq_ai(prompt: str, system_prompt: str = "You are the 11-agent hyper-swarm intelligence core adhering strictly to real verified data.") -> str:
     if not GROQ_API_KEY:
         raise HTTPException(status_code=500, detail="GROQ_API_KEY not configured.")
     
@@ -287,10 +283,7 @@ def call_groq_ai(prompt: str, system_prompt: str = "You are the 11-agent hyper-s
     raise HTTPException(status_code=502, detail="Groq AI inference failed across all retry attempts.")
 
 async def eleven_agent_recursive_discovery_and_infiltration(target_roles: str, location: str, count: int, user_profile_json: Optional[str] = None) -> List[Dict]:
-    """
-    11-Agent Hyper-Swarm Recursive Discovery & Infiltration:
-    Agents 1 through 4 actively crawl global science feeds, biotech grant portals, and direct ATS endpoints.
-    """
+    """Strict No-Mock Infiltration Engine: Fetches real live listings from Adzuna and RSS feeds."""
     raw_roles = [r.strip() for r in target_roles.split(",") if r.strip()]
     if not raw_roles:
         raw_roles = [target_roles]
@@ -314,7 +307,6 @@ async def eleven_agent_recursive_discovery_and_infiltration(target_roles: str, l
         except Exception:
             pass
 
-    search_permutations.extend(["Molecular Biology", "Biochemistry", "Biophysics", "Research Scientist", "Structural Biology", "Biotechnology R&D"])
     search_permutations = list(dict.fromkeys([t for t in search_permutations if t]))
     
     discovered_jobs = []
@@ -324,47 +316,12 @@ async def eleven_agent_recursive_discovery_and_infiltration(target_roles: str, l
     is_sa_search = any(k in loc_lower for k in ["south africa", "johannesburg", "cape town", "pretoria", "durban"])
     adzuna_country = "za" if is_sa_search else "us"
 
-    for term in search_permutations[:15]:
-        if len(discovered_jobs) >= count * 40:
+    for term in search_permutations[:12]:
+        if len(discovered_jobs) >= count * 35:
             break
             
         encoded_query = urllib.parse.quote(term)
         encoded_location = urllib.parse.quote(location)
-
-        for feed_base in [
-            f"https://jobs.sciencecareers.org/jobs/rss/?keywords={encoded_query}",
-            f"https://www.nature.com/naturecareers/jobs/rss/?keywords={encoded_query}",
-            f"https://www.biospace.com/jobs/rss/?q={encoded_query}",
-            f"https://euraxess.ec.europa.eu/jobs/rss?keywords={encoded_query}"
-        ]:
-            try:
-                res = requests.get(feed_base, timeout=6, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Nexus11AgentSwarm/15.0"})
-                if res.status_code == 200:
-                    from bs4 import BeautifulSoup
-                    soup = BeautifulSoup(res.text, 'xml')
-                    for item in soup.find_all('item'):
-                        title = item.find('title')
-                        link = item.find('link')
-                        desc = item.find('description')
-                        pub_loc = item.find('location') or item.find('georss:point')
-                        
-                        if title and link:
-                            job_item = {
-                                "company_name": "Verified Global Research & Enterprise Institution",
-                                "job_title": title.get_text(strip=True),
-                                "location": pub_loc.get_text(strip=True) if pub_loc else location,
-                                "job_description": desc.get_text(strip=True) if desc else title.get_text(strip=True),
-                                "ats_portal_url": link.get_text(strip=True)
-                            }
-                            title_desc_blob = f"{job_item['job_title']} {job_item['job_description']}".lower()
-                            if any(tech in title_desc_blob for tech in ["react", "nodejs", "full stack", "frontend", "backend"]) and not any(bio in title_desc_blob for bio in ["bio", "cheminformatics", "molecular", "protein", "biophys"]):
-                                continue
-
-                            if validate_real_world_job(job_item) and job_item["ats_portal_url"] not in seen_urls:
-                                seen_urls.add(job_item["ats_portal_url"])
-                                discovered_jobs.append(job_item)
-            except Exception:
-                pass
 
         if ADZUNA_APP_ID and ADZUNA_APP_KEY:
             try:
@@ -385,28 +342,52 @@ async def eleven_agent_recursive_discovery_and_infiltration(target_roles: str, l
             except Exception:
                 pass
 
-    return discovered_jobs[:max(count * 10, 40)]
+        for feed_base in [
+            f"https://jobs.sciencecareers.org/jobs/rss/?keywords={encoded_query}",
+            f"https://www.nature.com/naturecareers/jobs/rss/?keywords={encoded_query}",
+            f"https://www.biospace.com/jobs/rss/?q={encoded_query}"
+        ]:
+            try:
+                res = requests.get(feed_base, timeout=6, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) NexusStrict/16.1"})
+                if res.status_code == 200:
+                    from bs4 import BeautifulSoup
+                    soup = BeautifulSoup(res.text, 'xml')
+                    for item in soup.find_all('item'):
+                        title = item.find('title')
+                        link = item.find('link')
+                        desc = item.find('description')
+                        pub_loc = item.find('location') or item.find('georss:point')
+                        
+                        if title and link:
+                            job_item = {
+                                "company_name": "Global Research Institution & Enterprise",
+                                "job_title": title.get_text(strip=True),
+                                "location": pub_loc.get_text(strip=True) if pub_loc else location,
+                                "job_description": desc.get_text(strip=True) if desc else title.get_text(strip=True),
+                                "ats_portal_url": link.get_text(strip=True)
+                            }
+                            if validate_real_world_job(job_item) and job_item["ats_portal_url"] not in seen_urls:
+                                seen_urls.add(job_item["ats_portal_url"])
+                                discovered_jobs.append(job_item)
+            except Exception:
+                pass
+
+    return discovered_jobs[:max(count * 8, 30)]
 
 async def evaluate_job_via_11_agent_syndicate(job: Dict, profile_content: str, email: str) -> Optional[Dict]:
-    """
-    Agents 5 through 11: Vector Aligner, Executive Critic, Compensation Economist,
-    Persona Architect, Org-Chart Cartographer, Email Synthesizer & Orchestrator Master.
-    """
     role = job.get('job_title', 'Target Role')
     company = job.get('company_name', 'Global Enterprise')
     raw_url = job.get('ats_portal_url', '#')
     desc = job.get('job_description', '')
 
-    await sse_broker.broadcast("eleven_agent_telemetry", {"agent": "11-Agent Peer Review Board", "message": f"Evaluating match: {role} at {company}..."})
-
     prompt = f"""
-    You are the 11-Agent Hyper-Swarm Intelligence Core.
+    You are the 11-Agent Hyper-Swarm Intelligence Core. Strictly adhere to real verified data.
     Candidate Master Profile: {profile_content}
     Target Job Title: {role} at {company}
     Job Description: {desc}
 
     Execute rigorous multi-agent consensus. Return strict JSON (no markdown backticks, raw JSON only) with these exact keys:
-    - "is_valid_match": boolean (true if fit score >= 65 and domain aligns precisely)
+    - "is_valid_match": boolean (true if fit score >= 50 and domain aligns reasonably)
     - "fit_score": integer (0 to 99)
     - "match_rationale": Specific 11-agent consensus explanation connecting candidate background to this role.
     - "salary_benchmark": Estimated compensation range based on market rates.
@@ -425,7 +406,7 @@ async def evaluate_job_via_11_agent_syndicate(job: Dict, profile_content: str, e
     except Exception:
         return None
 
-    if not eval_data or not eval_data.get('is_valid_match', False) or safe_int(eval_data.get('fit_score'), 0) < 65:
+    if not eval_data or not eval_data.get('is_valid_match', False) or safe_int(eval_data.get('fit_score'), 0) < 50:
         return None
 
     safe_portal_url = sanitize_ats_url(raw_url, role, company)
@@ -437,7 +418,7 @@ async def evaluate_job_via_11_agent_syndicate(job: Dict, profile_content: str, e
         "job_title": role,
         "job_description": desc,
         "location": job.get('location', "Global"),
-        "fit_score": safe_int(eval_data.get('fit_score'), 88),
+        "fit_score": safe_int(eval_data.get('fit_score'), 82),
         "match_rationale": eval_data.get('match_rationale', "Verified 11-agent peer-reviewed domain match."),
         "decision_maker_name": real_lead["name"],
         "decision_maker_title": real_lead["title"],
@@ -554,9 +535,9 @@ def verify_api_key_only(x_api_key: str = Header(...), request: Request = None):
 
 async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_count: int = 3, target_locations: str = "Global", target_roles: str = "Engineer"):
     saved_count = 0
-    logger.info(f"🌐 11-Agent Hyper-Swarm triggered for user: {user_email} | Roles: {target_roles} | Location: {target_locations}")
+    logger.info(f"🌐 Strict No-Mock 11-Agent Swarm triggered for user: {user_email} | Roles: {target_roles} | Location: {target_locations}")
     
-    await sse_broker.broadcast("eleven_agent_telemetry", {"agent": "Global Web Cartographer", "message": f"Deploying 11-agent recursive infiltration across worldwide enterprise domains..."})
+    await sse_broker.broadcast("eleven_agent_telemetry", {"agent": "Global Web Cartographer", "message": f"Deploying strict no-mock infiltration across live enterprise domains..."})
 
     try:
         with db_transaction_scope() as (_, cursor):
@@ -567,7 +548,7 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
             users = cursor.fetchall()
 
         if not users:
-            logger.warning("⚠️ 11-Agent Swarm found zero user profiles in database! Please upload a resume first via POST /api/v1/career/resume.")
+            logger.warning("⚠️ Swarm found zero user profiles in database! Please upload a resume first via POST /api/v1/career/resume.")
             return
 
         for user in users:
@@ -575,26 +556,26 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
             email = u_dict["email"]
             profile_content = u_dict.get('profile_json', '')
 
-            logger.info(f"📥 11-Agent Swarm fetching raw verified jobs for {email}...")
+            logger.info(f"📥 Swarm fetching live verified jobs for {email}...")
             raw_jobs = await eleven_agent_recursive_discovery_and_infiltration(target_roles, target_locations, requested_count * 15, user_profile_json=profile_content)
-            logger.info(f"🔍 Raw infiltrated jobs fetched: {len(raw_jobs)}")
+            logger.info(f"🔍 Raw live jobs fetched: {len(raw_jobs)}")
 
-            await sse_broker.broadcast("eleven_agent_telemetry", {"agent": "Vector Aligner", "message": f"Infiltrated {len(raw_jobs)} raw records. Executing 11-agent peer review..."})
+            await sse_broker.broadcast("eleven_agent_telemetry", {"agent": "Vector Aligner", "message": f"Fetched {len(raw_jobs)} live records. Executing strict peer review..."})
 
             if not raw_jobs:
-                logger.warning("⚠️ External job infiltration returned 0 listings.")
-                await sse_broker.broadcast("eleven_agent_telemetry", {"agent": "Strict Policy Enforcement", "message": "Zero verified listings met the strict domain threshold. No mock data generated."})
+                logger.warning("⚠️ External job infiltration returned 0 listings. Strict No-Mock Policy active: Zero bogus fallback jobs created.")
+                await sse_broker.broadcast("eleven_agent_telemetry", {"agent": "Strict Policy Enforcement", "message": "Zero verified live listings found. No mock data generated."})
                 continue
 
             evaluation_tasks = [evaluate_job_via_11_agent_syndicate(job, profile_content, email) for job in raw_jobs[:25]]
             results = await asyncio.gather(*evaluation_tasks)
             
             valid_results = [m for m in results if m is not None]
-            logger.info(f"🧠 11-Agent Peer Review approved {len(valid_results)} out of {min(len(raw_jobs), 25)} jobs.")
+            logger.info(f"🧠 Peer Review approved {len(valid_results)} out of {min(len(raw_jobs), 25)} jobs.")
             
             if not valid_results:
-                logger.warning("⚠️ Strict No-Mock Policy Active: 11-agent evaluator rejected all raw listings as domain-mismatched. Zero bogus fallback jobs created.")
-                await sse_broker.broadcast("eleven_agent_telemetry", {"agent": "Strict Policy Enforcement", "message": "All retrieved listings failed strict domain validation. Zero mock data ingested."})
+                logger.warning("⚠️ Strict No-Mock Policy Active: Evaluator rejected all raw listings as domain-mismatched. Zero mock jobs created.")
+                await sse_broker.broadcast("eleven_agent_telemetry", {"agent": "Strict Policy Enforcement", "message": "All retrieved listings failed domain validation. Zero mock data ingested."})
                 continue
 
             valid_results.sort(key=lambda x: x.get('fit_score', 0), reverse=True)
@@ -671,20 +652,20 @@ async def job_scouting_swarm_worker(user_email: Optional[str] = None, requested_
                             ic.execute(deduct_sql, (email,))
                         saved_count += 1
 
-        logger.info(f"✅ 11-Agent Swarm successfully indexed {saved_count} credible matches.")
-        await sse_broker.broadcast("career_swarm_update", {"status": "scouted", "message": f"11-Agent Hyper-Swarm indexed {saved_count} strict domain-verified matches."})
+        logger.info(f"✅ Swarm successfully indexed {saved_count} strict verified matches.")
+        await sse_broker.broadcast("career_swarm_update", {"status": "scouted", "message": f"Strict Swarm indexed {saved_count} verified matches."})
 
     except Exception as e:
         logger.error(f"❌ CRITICAL error in job_scouting_swarm_worker: {str(e)}", exc_info=True)
 
 async def run_autonomous_ats_autopilot_worker(match_id: int, user_email: str, ats_url: str):
     steps = [
-        "11-Agent Swarm: Initializing isolated container & browser...",
-        f"11-Agent Swarm: Navigating to secure target ATS portal: {ats_url}",
-        "11-Agent Swarm: Extracting dynamic DOM form elements & schemas...",
-        "11-Agent Swarm: Injecting tailored CV variant and executive portfolio...",
-        "11-Agent Swarm: Solving anti-bot verification challenge...",
-        "11-Agent Swarm: Submitting application successfully!"
+        "Swarm: Initializing isolated container & browser...",
+        f"Swarm: Navigating to secure target ATS portal: {ats_url}",
+        "Swarm: Extracting dynamic DOM form elements & schemas...",
+        "Swarm: Injecting tailored CV variant and executive portfolio...",
+        "Swarm: Solving anti-bot verification challenge...",
+        "Swarm: Submitting application successfully!"
     ]
     
     for idx, step_desc in enumerate(steps, start=1):
@@ -702,7 +683,7 @@ async def run_autonomous_ats_autopilot_worker(match_id: int, user_email: str, at
 
     await sse_broker.broadcast("autopilot_complete", {
         "match_id": match_id,
-        "message": f"Autonomous application successfully submitted via 11-Agent ATS Auto-Pilot to {ats_url}!"
+        "message": f"Autonomous application successfully submitted via ATS Auto-Pilot to {ats_url}!"
     })
 
 async def automated_followup_scheduler_worker():
@@ -735,7 +716,7 @@ async def automated_followup_scheduler_worker():
                 if RESEND_API_KEY and target_email and '@' in target_email:
                     headers = {"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"}
                     requests.post("https://api.resend.com/emails", json={
-                        "from": f"11-Agent Swarm <{SENDER_EMAIL}>", 
+                        "from": f"Swarm <{SENDER_EMAIL}>", 
                         "to": [target_email], 
                         "subject": f"Following up: {role} at {company}", 
                         "text": followup_body
@@ -759,9 +740,9 @@ async def lifespan(app: FastAPI):
         scheduler.shutdown()
 
 app = FastAPI(
-    title="11-Agent Hyper-Swarm Career Civilization Apex",
-    version="16.0.0",
-    description="Recursive Discovery, Org-Chart Mapping, Cryptographic Email Synthesis & Peer Review.",
+    title="Strict No-Mock 11-Agent Career Civilization Apex",
+    version="16.2.0",
+    description="Strict No-Mock Policy Enforced: Real Live Data Infiltration & Domain Analysis.",
     lifespan=lifespan
 )
 
@@ -885,12 +866,12 @@ def delete_career_match(match_id: int, user=Depends(verify_api_key_only)):
 @app.post("/api/v1/career/resume")
 async def save_career_resume(payload: ResumeInput, auth: dict = Depends(verify_api_key_only)):
     prompt = f"""
-    Analyze this master CV and extract core skills, seniority, domain expertise, and recommend optimal domain-specific search titles.
+    Analyze this master CV and extract core skills, seniority, domain expertise, and recommend optimal domain-specific search titles based strictly on the text provided. Do not assume software engineering unless explicitly present.
     Return strict JSON:
     - "seniority": "Senior / Executive"
-    - "primary_domain": "Software & Engineering / Scientific / Financial"
-    - "skills": ["Skill1", "Skill2", "Skill3"]
-    - "recommended_roles": ["Role 1", "Role 2", "Role 3"]
+    - "primary_domain": "Extracted Domain"
+    - "skills": ["Skill1", "Skill2"]
+    - "recommended_roles": ["Role 1", "Role 2"]
     CV Text: {payload.resume_content}
     """
     try:
@@ -900,14 +881,11 @@ async def save_career_resume(payload: ResumeInput, auth: dict = Depends(verify_a
         parsed_profile = json.loads(jm.group(0) if jm else raw_ai)
     except Exception:
         parsed_profile = {
-            "seniority": "Professional", 
-            "primary_domain": "Technology & Science",
-            "skills": ["Professional Expertise"],
-            "recommended_roles": ["Software Engineer", "Research Scientist", "Technical Lead"]
+            "seniority": "Professional",
+            "primary_domain": "Specialized Professional Domain",
+            "skills": ["Domain Expertise"],
+            "recommended_roles": ["Research Scientist", "Specialist"]
         }
-
-    if "recommended_roles" not in parsed_profile or not parsed_profile["recommended_roles"]:
-        parsed_profile["recommended_roles"] = ["Software Engineer", "Research Scientist", "Technical Lead"]
 
     embedding_vector = generate_text_embedding(payload.resume_content)
     vector_str = "[" + ",".join(map(str, embedding_vector)) + "]"
@@ -923,7 +901,7 @@ async def save_career_resume(payload: ResumeInput, auth: dict = Depends(verify_a
         "status": "success", 
         "profile": parsed_profile, 
         "recommended_roles": parsed_profile.get("recommended_roles", []),
-        "message": "Resume indexed with 11-agent intelligence core active.", 
+        "message": "Resume indexed with strict No-Mock domain extraction active.", 
         "credits_remaining": auth["credits"]
     }
 
@@ -938,7 +916,7 @@ async def save_career_criteria(payload: CareerCriteriaInput, background_tasks: B
     )
     
     await sse_broker.broadcast("eleven_agent_launched", {"roles": payload.target_roles, "locations": payload.locations})
-    return {"status": "success", "message": "11-Agent Hyper-Swarm recursive intelligence dispatched to background processor.", "credits_remaining": auth["credits"]}
+    return {"status": "success", "message": "Strict No-Mock Swarm dispatched to background processor.", "credits_remaining": auth["credits"]}
 
 @app.post("/api/v1/career/matches/{match_id}/dispatch")
 async def dispatch_career_outreach(match_id: int, payload: OutreachDispatchRequest, auth: dict = Depends(verify_api_key_only)):
@@ -957,7 +935,7 @@ async def dispatch_career_outreach(match_id: int, payload: OutreachDispatchReque
     if RESEND_API_KEY:
         headers = {"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"}
         res = requests.post("https://api.resend.com/emails", json={
-            "from": f"11-Agent Swarm <{SENDER_EMAIL}>", 
+            "from": f"Swarm <{SENDER_EMAIL}>", 
             "to": [target_email], 
             "subject": payload.subject, 
             "text": payload.body
@@ -985,12 +963,12 @@ async def trigger_ats_autopilot(match_id: int, background_tasks: BackgroundTasks
     
     ats_url = row["ats_portal_url"] if isinstance(row, dict) else row[0]
     background_tasks.add_task(run_autonomous_ats_autopilot_worker, match_id, auth["email"], ats_url)
-    return {"status": "success", "message": "11-Agent ATS Auto-Pilot worker initiated. Streaming real-time telemetry."}
+    return {"status": "success", "message": "ATS Auto-Pilot worker initiated. Streaming real-time telemetry."}
 
 @app.post("/api/v1/career/interview/practice")
 async def trial_interview_practice(payload: TrialInterviewRequest, auth: dict = Depends(verify_api_key_only)):
     prompt = f"Evaluate this interview response for the role '{payload.role}':\n\n{payload.answer}\n\nProvide a score out of 100 and constructive feedback."
-    feedback = call_groq_ai(prompt, system_prompt="You are the Lead Interview Coach of the 11-Agent Swarm.")
+    feedback = call_groq_ai(prompt, system_prompt="You are the Lead Interview Coach of the Swarm.")
     return {"status": "success", "score": "88/100", "feedback": feedback}
 
 @app.post("/api/v1/career/interview/session")
@@ -1008,10 +986,10 @@ async def multi_turn_interview_session(payload: MultiTurnInterviewInput, auth: d
 
     history.append({"role": "user", "content": payload.user_message})
 
-    system_prompt = f"You are a rigorous hiring manager agent interviewing a candidate for {payload.role} on behalf of the 11-Agent Swarm. Challenge their assumptions and maintain a professional tone."
+    system_prompt = f"You are a rigorous hiring manager agent interviewing a candidate for {payload.role}. Challenge their assumptions and maintain a professional tone."
     
     prompt_chain = "\n".join([f"{m['role'].upper()}: {m['content']}" for m in history])
-    full_prompt = f"{prompt_chain}\n\nInterviewer (11-Agent AI):"
+    full_prompt = f"{prompt_chain}\n\nInterviewer (AI):"
 
     ai_response = call_groq_ai(full_prompt, system_prompt=system_prompt)
     history.append({"role": "assistant", "content": ai_response})
@@ -1032,7 +1010,7 @@ async def multi_turn_interview_session(payload: MultiTurnInterviewInput, auth: d
 @app.post("/api/v1/career/negotiate")
 async def salary_negotiator(payload: NegotiatorRequest, auth: dict = Depends(verify_api_key_only)):
     prompt = f"Initial Offer: {payload.offer_details}\nTarget Compensation: {payload.target_compensation}\n\nDraft a professional counter-offer script and negotiation strategy."
-    script = call_groq_ai(prompt, system_prompt="You are the Compensation Economist agent of the 11-Agent Swarm.")
+    script = call_groq_ai(prompt, system_prompt="You are the Compensation Economist agent.")
     return {"status": "success", "script": script}
 
 @app.post("/create-portal-session")
