@@ -143,11 +143,10 @@ def generate_text_embedding(text: str) -> List[float]:
         return [0.0] * 768
 
 def validate_real_world_job(job: dict) -> bool:
-    required = ["job_title", "company_name", "ats_portal_url", "job_description"]
-    for field in required:
-        if not job.get(field):
-            return False
-            
+    """Relaxed network ingestion filter: Allow jobs through even if descriptions are short snippet truncations."""
+    if not job.get("job_title") or not job.get("company_name"):
+        return False
+        
     text_blob = f"{job.get('job_title', '')} {job.get('company_name', '')}".lower()
     mock_markers = ["test job", "lorem ipsum", "placeholder", "foo bar", "example company"]
     if any(m in text_blob for m in mock_markers):
@@ -282,31 +281,43 @@ def call_groq_ai(prompt: str, system_prompt: str = "You are the multi-tenant 11-
     raise HTTPException(status_code=502, detail="Groq AI inference failed across all retry attempts.")
 
 async def multi_tenant_job_infiltration(target_roles: str, location: str, count: int, user_profile_json: Optional[str] = None) -> List[Dict]:
-    raw_roles = [r.strip() for r in target_roles.split(",") if r.strip()]
-    if not raw_roles:
-        raw_roles = [target_roles]
-
+    """
+    Expert Architecture Fix: 
+    1. Extracts atomic keywords (e.g. 'Molecular', 'Biology') instead of massive string blocks.
+    2. Uses progressive broadening to guarantee live network hits, relying on the AI to filter strictly later.
+    """
+    # 1. Strip special characters and split massive job titles into individual search words
+    clean_role_string = re.sub(r'[^a-zA-Z0-9\s]', ' ', target_roles)
+    words = [w.strip() for w in clean_role_string.split() if len(w.strip()) > 4]
+    
+    # 2. Filter out generic adjectives that break dumb APIs
+    stop_words = {'senior', 'principal', 'lead', 'research', 'applied', 'investigator'}
+    atomic_keywords = [w for w in words if w.lower() not in stop_words]
+    
     search_permutations = []
-    for r in raw_roles:
-        search_permutations.append(r)
-        for sub in re.split(r'[-–—:,/]+', r):
-            sub_clean = sub.strip()
-            if len(sub_clean) > 3 and sub_clean.lower() not in ["senior", "lead", "principal", "head", "director", "manager"]:
-                search_permutations.append(sub_clean)
+    
+    # Add combinations of atomic words (e.g. "Molecular Biology", "Biophysics")
+    for i in range(len(atomic_keywords) - 1):
+        search_permutations.append(f"{atomic_keywords[i]} {atomic_keywords[i+1]}")
+    
+    # Add singular atomic words as safety nets
+    search_permutations.extend(atomic_keywords)
 
     if user_profile_json:
         try:
             prof_data = json.loads(user_profile_json)
-            for skill in prof_data.get("skills", [])[:10]:
-                if len(skill) > 2:
-                    search_permutations.append(skill)
-            for rec in prof_data.get("recommended_roles", []):
-                search_permutations.append(rec)
+            for skill in prof_data.get("skills", [])[:5]:
+                if len(skill) > 3:
+                    search_permutations.append(skill.split()[0]) # Take first word of skill
         except Exception:
             pass
 
-    search_permutations.extend(["Research Scientist", "Engineer", "Specialist", "Manager", "Analyst"])
-    search_permutations = list(dict.fromkeys([t for t in search_permutations if t]))
+    # Extreme fallback: If all else fails, just search the absolute broadest category
+    search_permutations.extend(["Scientist", "Biology", "Laboratory", "Biotech", "Research"])
+    
+    # Remove duplicates but preserve order of highly specific -> broad
+    seen = set()
+    search_permutations = [x for x in search_permutations if not (x.lower() in seen or seen.add(x.lower()))]
     
     discovered_jobs = []
     seen_urls = set()
@@ -314,40 +325,46 @@ async def multi_tenant_job_infiltration(target_roles: str, location: str, count:
     loc_lower = location.lower()
     is_sa_search = any(k in loc_lower for k in ["south africa", "johannesburg", "cape town", "pretoria", "durban"])
     adzuna_country = "za" if is_sa_search else "us"
+    
+    # Clean location for Adzuna (e.g. "South Africa" -> "South Africa")
+    clean_location = location.replace(",", "").strip()
 
-    for term in search_permutations[:15]:
-        if len(discovered_jobs) >= count * 40:
+    logger.info(f"🧬 Tokenized progressive search phrases: {search_permutations[:8]}")
+
+    for term in search_permutations[:12]:
+        if len(discovered_jobs) >= count * 15:
             break
             
         encoded_query = urllib.parse.quote(term)
-        encoded_location = urllib.parse.quote(location)
+        encoded_location = urllib.parse.quote(clean_location)
 
         if ADZUNA_APP_ID and ADZUNA_APP_KEY:
             try:
                 adzuna_url = f"https://api.adzuna.com/v1/api/jobs/{adzuna_country}/search/1?app_id={ADZUNA_APP_ID}&app_key={ADZUNA_APP_KEY}&what={encoded_query}&where={encoded_location}&content-type=application/json"
                 res = requests.get(adzuna_url, timeout=5)
                 if res.status_code == 200:
-                    for item in res.json().get("results", []):
+                    results = res.json().get("results", [])
+                    for item in results:
                         job_item = {
                             "company_name": item.get("company", {}).get("display_name", "Global Enterprise Corp"),
                             "job_title": item.get("title", term),
                             "location": item.get("location", {}).get("display_name", location),
-                            "job_description": item.get("description", ""),
+                            "job_description": item.get("description", "Refer to direct ATS portal link for full specifications."),
                             "ats_portal_url": item.get("redirect_url", "")
                         }
                         if validate_real_world_job(job_item) and job_item["ats_portal_url"] not in seen_urls:
                             seen_urls.add(job_item["ats_portal_url"])
                             discovered_jobs.append(job_item)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Adzuna API query error for term '{term}': {e}")
 
+        # Global Science RSS Feeds (These don't use location parameters natively, so we pass keyword only)
         for feed_base in [
             f"https://jobs.sciencecareers.org/jobs/rss/?keywords={encoded_query}",
-            f"https://www.nature.com/naturecareers/jobs/rss/?keywords={encoded_query}",
-            f"https://www.biospace.com/jobs/rss/?q={encoded_query}"
+            f"https://www.nature.com/naturecareers/jobs/rss/?keywords={encoded_query}"
         ]:
             try:
-                res = requests.get(feed_base, timeout=6, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) NexusMultiTenant/16.4"})
+                res = requests.get(feed_base, timeout=6, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) NexusMultiTenant/16.5"})
                 if res.status_code == 200:
                     from bs4 import BeautifulSoup
                     soup = BeautifulSoup(res.text, 'xml')
@@ -359,10 +376,10 @@ async def multi_tenant_job_infiltration(target_roles: str, location: str, count:
                         
                         if title and link:
                             job_item = {
-                                "company_name": "Global Research Institution & Enterprise",
+                                "company_name": "Global Research Institution",
                                 "job_title": title.get_text(strip=True),
-                                "location": pub_loc.get_text(strip=True) if pub_loc else location,
-                                "job_description": desc.get_text(strip=True) if desc else title.get_text(strip=True),
+                                "location": pub_loc.get_text(strip=True) if pub_loc else "Global",
+                                "job_description": desc.get_text(strip=True) if desc else "Refer to portal for full job specs.",
                                 "ats_portal_url": link.get_text(strip=True)
                             }
                             if validate_real_world_job(job_item) and job_item["ats_portal_url"] not in seen_urls:
@@ -371,7 +388,7 @@ async def multi_tenant_job_infiltration(target_roles: str, location: str, count:
             except Exception:
                 pass
 
-    return discovered_jobs[:max(count * 10, 40)]
+    return discovered_jobs[:max(count * 8, 40)]
 
 async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email: str) -> Optional[Dict]:
     role = job.get('job_title', 'Target Role')
@@ -380,12 +397,13 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
     desc = job.get('job_description', '')
 
     prompt = f"""
-    You are the Multi-Tenant 11-Agent Intelligence Core evaluating this job specifically for user {email}.
+    You are the Multi-Tenant 11-Agent Intelligence Core evaluating this live job posting specifically for user {email}.
     Candidate Master Profile / CV: {profile_content}
     Target Job Title: {role} at {company}
-    Job Description: {desc}
+    Job Description Snippet: {desc}
 
-    Execute rigorous multi-agent consensus tailored precisely to this user's distinct background. Return strict JSON (no markdown backticks, raw JSON only) with these exact keys:
+    Execute rigorous multi-agent consensus. Because network feeds provide limited text, infer the match based heavily on the Job Title and Company versus the User's Domain Expertise.
+    Return strict JSON (no markdown backticks, raw JSON only) with these exact keys:
     - "is_valid_match": boolean (true if fit score >= 40 and domain aligns reasonably)
     - "fit_score": integer (0 to 99)
     - "match_rationale": Specific consensus explanation connecting this specific user's background to this role.
@@ -534,7 +552,7 @@ def verify_api_key_only(x_api_key: str = Header(...), request: Request = None):
 
 async def isolated_user_job_scouting_worker(user_email: str, requested_count: int, target_locations: str, target_roles: str):
     saved_count = 0
-    logger.info(f"🌐 Multi-Tenant Swarm triggered for specific user: {user_email} | Roles: {target_roles} | Location: {target_locations}")
+    logger.info(f"🌐 Smart Tokenization Swarm triggered for specific user: {user_email} | Roles: {target_roles} | Location: {target_locations}")
     
     await sse_broker.broadcast("multi_tenant_telemetry", {"user": user_email, "message": f"Infiltrating live listings tailored for {user_email}..."})
 
@@ -727,8 +745,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Multi-Tenant 11-Agent Career Civilization Apex",
-    version="16.4.0",
-    description="Multi-User Isolation with Distinct CV Embedding & Live Infiltration.",
+    version="16.5.0",
+    description="Smart Tokenization, Progressive API Queries & Relaxed Ingestion Filter.",
     lifespan=lifespan
 )
 
