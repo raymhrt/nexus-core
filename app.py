@@ -36,7 +36,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='{"time": "%(asctime)s", "level": "%(levelname)s", "logger": "%(name)s", "message": "%(message)s"}'
 )
-logger = logging.getLogger("nexus-adaptable-swarm")
+logger = logging.getLogger("nexus-strict-nomock")
 
 SENTRY_DSN = os.getenv("SENTRY_DSN")
 if SENTRY_DSN:
@@ -247,7 +247,7 @@ def set_cached_ai_response(cache_key: str, response_text: str):
     except Exception:
         pass
 
-def call_groq_ai(prompt: str, system_prompt: str = "You are the adaptable multi-tenant 11-agent intelligence core adhering strictly to real verified data.") -> str:
+def call_groq_ai(prompt: str, system_prompt: str = "You are the strict No-Mock multi-tenant 11-agent intelligence core adhering strictly to real verified data.") -> str:
     if not GROQ_API_KEY:
         raise HTTPException(status_code=500, detail="GROQ_API_KEY not configured.")
     
@@ -281,17 +281,18 @@ def call_groq_ai(prompt: str, system_prompt: str = "You are the adaptable multi-
 
 async def ai_adaptable_role_expansion(target_roles: str, user_profile_json: Optional[str] = None) -> List[str]:
     """
-    Expert Adaptable Architecture:
-    Uses Groq AI to dynamically analyze target roles and generate semantic variations,
-    synonyms, abbreviations, and related job titles guaranteed to match public job board indexes.
+    Strict No-Mock AI Role Expansion:
+    Derives search variations exclusively from user input and profile. 
+    Returns an empty list if no valid terms can be extracted, adhering strictly to No-Mock.
     """
     prompt = f"""
     You are the Senior Search Strategist of the 11-Agent Swarm.
-    The user is targeting these roles: "{target_roles}"
-    User Profile / CV context: {user_profile_json or 'None'}
+    The user is targeting these exact roles: "{target_roles}"
+    User Master Profile / CV: {user_profile_json or 'None Provided'}
 
-    Your task is to generate a comprehensive JSON array of 12 to 15 optimized, highly adaptable search phrases (ranging from exact titles to broader semantic variations, industry abbreviations, and allied scientific/technical roles) that will yield active job postings on public job aggregators like Adzuna and ScienceCareers.
-    Return ONLY a valid JSON array of strings (no markdown backticks, raw JSON only), e.g. ["Molecular Biologist", "Biochemist", "Research Scientist", "Protein Engineer", "Life Sciences Researcher", "Biophysicist"].
+    Generate a JSON array of 10 to 12 CLEAN, ATOMIC search phrases (short 2-to-4 word job titles and domain keywords) tailored exclusively to THIS specific user. 
+    CRITICAL: Never include long sentences, em-dashes (–), ampersands (&), or multiple titles combined in a single string. Keep every array item as a distinct, searchable atomic term derived strictly from the user's profile and target roles.
+    Return ONLY a valid JSON array of strings (no markdown backticks, raw JSON only).
     """
     try:
         raw_ai = call_groq_ai(prompt, system_prompt="You are an expert recruitment data engineer returning raw JSON arrays.")
@@ -299,31 +300,59 @@ async def ai_adaptable_role_expansion(target_roles: str, user_profile_json: Opti
         jm = regex_re.search(r'\[.*\]', raw_ai, regex_re.DOTALL)
         phrases = json.loads(jm.group(0) if jm else raw_ai)
         if isinstance(phrases, list) and phrases:
-            return [str(p).strip() for p in phrases if str(p).strip()]
+            cleaned = []
+            for p in phrases:
+                p_str = str(p).strip()
+                p_clean = re.sub(r'[^a-zA-Z0-9\s]', ' ', p_str)
+                p_clean = re.sub(r'\s+', ' ', p_clean).strip()
+                if len(p_clean) > 2 and len(p_clean.split()) <= 4:
+                    cleaned.append(p_clean)
+            if cleaned:
+                return cleaned
     except Exception:
         pass
 
-    # Fallback if AI parsing fails
-    return [target_roles, "Research Scientist", "Biochemist", "Biologist", "Scientist", "Laboratory Manager", "Biotech"]
+    # Strict No-Mock Extraction: Extract terms directly from user input without hardcoded fallbacks
+    derived_terms = []
+    for chunk in re.split(r'[-–—:,/]+', target_roles):
+        c_clean = re.sub(r'[^a-zA-Z0-9\s]', ' ', chunk)
+        c_clean = re.sub(r'\s+', ' ', c_clean).strip()
+        if len(c_clean) > 3:
+            derived_terms.append(c_clean)
+    
+    if user_profile_json:
+        try:
+            prof = json.loads(user_profile_json)
+            for skill in prof.get("skills", [])[:5]:
+                skill_clean = re.sub(r'[^a-zA-Z0-9\s]', '', skill).strip()
+                if len(skill_clean) > 3:
+                    derived_terms.append(skill_clean)
+        except Exception:
+            pass
+
+    return list(set(derived_terms))
 
 async def multi_tenant_job_infiltration(target_roles: str, location: str, count: int, user_profile_json: Optional[str] = None) -> List[Dict]:
-    """
-    Adaptable Infiltration Engine:
-    Passes target roles through the AI Search Strategist to dynamically test all semantic variations
-    across regional and global feeds.
-    """
-    search_permutations = await ai_adaptable_role_expansion(target_roles, user_profile_json)
+    ai_variations = await ai_adaptable_role_expansion(target_roles, user_profile_json)
     
-    # Ensure raw user roles are also included
-    search_permutations.insert(0, target_roles)
-    for sub in re.split(r'[-–—:,/]+', target_roles):
-        sub_c = sub.strip()
-        if len(sub_c) > 3:
-            search_permutations.append(sub_c)
+    raw_splits = re.split(r'[-–—:,/]+', target_roles)
+    atomic_user_terms = []
+    for chunk in raw_splits:
+        c_clean = re.sub(r'[^a-zA-Z0-9\s]', ' ', chunk)
+        c_clean = re.sub(r'\s+', ' ', c_clean).strip()
+        if len(c_clean) > 3:
+            atomic_user_terms.append(c_clean)
 
+    # Strictly user-driven search permutations without any static mock fallbacks
+    search_permutations = ai_variations + atomic_user_terms
+    
     seen = set()
     search_permutations = [x for x in search_permutations if not (x.lower() in seen or seen.add(x.lower()))]
     
+    if not search_permutations:
+        logger.warning("⚠️ No valid search terms extracted. Strict No-Mock Policy active: returning 0 results.")
+        return []
+
     discovered_jobs = []
     seen_urls = set()
 
@@ -331,13 +360,13 @@ async def multi_tenant_job_infiltration(target_roles: str, location: str, count:
     is_sa_search = any(k in loc_lower for k in ["south africa", "johannesburg", "cape town", "pretoria", "durban"])
     countries_to_try = ["za", "us"] if is_sa_search else ["us"]
 
-    logger.info(f"🧠 AI Adaptable Swarm generated search variations: {search_permutations[:10]}")
+    logger.info(f"🧬 Strict No-Mock Search Permutations for {target_roles}: {search_permutations[:12]} | Countries: {countries_to_try}")
 
     for country in countries_to_try:
         if len(discovered_jobs) >= count * 15:
             break
             
-        for term in search_permutations[:10]:
+        for term in search_permutations[:12]:
             encoded_query = urllib.parse.quote(term)
             
             if ADZUNA_APP_ID and ADZUNA_APP_KEY:
@@ -365,7 +394,7 @@ async def multi_tenant_job_infiltration(target_roles: str, location: str, count:
                 f"https://www.nature.com/naturecareers/jobs/rss/?keywords={encoded_query}"
             ]:
                 try:
-                    res = requests.get(feed_base, timeout=6, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) NexusAdaptable/16.7"})
+                    res = requests.get(feed_base, timeout=6, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) NexusStrictNoMock/16.10"})
                     if res.status_code == 200:
                         from bs4 import BeautifulSoup
                         soup = BeautifulSoup(res.text, 'xml')
@@ -397,13 +426,13 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
     desc = job.get('job_description', '')
 
     prompt = f"""
-    You are the Adaptable Multi-Tenant 11-Agent Intelligence Core evaluating this live job posting specifically for user {email}.
+    You are the Strict No-Mock Multi-Tenant 11-Agent Intelligence Core evaluating this live job posting specifically for user {email}.
     Candidate Master Profile / CV: {profile_content}
     Target Job Title: {role} at {company}
     Job Description Snippet: {desc}
 
     Execute rigorous multi-agent consensus. Return strict JSON (no markdown backticks, raw JSON only) with these exact keys:
-    - "is_valid_match": boolean (true if fit score >= 35 and domain aligns reasonably)
+    - "is_valid_match": boolean (true if fit score >= 40 and domain aligns reasonably)
     - "fit_score": integer (0 to 99)
     - "match_rationale": Specific consensus explanation connecting this specific user's background to this role.
     - "salary_benchmark": Estimated compensation range based on market rates.
@@ -422,7 +451,7 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
     except Exception:
         return None
 
-    if not eval_data or not eval_data.get('is_valid_match', False) or safe_int(eval_data.get('fit_score'), 0) < 35:
+    if not eval_data or not eval_data.get('is_valid_match', False) or safe_int(eval_data.get('fit_score'), 0) < 40:
         return None
 
     safe_portal_url = sanitize_ats_url(raw_url, role, company)
@@ -551,9 +580,9 @@ def verify_api_key_only(x_api_key: str = Header(...), request: Request = None):
 
 async def isolated_user_job_scouting_worker(user_email: str, requested_count: int, target_locations: str, target_roles: str):
     saved_count = 0
-    logger.info(f"🌐 AI Adaptable Swarm triggered for specific user: {user_email} | Roles: {target_roles} | Location: {target_locations}")
+    logger.info(f"🌐 Strict No-Mock Swarm triggered for specific user: {user_email} | Roles: {target_roles} | Location: {target_locations}")
     
-    await sse_broker.broadcast("multi_tenant_telemetry", {"user": user_email, "message": f"AI strategist generating semantic role variations for {user_email}..."})
+    await sse_broker.broadcast("multi_tenant_telemetry", {"user": user_email, "message": f"Executing strict No-Mock live infiltration for {user_email}..."})
 
     try:
         with db_transaction_scope() as (_, cursor):
@@ -743,9 +772,9 @@ async def lifespan(app: FastAPI):
         scheduler.shutdown()
 
 app = FastAPI(
-    title="AI-Adaptable 11-Agent Career Civilization Apex",
-    version="16.7.0",
-    description="AI-Driven Semantic Role Expansion and Adaptable Multi-Tier Infiltration.",
+    title="Strict No-Mock Multi-Tenant 11-Agent Career Civilization Apex",
+    version="16.10.0",
+    description="Strict No-Mock Data Policy with Dynamic User-Specific Adaptable Infiltration.",
     lifespan=lifespan
 )
 
@@ -887,7 +916,7 @@ async def save_career_resume(payload: ResumeInput, auth: dict = Depends(verify_a
             "seniority": "Professional",
             "primary_domain": "Specialized Professional Domain",
             "skills": ["Domain Expertise"],
-            "recommended_roles": ["Research Scientist", "Specialist"]
+            "recommended_roles": []
         }
 
     embedding_vector = generate_text_embedding(payload.resume_content)
@@ -904,7 +933,7 @@ async def save_career_resume(payload: ResumeInput, auth: dict = Depends(verify_a
         "status": "success", 
         "profile": parsed_profile, 
         "recommended_roles": parsed_profile.get("recommended_roles", []),
-        "message": "User CV indexed successfully with AI-adaptable expansion active.", 
+        "message": "User CV indexed successfully with strict no-mock policy active.", 
         "credits_remaining": auth["credits"]
     }
 
@@ -919,7 +948,7 @@ async def save_career_criteria(payload: CareerCriteriaInput, background_tasks: B
     )
     
     await sse_broker.broadcast("multi_tenant_launched", {"user": auth["email"], "roles": payload.target_roles, "locations": payload.locations})
-    return {"status": "success", "message": f"AI-Adaptable Swarm dispatched in isolation for {auth['email']}.", "credits_remaining": auth["credits"]}
+    return {"status": "success", "message": f"Strict No-Mock Swarm dispatched in isolation for {auth['email']}.", "credits_remaining": auth["credits"]}
 
 @app.post("/api/v1/career/matches/{match_id}/dispatch")
 async def dispatch_career_outreach(match_id: int, payload: OutreachDispatchRequest, auth: dict = Depends(verify_api_key_only)):
