@@ -458,68 +458,73 @@ async def multi_tenant_job_infiltration(target_roles: str, location: str, count:
     logger.info(f"Total valid unique raw jobs collected via multi-site swarm: {len(discovered_jobs)}")
     return discovered_jobs[:max(count * 8, 40)]
 
-async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email: str) -> Optional[Dict]:
-    role = job.get('job_title', 'Target Role')
-    company = job.get('company_name', 'Global Enterprise')
-    raw_url = job.get('ats_portal_url', '#')
-    desc = job.get('job_description', '')
+async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email: str, semaphore: asyncio.Semaphore) -> Optional[Dict]:
+    async with semaphore:
+        try:
+            role = job.get('job_title', 'Target Role')
+            company = job.get('company_name', 'Global Enterprise')
+            raw_url = job.get('ats_portal_url', '#')
+            desc = job.get('job_description', '')
 
-    prompt = f"""
-    Evaluate this live job posting for user {email} using our multi-agent committee.
-    Candidate CV: {profile_content}
-    Target Job Title: {role} at {company}
-    Job Description Snippet: {desc}
+            prompt = f"""
+            Evaluate this live job posting for user {email} using our multi-agent committee.
+            Candidate CV: {profile_content}
+            Target Job Title: {role} at {company}
+            Job Description Snippet: {desc}
 
-    Return strict JSON (no markdown backticks, raw JSON only) with these exact keys:
-    - "is_valid_match": boolean (true if fit score >= 30)
-    - "fit_score": integer (0 to 99)
-    - "match_rationale": Rationale connecting user background to this role.
-    - "salary_benchmark": Estimated compensation range.
-    - "negotiation_strategy": Salary leverage points.
-    - "interview_playbook": 3-stage interview prep guide.
-    """
-    
-    try:
-        loop = asyncio.get_running_loop()
-        raw_eval = await loop.run_in_executor(None, call_groq_ai, prompt)
-        import re as regex_re
-        jm_eval = regex_re.search(r'\{.*\}', raw_eval, regex_re.DOTALL)
-        eval_data = json.loads(jm_eval.group(0) if jm_eval else raw_eval)
-    except Exception:
-        return None
+            Return strict JSON (no markdown backticks, raw JSON only) with these exact keys:
+            - "is_valid_match": boolean (true if fit score >= 30)
+            - "fit_score": integer (0 to 99)
+            - "match_rationale": Rationale connecting user background to this role.
+            - "salary_benchmark": Estimated compensation range.
+            - "negotiation_strategy": Salary leverage points.
+            - "interview_playbook": 3-stage interview prep guide.
+            """
+            
+            loop = asyncio.get_running_loop()
+            raw_eval = await loop.run_in_executor(None, call_groq_ai, prompt)
+            import re as regex_re
+            jm_eval = regex_re.search(r'\{.*\}', raw_eval, regex_re.DOTALL)
+            eval_data = json.loads(jm_eval.group(0) if jm_eval else raw_eval)
 
-    if not eval_data or not eval_data.get('is_valid_match', False) or safe_int(eval_data.get('fit_score'), 0) < 30:
-        return None
+            if not eval_data or not eval_data.get('is_valid_match', False) or safe_int(eval_data.get('fit_score'), 0) < 30:
+                return None
 
-    safe_portal_url = sanitize_ats_url(raw_url, role, company)
-    real_lead = recursive_org_chart_decision_maker_discovery(company, role, desc, target_location="Global")
-    
-    # Run Generator-Critic on resume tailoring
-    cv_variant = await expert_tailored_resume_generation(profile_content, desc)
-    job_embedding = generate_text_embedding(f"{role} {company} {desc}")
+            safe_portal_url = sanitize_ats_url(raw_url, role, company)
+            real_lead = recursive_org_chart_decision_maker_discovery(company, role, desc, target_location="Global")
+            
+            # Run Generator-Critic on resume tailoring with safety fallback
+            try:
+                cv_variant = await expert_tailored_resume_generation(profile_content, desc)
+            except Exception:
+                cv_variant = profile_content
 
-    intel = real_lead.get("company_intel", "")
-    outreach_text = f"Hi {real_lead['name']},\n\nI've been following {company}'s work—particularly noting your recent updates: {intel}\n\nWith my background in {role}, I would welcome a brief conversation regarding your strategic roadmap."
+            job_embedding = generate_text_embedding(f"{role} {company} {desc}")
+            intel = real_lead.get("company_intel", "")
+            outreach_text = f"Hi {real_lead['name']},\n\nI've been following {company}'s work—particularly noting your recent updates: {intel}\n\nWith my background in {role}, I would welcome a brief conversation regarding your strategic roadmap."
 
-    return {
-        "company_name": company,
-        "job_title": role,
-        "job_description": desc,
-        "location": job.get('location', "Global"),
-        "fit_score": safe_int(eval_data.get('fit_score'), 78),
-        "match_rationale": eval_data.get('match_rationale', "Verified peer-reviewed domain match."),
-        "decision_maker_name": real_lead["name"],
-        "decision_maker_title": real_lead["title"],
-        "decision_maker_email": real_lead["email"],
-        "warm_intro_pathway": real_lead.get("pathway", "Org-Chart Verified Direct Match"),
-        "outreach_draft": outreach_text,
-        "salary_benchmark": eval_data.get('salary_benchmark', "Market Rate"),
-        "negotiation_strategy": eval_data.get('negotiation_strategy', "Emphasize specialized domain delivery."),
-        "cv_variant": cv_variant,
-        "interview_playbook": eval_data.get('interview_playbook', "1. Technical Review\n2. Domain Deep-Dive\n3. Leadership Interview"),
-        "ats_portal_url": safe_portal_url,
-        "embedding": job_embedding
-    }
+            return {
+                "company_name": company,
+                "job_title": role,
+                "job_description": desc,
+                "location": job.get('location', "Global"),
+                "fit_score": safe_int(eval_data.get('fit_score'), 78),
+                "match_rationale": eval_data.get('match_rationale', "Verified peer-reviewed domain match."),
+                "decision_maker_name": real_lead["name"],
+                "decision_maker_title": real_lead["title"],
+                "decision_maker_email": real_lead["email"],
+                "warm_intro_pathway": real_lead.get("pathway", "Org-Chart Verified Direct Match"),
+                "outreach_draft": outreach_text,
+                "salary_benchmark": eval_data.get('salary_benchmark', "Market Rate"),
+                "negotiation_strategy": eval_data.get('negotiation_strategy', "Emphasize specialized domain delivery."),
+                "cv_variant": cv_variant,
+                "interview_playbook": eval_data.get('interview_playbook', "1. Technical Review\n2. Domain Deep-Dive\n3. Leadership Interview"),
+                "ats_portal_url": safe_portal_url,
+                "embedding": job_embedding
+            }
+        except Exception as e:
+            logger.warning(f"Skipping job evaluation due to API hiccup: {e}")
+            return None
 
 def init_career_database():
     with db_transaction_scope() as (_, cursor):
@@ -654,8 +659,10 @@ async def isolated_user_job_scouting_worker(user_email: str, requested_count: in
             await sse_broker.broadcast("career_swarm_update", {"user": user_email, "status": "no_jobs", "message": "Scouting completed, but zero live positions matched current aggregators."})
             return
 
-        logger.info(f"Evaluating {len(raw_jobs)} candidate jobs for user {user_email}...")
-        evaluation_tasks = [evaluate_job_for_specific_user(job, profile_content, user_email) for job in raw_jobs[:25]]
+        logger.info(f"Evaluating {len(raw_jobs)} candidate jobs for user {user_email} with rate limiting...")
+        
+        eval_semaphore = asyncio.Semaphore(3)
+        evaluation_tasks = [evaluate_job_for_specific_user(job, profile_content, user_email, eval_semaphore) for job in raw_jobs[:20]]
         results = await asyncio.gather(*evaluation_tasks)
         
         valid_results = [m for m in results if m is not None]
