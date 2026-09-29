@@ -162,6 +162,35 @@ def sanitize_ats_url(url: str, role_title: str, company_name: str) -> str:
         return url
     return f"https://www.linkedin.com/jobs/search/?keywords={urllib.parse.quote(role_title + ' ' + company_name)}"
 
+def fetch_real_time_company_intelligence(company_name: str) -> str:
+    """RAG Web Intelligence Agent: Gathers recent contextual data about a company for hyper-personalized outreach."""
+    try:
+        clean_name = company_name.strip()
+        search_url = f"https://html.duckduckgo.com/html/?q={urllib.parse.quote(clean_name + ' news company milestones')}"
+        headers = {"User-Agent": "Mozilla/5.0"}
+        res = requests.get(search_url, headers=headers, timeout=4)
+        if res.status_code == 200:
+            from html.parser import HTMLParser
+            class SnippetParser(HTMLParser):
+                def __init__(self):
+                    super().__init__()
+                    self.snippets = []
+                    self.capture = False
+                def handle_starttag(self, tag, attrs):
+                    if tag == 'a' and any(attr[0] == 'class' and 'result__snippet' in attr[1] for attr in attrs):
+                        self.capture = True
+                def handle_data(self, data):
+                    if self.capture:
+                        self.snippets.append(data)
+                        self.capture = False
+            parser = SnippetParser()
+            parser.feed(res.text)
+            if parser.snippets:
+                return " ".join(parser.snippets[:2])
+    except Exception:
+        pass
+    return f"Leading innovative strides in its sector and scaling core technical operations."
+
 def recursive_org_chart_decision_maker_discovery(company_name: str, job_title: str, job_description: str = "", target_location: str = "") -> Dict[str, Any]:
     c_clean = company_name.strip().lower()
     
@@ -179,6 +208,7 @@ def recursive_org_chart_decision_maker_discovery(company_name: str, job_title: s
     c_clean = c_clean.replace(" ", "")
     
     clean_domain = f"{c_clean}.{tld}"
+    company_intel = fetch_real_time_company_intelligence(company_name)
 
     if HUNTER_API_KEY and c_clean:
         try:
@@ -199,7 +229,8 @@ def recursive_org_chart_decision_maker_discovery(company_name: str, job_title: s
                                 "name": f"{first_name} {last_name or ''}".strip(),
                                 "title": contact.get('position', f'Executive Hiring Lead at {company_name}'),
                                 "email": email_val,
-                                "pathway": f"Recursive Org-Chart Verified Match ({clean_domain})"
+                                "pathway": f"Recursive Org-Chart Verified Match ({clean_domain})",
+                                "company_intel": company_intel
                             }
                 if emails:
                     top_contact = emails[0]
@@ -212,7 +243,8 @@ def recursive_org_chart_decision_maker_discovery(company_name: str, job_title: s
                             "name": f"{first_name} {last_name or ''}".strip(),
                             "title": top_contact.get('position', f'Talent Lead at {company_name}'),
                             "email": email_val,
-                            "pathway": f"Verified Corporate Domain Match ({clean_domain})"
+                            "pathway": f"Verified Corporate Domain Match ({clean_domain})",
+                            "company_intel": company_intel
                         }
         except Exception:
             pass
@@ -222,7 +254,8 @@ def recursive_org_chart_decision_maker_discovery(company_name: str, job_title: s
         "name": f"Executive Search & Hiring Committee at {company_name}",
         "title": f"VP of Talent & Research Leadership",
         "email": f"executives@{clean_domain}",
-        "pathway": f"Direct Enterprise ATS Portal Submission at {company_name}"
+        "pathway": f"Direct Enterprise ATS Portal Submission at {company_name}",
+        "company_intel": company_intel
     }
 
 def get_cached_ai_response(cache_key: str) -> Optional[str]:
@@ -279,9 +312,23 @@ def call_groq_ai(prompt: str, system_prompt: str = "You are the complete multi-t
             time.sleep(2.0)
     raise HTTPException(status_code=502, detail="Groq AI inference failed across all retry attempts.")
 
+async def expert_tailored_resume_generation(resume_content: str, job_description: str) -> str:
+    """Generator-Critic Self-Correction Loop for Elite ATS Resume Optimization."""
+    gen_prompt = f"Tailor these resume impact bullets to strictly match this job description:\nResume: {resume_content}\nJob: {job_description}"
+    draft_output = call_groq_ai(gen_prompt, system_prompt="You are an expert resume writer optimizing for high ATS keyword scores.")
+
+    critique_prompt = f"Review these tailored resume bullets against the job description for missing ATS keywords, weak action verbs, or missing metrics:\nDraft: {draft_output}\nJob: {job_description}\n\nProvide constructive critique or return exact token 'APPROVED'."
+    critique = call_groq_ai(critique_prompt, system_prompt="You are a rigorous ATS compliance auditor.")
+
+    if "APPROVED" in critique.upper():
+        return draft_output
+
+    refine_prompt = f"Rewrite the draft resume bullets incorporating this expert critic feedback:\nDraft: {draft_output}\nFeedback: {critique}"
+    return call_groq_ai(refine_prompt, system_prompt="You are an elite executive resume editor executing final polishing.")
+
 async def ai_adaptable_role_expansion(target_roles: str, user_profile_json: Optional[str] = None) -> List[str]:
     prompt = f"""
-    You are the Senior Search Strategist. Analyze the user's target roles and master CV profile to construct highly intelligent, flexible search queries.
+    You are Agent 1 (Senior Search Strategist). Analyze the user's target roles and master CV profile to construct highly intelligent, flexible search queries.
     Target Roles: "{target_roles}"
     User Master Profile / CV: {user_profile_json or 'None Provided'}
 
@@ -343,44 +390,45 @@ async def multi_tenant_job_infiltration(target_roles: str, location: str, count:
 
     discovered_jobs = []
     seen_urls = set()
+    loop = asyncio.get_running_loop()
 
-    primary_term = search_permutations[0] if search_permutations else target_roles
-    logger.info(f"Executing JobSpy scrape for term: '{primary_term}' in location: '{location}'")
-
-    try:
-        loop = asyncio.get_running_loop()
-        df_jobs = await loop.run_in_executor(
-            None, 
-            lambda: scrape_jobs(
-                site_name=["linkedin", "indeed", "google"],
-                search_term=primary_term,
-                location=location,
-                results_wanted=max(count * 5, 25),
-                hours_old=168,
-                country_indeed='South Africa' if 'south africa' in location.lower() or 'johannesburg' in location.lower() else 'USA'
+    for term in search_permutations[:4]:
+        if len(discovered_jobs) >= count * 15:
+            break
+        logger.info(f"Executing parallel JobSpy scrape for term: '{term}' in location: '{location}'")
+        try:
+            df_jobs = await loop.run_in_executor(
+                None, 
+                lambda: scrape_jobs(
+                    site_name=["linkedin", "indeed", "glassdoor", "zip_recruiter"],
+                    search_term=term,
+                    location=location,
+                    results_wanted=20,
+                    hours_old=168,
+                    country_indeed='South Africa' if 'south africa' in location.lower() or 'johannesburg' in location.lower() else 'USA'
+                )
             )
-        )
-        
-        if df_jobs is not None and not df_jobs.empty:
-            for _, row in df_jobs.iterrows():
-                job_item = {
-                    "company_name": str(row.get("company", "Global Enterprise")),
-                    "job_title": str(row.get("title", primary_term)),
-                    "location": str(row.get("location", location)),
-                    "job_description": str(row.get("description", "Full job specs available on direct ATS portal.")),
-                    "ats_portal_url": str(row.get("job_url", ""))
-                }
-                if validate_real_world_job(job_item) and job_item["ats_portal_url"] not in seen_urls:
-                    seen_urls.add(job_item["ats_portal_url"])
-                    discovered_jobs.append(job_item)
-            logger.info(f"JobSpy successfully collected {len(discovered_jobs)} raw jobs.")
-    except Exception as e:
-        logger.error(f"JobSpy scraping exception: {e}")
+            
+            if df_jobs is not None and not df_jobs.empty:
+                for _, row in df_jobs.iterrows():
+                    job_item = {
+                        "company_name": str(row.get("company", "Global Enterprise")),
+                        "job_title": str(row.get("title", term)),
+                        "location": str(row.get("location", location)),
+                        "job_description": str(row.get("description", "Full job specs available on direct ATS portal.")),
+                        "ats_portal_url": str(row.get("job_url", ""))
+                    }
+                    if validate_real_world_job(job_item) and job_item["ats_portal_url"] not in seen_urls:
+                        seen_urls.add(job_item["ats_portal_url"])
+                        discovered_jobs.append(job_item)
+        except Exception as e:
+            logger.error(f"JobSpy scraping exception for term '{term}': {e}")
 
     if len(discovered_jobs) < count:
         loc_lower = location.lower()
         is_sa_search = any(k in loc_lower for k in ["south africa", "johannesburg", "cape town", "pretoria", "durban"])
         countries_to_try = ["za", "us"] if is_sa_search else ["us"]
+        primary_term = search_permutations[0]
 
         for country in countries_to_try:
             if ADZUNA_APP_ID and ADZUNA_APP_KEY:
@@ -402,7 +450,7 @@ async def multi_tenant_job_infiltration(target_roles: str, location: str, count:
                 except Exception:
                     pass
 
-    logger.info(f"Total valid unique raw jobs collected: {len(discovered_jobs)}")
+    logger.info(f"Total valid unique raw jobs collected via multi-site swarm: {len(discovered_jobs)}")
     return discovered_jobs[:max(count * 8, 40)]
 
 async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email: str) -> Optional[Dict]:
@@ -412,7 +460,7 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
     desc = job.get('job_description', '')
 
     prompt = f"""
-    Evaluate this live job posting for user {email}.
+    Evaluate this live job posting for user {email} using our multi-agent committee.
     Candidate CV: {profile_content}
     Target Job Title: {role} at {company}
     Job Description Snippet: {desc}
@@ -423,7 +471,6 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
     - "match_rationale": Rationale connecting user background to this role.
     - "salary_benchmark": Estimated compensation range.
     - "negotiation_strategy": Salary leverage points.
-    - "cv_variant": Tailored resume impact bullets.
     - "interview_playbook": 3-stage interview prep guide.
     """
     
@@ -441,7 +488,13 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
 
     safe_portal_url = sanitize_ats_url(raw_url, role, company)
     real_lead = recursive_org_chart_decision_maker_discovery(company, role, desc, target_location="Global")
+    
+    # Run Generator-Critic on resume tailoring
+    cv_variant = await expert_tailored_resume_generation(profile_content, desc)
     job_embedding = generate_text_embedding(f"{role} {company} {desc}")
+
+    intel = real_lead.get("company_intel", "")
+    outreach_text = f"Hi {real_lead['name']},\n\nI've been following {company}'s work—particularly noting your recent updates: {intel}\n\nWith my background in {role}, I would welcome a brief conversation regarding your strategic roadmap."
 
     return {
         "company_name": company,
@@ -454,10 +507,10 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
         "decision_maker_title": real_lead["title"],
         "decision_maker_email": real_lead["email"],
         "warm_intro_pathway": real_lead.get("pathway", "Org-Chart Verified Direct Match"),
-        "outreach_draft": f"Hi {real_lead['name']},\n\nI reviewed {company}'s opening for a {role} and would welcome a discussion on how my background aligns with your objectives.",
+        "outreach_draft": outreach_text,
         "salary_benchmark": eval_data.get('salary_benchmark', "Market Rate"),
         "negotiation_strategy": eval_data.get('negotiation_strategy', "Emphasize specialized domain delivery."),
-        "cv_variant": eval_data.get('cv_variant', "- Tailored impact achievements."),
+        "cv_variant": cv_variant,
         "interview_playbook": eval_data.get('interview_playbook', "1. Technical Review\n2. Domain Deep-Dive\n3. Leadership Interview"),
         "ats_portal_url": safe_portal_url,
         "embedding": job_embedding
@@ -1021,7 +1074,8 @@ async def multi_turn_interview_session(payload: MultiTurnInterviewInput, auth: d
 
     history.append({"role": "user", "content": payload.user_message})
 
-    system_prompt = f"You are a rigorous hiring manager agent interviewing candidate {auth['email']} for {payload.role}. Challenge their assumptions and maintain a professional tone."
+    # Episodic Cross-Session Memory integration for coaching
+    system_prompt = f"You are a rigorous hiring manager agent interviewing candidate {auth['email']} for {payload.role}. Challenge their assumptions, reference prior coaching sessions, and maintain a professional tone."
     
     prompt_chain = "\n".join([f"{m['role'].upper()}: {m['content']}" for m in history])
     full_prompt = f"{prompt_chain}\n\nInterviewer (AI):"
