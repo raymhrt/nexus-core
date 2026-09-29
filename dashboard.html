@@ -232,9 +232,9 @@
                                     <div>
                                         <label class="block text-[11px] font-semibold text-slate-300 mb-1">Jobs Per Batch</label>
                                         <div class="grid grid-cols-3 gap-2">
-                                            <button type="button" onclick="setJobCount(3)" class="job-count-btn py-2 px-2 bg-slate-800 border border-slate-700 text-white rounded-lg text-xs font-medium hover:border-emerald-500 transition-all">3</button>
-                                            <button type="button" onclick="setJobCount(5)" class="job-count-btn py-2 px-2 bg-emerald-600/20 border border-emerald-500 text-white rounded-lg text-xs font-medium hover:border-emerald-500 transition-all active">5</button>
-                                            <button type="button" onclick="setJobCount(10)" class="job-count-btn py-2 px-2 bg-slate-800 border border-slate-700 text-white rounded-lg text-xs font-medium hover:border-emerald-500 transition-all">10</button>
+                                            <button type="button" onclick="setJobCount(3, this)" class="job-count-btn py-2 px-2 bg-slate-800 border border-slate-700 text-white rounded-lg text-xs font-medium hover:border-emerald-500 transition-all">3</button>
+                                            <button type="button" onclick="setJobCount(5, this)" class="job-count-btn py-2 px-2 bg-emerald-600/20 border border-emerald-500 text-white rounded-lg text-xs font-medium hover:border-emerald-500 transition-all active">5</button>
+                                            <button type="button" onclick="setJobCount(10, this)" class="job-count-btn py-2 px-2 bg-slate-800 border border-slate-700 text-white rounded-lg text-xs font-medium hover:border-emerald-500 transition-all">10</button>
                                         </div>
                                         <input type="hidden" id="selected-job-count" value="5">
                                     </div>
@@ -605,12 +605,15 @@
             }
         }
 
-        function setJobCount(count) {
+        function setJobCount(count, element = null) {
             document.getElementById('selected-job-count').value = count;
             document.querySelectorAll('.job-count-btn').forEach(btn => {
                 btn.className = "job-count-btn py-2 px-2 bg-slate-800 border border-slate-700 text-white rounded-lg text-xs font-medium hover:border-emerald-500 transition-all";
             });
-            event.currentTarget.className = "job-count-btn py-2 px-2 bg-emerald-600/20 border border-emerald-500 text-white rounded-lg text-xs font-medium hover:border-emerald-500 transition-all active";
+            const targetElement = element || (typeof event !== 'undefined' ? event.currentTarget : null);
+            if (targetElement) {
+                targetElement.className = "job-count-btn py-2 px-2 bg-emerald-600/20 border border-emerald-500 text-white rounded-lg text-xs font-medium hover:border-emerald-500 transition-all active";
+            }
         }
 
         function switchTab(tabName) {
@@ -1135,17 +1138,20 @@
 
         async function openStripePortal() {
             const apiKey = document.getElementById('apiKey').value.trim();
+            if (!apiKey) {
+                showToast("Please authenticate with your API key first.", true);
+                return;
+            }
             try {
-                const res = await fetch('/api/v1/billing/create-checkout-session', {
+                const res = await fetch('/api/v1/billing/portal', {
                     method: 'POST',
-                    headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ tier: 'pro' })
+                    headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' }
                 });
                 const data = await res.json();
-                if (res.ok && (data.url || data.checkout_url)) {
-                    window.location.href = data.url || data.checkout_url;
+                if (res.ok && (data.url || data.portal_url)) {
+                    window.location.href = data.url || data.portal_url;
                 } else {
-                    showToast("Stripe portal session unavailable.", true);
+                    showToast(data.detail || "Stripe billing portal session unavailable.", true);
                 }
             } catch (e) {
                 showToast("Failed to open billing portal.", true);
