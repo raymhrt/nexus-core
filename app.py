@@ -249,11 +249,12 @@ def recursive_org_chart_decision_maker_discovery(company_name: str, job_title: s
         except Exception:
             pass
 
+    # Clean fallback without generic anonymous committee emails
     return {
         "has_verified_contact": False,
-        "name": f"Executive Search & Hiring Committee at {company_name}",
-        "title": f"VP of Talent & Research Leadership",
-        "email": f"executives@{clean_domain}",
+        "name": f"Talent Acquisition & Hiring Team",
+        "title": f"Direct Enterprise ATS Portal",
+        "email": "",
         "pathway": f"Direct Enterprise ATS Portal Submission at {company_name}",
         "company_intel": company_intel
     }
@@ -470,9 +471,9 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
             Job Description Snippet: {desc}
 
             Return strict JSON (no markdown backticks, raw JSON only) with these exact keys:
-            - "is_valid_match": boolean (true if fit score >= 30)
+            - "is_valid_match": boolean (true ONLY if fit score >= 60 and highly relevant to candidate background)
             - "fit_score": integer (0 to 99)
-            - "match_rationale": Rationale connecting user background to this role.
+            - "match_rationale": Concise structured rationale with 2-3 short bullet points connecting user background to this role.
             - "salary_benchmark": Estimated compensation range.
             - "negotiation_strategy": Salary leverage points.
             - "interview_playbook": 3-stage interview prep guide.
@@ -484,7 +485,8 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
             jm_eval = regex_re.search(r'\{.*\}', raw_eval, regex_re.DOTALL)
             eval_data = json.loads(jm_eval.group(0) if jm_eval else raw_eval)
 
-            if not eval_data or not eval_data.get('is_valid_match', False) or safe_int(eval_data.get('fit_score'), 0) < 30:
+            # Strict threshold enforcement (>= 60)
+            if not eval_data or not eval_data.get('is_valid_match', False) or safe_int(eval_data.get('fit_score'), 0) < 60:
                 return None
 
             safe_portal_url = sanitize_ats_url(raw_url, role, company)
@@ -497,7 +499,11 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
 
             job_embedding = generate_text_embedding(f"{role} {company} {desc}")
             intel = real_lead.get("company_intel", "")
-            outreach_text = f"Hi {real_lead['name']},\n\nI've been following {company}'s work—particularly noting your recent updates: {intel}\n\nWith my background in {role}, I would welcome a brief conversation regarding your strategic roadmap."
+            
+            if real_lead.get("has_verified_contact"):
+                outreach_text = f"Hi {real_lead['name']},\n\nI've been following {company}'s work—particularly noting your recent updates: {intel}\n\nWith my background in {role}, I would welcome a brief conversation regarding your strategic roadmap."
+            else:
+                outreach_text = f"Dear Hiring Team at {company},\n\nI am writing to express my strong interest in the {role} position. With my background in high-impact technical execution and domain research, I am eager to contribute to your upcoming initiatives."
 
             return {
                 "company_name": company,
@@ -792,7 +798,7 @@ async def automated_followup_scheduler_worker():
                 r = dict(row) if not isinstance(row, dict) else row
                 match_id = r["id"]
                 target_email = r["decision_maker_email"]
-                dm_name = r["decision_maker_name"] or "Hiring Committee"
+                dm_name = r["decision_maker_name"] or "Hiring Team"
                 company = r["company_name"]
                 role = r["job_title"]
 
@@ -826,7 +832,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Complete Production Career Apex",
-    version="16.13.0",
+    version="16.14.0",
     description="Live Multi-Tenant Career Infiltration Engine with Full Suite Features.",
     lifespan=lifespan
 )
@@ -940,7 +946,7 @@ def get_career_matches(user=Depends(verify_api_key_only)):
 
         raw_matches = [dict(r) for r in cursor.fetchall()]
 
-    # Normalize keys so the frontend dashboard never encounters undefined property mismatches
+    # Normalize keys so frontend dashboard never encounters undefined property mismatches
     normalized_matches = []
     for m in raw_matches:
         role_t = m.get("role_title") or m.get("job_title") or ""
