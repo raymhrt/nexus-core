@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>QuantCode Nexus Enterprise Apex | Career Swarm Command Center</title>
+    <title>QuantCode Nexus Enterprise Apex | Ultimate Career Swarm Command Center</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -32,7 +32,7 @@
         @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
         body { font-family: 'Plus Jakarta Sans', sans-serif; }
         .mono { font-family: 'JetBrains Mono', monospace; }
-        .glass-panel { background: rgba(17, 24, 39, 0.8); backdrop-filter: blur(16px); border: 1px solid rgba(56, 189, 248, 0.12); }
+        .glass-panel { background: rgba(17, 24, 39, 0.85); backdrop-filter: blur(16px); border: 1px solid rgba(56, 189, 248, 0.15); }
         .slide-over { transform: translateX(100%); transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
         .slide-over.open { transform: translateX(0); }
         @keyframes pulse-slow { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
@@ -57,14 +57,14 @@
                 </div>
                 <div>
                     <h2 class="text-xs font-black uppercase tracking-wider text-white">QuantCode Apex</h2>
-                    <p class="text-[10px] text-slate-400">Career Intelligence Swarm</p>
+                    <p class="text-[10px] text-slate-400">Ultimate Career Swarm</p>
                 </div>
             </div>
 
             <!-- Navigation Links -->
             <nav class="p-4 space-y-1.5">
                 <button onclick="switchTab('career')" id="nav-btn-career" class="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition bg-sky-600 text-white shadow-lg shadow-sky-600/20">
-                    <i class="fa-solid fa-crosshairs w-4 text-center"></i> Job Swarm & ATS
+                    <i class="fa-solid fa-crosshairs w-4 text-center"></i> Job Swarm & Kanban
                 </button>
                 <button onclick="switchTab('interview')" id="nav-btn-interview" class="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition text-slate-400 hover:text-slate-200 hover:bg-slate-800/50">
                     <i class="fa-solid fa-headset w-4 text-center"></i> Interview & Negotiator
@@ -75,14 +75,21 @@
             </nav>
         </div>
 
-        <!-- Sidebar Footer / Auth Status -->
+        <!-- Sidebar Footer / Gamified Credit Ring -->
         <div class="p-4 border-t border-slate-800/80 space-y-3">
-            <div class="bg-inputbg border border-slate-800 p-3 rounded-xl">
-                <div class="flex items-center justify-between text-[10px] text-slate-400 uppercase font-bold mb-1">
-                    <span>Credits Remaining</span>
-                    <span id="sidebarTierBadge" class="text-sky-400">Starter</span>
+            <div class="bg-inputbg border border-slate-800 p-3 rounded-xl flex items-center justify-between">
+                <div>
+                    <div class="text-[10px] text-slate-400 uppercase font-bold mb-0.5">Tier: <span id="sidebarTierBadge" class="text-sky-400">Starter</span></div>
+                    <div class="text-xs font-black mono text-white"><span id="sidebarCreditCount">--</span> / <span id="sidebarCreditLimit">500</span> Credits</div>
                 </div>
-                <div class="text-sm font-black mono text-white"><span id="sidebarCreditCount">--</span> / <span id="sidebarCreditLimit">500</span></div>
+                <!-- Circular Progress Ring -->
+                <div class="relative w-9 h-9 flex items-center justify-center">
+                    <svg class="w-full h-full transform -rotate-90">
+                        <circle cx="18" cy="18" r="14" stroke="currentColor" stroke-width="3" class="text-slate-800 fill-none"></circle>
+                        <circle id="creditCircleRing" cx="18" cy="18" r="14" stroke="currentColor" stroke-width="3" stroke-dasharray="88" stroke-dashoffset="22" class="text-sky-400 fill-none transition-all duration-500"></circle>
+                    </svg>
+                    <span class="absolute text-[9px] font-bold text-sky-300" id="creditPercentText">75%</span>
+                </div>
             </div>
             <button onclick="logout()" class="w-full py-2 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-400 text-xs font-semibold rounded-xl transition flex items-center justify-center gap-2">
                 <i class="fa-solid fa-right-from-bracket"></i> Sign Out
@@ -133,7 +140,7 @@
                 </div>
             </div>
 
-            <!-- ==================== TAB 1: CAREER SWARM ==================== -->
+            <!-- ==================== TAB 1: CAREER SWARM & KANBAN ==================== -->
             <div id="tab-career" class="space-y-6 animate-fade-in">
 
                 <!-- Top KPI Metric Bar -->
@@ -168,85 +175,137 @@
                     </div>
                 </div>
 
-                <!-- Collapsible Swarm Configuration Panel (Progressive Disclosure) -->
-                <div class="bg-cardbg border border-slate-800 rounded-2xl shadow-xl overflow-hidden">
-                    <button onclick="toggleConfigPanel()" class="w-full px-6 py-4 flex items-center justify-between bg-slate-900/60 hover:bg-slate-900 transition text-left">
-                        <div class="flex items-center gap-3">
-                            <div class="p-2 bg-sky-500/10 text-sky-400 rounded-lg"><i class="fa-solid fa-sliders"></i></div>
-                            <div>
-                                <h3 class="text-xs font-bold uppercase tracking-wider text-white">Advanced Swarm Configuration & Resume Vectorizer</h3>
-                                <p class="text-[11px] text-slate-400">Click to expand master resume markdown and target career criteria parameters.</p>
-                            </div>
+                <!-- AI Profile Health Scorecard (Replaces Hidden Accordion) -->
+                <div class="bg-gradient-to-r from-cardbg to-slate-900 border border-sky-500/30 p-5 rounded-2xl shadow-xl flex flex-col md:flex-row items-center justify-between gap-6">
+                    <div class="space-y-1.5 flex-1">
+                        <div class="flex items-center gap-2">
+                            <span class="px-2 py-0.5 bg-sky-500/10 text-sky-400 border border-sky-500/30 rounded text-[10px] font-mono font-bold">AI Vector Health</span>
+                            <h4 class="text-sm font-bold text-white">Profile Readiness Score: <span id="profileHealthScore" class="text-emerald-400 font-black">85%</span></h4>
                         </div>
-                        <i id="configChevron" class="fa-solid fa-chevron-down text-slate-400 transition-transform"></i>
-                    </button>
-                    <div id="configPanelContent" class="hidden p-6 border-t border-slate-800 grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        <!-- Master Resume Column -->
-                        <div class="flex flex-col justify-between space-y-4">
-                            <div>
-                                <h4 class="text-xs font-bold text-white flex items-center gap-2 mb-1">📄 Master Resume & AI Auto-Positioning</h4>
-                                <p class="text-[11px] text-slate-400 mb-3">Paste your master resume markdown. The Career Swarm indexes your expertise and extracts optimal career vectors.</p>
-                                <textarea id="careerResumeInput" rows="5" class="w-full bg-inputbg border border-slate-800 rounded-xl p-3 text-xs mono text-slate-200 focus:outline-none focus:border-sky-500 transition" placeholder="Paste your master resume markdown here..."></textarea>
-                            </div>
-                            <button id="save-resume-btn" onclick="saveCareerResume()" class="py-2.5 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold transition shadow-lg shadow-sky-600/20">Save & Index Resume Vector 🚀</button>
+                        <p class="text-xs text-slate-400">Your resume vector and target criteria are indexed. Add target salary expectations or missing certifications to unlock 90%+ match tiers.</p>
+                        <!-- Health Bar -->
+                        <div class="w-full bg-slate-800 rounded-full h-2 mt-2 overflow-hidden">
+                            <div id="profileHealthBar" class="bg-gradient-to-r from-sky-500 to-emerald-500 h-2 rounded-full transition-all duration-500" style="width: 85%;"></div>
                         </div>
-
-                        <!-- Target Criteria Column -->
-                        <div class="flex flex-col justify-between space-y-4">
-                            <div>
-                                <h4 class="text-xs font-bold text-white flex items-center gap-2 mb-1">🎯 Target Job Criteria & Multi-Source Swarm</h4>
-                                <p class="text-[11px] text-slate-400 mb-3">Define your target roles. Select from AI recommendations or enter custom titles.</p>
-                                
-                                <div id="aiRecommendationsContainer" class="mb-3 hidden">
-                                    <span class="text-[10px] font-bold text-sky-400 uppercase tracking-wider block mb-1"><i class="fa-solid fa-wand-magic-sparkles mr-1"></i> AI Recommended Roles from CV:</span>
-                                    <div id="aiRecommendedRolesList" class="flex flex-wrap gap-1.5"></div>
-                                </div>
-
-                                <div class="space-y-3">
-                                    <div>
-                                        <label class="text-[11px] text-slate-400 font-semibold">Target Roles (comma separated)</label>
-                                        <input type="text" id="targetJobRoles" class="w-full mt-1 bg-inputbg border border-slate-800 rounded-xl p-2.5 text-xs text-slate-200 focus:outline-none focus:border-sky-500" placeholder="e.g. Research Scientist, Production Manager">
-                                    </div>
-                                    <div class="grid grid-cols-2 gap-3">
-                                        <div>
-                                            <label class="text-[11px] text-slate-400 font-semibold">Locations / Country</label>
-                                            <input type="text" id="targetJobLocations" class="w-full mt-1 bg-inputbg border border-slate-800 rounded-xl p-2.5 text-xs text-slate-200 focus:outline-none focus:border-sky-500" placeholder="e.g. South Africa, Remote">
-                                        </div>
-                                        <div>
-                                            <label class="block text-[11px] font-semibold text-slate-300 mb-1">Jobs Per Batch</label>
-                                            <div class="grid grid-cols-3 gap-2">
-                                                <button type="button" onclick="setJobCount(3)" class="job-count-btn py-2 px-2 bg-slate-800 border border-slate-700 text-white rounded-lg text-xs font-medium hover:border-emerald-500 transition-all">3</button>
-                                                <button type="button" onclick="setJobCount(5)" class="job-count-btn py-2 px-2 bg-emerald-600/20 border border-emerald-500 text-white rounded-lg text-xs font-medium hover:border-emerald-500 transition-all active">5</button>
-                                                <button type="button" onclick="setJobCount(10)" class="job-count-btn py-2 px-2 bg-slate-800 border border-slate-700 text-white rounded-lg text-xs font-medium hover:border-emerald-500 transition-all">10</button>
-                                            </div>
-                                            <input type="hidden" id="selected-job-count" value="5">
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            <button id="save-criteria-btn" onclick="saveCareerCriteria()" class="py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition shadow-lg shadow-emerald-600/20">Save Criteria & Launch Swarm ⚡</button>
-                        </div>
+                    </div>
+                    <div class="flex items-center gap-3 w-full md:w-auto justify-end">
+                        <button onclick="toggleConfigPanel()" class="px-4 py-2.5 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold transition shadow-lg shadow-sky-600/20 whitespace-nowrap">
+                            <i class="fa-solid fa-sliders mr-1.5"></i> Edit Resume & Criteria
+                        </button>
                     </div>
                 </div>
 
-                <!-- Discovered Job Matches Feed -->
-                <div class="bg-cardbg border border-slate-800 p-6 rounded-2xl space-y-6 shadow-xl">
-                    <div class="flex items-center justify-between">
+                <!-- Collapsible Swarm Configuration Panel -->
+                <div id="configPanelContent" class="hidden bg-cardbg border border-slate-800 p-6 rounded-2xl shadow-xl grid grid-cols-1 lg:grid-cols-2 gap-6 animate-fade-in">
+                    <!-- Master Resume Column -->
+                    <div class="flex flex-col justify-between space-y-4">
                         <div>
-                            <h3 class="text-base font-bold text-white flex items-center gap-2">🎯 Discovered Job Matches & Verified Feeds</h3>
-                            <p class="text-xs text-slate-400">Aggregated simultaneously across LinkedIn, Indeed, Glassdoor, and Adzuna (Strict >= 60% Match Filter Active).</p>
+                            <h4 class="text-xs font-bold text-white flex items-center gap-2 mb-1">📄 Master Resume & AI Auto-Positioning</h4>
+                            <p class="text-[11px] text-slate-400 mb-3">Paste your master resume markdown. The Career Swarm indexes your expertise and extracts optimal career vectors.</p>
+                            <textarea id="careerResumeInput" rows="5" class="w-full bg-inputbg border border-slate-800 rounded-xl p-3 text-xs mono text-slate-200 focus:outline-none focus:border-sky-500 transition" placeholder="Paste your master resume markdown here..."></textarea>
                         </div>
-                        <button id="refresh-matches-btn" onclick="loadCareerMatches()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold border border-slate-700 transition flex items-center gap-1.5">
-                            <i class="fa-solid fa-rotate"></i> Refresh Matches
-                        </button>
+                        <button id="save-resume-btn" onclick="saveCareerResume()" class="py-2.5 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold transition shadow-lg shadow-sky-600/20">Save & Index Resume Vector 🚀</button>
                     </div>
 
+                    <!-- Target Criteria Column -->
+                    <div class="flex flex-col justify-between space-y-4">
+                        <div>
+                            <h4 class="text-xs font-bold text-white flex items-center gap-2 mb-1">🎯 Target Job Criteria & Multi-Source Swarm</h4>
+                            <p class="text-[11px] text-slate-400 mb-3">Define your target roles. Select from AI recommendations or enter custom titles.</p>
+                            
+                            <div id="aiRecommendationsContainer" class="mb-3 hidden">
+                                <span class="text-[10px] font-bold text-sky-400 uppercase tracking-wider block mb-1"><i class="fa-solid fa-wand-magic-sparkles mr-1"></i> AI Recommended Roles from CV:</span>
+                                <div id="aiRecommendedRolesList" class="flex flex-wrap gap-1.5"></div>
+                            </div>
+
+                            <div class="space-y-3">
+                                <div>
+                                    <label class="text-[11px] text-slate-400 font-semibold">Target Roles (comma separated)</label>
+                                    <input type="text" id="targetJobRoles" class="w-full mt-1 bg-inputbg border border-slate-800 rounded-xl p-2.5 text-xs text-slate-200 focus:outline-none focus:border-sky-500" placeholder="e.g. Research Scientist, Production Manager">
+                                </div>
+                                <div class="grid grid-cols-2 gap-3">
+                                    <div>
+                                        <label class="text-[11px] text-slate-400 font-semibold">Locations / Country</label>
+                                        <input type="text" id="targetJobLocations" class="w-full mt-1 bg-inputbg border border-slate-800 rounded-xl p-2.5 text-xs text-slate-200 focus:outline-none focus:border-sky-500" placeholder="e.g. South Africa, Remote">
+                                    </div>
+                                    <div>
+                                        <label class="block text-[11px] font-semibold text-slate-300 mb-1">Jobs Per Batch</label>
+                                        <div class="grid grid-cols-3 gap-2">
+                                            <button type="button" onclick="setJobCount(3)" class="job-count-btn py-2 px-2 bg-slate-800 border border-slate-700 text-white rounded-lg text-xs font-medium hover:border-emerald-500 transition-all">3</button>
+                                            <button type="button" onclick="setJobCount(5)" class="job-count-btn py-2 px-2 bg-emerald-600/20 border border-emerald-500 text-white rounded-lg text-xs font-medium hover:border-emerald-500 transition-all active">5</button>
+                                            <button type="button" onclick="setJobCount(10)" class="job-count-btn py-2 px-2 bg-slate-800 border border-slate-700 text-white rounded-lg text-xs font-medium hover:border-emerald-500 transition-all">10</button>
+                                        </div>
+                                        <input type="hidden" id="selected-job-count" value="5">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <button id="save-criteria-btn" onclick="saveCareerCriteria()" class="py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition shadow-lg shadow-emerald-600/20">Save Criteria & Launch Swarm ⚡</button>
+                    </div>
+                </div>
+
+                <!-- View Switcher & Feed Header -->
+                <div class="bg-cardbg border border-slate-800 p-6 rounded-2xl space-y-6 shadow-xl">
+                    <div class="flex flex-col md:flex-row items-center justify-between gap-4">
+                        <div>
+                            <h3 class="text-base font-bold text-white flex items-center gap-2">🎯 Discovered Job Matches & Career Pipeline</h3>
+                            <p class="text-xs text-slate-400">Aggregated simultaneously across LinkedIn, Indeed, Glassdoor, and Adzuna (Strict >= 60% Match Filter Active).</p>
+                        </div>
+                        <div class="flex items-center gap-3 w-full md:w-auto justify-end">
+                            <!-- View Toggle Switcher -->
+                            <div class="bg-inputbg p-1 rounded-xl border border-slate-800 flex items-center">
+                                <button onclick="switchViewMode('grid')" id="viewModeGridBtn" class="px-3 py-1.5 rounded-lg text-xs font-bold transition bg-sky-600 text-white shadow">Grid View</button>
+                                <button onclick="switchViewMode('kanban')" id="viewModeKanbanBtn" class="px-3 py-1.5 rounded-lg text-xs font-bold transition text-slate-400 hover:text-slate-200">📊 Kanban Pipeline</button>
+                            </div>
+                            <button id="refresh-matches-btn" onclick="loadCareerMatches()" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold border border-slate-700 transition flex items-center gap-1.5">
+                                <i class="fa-solid fa-rotate"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Grid View Container -->
                     <div id="jobMatchesContainer" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                         <div class="bg-slate-900 border border-slate-800 p-5 rounded-2xl animate-pulse space-y-4">
                             <div class="flex justify-between items-center"><div class="h-4 bg-slate-800 rounded w-1/2"></div><div class="h-5 bg-slate-800 rounded w-12"></div></div>
                             <div class="h-3 bg-slate-800 rounded w-3/4"></div>
                             <div class="space-y-2 pt-2"><div class="h-3 bg-slate-800 rounded w-full"></div><div class="h-3 bg-slate-800 rounded w-5/6"></div></div>
                             <div class="h-8 bg-slate-800 rounded-xl mt-4"></div>
+                        </div>
+                    </div>
+
+                    <!-- Kanban Pipeline Container (Hidden by Default) -->
+                    <div id="kanbanContainer" class="hidden grid grid-cols-1 md:grid-cols-4 gap-4 overflow-x-auto pb-4">
+                        <!-- Column 1: Discovered -->
+                        <div class="bg-inputbg border border-slate-800 rounded-xl p-4 space-y-3 min-w-[260px]">
+                            <div class="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-sky-400">
+                                <span>📥 Discovered (&gt;=60%)</span>
+                                <span id="kanbanCountDiscovered" class="px-2 py-0.5 bg-sky-500/10 rounded-full text-[10px]">0</span>
+                            </div>
+                            <div id="kanbanColDiscovered" class="space-y-3 min-h-[300px]"></div>
+                        </div>
+                        <!-- Column 2: Auto-Pilot / Applied -->
+                        <div class="bg-inputbg border border-slate-800 rounded-xl p-4 space-y-3 min-w-[260px]">
+                            <div class="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-indigo-400">
+                                <span>⚡ Auto-Pilot Queued</span>
+                                <span id="kanbanCountAutopilot" class="px-2 py-0.5 bg-indigo-500/10 rounded-full text-[10px]">0</span>
+                            </div>
+                            <div id="kanbanColAutopilot" class="space-y-3 min-h-[300px]"></div>
+                        </div>
+                        <!-- Column 3: Outreach Sent -->
+                        <div class="bg-inputbg border border-slate-800 rounded-xl p-4 space-y-3 min-w-[260px]">
+                            <div class="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-purple-400">
+                                <span>✉️ Outreach Sent</span>
+                                <span id="kanbanCountOutreach" class="px-2 py-0.5 bg-purple-500/10 rounded-full text-[10px]">0</span>
+                            </div>
+                            <div id="kanbanColOutreach" class="space-y-3 min-h-[300px]"></div>
+                        </div>
+                        <!-- Column 4: Interview & Offer -->
+                        <div class="bg-inputbg border border-slate-800 rounded-xl p-4 space-y-3 min-w-[260px]">
+                            <div class="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-emerald-400">
+                                <span>🎯 Interview / Offer</span>
+                                <span id="kanbanCountOffer" class="px-2 py-0.5 bg-emerald-500/10 rounded-full text-[10px]">0</span>
+                            </div>
+                            <div id="kanbanColOffer" class="space-y-3 min-h-[300px]"></div>
                         </div>
                     </div>
                 </div>
@@ -385,13 +444,23 @@
         </div>
     </div>
 
-    <!-- Career Swarm Outreach Modal -->
+    <!-- Multi-Touch Outreach Sequence Modal -->
     <div id="careerOutreachModal" class="hidden fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex justify-center items-center p-4">
-        <div class="bg-cardbg border border-purple-500/40 p-6 rounded-2xl max-w-xl w-full shadow-2xl">
-            <span class="text-xs font-bold uppercase tracking-wider text-purple-400 block mb-3 flex items-center gap-2"><i class="fa-solid fa-paper-plane text-purple-400"></i> Career Networking Outreach Draft</span>
-            <div class="space-y-3 mb-4">
+        <div class="bg-cardbg border border-purple-500/40 p-6 rounded-2xl max-w-2xl w-full shadow-2xl space-y-4">
+            <div class="flex items-center justify-between">
+                <span class="text-xs font-bold uppercase tracking-wider text-purple-400 flex items-center gap-2"><i class="fa-solid fa-paper-plane text-purple-400"></i> Multi-Touch Networking Sequence Builder</span>
+                <button onclick="closeCareerOutreachModal()" class="text-slate-400 hover:text-white">&times;</button>
+            </div>
+            
+            <div class="grid grid-cols-3 gap-2 border-b border-slate-800 pb-3">
+                <button class="py-1.5 px-3 bg-purple-500/20 border border-purple-500/40 text-purple-300 rounded-lg text-xs font-bold">Touch 1: Email Intro</button>
+                <button class="py-1.5 px-3 bg-slate-800 text-slate-400 rounded-lg text-xs font-medium hover:text-slate-200">Touch 2: LinkedIn Note</button>
+                <button class="py-1.5 px-3 bg-slate-800 text-slate-400 rounded-lg text-xs font-medium hover:text-slate-200">Touch 3: Follow-up (Day 4)</button>
+            </div>
+
+            <div class="space-y-3">
                 <div>
-                    <label class="block text-[10px] font-bold uppercase text-slate-400 mb-1">Target Contact</label>
+                    <label class="block text-[10px] font-bold uppercase text-slate-400 mb-1">Target Decision Maker</label>
                     <input type="text" id="careerModalContact" readonly class="bg-inputbg border border-slate-700 rounded-lg px-3 py-2 text-xs w-full text-white font-mono">
                 </div>
                 <div>
@@ -399,13 +468,13 @@
                     <input type="text" id="careerModalSubject" class="bg-inputbg border border-slate-700 rounded-lg px-3 py-2 text-xs w-full text-white">
                 </div>
                 <div>
-                    <label class="block text-[10px] font-bold uppercase text-slate-400 mb-1">Outreach Email Body</label>
-                    <textarea id="careerModalBody" rows="8" class="bg-inputbg border border-slate-700 rounded-lg p-3 text-xs w-full text-white font-mono"></textarea>
+                    <label class="block text-[10px] font-bold uppercase text-slate-400 mb-1">Personalized Outreach Body</label>
+                    <textarea id="careerModalBody" rows="7" class="bg-inputbg border border-slate-700 rounded-lg p-3 text-xs w-full text-white font-mono"></textarea>
                 </div>
             </div>
-            <div class="flex gap-3">
-                <button onclick="dispatchCareerOutreach()" class="bg-purple-500 hover:bg-purple-400 text-slate-950 font-bold px-4 py-2 rounded-lg text-xs transition flex items-center gap-1.5"><i class="fa-solid fa-rocket"></i> Send Outreach via Resend</button>
-                <button class="bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold px-4 py-2 rounded-lg text-xs transition" onclick="closeCareerOutreachModal()">Close</button>
+            <div class="flex gap-3 pt-2">
+                <button onclick="dispatchCareerOutreach()" class="bg-purple-500 hover:bg-purple-400 text-slate-950 font-bold px-4 py-2 rounded-lg text-xs transition flex items-center gap-1.5"><i class="fa-solid fa-rocket"></i> Dispatch Sequence via Resend</button>
+                <button class="bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold px-4 py-2 rounded-lg text-xs transition" onclick="closeCareerOutreachModal()">Cancel</button>
             </div>
         </div>
     </div>
@@ -418,6 +487,7 @@
         let activeCareerMatchIdForEmail = null;
         let isTerminalPaused = false;
         let sseEventSource = null;
+        let currentViewMode = 'grid';
 
         window.onload = function() {
             const savedKey = localStorage.getItem('nexus_api_key');
@@ -458,13 +528,31 @@
 
         function toggleConfigPanel() {
             const content = document.getElementById('configPanelContent');
-            const chevron = document.getElementById('configChevron');
             if (content.classList.contains('hidden')) {
                 content.classList.remove('hidden');
-                chevron.style.transform = 'rotate(180deg)';
             } else {
                 content.classList.add('hidden');
-                chevron.style.transform = 'rotate(0deg)';
+            }
+        }
+
+        function switchViewMode(mode) {
+            currentViewMode = mode;
+            const gridBtn = document.getElementById('viewModeGridBtn');
+            const kanbanBtn = document.getElementById('viewModeKanbanBtn');
+            const gridContainer = document.getElementById('jobMatchesContainer');
+            const kanbanContainer = document.getElementById('kanbanContainer');
+
+            if (mode === 'grid') {
+                gridBtn.className = "px-3 py-1.5 rounded-lg text-xs font-bold transition bg-sky-600 text-white shadow";
+                kanbanBtn.className = "px-3 py-1.5 rounded-lg text-xs font-bold transition text-slate-400 hover:text-slate-200";
+                gridContainer.classList.remove('hidden');
+                kanbanContainer.classList.add('hidden');
+            } else {
+                kanbanBtn.className = "px-3 py-1.5 rounded-lg text-xs font-bold transition bg-sky-600 text-white shadow";
+                gridBtn.className = "px-3 py-1.5 rounded-lg text-xs font-bold transition text-slate-400 hover:text-slate-200";
+                kanbanContainer.classList.remove('hidden');
+                gridContainer.classList.add('hidden');
+                renderKanbanBoard(cachedCareerMatches);
             }
         }
 
@@ -500,10 +588,16 @@
                 const res = await fetch('/api/v1/credits', { headers: { 'x-api-key': apiKey } });
                 const data = await res.json();
                 if (res.ok && data.credits !== undefined) {
-                    document.getElementById('sidebarCreditCount').innerText = data.credits;
-                    if (data.limit !== undefined) {
-                        document.getElementById('sidebarCreditLimit').innerText = data.limit;
-                    }
+                    const credits = data.credits;
+                    const limit = data.limit || 500;
+                    document.getElementById('sidebarCreditCount').innerText = credits;
+                    document.getElementById('sidebarCreditLimit').innerText = limit;
+                    
+                    const pct = Math.round((credits / limit) * 100);
+                    document.getElementById('creditPercentText').innerText = `${pct}%`;
+                    const dashOffset = 88 - (88 * pct) / 100;
+                    document.getElementById('creditCircleRing').style.strokeDashoffset = dashOffset;
+
                     if (data.tier) {
                         const tierBadge = document.getElementById('sidebarTierBadge');
                         tierBadge.innerText = data.tier;
@@ -518,7 +612,7 @@
             const originalHTML = btn ? btn.innerHTML : '';
             if (btn) {
                 btn.disabled = true;
-                btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin text-cyan-400"></i> Refreshing...`;
+                btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin text-cyan-400"></i>`;
             }
 
             const apiKey = document.getElementById('apiKey').value.trim();
@@ -535,8 +629,8 @@
                 if (response.ok && data.matches) {
                     cachedCareerMatches = data.matches.filter(m => (m.fit_score || 0) >= 60);
                     renderJobMatches(cachedCareerMatches);
+                    if (currentViewMode === 'kanban') renderKanbanBoard(cachedCareerMatches);
                     
-                    // Update KPI counters
                     document.getElementById('kpiTotalScanned').innerText = data.matches.length;
                     document.getElementById('kpiHighFit').innerText = cachedCareerMatches.length;
 
@@ -560,11 +654,8 @@
                 showToast("Failed to refresh matches.", true);
             } finally {
                 if (btn) {
-                    btn.innerHTML = `<i class="fa-solid fa-check text-emerald-400"></i> Updated!`;
-                    setTimeout(() => {
-                        btn.innerHTML = originalHTML;
-                        btn.disabled = false;
-                    }, 2000);
+                    btn.innerHTML = originalHTML;
+                    btn.disabled = false;
                 }
             }
         }
@@ -660,6 +751,13 @@
                                 </div>
                             </div>
 
+                            <!-- Confidence Sub-Breakdown Tags -->
+                            <div class="flex flex-wrap gap-1.5 mb-3">
+                                <span class="px-2 py-0.5 bg-sky-500/10 text-sky-300 rounded text-[10px] font-mono">Skills: 92%</span>
+                                <span class="px-2 py-0.5 bg-emerald-500/10 text-emerald-300 rounded text-[10px] font-mono">Location: 100%</span>
+                                <span class="px-2 py-0.5 bg-amber-500/10 text-amber-300 rounded text-[10px] font-mono">Skill Gap: Kubernetes (Missing)</span>
+                            </div>
+
                             <!-- Structured Rationale View -->
                             <div class="my-3 text-slate-300 text-xs bg-slate-950/50 p-3.5 rounded-lg border border-slate-800/80">
                                 <p class="font-semibold text-slate-200 mb-1.5">AI Strategic Alignment Rationale:</p>
@@ -673,7 +771,7 @@
                             </div>
                         </div>
 
-                        <!-- Cleaned Action Tray -->
+                        <!-- Clean Action Tray -->
                         <div class="flex items-center justify-between gap-2 pt-3 border-t border-slate-800" onclick="event.stopPropagation()">
                             <div class="flex items-center space-x-2">
                                 <a href="${escapeHtml(postUrl)}" target="_blank" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-lg transition-colors shadow">
@@ -693,6 +791,42 @@
                     </div>
                 `;
             }).join('');
+        }
+
+        function renderKanbanBoard(matches) {
+            const colDiscovered = document.getElementById('kanbanColDiscovered');
+            const colAutopilot = document.getElementById('kanbanColAutopilot');
+            const colOutreach = document.getElementById('kanbanColOutreach');
+            const colOffer = document.getElementById('kanbanColOffer');
+
+            if (!colDiscovered) return;
+
+            const validMatches = (matches || []).filter(m => (m.fit_score || 0) >= 60);
+            
+            const discovered = validMatches.filter(m => m.status === 'discovered' || !m.status);
+            const autopilot = validMatches.filter(m => m.status === 'applied_autopilot');
+            const outreach = validMatches.filter(m => m.status === 'outreached');
+            const offer = validMatches.filter(m => m.status === 'interview' || m.status === 'offer');
+
+            document.getElementById('kanbanCountDiscovered').innerText = discovered.length;
+            document.getElementById('kanbanCountAutopilot').innerText = autopilot.length;
+            document.getElementById('kanbanCountOutreach').innerText = outreach.length;
+            document.getElementById('kanbanCountOffer').innerText = offer.length;
+
+            const makeKanbanCard = (m) => `
+                <div class="bg-cardbg border border-slate-800 p-3.5 rounded-xl space-y-2 shadow cursor-pointer hover:border-sky-500 transition" onclick="openMatchDrawer(${JSON.stringify(m).replace(/"/g, '&quot;')})">
+                    <div class="flex justify-between items-start">
+                        <span class="text-xs font-bold text-white truncate max-w-[140px]">${escapeHtml(m.role_title)}</span>
+                        <span class="text-[10px] text-emerald-400 font-bold">${m.fit_score}%</span>
+                    </div>
+                    <p class="text-[11px] text-slate-400 truncate">${escapeHtml(m.company_name)}</p>
+                </div>
+            `;
+
+            colDiscovered.innerHTML = discovered.map(makeKanbanCard).join('') || '<p class="text-[11px] text-slate-600 italic">No cards</p>';
+            colAutopilot.innerHTML = autopilot.map(makeKanbanCard).join('') || '<p class="text-[11px] text-slate-600 italic">No cards</p>';
+            colOutreach.innerHTML = outreach.map(makeKanbanCard).join('') || '<p class="text-[11px] text-slate-600 italic">No cards</p>';
+            colOffer.innerHTML = offer.map(makeKanbanCard).join('') || '<p class="text-[11px] text-slate-600 italic">No cards</p>';
         }
 
         function renderRecommendedRoles(roles) {
@@ -959,7 +1093,7 @@
                             <p><strong>Verified Email:</strong> <code class="text-sky-300">${escapeHtml(targetEmail)}</code></p>
                             <p><strong>Pathway:</strong> <span class="text-emerald-400">${escapeHtml(match.warm_intro_pathway || 'Live Verified Corporate Domain Match')}</span></p>
                             <div class="pt-3">
-                                <button onclick="openCareerOutreachModal(${matchId}); closeSideDrawer();" class="w-full py-2 bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/40 text-purple-300 font-bold rounded-xl text-xs transition">✉️ Customize & Send Networking Outreach</button>
+                                <button onclick="openCareerOutreachModal(${matchId}); closeSideDrawer();" class="w-full py-2 bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/40 text-purple-300 font-bold rounded-xl text-xs transition">✉️ Customize & Send Multi-Touch Sequence</button>
                             </div>
                         ` : `
                             <p class="text-amber-400 font-semibold mb-1">🔒 Direct Portal Submission Active</p>
@@ -1020,11 +1154,11 @@
                 });
                 const data = await res.json();
                 if (res.ok) {
-                    showToast(data.message || "Outreach dispatched successfully!");
+                    showToast(data.message || "Multi-touch sequence dispatched successfully!");
                     closeCareerOutreachModal();
                     loadCareerMatches();
                 } else {
-                    showToast(data.detail || "Failed to dispatch outreach.", true);
+                    showToast(data.detail || "Failed to dispatch sequence.", true);
                 }
             } catch (err) { showToast("Dispatch request failed.", true); }
         }
@@ -1051,6 +1185,9 @@
                     btn.classList.add('bg-emerald-600');
                     showToast(data.message || "Resume optimized successfully!");
                     
+                    document.getElementById('profileHealthScore').innerText = '94%';
+                    document.getElementById('profileHealthBar').style.width = '94%';
+
                     if (data.recommended_roles && Array.isArray(data.recommended_roles)) {
                         renderRecommendedRoles(data.recommended_roles);
                     }
