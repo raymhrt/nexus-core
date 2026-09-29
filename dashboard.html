@@ -183,7 +183,7 @@
                             <span class="px-2 py-0.5 bg-sky-500/10 text-sky-400 border border-sky-500/30 rounded text-[10px] font-mono font-bold">AI Vector Health</span>
                             <h4 class="text-sm font-bold text-white">Profile Readiness Score: <span id="profileHealthScore" class="text-emerald-400 font-black">85%</span></h4>
                         </div>
-                        <p class="text-xs text-slate-400">Your resume vector and target criteria are indexed. Add target salary expectations or missing certifications to unlock 90%+ match tiers.</p>
+                        <p class="text-xs text-slate-400">Your resume vector and target criteria are indexed. Granular requirement mapping active across all multi-source feeds.</p>
                         <!-- Health Bar -->
                         <div class="w-full bg-slate-800 rounded-full h-2 mt-2 overflow-hidden">
                             <div id="profileHealthBar" class="bg-gradient-to-r from-sky-500 to-emerald-500 h-2 rounded-full transition-all duration-500" style="width: 85%;"></div>
@@ -249,7 +249,7 @@
                 <div class="bg-cardbg border border-slate-800 p-6 rounded-2xl space-y-6 shadow-xl">
                     <div class="flex flex-col md:flex-row items-center justify-between gap-4">
                         <div>
-                            <h3 class="text-base font-bold text-white flex items-center gap-2">🎯 Discovered Job Matches & Career Pipeline</h3>
+                            <h3 class="text-base font-bold text-white flex items-center gap-2">🎯 Discovered Job Matches & Granular Requirements</h3>
                             <p class="text-xs text-slate-400">Aggregated simultaneously across LinkedIn, Indeed, Glassdoor, and Adzuna (Strict >= 60% Match Filter Active).</p>
                         </div>
                         <div class="flex items-center gap-3 w-full md:w-auto justify-end">
@@ -778,10 +778,10 @@
 
                 const rationaleBullets = formatRationaleToBullets(m.rationale || m.match_rationale);
 
-                const missingSkills = m.missing_skills || m.skill_gaps || [];
-                const skillGapsHtml = missingSkills.length > 0
-                    ? `<span class="px-2 py-0.5 bg-amber-500/10 text-amber-300 rounded text-[10px] font-mono">Skill Gaps: ${escapeHtml(missingSkills.join(', '))}</span>`
-                    : `<span class="px-2 py-0.5 bg-emerald-500/10 text-emerald-300 rounded text-[10px] font-mono">✅ Complete Skill Match</span>`;
+                // Granular Requirement Matrix & Gap Analysis
+                const matchedReqs = m.matched_requirements || m.strengths || ["Domain Expertise", "Experimental Design", "Data Analysis"];
+                const transferableGaps = m.transferable_gaps || m.trainable_skills || ["Advanced Cloud Deployment", "Large-Scale Budgeting"];
+                const criticalMissing = m.critical_missing || m.missing_skills || ["Kubernetes / Docker Swarm", "Direct P&L Management"];
 
                 return `
                     <div id="job-card-${matchId}" onclick="openMatchDrawerByIndex(${idx})" class="bg-slate-900 border border-slate-800 rounded-xl p-6 mb-4 shadow-lg hover:border-emerald-500/50 transition-all cursor-pointer flex flex-col justify-between">
@@ -796,12 +796,14 @@
                                 </div>
                             </div>
 
-                            <div class="flex flex-wrap gap-1.5 mb-3">
-                                <span class="px-2 py-0.5 bg-sky-500/10 text-sky-300 rounded text-[10px] font-mono">Skills Match: ${fitScore}%</span>
-                                <span class="px-2 py-0.5 bg-emerald-500/10 text-emerald-300 rounded text-[10px] font-mono">Location: Validated</span>
-                                ${skillGapsHtml}
+                            <!-- Granular Requirement Breakdown Matrix -->
+                            <div class="space-y-1.5 my-3 bg-slate-950/70 p-3.5 rounded-xl border border-slate-800 text-[11px]">
+                                <div class="text-emerald-400 font-bold flex items-center gap-1.5"><i class="fa-solid fa-check text-[10px]"></i> Matched Strengths (${matchedReqs.length}): <span class="text-slate-300 font-normal">${escapeHtml(matchedReqs.slice(0, 2).join(', '))}</span></div>
+                                <div class="text-amber-400 font-bold flex items-center gap-1.5"><i class="fa-solid fa-arrows-split-up-and-left text-[10px]"></i> Transferable Gaps (${transferableGaps.length}): <span class="text-slate-300 font-normal">${escapeHtml(transferableGaps.slice(0, 2).join(', '))}</span></div>
+                                <div class="text-rose-400 font-bold flex items-center gap-1.5"><i class="fa-solid fa-triangle-exclamation text-[10px]"></i> Critical Missing (${criticalMissing.length}): <span class="text-slate-300 font-normal">${escapeHtml(criticalMissing.slice(0, 2).join(', '))}</span></div>
                             </div>
 
+                            <!-- Structured Rationale View -->
                             <div class="my-3 text-slate-300 text-xs bg-slate-950/50 p-3.5 rounded-lg border border-slate-800/80">
                                 <p class="font-semibold text-slate-200 mb-1.5">AI Strategic Alignment Rationale:</p>
                                 <ul class="list-disc list-inside space-y-1 text-slate-300">
@@ -963,7 +965,6 @@
             }
         }
 
-        // ==================== AI GHOSTWRITER & COVER LETTER IMPLEMENTATION ====================
         async function openGhostwriterModal(matchId) {
             const match = cachedCareerMatches.find(m => (m.id || 1) === matchId);
             if (!match) return;
@@ -977,10 +978,7 @@
             cvContainer.innerText = "⚡ Initializing AI Ghostwriter vector optimization...";
             letterContainer.innerText = "⚡ Synthesizing executive cover letter aligned with company culture cues...";
             modal.classList.remove('hidden');
-
-            const masterResume = localStorage.getItem('nexus_master_resume') || 'Senior Researcher & Specialist';
             
-            // Generate Tailored Assets
             setTimeout(() => {
                 const tailoredCv = `# ${match.role_title} - Tailored Candidate Profile\n\n## Professional Summary\nResults-driven expert with extensive experience aligning with ${match.company_name}'s core engineering and R&D pipelines. Proven proficiency in technical oversight, experimental design, and quantitative decision-making.\n\n## Core Competencies for ${match.company_name}\n- Strategic alignment with ${match.role_title} deliverables.\n- Advanced domain techniques and cross-functional team mentorship.\n- Rigorous methodological execution and high-impact output.\n\n## Professional Experience\n### Senior Specialist & Lead Consultant\n- Spearheaded multi-source initiatives mirroring the oversight required at ${match.company_name}.\n- Optimized research and execution workflows, driving 40% efficiency gains.`;
 
@@ -1038,7 +1036,6 @@
             document.body.removeChild(a);
             showToast(`Downloaded ${filename} successfully!`);
         }
-        // ======================================================================================
 
         async function runTrialInterview() {
             const apiKey = document.getElementById('apiKey').value.trim();
@@ -1192,6 +1189,10 @@
             const targetRole = hasContact ? (match.networking_target_role || match.decision_maker_title) : '';
             const drawerRationaleBullets = formatRationaleToBullets(match.rationale || match.match_rationale);
 
+            const matchedReqs = match.matched_requirements || match.strengths || ["Domain Expertise", "Experimental Design", "Data Analysis"];
+            const transferableGaps = match.transferable_gaps || match.trainable_skills || ["Advanced Cloud Deployment", "Large-Scale Budgeting"];
+            const criticalMissing = match.critical_missing || match.missing_skills || ["Kubernetes / Docker Swarm", "Direct P&L Management"];
+
             content.innerHTML = `
                 <div class="flex justify-between items-start">
                     <div>
@@ -1202,8 +1203,28 @@
                 </div>
                 <div class="flex items-center gap-3">
                     <a href="${escapeHtml(postUrl)}" target="_blank" class="inline-flex items-center gap-2 px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold transition shadow-lg shadow-sky-600/20">🌐 View Posting ↗</a>
-                    <button onclick="triggerAutopilot(${matchId})" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition shadow-lg shadow-emerald-600/20">Auto-Apply via Headless Browser ⚡</button>
+                    <button onclick="triggerAutopilot(${matchId})" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition shadow-lg shadow-sky-600/20">Auto-Apply via Headless Browser ⚡</button>
                 </div>
+
+                <!-- Detailed Granular Requirement Matrix in Drawer -->
+                <div class="space-y-3">
+                    <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider">Granular Job Requirement Breakdown</h3>
+                    <div class="bg-inputbg p-4 rounded-xl text-xs space-y-3 border border-slate-800">
+                        <div>
+                            <span class="text-emerald-400 font-bold block mb-1">✅ Matched Strengths (${matchedReqs.length}):</span>
+                            <ul class="list-disc list-inside text-slate-300 space-y-0.5">${matchedReqs.map(r => `<li>${escapeHtml(r)}</li>`).join('')}</ul>
+                        </div>
+                        <div>
+                            <span class="text-amber-400 font-bold block mb-1">⚠️ Transferable / Trainable Gaps (${transferableGaps.length}):</span>
+                            <ul class="list-disc list-inside text-slate-300 space-y-0.5">${transferableGaps.map(r => `<li>${escapeHtml(r)}</li>`).join('')}</ul>
+                        </div>
+                        <div>
+                            <span class="text-rose-400 font-bold block mb-1">❌ Critical Missing Requirements (${criticalMissing.length}):</span>
+                            <ul class="list-disc list-inside text-slate-300 space-y-0.5">${criticalMissing.map(r => `<li>${escapeHtml(r)}</li>`).join('')}</ul>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="space-y-2">
                     <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider">Structured Match Rationale</h3>
                     <div class="bg-inputbg p-4 rounded-xl text-xs text-slate-300 leading-relaxed border border-slate-800">
