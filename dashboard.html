@@ -404,7 +404,7 @@
                                 <li>✓ Multi-Source Live Telemetry</li>
                             </ul>
                         </div>
-                        <button onclick="createCheckoutSession('price_pro')" class="mt-6 w-full py-2.5 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold transition shadow-lg shadow-sky-600/20">Upgrade to Pro 🚀</button>
+                        <button onclick="createCheckoutSession('pro')" class="mt-6 w-full py-2.5 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold transition shadow-lg shadow-sky-600/20">Upgrade to Pro 🚀</button>
                     </div>
 
                     <div class="bg-cardbg border border-amber-500/40 p-6 rounded-2xl flex flex-col justify-between shadow-xl">
@@ -417,7 +417,7 @@
                                 <li>✓ Priority ATS Direct-Apply APIs</li>
                             </ul>
                         </div>
-                        <button onclick="createCheckoutSession('price_enterprise')" class="mt-6 w-full py-2.5 bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold transition shadow-lg shadow-amber-600/20">Upgrade to Enterprise 👑</button>
+                        <button onclick="createCheckoutSession('enterprise')" class="mt-6 w-full py-2.5 bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold transition shadow-lg shadow-amber-600/20">Upgrade to Enterprise 👑</button>
                     </div>
                 </div>
 
@@ -1100,9 +1100,9 @@
             }
         }
 
-        async function createCheckoutSession(priceId) {
+        async function createCheckoutSession(tier) {
             const apiKey = document.getElementById('apiKey').value.trim();
-            if (priceId === 'price_free') {
+            if (tier === 'price_free') {
                 showToast("You are already on the Free tier.");
                 return;
             }
@@ -1110,11 +1110,11 @@
                 const res = await fetch('/api/v1/billing/create-checkout-session', {
                     method: 'POST',
                     headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ price_id: priceId })
+                    body: JSON.stringify({ tier: tier })
                 });
                 const data = await res.json();
-                if (res.ok && data.url) {
-                    window.location.href = data.url;
+                if (res.ok && (data.url || data.checkout_url)) {
+                    window.location.href = data.url || data.checkout_url;
                 } else {
                     showToast(data.detail || "Failed to create checkout session.", true);
                 }
@@ -1128,11 +1128,12 @@
             try {
                 const res = await fetch('/api/v1/billing/create-checkout-session', {
                     method: 'POST',
-                    headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' }
+                    headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ tier: 'pro' })
                 });
                 const data = await res.json();
-                if (res.ok && data.url) {
-                    window.location.href = data.url;
+                if (res.ok && (data.url || data.checkout_url)) {
+                    window.location.href = data.url || data.checkout_url;
                 } else {
                     showToast("Stripe portal session unavailable.", true);
                 }

@@ -162,7 +162,6 @@ def sanitize_ats_url(url: str, role_title: str, company_name: str) -> str:
         return url
     return f"https://www.linkedin.com/jobs/search/?keywords={urllib.parse.quote(role_title + ' ' + company_name)}"
 
-# Dynamic Skill Gap Calculator comparing Resume vs Job Description
 def compute_skill_gaps(resume_text: str, job_title: str, job_description: str = "") -> dict:
     resume_lower = resume_text.lower()
     job_lower = (job_title + " " + job_description).lower()
@@ -518,7 +517,6 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
             except Exception:
                 cv_variant = profile_content
 
-            # Compute actual comparative requirement metrics dynamically
             gaps = compute_skill_gaps(profile_content, role, desc)
 
             job_embedding = generate_text_embedding(f"{role} {company} {desc}")
@@ -945,7 +943,6 @@ def get_career_matches(user=Depends(verify_api_key_only)):
         dm_role = m.get("networking_target_role") or m.get("decision_maker_title") or ""
         dm_email = m.get("networking_target_email") or m.get("decision_maker_email") or ""
 
-        # Safely parse JSON array fields for frontend consumption
         def parse_json_array(val, fallback):
             if not val:
                 return fallback
