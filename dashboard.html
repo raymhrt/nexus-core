@@ -81,6 +81,7 @@
                 <div>
                     <div class="text-[10px] text-slate-400 uppercase font-bold mb-0.5">Tier: <span id="sidebarTierBadge" class="text-sky-400">Starter</span></div>
                     <div class="text-xs font-black mono text-white"><span id="sidebarCreditCount">--</span> / <span id="sidebarCreditLimit">500</span> Credits</div>
+                    <div class="text-[9px] text-sky-400/80 font-mono mt-0.5" id="creditAllowanceText">Allowance Remaining</div>
                 </div>
                 <!-- Circular Progress Ring -->
                 <div class="relative w-9 h-9 flex items-center justify-center">
@@ -88,7 +89,7 @@
                         <circle cx="18" cy="18" r="14" stroke="currentColor" stroke-width="3" class="text-slate-800 fill-none"></circle>
                         <circle id="creditCircleRing" cx="18" cy="18" r="14" stroke="currentColor" stroke-width="3" stroke-dasharray="88" stroke-dashoffset="22" class="text-sky-400 fill-none transition-all duration-500"></circle>
                     </svg>
-                    <span class="absolute text-[9px] font-bold text-sky-300" id="creditPercentText">75%</span>
+                    <span class="absolute text-[9px] font-bold text-sky-300" id="creditPercentText">15%</span>
                 </div>
             </div>
             <button onclick="logout()" class="w-full py-2 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-400 text-xs font-semibold rounded-xl transition flex items-center justify-center gap-2">
@@ -175,7 +176,7 @@
                     </div>
                 </div>
 
-                <!-- AI Profile Health Scorecard (Replaces Hidden Accordion) -->
+                <!-- AI Profile Health Scorecard -->
                 <div class="bg-gradient-to-r from-cardbg to-slate-900 border border-sky-500/30 p-5 rounded-2xl shadow-xl flex flex-col md:flex-row items-center justify-between gap-6">
                     <div class="space-y-1.5 flex-1">
                         <div class="flex items-center gap-2">
@@ -595,6 +596,7 @@
                     
                     const pct = Math.round((credits / limit) * 100);
                     document.getElementById('creditPercentText').innerText = `${pct}%`;
+                    document.getElementById('creditAllowanceText').innerText = `${pct}% Allowance Remaining`;
                     const dashOffset = 88 - (88 * pct) / 100;
                     document.getElementById('creditCircleRing').style.strokeDashoffset = dashOffset;
 
@@ -738,6 +740,12 @@
 
                 const rationaleBullets = formatRationaleToBullets(m.rationale || m.match_rationale);
 
+                // Dynamic Skill Gaps Extraction
+                const missingSkills = m.missing_skills || m.skill_gaps || [];
+                const skillGapsHtml = missingSkills.length > 0
+                    ? `<span class="px-2 py-0.5 bg-amber-500/10 text-amber-300 rounded text-[10px] font-mono">Skill Gaps: ${escapeHtml(missingSkills.join(', '))}</span>`
+                    : `<span class="px-2 py-0.5 bg-emerald-500/10 text-emerald-300 rounded text-[10px] font-mono">✅ Complete Skill Match</span>`;
+
                 return `
                     <div id="job-card-${matchId}" onclick="openMatchDrawerByIndex(${idx})" class="bg-slate-900 border border-slate-800 rounded-xl p-6 mb-4 shadow-lg hover:border-emerald-500/50 transition-all cursor-pointer flex flex-col justify-between">
                         <div>
@@ -751,11 +759,11 @@
                                 </div>
                             </div>
 
-                            <!-- Confidence Sub-Breakdown Tags -->
+                            <!-- Dynamic Confidence & Skill Gap Tags -->
                             <div class="flex flex-wrap gap-1.5 mb-3">
-                                <span class="px-2 py-0.5 bg-sky-500/10 text-sky-300 rounded text-[10px] font-mono">Skills: 92%</span>
-                                <span class="px-2 py-0.5 bg-emerald-500/10 text-emerald-300 rounded text-[10px] font-mono">Location: 100%</span>
-                                <span class="px-2 py-0.5 bg-amber-500/10 text-amber-300 rounded text-[10px] font-mono">Skill Gap: Kubernetes (Missing)</span>
+                                <span class="px-2 py-0.5 bg-sky-500/10 text-sky-300 rounded text-[10px] font-mono">Skills Match: ${fitScore}%</span>
+                                <span class="px-2 py-0.5 bg-emerald-500/10 text-emerald-300 rounded text-[10px] font-mono">Location: Validated</span>
+                                ${skillGapsHtml}
                             </div>
 
                             <!-- Structured Rationale View -->
@@ -1037,14 +1045,19 @@
             }
 
             if (Array.isArray(parsedStages)) {
-                return parsedStages.map((stageObj, idx) => `
-                    <div class="bg-slate-950/60 border border-slate-800 p-3 rounded-xl mb-2.5 last:mb-0 space-y-1">
-                        <div class="flex items-center justify-between">
-                            <span class="text-xs font-bold text-sky-400">Stage ${idx + 1}: ${escapeHtml(stageObj.stage || 'Interview Phase')}</span>
+                const defaultStages = ["Recruiter Screen & Vector Alignment", "Technical Deep Dive & Architecture Review", "Executive & Culture Fit Final"];
+                return parsedStages.map((stageObj, idx) => {
+                    const stageName = stageObj.stage || defaultStages[idx] || `Stage ${idx + 1}`;
+                    const stageFocus = stageObj.focus || stageObj.description || 'Analyze role requirements and prepare domain-specific STAR examples.';
+                    return `
+                        <div class="bg-slate-950/60 border border-slate-800 p-3 rounded-xl mb-2.5 last:mb-0 space-y-1">
+                            <div class="flex items-center justify-between">
+                                <span class="text-xs font-bold text-sky-400">${escapeHtml(stageName)}</span>
+                            </div>
+                            <p class="text-xs text-slate-300 leading-relaxed"><strong class="text-slate-200">Focus & Strategy:</strong> ${escapeHtml(stageFocus)}</p>
                         </div>
-                        <p class="text-xs text-slate-300 leading-relaxed"><strong class="text-slate-200">Focus & Strategy:</strong> ${escapeHtml(stageObj.focus || stageObj.description || '')}</p>
-                    </div>
-                `).join('');
+                    `;
+                }).join('');
             }
 
             return escapeHtml(String(content)).replace(/\n/g, '<br>');
@@ -1064,6 +1077,7 @@
             const targetName = hasContact ? (match.networking_target_name || match.decision_maker_name) : '';
             const targetEmail = hasContact ? (match.networking_target_email || match.decision_maker_email) : '';
             const targetRole = hasContact ? (match.networking_target_role || match.decision_maker_title) : '';
+            const drawerRationaleBullets = formatRationaleToBullets(match.rationale || match.match_rationale);
 
             content.innerHTML = `
                 <div class="flex justify-between items-start">
@@ -1079,7 +1093,11 @@
                 </div>
                 <div class="space-y-2">
                     <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider">Structured Match Rationale</h3>
-                    <div class="bg-inputbg p-4 rounded-xl text-xs text-slate-300 leading-relaxed border border-slate-800">${escapeHtml(match.rationale || match.match_rationale)}</div>
+                    <div class="bg-inputbg p-4 rounded-xl text-xs text-slate-300 leading-relaxed border border-slate-800">
+                        <ul class="list-disc list-inside space-y-1.5 text-slate-300">
+                            ${drawerRationaleBullets}
+                        </ul>
+                    </div>
                 </div>
                 <div class="space-y-2">
                     <div class="flex items-center justify-between">
