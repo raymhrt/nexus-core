@@ -163,7 +163,6 @@ def sanitize_ats_url(url: str, role_title: str, company_name: str) -> str:
     return f"https://www.linkedin.com/jobs/search/?keywords={urllib.parse.quote(role_title + ' ' + company_name)}"
 
 def fetch_real_time_company_intelligence(company_name: str) -> str:
-    """RAG Web Intelligence Agent: Gathers recent contextual data about a company for hyper-personalized outreach."""
     try:
         clean_name = company_name.strip()
         search_url = f"https://html.duckduckgo.com/html/?q={urllib.parse.quote(clean_name + ' news company milestones')}"
@@ -249,7 +248,6 @@ def recursive_org_chart_decision_maker_discovery(company_name: str, job_title: s
         except Exception:
             pass
 
-    # Clean fallback without generic anonymous committee emails
     return {
         "has_verified_contact": False,
         "name": f"Talent Acquisition & Hiring Team",
@@ -349,7 +347,6 @@ async def ai_adaptable_role_expansion(target_roles: str, user_profile_json: Opti
                 if len(p_clean) > 2 and len(p_clean.split()) <= 4:
                     cleaned.append(p_clean)
             if cleaned:
-                logger.info(f"AI Search Strategist generated {len(cleaned)} adaptable permutations for user.")
                 return cleaned
     except Exception as e:
         logger.warning(f"AI role expansion fallback triggered due to: {e}")
@@ -394,13 +391,11 @@ async def multi_tenant_job_infiltration(target_roles: str, location: str, count:
 
     loc_lower = location.lower()
     is_sa_search = any(k in loc_lower for k in ["south africa", "johannesburg", "cape town", "pretoria", "durban"])
-    
     active_sites = ["linkedin", "indeed"] if is_sa_search else ["linkedin", "indeed", "glassdoor", "zip_recruiter"]
 
     for term in search_permutations[:4]:
         if len(discovered_jobs) >= count * 15:
             break
-        logger.info(f"Executing parallel JobSpy scrape for term: '{term}' in location: '{location}' across {active_sites}")
         try:
             df_jobs = await loop.run_in_executor(
                 None, 
@@ -453,7 +448,6 @@ async def multi_tenant_job_infiltration(target_roles: str, location: str, count:
                 except Exception:
                     pass
 
-    logger.info(f"Total valid unique raw jobs collected via multi-site swarm: {len(discovered_jobs)}")
     return discovered_jobs[:max(count * 8, 40)]
 
 async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email: str, semaphore: asyncio.Semaphore) -> Optional[Dict]:
@@ -473,7 +467,7 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
             Return strict JSON (no markdown backticks, raw JSON only) with these exact keys:
             - "is_valid_match": boolean (true ONLY if fit score >= 60 and highly relevant to candidate background)
             - "fit_score": integer (0 to 99)
-            - "match_rationale": Concise structured rationale with 2-3 short bullet points connecting user background to this role.
+            - "match_rationale": A clean, concise string with key alignment points.
             - "salary_benchmark": Estimated compensation range.
             - "negotiation_strategy": Salary leverage points.
             - "interview_playbook": 3-stage interview prep guide.
@@ -639,8 +633,6 @@ def verify_api_key_only(x_api_key: str = Header(...), request: Request = None):
 
 async def isolated_user_job_scouting_worker(user_email: str, requested_count: int, target_locations: str, target_roles: str):
     saved_count = 0
-    logger.info(f"Scouting triggered for user: {user_email} | Roles: {target_roles} | Location: {target_locations}")
-    
     await sse_broker.broadcast("multi_tenant_telemetry", {"user": user_email, "message": f"Executing live infiltration for {user_email}..."})
 
     try:
@@ -649,7 +641,6 @@ async def isolated_user_job_scouting_worker(user_email: str, requested_count: in
             user_row = cursor.fetchone()
 
         if not user_row:
-            logger.warning(f"Scouting worker aborted: No user profile found for {user_email}")
             return
 
         u_dict = dict(user_row) if not isinstance(user_row, dict) else user_row
@@ -657,18 +648,14 @@ async def isolated_user_job_scouting_worker(user_email: str, requested_count: in
 
         raw_jobs = await multi_tenant_job_infiltration(target_roles, target_locations, requested_count * 15, user_profile_json=profile_content)
         if not raw_jobs:
-            logger.warning(f"Scouting worker: Zero raw jobs found for {user_email}")
             await sse_broker.broadcast("career_swarm_update", {"user": user_email, "status": "no_jobs", "message": "Scouting completed, but zero live positions matched current aggregators."})
             return
-
-        logger.info(f"Evaluating {len(raw_jobs)} candidate jobs for user {user_email} with rate limiting...")
         
         eval_semaphore = asyncio.Semaphore(3)
         evaluation_tasks = [evaluate_job_for_specific_user(job, profile_content, user_email, eval_semaphore) for job in raw_jobs[:20]]
         results = await asyncio.gather(*evaluation_tasks)
         
         valid_results = [m for m in results if m is not None]
-        logger.info(f"Evaluated successfully: {len(valid_results)} matching positions found for {user_email}.")
         if not valid_results:
             return
 
@@ -745,7 +732,6 @@ async def isolated_user_job_scouting_worker(user_email: str, requested_count: in
                     saved_count += 1
 
         await sse_broker.broadcast("career_swarm_update", {"user": user_email, "status": "scouted", "message": f"Indexed {saved_count} verified matches."})
-
     except Exception as e:
         logger.error(f"Error in isolated worker for {user_email}: {str(e)}", exc_info=True)
 
@@ -777,49 +763,7 @@ async def run_autonomous_ats_autopilot_worker(match_id: int, user_email: str, at
         "message": f"Autonomous application successfully submitted via ATS Auto-Pilot to {ats_url}!"
     })
 
-async def automated_followup_scheduler_worker():
-    try:
-        with db_transaction_scope() as (_, cursor):
-            if DATABASE_URL:
-                cursor.execute("""
-                    SELECT id, user_email, company_name, job_title, decision_maker_name, decision_maker_email, outreach_draft 
-                    FROM job_matches 
-                    WHERE status = 'outreached' AND timestamp <= NOW() - INTERVAL '4 days'
-                """)
-            else:
-                cursor.execute("""
-                    SELECT id, user_email, company_name, job_title, decision_maker_name, decision_maker_email, outreach_draft 
-                    FROM job_matches 
-                    WHERE status = 'outreached' AND timestamp <= datetime('now', '-4 days')
-                """)
-            stale_outreaches = cursor.fetchall()
-
-            for row in stale_outreaches:
-                r = dict(row) if not isinstance(row, dict) else row
-                match_id = r["id"]
-                target_email = r["decision_maker_email"]
-                dm_name = r["decision_maker_name"] or "Hiring Team"
-                company = r["company_name"]
-                role = r["job_title"]
-
-                followup_body = f"Hi {dm_name},\n\nI wanted to gently follow up on my recent note regarding the {role} role at {company}. I remain very enthusiastic about your team's trajectory and would love to connect."
-
-                if RESEND_API_KEY and target_email and '@' in target_email:
-                    headers = {"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"}
-                    requests.post("https://api.resend.com/emails", json={
-                        "from": f"Swarm <{SENDER_EMAIL}>", 
-                        "to": [target_email], 
-                        "subject": f"Following up: {role} at {company}", 
-                        "text": followup_body
-                    }, headers=headers)
-
-                update_sql = "UPDATE job_matches SET status = 'followup_sent' WHERE id = %s" if DATABASE_URL else "UPDATE job_matches SET status = 'followup_sent' WHERE id = ?"
-                cursor.execute(update_sql, (match_id,))
-    except Exception as e:
-        logger.error(f"Error in automated follow-up scheduler: {e}")
-
 scheduler = AsyncIOScheduler()
-scheduler.add_job(automated_followup_scheduler_worker, 'interval', hours=12)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -831,7 +775,7 @@ async def lifespan(app: FastAPI):
         scheduler.shutdown()
 
 app = FastAPI(
-    title="Complete Production Career Apex",
+    title="QuantCode Nexus Enterprise Apex API",
     version="16.14.0",
     description="Live Multi-Tenant Career Infiltration Engine with Full Suite Features.",
     lifespan=lifespan
@@ -915,7 +859,7 @@ def get_career_matches(user=Depends(verify_api_key_only)):
                            ats_portal_url, status,
                            1 - (embedding <=> %s::vector) AS semantic_similarity
                     FROM job_matches 
-                    WHERE user_email = %s 
+                    WHERE user_email = %s AND fit_score >= 60
                     ORDER BY semantic_similarity DESC, timestamp DESC
                 """
                 cursor.execute(sql, (user_embedding, user["email"]))
@@ -927,7 +871,7 @@ def get_career_matches(user=Depends(verify_api_key_only)):
                            salary_benchmark, recruiter_verified, negotiation_strategy, cv_variant, interview_playbook, 
                            ats_portal_url, status 
                     FROM job_matches 
-                    WHERE user_email = %s 
+                    WHERE user_email = %s AND fit_score >= 60
                     ORDER BY timestamp DESC
                 """
                 cursor.execute(sql, (user["email"],))
@@ -939,14 +883,13 @@ def get_career_matches(user=Depends(verify_api_key_only)):
                        salary_benchmark, recruiter_verified, negotiation_strategy, cv_variant, interview_playbook, 
                        ats_portal_url, status 
                 FROM job_matches 
-                WHERE user_email = ? 
+                WHERE user_email = ? AND fit_score >= 60
                 ORDER BY timestamp DESC
             """
             cursor.execute(sql, (user["email"],))
 
         raw_matches = [dict(r) for r in cursor.fetchall()]
 
-    # Normalize keys so frontend dashboard never encounters undefined property mismatches
     normalized_matches = []
     for m in raw_matches:
         role_t = m.get("role_title") or m.get("job_title") or ""
@@ -1089,7 +1032,6 @@ async def dispatch_career_outreach(match_id: int, payload: OutreachDispatchReque
         }, headers=headers)
         
         if res.status_code not in [200, 201]:
-            logger.error(f"Resend email dispatch failed: {res.text}")
             raise HTTPException(status_code=502, detail=f"Email dispatch provider error: {res.text}")
             
     with db_transaction_scope() as (_, cursor):
@@ -1117,40 +1059,6 @@ async def trial_interview_practice(payload: TrialInterviewRequest, auth: dict = 
     prompt = f"Evaluate this interview response for user {auth['email']} targeting role '{payload.role}':\n\n{payload.answer}\n\nProvide a score out of 100 and constructive feedback."
     feedback = call_groq_ai(prompt, system_prompt="You are the Lead Interview Coach.")
     return {"status": "success", "score": "88/100", "feedback": feedback}
-
-@app.post("/api/v1/career/interview/session")
-async def multi_turn_interview_session(payload: MultiTurnInterviewInput, auth: dict = Depends(verify_api_key_only)):
-    with db_transaction_scope() as (_, cursor):
-        if DATABASE_URL:
-            cursor.execute("SELECT history_json FROM interview_sessions WHERE session_id = %s AND user_email = %s", (payload.session_id, auth["email"]))
-        else:
-            cursor.execute("SELECT history_json FROM interview_sessions WHERE session_id = ? AND user_email = ?", (payload.session_id, auth["email"]))
-        
-        row = cursor.fetchone()
-        history = json.loads(row["history_json"]) if row and (row["history_json"] if isinstance(row, dict) else row[0]) else []
-
-    history.append({"role": "user", "content": payload.user_message})
-
-    system_prompt = f"You are a rigorous hiring manager agent interviewing candidate {auth['email']} for {payload.role}. Challenge their assumptions, reference prior coaching sessions, and maintain a professional tone."
-    
-    prompt_chain = "\n".join([f"{m['role'].upper()}: {m['content']}" for m in history])
-    full_prompt = f"{prompt_chain}\n\nInterviewer (AI):"
-
-    ai_response = call_groq_ai(full_prompt, system_prompt=system_prompt)
-    history.append({"role": "assistant", "content": ai_response})
-
-    with db_transaction_scope() as (_, cursor):
-        history_str = json.dumps(history)
-        if DATABASE_URL:
-            cursor.execute("""
-                INSERT INTO interview_sessions (session_id, user_email, role, history_json, updated_at) 
-                VALUES (%s, %s, %s, %s, NOW()) 
-                ON CONFLICT (session_id) DO UPDATE SET history_json = EXCLUDED.history_json, updated_at = NOW()
-            """, (payload.session_id, auth["email"], payload.role, history_str))
-        else:
-            cursor.execute("INSERT OR REPLACE INTO interview_sessions (session_id, user_email, role, history_json, updated_at) VALUES (?, ?, ?, ?, datetime('now'))", (payload.session_id, auth["email"], payload.role, history_str))
-
-    return {"status": "success", "reply": ai_response, "history": history}
 
 @app.post("/api/v1/career/negotiate")
 async def salary_negotiator(payload: NegotiatorRequest, auth: dict = Depends(verify_api_key_only)):

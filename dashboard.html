@@ -470,7 +470,6 @@
                 const data = await response.json();
                 
                 if (response.ok && data.matches) {
-                    // Strict client-side verification filter for >= 60% match threshold
                     cachedCareerMatches = data.matches.filter(m => (m.fit_score || 0) >= 60);
                     renderJobMatches(cachedCareerMatches);
                     if (data.credits_remaining !== undefined) {
@@ -528,11 +527,30 @@
             return postUrl;
         }
 
+        function formatRationaleToBullets(rawRationale) {
+            if (!rawRationale) return `<li>Strong multi-source verified alignment.</li>`;
+            
+            let sentences = [];
+            if (typeof rawRationale === 'string') {
+                try {
+                    const parsed = JSON.parse(rawRationale);
+                    if (Array.isArray(parsed)) {
+                        sentences = parsed;
+                    }
+                } catch (e) {
+                    sentences = rawRationale.split(/(?:\r?\n)+|(?<=[.!?])\s+(?=[A-Z])/);
+                }
+            } else if (Array.isArray(rawRationale)) {
+                sentences = rawRationale;
+            }
+
+            return sentences.map(s => `<li>${escapeHtml(String(s).trim().replace(/^["\[\]]+|[,\"]+$/g, ''))}</li>`).join('');
+        }
+
         function renderJobMatches(matches) {
             const container = document.getElementById('jobMatchesContainer');
             if (!container) return;
 
-            // Enforce strict >= 60% filter guard
             const validMatches = (matches || []).filter(m => (m.fit_score || 0) >= 60);
 
             if (validMatches.length === 0) {
@@ -554,16 +572,12 @@
                 const postUrl = sanitizeJobUrl(m);
                 const isApplied = m.status === 'applied_autopilot';
                 
-                // Zero-Mock Sanity Check on Contact Data
-                const hasValidEmail = m.networking_target_email && !m.networking_target_email.includes('example.com') && !m.networking_target_email.includes('@stellenboschuniversity.com');
+                const hasValidEmail = m.networking_target_email && !m.networking_target_email.includes('example.com');
                 const hasContact = hasValidEmail || (m.decision_maker_email && !m.decision_maker_email.includes('example.com'));
                 const leadName = hasContact ? (m.networking_target_name || m.decision_maker_name) : 'Direct ATS Portal Submission';
                 const leadRole = hasContact ? (m.networking_target_role || m.decision_maker_title) : 'Hiring Team';
 
-                const rawRationale = m.rationale || m.match_rationale || "";
-                const rationaleBullets = rawRationale
-                    ? rawRationale.split(/(?:\r?\n)+|(?<=[.!?])\s+(?=[A-Z])/).map(s => `<li>${escapeHtml(s.trim())}</li>`).join('')
-                    : `<li>Strong alignment with multi-source verified criteria.</li>`;
+                const rationaleBullets = formatRationaleToBullets(m.rationale || m.match_rationale);
 
                 return `
                     <div id="job-card-${matchId}" onclick="openMatchDrawerByIndex(${idx})" class="bg-slate-900 border border-slate-800 rounded-xl p-6 mb-4 shadow-lg hover:border-emerald-500/50 transition-all cursor-pointer">
@@ -812,13 +826,11 @@
         function formatPlaybookContent(content) {
             if (!content) return '<p class="text-slate-500 italic">Playbook generating on next cycle...</p>';
             
-            // Robust Playbook Parser: Handle JSON arrays/strings and structure into readable cards
             let parsedStages = content;
             if (typeof content === 'string') {
                 try {
                     parsedStages = JSON.parse(content);
                 } catch (e) {
-                    // Fallback to standard text replacement if not valid JSON
                     return escapeHtml(content).replace(/\n/g, '<br>');
                 }
             }
@@ -846,7 +858,7 @@
             let postUrl = sanitizeJobUrl(match);
             const matchId = match.id || 1;
             
-            const hasValidEmail = match.networking_target_email && !match.networking_target_email.includes('example.com') && !match.networking_target_email.includes('@stellenboschuniversity.com');
+            const hasValidEmail = match.networking_target_email && !match.networking_target_email.includes('example.com');
             const hasContact = hasValidEmail || (match.decision_maker_email && !match.decision_maker_email.includes('example.com'));
             const targetName = hasContact ? (match.networking_target_name || match.decision_maker_name) : '';
             const targetEmail = hasContact ? (match.networking_target_email || match.decision_maker_email) : '';
@@ -1057,9 +1069,10 @@
                         const timestamp = parsed.timestamp ? new Date(parsed.timestamp).toLocaleTimeString() : new Date().toLocaleTimeString();
                         if (parsed.event === 'connected' || parsed.event === 'ping') return;
 
+                        const logMessage = parsed.message || (parsed.data && parsed.data.message) || JSON.stringify(parsed.data || parsed);
                         const entry = document.createElement('div');
                         entry.className = "border-b border-slate-900 pb-1";
-                        entry.innerHTML = `<span class="text-sky-400">[${timestamp}]</span> <strong class="text-white">${parsed.event}:</strong> ${JSON.stringify(parsed.data || parsed)}`;
+                        entry.innerHTML = `<span class="text-sky-400">[${timestamp}]</span> <strong class="text-white">${escapeHtml(parsed.event)}:</strong> <span class="text-slate-300">${escapeHtml(logMessage)}</span>`;
 
                         if (careerLog) careerLog.prepend(entry);
                         
