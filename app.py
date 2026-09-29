@@ -280,11 +280,11 @@ def call_groq_ai(prompt: str, system_prompt: str = "You are the complete multi-t
 
 async def ai_adaptable_role_expansion(target_roles: str, user_profile_json: Optional[str] = None) -> List[str]:
     prompt = f"""
-    You are the Senior Search Strategist.
+    You are the Senior Search Strategist. Analyze the user's target roles and master CV profile to construct highly intelligent, flexible search queries.
     Target Roles: "{target_roles}"
     User Master Profile / CV: {user_profile_json or 'None Provided'}
 
-    Generate a JSON array of 10 to 12 clean, atomic search phrases (short 2-to-4 word job titles and domain keywords) tailored exclusively to this user.
+    Generate a JSON array of 12 to 15 clean, atomic search phrases. Include both specific multi-word domain titles and broader single-word or dual-word core competencies (e.g. if looking for 'Senior Research Scientist - Molecular Biology', also include 'Molecular Biologist', 'Research Scientist', 'Biologist', 'Biochemistry') so that live job aggregators and ATS feeds reliably return matches.
     Return ONLY a valid JSON array of strings (no markdown backticks, raw JSON only).
     """
     try:
@@ -301,9 +301,10 @@ async def ai_adaptable_role_expansion(target_roles: str, user_profile_json: Opti
                 if len(p_clean) > 2 and len(p_clean.split()) <= 4:
                     cleaned.append(p_clean)
             if cleaned:
+                logger.info(f"AI Search Strategist generated {len(cleaned)} adaptable permutations for user.")
                 return cleaned
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"AI role expansion fallback triggered due to: {e}")
 
     derived_terms = []
     for chunk in re.split(r'[-–—:,/]+', target_roles):
@@ -311,17 +312,25 @@ async def ai_adaptable_role_expansion(target_roles: str, user_profile_json: Opti
         c_clean = re.sub(r'\s+', ' ', c_clean).strip()
         if len(c_clean) > 3:
             derived_terms.append(c_clean)
+            words = c_clean.split()
+            if len(words) > 1:
+                derived_terms.append(words[-1])
+                derived_terms.append(" ".join(words[-2:]))
     
     if user_profile_json:
         try:
             prof = json.loads(user_profile_json)
-            for skill in prof.get("skills", [])[:5]:
+            for skill in prof.get("skills", [])[:6]:
                 skill_clean = re.sub(r'[^a-zA-Z0-9\s]', '', skill).strip()
-                if len(skill_clean) > 3:
+                if len(skill_clean) > 2:
                     derived_terms.append(skill_clean)
             for r in prof.get("recommended_roles", []):
-                if len(r.strip()) > 2:
-                    derived_terms.append(r.strip())
+                r_clean = re.sub(r'[^a-zA-Z0-9\s]', ' ', r).strip()
+                if len(r_clean) > 2:
+                    derived_terms.append(r_clean)
+                    words = r_clean.split()
+                    if words:
+                        derived_terms.append(words[-1])
         except Exception:
             pass
 
@@ -337,6 +346,9 @@ async def multi_tenant_job_infiltration(target_roles: str, location: str, count:
         c_clean = re.sub(r'\s+', ' ', c_clean).strip()
         if len(c_clean) > 3:
             atomic_user_terms.append(c_clean)
+            words = c_clean.split()
+            if len(words) > 1:
+                atomic_user_terms.append(words[-1])
 
     search_permutations = ai_variations + atomic_user_terms
     seen = set()
@@ -352,21 +364,23 @@ async def multi_tenant_job_infiltration(target_roles: str, location: str, count:
     is_sa_search = any(k in loc_lower for k in ["south africa", "johannesburg", "cape town", "pretoria", "durban"])
     countries_to_try = ["za", "us"] if is_sa_search else ["us"]
 
-    logger.info(f"Live search permutations: {search_permutations[:12]} | Countries: {countries_to_try}")
+    logger.info(f"Live search permutations: {search_permutations[:15]} | Countries: {countries_to_try} | Adzuna Enabled: {bool(ADZUNA_APP_ID and ADZUNA_APP_KEY)}")
 
     for country in countries_to_try:
         if len(discovered_jobs) >= count * 15:
             break
             
-        for term in search_permutations[:12]:
+        for term in search_permutations[:15]:
             encoded_query = urllib.parse.quote(term)
             
             if ADZUNA_APP_ID and ADZUNA_APP_KEY:
                 try:
                     adzuna_url = f"https://api.adzuna.com/v1/api/jobs/{country}/search/1?app_id={ADZUNA_APP_ID}&app_key={ADZUNA_APP_KEY}&what={encoded_query}&content-type=application/json"
-                    res = requests.get(adzuna_url, timeout=5)
+                    res = requests.get(adzuna_url, timeout=6)
+                    logger.info(f"Adzuna API query [country: {country}, term: '{term}'] -> Status: {res.status_code}")
                     if res.status_code == 200:
                         results = res.json().get("results", [])
+                        logger.info(f"Adzuna returned {len(results)} raw items for term '{term}'.")
                         for item in results:
                             job_item = {
                                 "company_name": item.get("company", {}).get("display_name", "Global Enterprise"),
@@ -378,8 +392,10 @@ async def multi_tenant_job_infiltration(target_roles: str, location: str, count:
                             if validate_real_world_job(job_item) and job_item["ats_portal_url"] not in seen_urls:
                                 seen_urls.add(job_item["ats_portal_url"])
                                 discovered_jobs.append(job_item)
-                except Exception:
-                    pass
+                    else:
+                        logger.warning(f"Adzuna API warning: Status {res.status_code} - {res.text[:200]}")
+                except Exception as e:
+                    logger.error(f"Adzuna API exception for term '{term}': {e}")
 
             for feed_base in [
                 f"https://jobs.sciencecareers.org/jobs/rss/?keywords={encoded_query}",
@@ -390,7 +406,9 @@ async def multi_tenant_job_infiltration(target_roles: str, location: str, count:
                     if res.status_code == 200:
                         from bs4 import BeautifulSoup
                         soup = BeautifulSoup(res.text, 'xml')
-                        for item in soup.find_all('item'):
+                        items = soup.find_all('item')
+                        logger.info(f"RSS feed [{feed_base}] returned {len(items)} items for term '{term}'.")
+                        for item in items:
                             title = item.find('title')
                             link = item.find('link')
                             desc = item.find('description')
@@ -406,9 +424,10 @@ async def multi_tenant_job_infiltration(target_roles: str, location: str, count:
                                 if validate_real_world_job(job_item) and job_item["ats_portal_url"] not in seen_urls:
                                     seen_urls.add(job_item["ats_portal_url"])
                                     discovered_jobs.append(job_item)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning(f"RSS feed warning for {feed_base}: {e}")
 
+    logger.info(f"Total valid unique raw jobs collected across all permutations: {len(discovered_jobs)}")
     return discovered_jobs[:max(count * 8, 40)]
 
 async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email: str) -> Optional[Dict]:
@@ -424,7 +443,7 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
     Job Description Snippet: {desc}
 
     Return strict JSON (no markdown backticks, raw JSON only) with these exact keys:
-    - "is_valid_match": boolean (true if fit score >= 35)
+    - "is_valid_match": boolean (true if fit score >= 30)
     - "fit_score": integer (0 to 99)
     - "match_rationale": Rationale connecting user background to this role.
     - "salary_benchmark": Estimated compensation range.
@@ -442,7 +461,7 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
     except Exception:
         return None
 
-    if not eval_data or not eval_data.get('is_valid_match', False) or safe_int(eval_data.get('fit_score'), 0) < 35:
+    if not eval_data or not eval_data.get('is_valid_match', False) or safe_int(eval_data.get('fit_score'), 0) < 30:
         return None
 
     safe_portal_url = sanitize_ats_url(raw_url, role, company)
@@ -590,6 +609,7 @@ async def isolated_user_job_scouting_worker(user_email: str, requested_count: in
             user_row = cursor.fetchone()
 
         if not user_row:
+            logger.warning(f"Scouting worker aborted: No user profile found for {user_email}")
             return
 
         u_dict = dict(user_row) if not isinstance(user_row, dict) else user_row
@@ -597,12 +617,16 @@ async def isolated_user_job_scouting_worker(user_email: str, requested_count: in
 
         raw_jobs = await multi_tenant_job_infiltration(target_roles, target_locations, requested_count * 15, user_profile_json=profile_content)
         if not raw_jobs:
+            logger.warning(f"Scouting worker: Zero raw jobs found for {user_email}")
+            await sse_broker.broadcast("career_swarm_update", {"user": user_email, "status": "no_jobs", "message": "Scouting completed, but zero live positions matched current aggregators."})
             return
 
+        logger.info(f"Evaluating {len(raw_jobs)} candidate jobs for user {user_email}...")
         evaluation_tasks = [evaluate_job_for_specific_user(job, profile_content, user_email) for job in raw_jobs[:25]]
         results = await asyncio.gather(*evaluation_tasks)
         
         valid_results = [m for m in results if m is not None]
+        logger.info(f"Evaluated successfully: {len(valid_results)} matching positions found for {user_email}.")
         if not valid_results:
             return
 
