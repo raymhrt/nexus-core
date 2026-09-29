@@ -164,43 +164,40 @@ def sanitize_ats_url(url: str, role_title: str, company_name: str) -> str:
 
 def compute_skill_gaps(resume_text: str, job_title: str, job_description: str = "") -> dict:
     resume_lower = resume_text.lower()
-    job_lower = (job_title + " " + job_description).lower()
+    desc_lower = job_description.lower()
     
-    has_python = "python" in resume_lower or "scripting" in resume_lower
-    has_leadership = "lead" in resume_lower or "manage" in resume_lower or "director" in resume_lower
-    has_research = "research" in resume_lower or "analysis" in resume_lower or "science" in resume_lower
-    has_cloud = "cloud" in resume_lower or "aws" in resume_lower or "azure" in resume_lower or "docker" in resume_lower
-
+    # Dynamic keyword extraction from JD & Resume
+    common_skills = [
+        "python", "molecular biology", "biochemistry", "structural biology", "x-ray crystallography",
+        "spr", "itc", "protein-dna", "drug-discovery", "machine learning", "pytorch", "aws", "docker",
+        "kubernetes", "leadership", "mentorship", "experimental design", "quantitative analysis"
+    ]
+    
     matched = []
     transferable = []
     missing = []
+    
+    for skill in common_skills:
+        skill_formatted = skill.replace("-", " ").title()
+        if skill in resume_lower:
+            if skill in desc_lower or not desc_lower:
+                matched.append(skill_formatted)
+            else:
+                transferable.append(skill_formatted)
+        elif skill in desc_lower:
+            missing.append(skill_formatted)
 
-    if has_research:
-        matched.append("Core Domain Research & Methodology")
-    else:
-        missing.append("Formal Research Background")
-
-    if has_python:
-        matched.append("Technical Scripting & Data Toolchains")
-    else:
-        transferable.append("Advanced Programming & Automation Toolchains")
-
-    if has_leadership:
-        matched.append("Cross-Functional Mentorship & Leadership")
-    else:
-        transferable.append("Team Leadership & Stakeholder Management")
-
-    if has_cloud:
-        matched.append("Cloud Infrastructure & Containerization")
-    else:
-        transferable.append("Advanced Cloud Deployment & Kubernetes Swarms")
-
-    missing.extend(["Direct P&L and Budget Ownership", f"Specialized Enterprise Certifications for {job_title}"])
+    if not matched:
+        matched = ["Core Domain Technical Competency", "Quantitative Experimental Design"]
+    if not transferable:
+        transferable = ["Secondary Toolchain Adaptation", "Cross-Functional Collaboration"]
+    if not missing:
+        missing = [f"Advanced Enterprise Certification for {job_title}", "Specific Instrumentation Compliance"]
 
     return {
-        "matched": matched[:3] if matched else ["Core Professional Competency"],
-        "transferable": transferable[:2] if transferable else ["Secondary Toolchain Adaptation"],
-        "missing": missing[:2] if missing else ["Specific Compliance Accreditation"]
+        "matched": matched[:4],
+        "transferable": transferable[:3],
+        "missing": missing[:3]
     }
 
 def fetch_real_time_company_intelligence(company_name: str) -> str:
@@ -494,10 +491,10 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
             Return strict JSON (no markdown backticks, raw JSON only) with these exact keys:
             - "is_valid_match": boolean (true ONLY if fit score >= 60 and highly relevant to candidate background)
             - "fit_score": integer (0 to 99)
-            - "match_rationale": A clean, concise string with key alignment points.
+            - "match_rationale": A clean, concise JSON array of 3 distinct bullet strings detailing alignment.
             - "salary_benchmark": Estimated compensation range.
             - "negotiation_strategy": Salary leverage points.
-            - "interview_playbook": 3-stage interview prep guide.
+            - "interview_playbook": A JSON array of 3 objects with keys "stage" and "focus" providing customized, non-generic STAR/technical prep steps.
             """
             
             loop = asyncio.get_running_loop()
@@ -533,7 +530,7 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
                 "job_description": desc,
                 "location": job.get('location', "Global"),
                 "fit_score": safe_int(eval_data.get('fit_score'), 78),
-                "match_rationale": eval_data.get('match_rationale', "Verified peer-reviewed domain match."),
+                "match_rationale": safe_str(eval_data.get('match_rationale', ["Verified peer-reviewed domain match."])),
                 "matched_requirements": gaps["matched"],
                 "transferable_gaps": gaps["transferable"],
                 "critical_missing": gaps["missing"],
@@ -545,7 +542,11 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
                 "salary_benchmark": eval_data.get('salary_benchmark', "Market Rate"),
                 "negotiation_strategy": eval_data.get('negotiation_strategy', "Emphasize specialized domain delivery."),
                 "cv_variant": cv_variant,
-                "interview_playbook": eval_data.get('interview_playbook', "1. Technical Review\n2. Domain Deep-Dive\n3. Leadership Interview"),
+                "interview_playbook": safe_str(eval_data.get('interview_playbook', [
+                    {"stage": "Recruiter Screen & Vector Alignment", "focus": f"Highlight core domain experience in {role} and validate compensation expectations."},
+                    {"stage": "Technical Deep Dive & Architecture Review", "focus": f"Prepare domain-specific STAR examples demonstrating past successful projects at {company} scale."},
+                    {"stage": "Executive & Culture Fit Final", "focus": f"Discuss strategic vision, cross-functional mentorship, and leadership capabilities."}
+                ])),
                 "ats_portal_url": safe_portal_url,
                 "embedding": job_embedding
             }

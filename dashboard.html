@@ -437,8 +437,18 @@
         <div id="drawer-backdrop" class="absolute inset-0 bg-black/60 backdrop-blur-sm opacity-0 transition-opacity pointer-events-none" onclick="closeSideDrawer()"></div>
         <div class="absolute inset-y-0 right-0 max-w-xl w-full flex pl-10">
             <div id="drawer-panel" class="slide-over w-full bg-slate-900 border-l border-slate-800 p-6 flex flex-col justify-between overflow-y-auto pointer-events-auto shadow-2xl">
-                <div id="drawer-content" class="space-y-6"></div>
-                <div class="border-t border-slate-800 pt-4 mt-6 flex justify-end">
+                <!-- Sticky Header Container Inside Drawer -->
+                <div class="sticky top-0 bg-slate-900 z-10 pb-4 border-b border-slate-800 flex items-center justify-between">
+                    <div>
+                        <h2 id="drawerRoleTitle" class="text-base font-bold text-white">--</h2>
+                        <p id="drawerCompanySubtitle" class="text-xs text-sky-400 font-semibold">--</p>
+                    </div>
+                    <button onclick="closeSideDrawer()" class="p-2 text-slate-400 hover:text-white"><i class="fa-solid fa-xmark text-base"></i></button>
+                </div>
+                <div id="drawer-content" class="space-y-6 pt-4 flex-1"></div>
+                <!-- Sticky Action Footer Inside Drawer -->
+                <div class="sticky bottom-0 bg-slate-900 pt-4 mt-6 border-t border-slate-800 flex items-center justify-between gap-3">
+                    <div id="drawerActionButtons" class="flex items-center gap-2"></div>
                     <button onclick="closeSideDrawer()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-bold">Close Drawer</button>
                 </div>
             </div>
@@ -827,7 +837,7 @@
                                 }
                             </div>
                             <div class="flex items-center space-x-1.5">
-                                <button onclick="openGhostwriterModal(${matchId})" title="AI Ghostwriter & Cover Letter" class="px-2 py-1.5 bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 border border-sky-500/30 text-xs rounded-lg transition-colors"><i class="fa-solid fa-wand-magic-sparkles"></i></button>
+                                <button onclick="openGhostwriterModal(${matchId})" title="AI Ghostwriter & Tailored CV" class="px-2.5 py-1.5 bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 border border-sky-500/30 text-xs rounded-lg transition-colors flex items-center gap-1 font-semibold"><i class="fa-solid fa-wand-magic-sparkles"></i> AI CV</button>
                                 <button onclick="openMatchDrawerByIndex(${idx})" title="View Playbook" class="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg transition-colors">Playbook</button>
                                 ${hasContact ? `<button onclick="openCareerOutreachModal(${matchId})" title="Send Direct Outreach" class="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-purple-300 text-xs rounded-lg transition-colors"><i class="fa-solid fa-envelope"></i></button>` : ''}
                                 <button onclick="dismissJobMatch(${matchId})" title="Dismiss Match" class="px-2 py-1.5 bg-slate-800 hover:bg-rose-900/30 text-slate-400 hover:text-rose-400 text-xs rounded-lg transition-colors"><i class="fa-solid fa-trash"></i></button>
@@ -979,7 +989,7 @@
             modal.classList.remove('hidden');
             
             setTimeout(() => {
-                const tailoredCv = `# ${match.role_title} - Tailored Candidate Profile\n\n## Professional Summary\nResults-driven expert with extensive experience aligning with ${match.company_name}'s core engineering and R&D pipelines. Proven proficiency in technical oversight, experimental design, and quantitative decision-making.\n\n## Core Competencies for ${match.company_name}\n- Strategic alignment with ${match.role_title} deliverables.\n- Advanced domain techniques and cross-functional team mentorship.\n- Rigorous methodological execution and high-impact output.\n\n## Professional Experience\n### Senior Specialist & Lead Consultant\n- Spearheaded multi-source initiatives mirroring the oversight required at ${match.company_name}.\n- Optimized research and execution workflows, driving 40% efficiency gains.`;
+                const tailoredCv = match.cv_variant || `# ${match.role_title} - Tailored Candidate Profile\n\n## Professional Summary\nResults-driven expert with extensive experience aligning with ${match.company_name}'s core engineering and R&D pipelines. Proven proficiency in technical oversight, experimental design, and quantitative decision-making.\n\n## Core Competencies for ${match.company_name}\n- Strategic alignment with ${match.role_title} deliverables.\n- Advanced domain techniques and cross-functional team mentorship.\n- Rigorous methodological execution and high-impact output.\n\n## Professional Experience\n### Senior Specialist & Lead Consultant\n- Spearheaded multi-source initiatives mirroring the oversight required at ${match.company_name}.\n- Optimized research and execution workflows, driving 40% efficiency gains.`;
 
                 const tailoredLetter = `Dear Hiring Team at ${match.company_name},\n\nI am writing to express my strong interest in the ${match.role_title} position. With my extensive background in advanced technical research, quantitative analysis, and strategic team leadership, I am confident in my ability to immediately contribute to your high-performance pipelines.\n\nYour team's commitment to cutting-edge innovation closely mirrors my professional trajectory. In my previous roles, I successfully orchestrated complex R&D projects, mentored junior specialists, and delivered measurable results under strict deadlines. I am particularly drawn to ${match.company_name}'s focus on excellence and scaling impactful solutions.\n\nI welcome the opportunity to discuss how my technical expertise and leadership background align with your upcoming objectives.\n\nSincerely,\nCandidate`;
 
@@ -1155,9 +1165,8 @@
             }
 
             if (Array.isArray(parsedStages)) {
-                const defaultStages = ["Recruiter Screen & Vector Alignment", "Technical Deep Dive & Architecture Review", "Executive & Culture Fit Final"];
                 return parsedStages.map((stageObj, idx) => {
-                    const stageName = stageObj.stage || defaultStages[idx] || `Stage ${idx + 1}`;
+                    const stageName = stageObj.stage || `Stage ${idx + 1}`;
                     const stageFocus = stageObj.focus || stageObj.description || 'Analyze role requirements and prepare domain-specific STAR examples.';
                     return `
                         <div class="bg-slate-950/60 border border-slate-800 p-3 rounded-xl mb-2.5 last:mb-0 space-y-1">
@@ -1178,7 +1187,11 @@
             const backdrop = document.getElementById('drawer-backdrop');
             const panel = document.getElementById('drawer-panel');
             const content = document.getElementById('drawer-content');
+            const actionButtonsContainer = document.getElementById('drawerActionButtons');
             
+            document.getElementById('drawerRoleTitle').innerText = match.role_title || 'Role Details';
+            document.getElementById('drawerCompanySubtitle').innerText = `${match.company_name || ''} • ${match.location || ''}`;
+
             let postUrl = sanitizeJobUrl(match);
             const matchId = match.id || 1;
             
@@ -1193,20 +1206,14 @@
             const transferableGaps = match.transferable_gaps || match.trainable_skills || ["Advanced Cloud Deployment", "Large-Scale Budgeting"];
             const criticalMissing = match.critical_missing || match.missing_skills || ["Kubernetes / Docker Swarm", "Direct P&L Management"];
 
-            content.innerHTML = `
-                <div class="flex justify-between items-start">
-                    <div>
-                        <h2 class="text-base font-bold text-white">${escapeHtml(match.role_title)}</h2>
-                        <p class="text-xs text-sky-400 font-semibold">${escapeHtml(match.company_name)} • ${escapeHtml(match.location)}</p>
-                    </div>
-                    <span class="px-3 py-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 rounded-full text-xs font-bold mono">${match.fit_score}% Match</span>
-                </div>
-                <div class="flex items-center gap-3">
-                    <a href="${escapeHtml(postUrl)}" target="_blank" class="inline-flex items-center gap-2 px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold transition shadow-lg shadow-sky-600/20">🌐 View Posting ↗</a>
-                    <button onclick="triggerAutopilot(${matchId})" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition shadow-lg shadow-sky-600/20">Auto-Apply via Headless Browser ⚡</button>
-                </div>
+            // Populate Sticky Footer Action Buttons
+            actionButtonsContainer.innerHTML = `
+                <a href="${escapeHtml(postUrl)}" target="_blank" class="px-3 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold transition shadow">🌐 View Posting ↗</a>
+                <button onclick="triggerAutopilot(${matchId})" class="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition shadow">Auto-Apply ⚡</button>
+            `;
 
-                <!-- Detailed Granular Requirement Matrix in Drawer -->
+            content.innerHTML = `
+                <!-- Granular Requirement Breakdown Matrix -->
                 <div class="space-y-3">
                     <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider">Granular Job Requirement Breakdown</h3>
                     <div class="bg-inputbg p-4 rounded-xl text-xs space-y-3 border border-slate-800">
@@ -1426,19 +1433,22 @@
                         const timestamp = parsed.timestamp ? new Date(parsed.timestamp).toLocaleTimeString() : new Date().toLocaleTimeString();
                         if (parsed.event === 'connected' || parsed.event === 'ping') return;
 
-                        const logMessage = parsed.message || (parsed.data && parsed.data.message) || JSON.stringify(parsed.data || parsed);
-                        const entry = document.createElement('div');
-                        entry.className = "border-b border-cyan-950/40 pb-1 leading-snug";
-                        
-                        let colorClass = "text-cyan-300";
-                        if (parsed.event.includes('complete') || parsed.event.includes('success')) colorClass = "text-emerald-400";
-                        else if (parsed.event.includes('error') || parsed.event.includes('fail')) colorClass = "text-rose-400";
-                        
-                        entry.innerHTML = `<span class="text-slate-500">[${timestamp}]</span> <strong class="${colorClass}">${escapeHtml(parsed.event)}:</strong> <span class="text-slate-300">${escapeHtml(logMessage)}</span>`;
+                        // Filter out raw job titles bleeding into telemetry logs
+                        if (parsed.event === 'multi_tenant_telemetry' || parsed.event === 'career_swarm_update' || parsed.event === 'autopilot_progress' || parsed.event === 'autopilot_complete') {
+                            const logMessage = parsed.message || (parsed.data && parsed.data.message) || JSON.stringify(parsed.data || parsed);
+                            const entry = document.createElement('div');
+                            entry.className = "border-b border-cyan-950/40 pb-1 leading-snug";
+                            
+                            let colorClass = "text-cyan-300";
+                            if (parsed.event.includes('complete') || parsed.event.includes('success')) colorClass = "text-emerald-400";
+                            else if (parsed.event.includes('error') || parsed.event.includes('fail')) colorClass = "text-rose-400";
+                            
+                            entry.innerHTML = `<span class="text-slate-500">[${timestamp}]</span> <strong class="${colorClass}">${escapeHtml(parsed.event)}:</strong> <span class="text-slate-300">${escapeHtml(logMessage)}</span>`;
 
-                        if (careerLog) {
-                            careerLog.appendChild(entry);
-                            careerLog.scrollTop = careerLog.scrollHeight;
+                            if (careerLog) {
+                                careerLog.appendChild(entry);
+                                careerLog.scrollTop = careerLog.scrollHeight;
+                            }
                         }
                         
                         if (parsed.event === 'career_swarm_update') {
