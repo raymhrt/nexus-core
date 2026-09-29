@@ -313,7 +313,6 @@ def call_groq_ai(prompt: str, system_prompt: str = "You are the complete multi-t
     raise HTTPException(status_code=502, detail="Groq AI inference failed across all retry attempts.")
 
 async def expert_tailored_resume_generation(resume_content: str, job_description: str) -> str:
-    """Generator-Critic Self-Correction Loop for Elite ATS Resume Optimization."""
     gen_prompt = f"Tailor these resume impact bullets to strictly match this job description:\nResume: {resume_content}\nJob: {job_description}"
     draft_output = call_groq_ai(gen_prompt, system_prompt="You are an expert resume writer optimizing for high ATS keyword scores.")
 
@@ -395,7 +394,6 @@ async def multi_tenant_job_infiltration(target_roles: str, location: str, count:
     loc_lower = location.lower()
     is_sa_search = any(k in loc_lower for k in ["south africa", "johannesburg", "cape town", "pretoria", "durban"])
     
-    # Restrict platforms for SA to avoid Glassdoor/ZipRecruiter blocks
     active_sites = ["linkedin", "indeed"] if is_sa_search else ["linkedin", "indeed", "glassdoor", "zip_recruiter"]
 
     for term in search_permutations[:4]:
@@ -430,7 +428,6 @@ async def multi_tenant_job_infiltration(target_roles: str, location: str, count:
         except Exception as e:
             logger.error(f"JobSpy scraping exception for term '{term}': {e}")
 
-    # Fallback to Adzuna
     if len(discovered_jobs) < count:
         countries_to_try = ["za", "us"] if is_sa_search else ["us"]
         primary_term = search_permutations[0]
@@ -493,7 +490,6 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
             safe_portal_url = sanitize_ats_url(raw_url, role, company)
             real_lead = recursive_org_chart_decision_maker_discovery(company, role, desc, target_location="Global")
             
-            # Run Generator-Critic on resume tailoring with safety fallback
             try:
                 cv_variant = await expert_tailored_resume_generation(profile_content, desc)
             except Exception:
@@ -942,8 +938,51 @@ def get_career_matches(user=Depends(verify_api_key_only)):
             """
             cursor.execute(sql, (user["email"],))
 
-        matches = [dict(r) for r in cursor.fetchall()]
-    return {"status": "success", "matches": matches, "credits_remaining": user["credits"], "limit": user["limit"], "tier": user["tier"], "engine": "pgvector_cosine_similarity"}
+        raw_matches = [dict(r) for r in cursor.fetchall()]
+
+    # Normalize keys so the frontend dashboard never encounters undefined property mismatches
+    normalized_matches = []
+    for m in raw_matches:
+        role_t = m.get("role_title") or m.get("job_title") or ""
+        rat = m.get("rationale") or m.get("match_rationale") or ""
+        dm_name = m.get("networking_target_name") or m.get("decision_maker_name") or ""
+        dm_role = m.get("networking_target_role") or m.get("decision_maker_title") or ""
+        dm_email = m.get("networking_target_email") or m.get("decision_maker_email") or ""
+
+        normalized_matches.append({
+            "id": m.get("id"),
+            "company_name": m.get("company_name", ""),
+            "role_title": role_t,
+            "job_title": role_t,
+            "location": m.get("location", ""),
+            "fit_score": m.get("fit_score", 0),
+            "rationale": rat,
+            "match_rationale": rat,
+            "networking_target_name": dm_name,
+            "decision_maker_name": dm_name,
+            "networking_target_role": dm_role,
+            "decision_maker_title": dm_role,
+            "networking_target_email": dm_email,
+            "decision_maker_email": dm_email,
+            "warm_intro_pathway": m.get("warm_intro_pathway", ""),
+            "outreach_draft": m.get("outreach_draft", ""),
+            "salary_benchmark": m.get("salary_benchmark", ""),
+            "recruiter_verified": m.get("recruiter_verified", 1),
+            "negotiation_strategy": m.get("negotiation_strategy", ""),
+            "cv_variant": m.get("cv_variant", ""),
+            "interview_playbook": m.get("interview_playbook", ""),
+            "ats_portal_url": m.get("ats_portal_url", ""),
+            "status": m.get("status", "discovered")
+        })
+
+    return {
+        "status": "success", 
+        "matches": normalized_matches, 
+        "credits_remaining": user["credits"], 
+        "limit": user["limit"], 
+        "tier": user["tier"], 
+        "engine": "pgvector_cosine_similarity"
+    }
 
 @app.delete("/api/v1/career/matches/{match_id}")
 def delete_career_match(match_id: int, user=Depends(verify_api_key_only)):
