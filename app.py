@@ -66,6 +66,9 @@ if DATABASE_URL:
     except Exception as e:
         logger.warning(f"Database connection pool initialization failed: {e}")
 
+# Global Concurrency Throttle Semaphore (Max 2 concurrent AI inference calls to prevent HTTP 429)
+AI_EVAL_SEMAPHORE = asyncio.Semaphore(2)
+
 class SSETelemetryBroker:
     def __init__(self):
         self.subscribers: List[asyncio.Queue] = []
@@ -166,7 +169,6 @@ def compute_skill_gaps(resume_text: str, job_title: str, job_description: str = 
     resume_lower = resume_text.lower()
     desc_lower = job_description.lower()
     
-    # Dynamic keyword extraction from JD & Resume
     common_skills = [
         "python", "molecular biology", "biochemistry", "structural biology", "x-ray crystallography",
         "spr", "itc", "protein-dna", "drug-discovery", "machine learning", "pytorch", "aws", "docker",
@@ -320,8 +322,8 @@ def call_groq_ai(prompt: str, system_prompt: str = "You are the complete multi-t
         "temperature": 0.2
     }
 
-    base_delay = 2.0
-    for attempt in range(1, 4):
+    max_retries = 5
+    for attempt in range(max_retries):
         try:
             res = requests.post(url, json=payload, headers=headers, timeout=25)
             if res.status_code == 200:
@@ -329,10 +331,19 @@ def call_groq_ai(prompt: str, system_prompt: str = "You are the complete multi-t
                 output = data["choices"][0]["message"]["content"]
                 set_cached_ai_response(cache_key, output)
                 return output
-            elif res.status_code in [429, 503, 502]:
-                time.sleep(base_delay ** attempt)
-        except Exception:
-            time.sleep(2.0)
+            elif res.status_code in [429, 502, 503]:
+                # Exponential backoff with jitter
+                sleep_time = (2 ** attempt) + random.uniform(0.5, 1.5)
+                logger.warning(f"Groq API status {res.status_code} received. Retrying in {sleep_time:.2f}s (attempt {attempt + 1}/{max_retries})...")
+                time.sleep(sleep_time)
+            else:
+                res.raise_for_status()
+        except Exception as e:
+            if attempt == max_retries - 1:
+                raise HTTPException(status_code=502, detail=f"Groq AI inference failed across all retry attempts: {str(e)}")
+            sleep_time = (2 ** attempt) + random.uniform(0.5, 1.5)
+            time.sleep(sleep_time)
+            
     raise HTTPException(status_code=502, detail="Groq AI inference failed across all retry attempts.")
 
 async def expert_tailored_resume_generation(resume_content: str, job_description: str) -> str:
@@ -476,6 +487,8 @@ async def multi_tenant_job_infiltration(target_roles: str, location: str, count:
 
 async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email: str, semaphore: asyncio.Semaphore) -> Optional[Dict]:
     async with semaphore:
+        # Add a polite delay to respect RPM rate limits and stagger API requests
+        await asyncio.sleep(1.5)
         try:
             role = job.get('job_title', 'Target Role')
             company = job.get('company_name', 'Global Enterprise')
@@ -686,8 +699,8 @@ async def isolated_user_job_scouting_worker(user_email: str, requested_count: in
             await sse_broker.broadcast("career_swarm_update", {"user": user_email, "status": "no_jobs", "message": "Scouting completed, but zero live positions matched current aggregators."})
             return
         
-        eval_semaphore = asyncio.Semaphore(3)
-        evaluation_tasks = [evaluate_job_for_specific_user(job, profile_content, user_email, eval_semaphore) for job in raw_jobs[:20]]
+        # Use AI_EVAL_SEMAPHORE (max 2 concurrent) to prevent 429 rate limit storms
+        evaluation_tasks = [evaluate_job_for_specific_user(job, profile_content, user_email, AI_EVAL_SEMAPHORE) for job in raw_jobs[:20]]
         results = await asyncio.gather(*evaluation_tasks)
         
         valid_results = [m for m in results if m is not None]
@@ -821,8 +834,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="QuantCode Nexus Enterprise Apex API",
-    version="16.15.0",
-    description="Live Multi-Tenant Career Infiltration Engine with Dynamic Skill Gap Analysis.",
+    version="16.16.0",
+    description="Live Multi-Tenant Career Infiltration Engine with Rate-Limited Concurrency.",
     lifespan=lifespan
 )
 
