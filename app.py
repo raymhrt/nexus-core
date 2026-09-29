@@ -28,6 +28,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from dotenv import load_dotenv
 from psycopg2 import pool
 from psycopg2.extras import RealDictCursor
+from jobspy import scrape_jobs
 
 load_dotenv()
 
@@ -284,7 +285,7 @@ async def ai_adaptable_role_expansion(target_roles: str, user_profile_json: Opti
     Target Roles: "{target_roles}"
     User Master Profile / CV: {user_profile_json or 'None Provided'}
 
-    Generate a JSON array of 12 to 15 clean, atomic search phrases. Include both specific multi-word domain titles and broader single-word or dual-word core competencies (e.g. if looking for 'Senior Research Scientist - Molecular Biology', also include 'Molecular Biologist', 'Research Scientist', 'Biologist', 'Biochemistry') so that live job aggregators and ATS feeds reliably return matches.
+    Generate a JSON array of 12 to 15 clean, atomic search phrases. Include both specific multi-word domain titles and broader single-word or dual-word core competencies.
     Return ONLY a valid JSON array of strings (no markdown backticks, raw JSON only).
     """
     try:
@@ -317,23 +318,6 @@ async def ai_adaptable_role_expansion(target_roles: str, user_profile_json: Opti
                 derived_terms.append(words[-1])
                 derived_terms.append(" ".join(words[-2:]))
     
-    if user_profile_json:
-        try:
-            prof = json.loads(user_profile_json)
-            for skill in prof.get("skills", [])[:6]:
-                skill_clean = re.sub(r'[^a-zA-Z0-9\s]', '', skill).strip()
-                if len(skill_clean) > 2:
-                    derived_terms.append(skill_clean)
-            for r in prof.get("recommended_roles", []):
-                r_clean = re.sub(r'[^a-zA-Z0-9\s]', ' ', r).strip()
-                if len(r_clean) > 2:
-                    derived_terms.append(r_clean)
-                    words = r_clean.split()
-                    if words:
-                        derived_terms.append(words[-1])
-        except Exception:
-            pass
-
     return list(set(derived_terms))
 
 async def multi_tenant_job_infiltration(target_roles: str, location: str, count: int, user_profile_json: Optional[str] = None) -> List[Dict]:
@@ -360,31 +344,54 @@ async def multi_tenant_job_infiltration(target_roles: str, location: str, count:
     discovered_jobs = []
     seen_urls = set()
 
-    loc_lower = location.lower()
-    is_sa_search = any(k in loc_lower for k in ["south africa", "johannesburg", "cape town", "pretoria", "durban"])
-    countries_to_try = ["za", "us"] if is_sa_search else ["us"]
+    primary_term = search_permutations[0] if search_permutations else target_roles
+    logger.info(f"Executing JobSpy scrape for term: '{primary_term}' in location: '{location}'")
 
-    logger.info(f"Live search permutations: {search_permutations[:15]} | Countries: {countries_to_try} | Adzuna Enabled: {bool(ADZUNA_APP_ID and ADZUNA_APP_KEY)}")
+    try:
+        loop = asyncio.get_running_loop()
+        df_jobs = await loop.run_in_executor(
+            None, 
+            lambda: scrape_jobs(
+                site_name=["linkedin", "indeed", "google"],
+                search_term=primary_term,
+                location=location,
+                results_wanted=max(count * 5, 25),
+                hours_old=168,
+                country_indeed='South Africa' if 'south africa' in location.lower() or 'johannesburg' in location.lower() else 'USA'
+            )
+        )
+        
+        if df_jobs is not None and not df_jobs.empty:
+            for _, row in df_jobs.iterrows():
+                job_item = {
+                    "company_name": str(row.get("company", "Global Enterprise")),
+                    "job_title": str(row.get("title", primary_term)),
+                    "location": str(row.get("location", location)),
+                    "job_description": str(row.get("description", "Full job specs available on direct ATS portal.")),
+                    "ats_portal_url": str(row.get("job_url", ""))
+                }
+                if validate_real_world_job(job_item) and job_item["ats_portal_url"] not in seen_urls:
+                    seen_urls.add(job_item["ats_portal_url"])
+                    discovered_jobs.append(job_item)
+            logger.info(f"JobSpy successfully collected {len(discovered_jobs)} raw jobs.")
+    except Exception as e:
+        logger.error(f"JobSpy scraping exception: {e}")
 
-    for country in countries_to_try:
-        if len(discovered_jobs) >= count * 15:
-            break
-            
-        for term in search_permutations[:15]:
-            encoded_query = urllib.parse.quote(term)
-            
+    if len(discovered_jobs) < count:
+        loc_lower = location.lower()
+        is_sa_search = any(k in loc_lower for k in ["south africa", "johannesburg", "cape town", "pretoria", "durban"])
+        countries_to_try = ["za", "us"] if is_sa_search else ["us"]
+
+        for country in countries_to_try:
             if ADZUNA_APP_ID and ADZUNA_APP_KEY:
                 try:
-                    adzuna_url = f"https://api.adzuna.com/v1/api/jobs/{country}/search/1?app_id={ADZUNA_APP_ID}&app_key={ADZUNA_APP_KEY}&what={encoded_query}&content-type=application/json"
+                    adzuna_url = f"https://api.adzuna.com/v1/api/jobs/{country}/search/1?app_id={ADZUNA_APP_ID}&app_key={ADZUNA_APP_KEY}&what={urllib.parse.quote(primary_term)}&content-type=application/json"
                     res = requests.get(adzuna_url, timeout=6)
-                    logger.info(f"Adzuna API query [country: {country}, term: '{term}'] -> Status: {res.status_code}")
                     if res.status_code == 200:
-                        results = res.json().get("results", [])
-                        logger.info(f"Adzuna returned {len(results)} raw items for term '{term}'.")
-                        for item in results:
+                        for item in res.json().get("results", []):
                             job_item = {
                                 "company_name": item.get("company", {}).get("display_name", "Global Enterprise"),
-                                "job_title": item.get("title", term),
+                                "job_title": item.get("title", primary_term),
                                 "location": item.get("location", {}).get("display_name", location),
                                 "job_description": item.get("description", "Full job specs available on direct ATS portal."),
                                 "ats_portal_url": item.get("redirect_url", "")
@@ -392,42 +399,10 @@ async def multi_tenant_job_infiltration(target_roles: str, location: str, count:
                             if validate_real_world_job(job_item) and job_item["ats_portal_url"] not in seen_urls:
                                 seen_urls.add(job_item["ats_portal_url"])
                                 discovered_jobs.append(job_item)
-                    else:
-                        logger.warning(f"Adzuna API warning: Status {res.status_code} - {res.text[:200]}")
-                except Exception as e:
-                    logger.error(f"Adzuna API exception for term '{term}': {e}")
+                except Exception:
+                    pass
 
-            for feed_base in [
-                f"https://jobs.sciencecareers.org/jobs/rss/?keywords={encoded_query}",
-                f"https://www.nature.com/naturecareers/jobs/rss/?keywords={encoded_query}"
-            ]:
-                try:
-                    res = requests.get(feed_base, timeout=6, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) NexusComplete/16.13"})
-                    if res.status_code == 200:
-                        from bs4 import BeautifulSoup
-                        soup = BeautifulSoup(res.text, 'xml')
-                        items = soup.find_all('item')
-                        logger.info(f"RSS feed [{feed_base}] returned {len(items)} items for term '{term}'.")
-                        for item in items:
-                            title = item.find('title')
-                            link = item.find('link')
-                            desc = item.find('description')
-                            
-                            if title and link:
-                                job_item = {
-                                    "company_name": "Global Research Institution",
-                                    "job_title": title.get_text(strip=True),
-                                    "location": "Global / Remote",
-                                    "job_description": desc.get_text(strip=True) if desc else "Refer to portal for specifications.",
-                                    "ats_portal_url": link.get_text(strip=True)
-                                }
-                                if validate_real_world_job(job_item) and job_item["ats_portal_url"] not in seen_urls:
-                                    seen_urls.add(job_item["ats_portal_url"])
-                                    discovered_jobs.append(job_item)
-                except Exception as e:
-                    logger.warning(f"RSS feed warning for {feed_base}: {e}")
-
-    logger.info(f"Total valid unique raw jobs collected across all permutations: {len(discovered_jobs)}")
+    logger.info(f"Total valid unique raw jobs collected: {len(discovered_jobs)}")
     return discovered_jobs[:max(count * 8, 40)]
 
 async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email: str) -> Optional[Dict]:
