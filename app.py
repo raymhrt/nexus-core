@@ -392,20 +392,26 @@ async def multi_tenant_job_infiltration(target_roles: str, location: str, count:
     seen_urls = set()
     loop = asyncio.get_running_loop()
 
+    loc_lower = location.lower()
+    is_sa_search = any(k in loc_lower for k in ["south africa", "johannesburg", "cape town", "pretoria", "durban"])
+    
+    # Restrict platforms for SA to avoid Glassdoor/ZipRecruiter blocks
+    active_sites = ["linkedin", "indeed"] if is_sa_search else ["linkedin", "indeed", "glassdoor", "zip_recruiter"]
+
     for term in search_permutations[:4]:
         if len(discovered_jobs) >= count * 15:
             break
-        logger.info(f"Executing parallel JobSpy scrape for term: '{term}' in location: '{location}'")
+        logger.info(f"Executing parallel JobSpy scrape for term: '{term}' in location: '{location}' across {active_sites}")
         try:
             df_jobs = await loop.run_in_executor(
                 None, 
                 lambda: scrape_jobs(
-                    site_name=["linkedin", "indeed", "glassdoor", "zip_recruiter"],
+                    site_name=active_sites,
                     search_term=term,
                     location=location,
                     results_wanted=20,
                     hours_old=168,
-                    country_indeed='South Africa' if 'south africa' in location.lower() or 'johannesburg' in location.lower() else 'USA'
+                    country_indeed='South Africa' if is_sa_search else 'USA'
                 )
             )
             
@@ -424,9 +430,8 @@ async def multi_tenant_job_infiltration(target_roles: str, location: str, count:
         except Exception as e:
             logger.error(f"JobSpy scraping exception for term '{term}': {e}")
 
+    # Fallback to Adzuna
     if len(discovered_jobs) < count:
-        loc_lower = location.lower()
-        is_sa_search = any(k in loc_lower for k in ["south africa", "johannesburg", "cape town", "pretoria", "durban"])
         countries_to_try = ["za", "us"] if is_sa_search else ["us"]
         primary_term = search_permutations[0]
 
@@ -1074,7 +1079,6 @@ async def multi_turn_interview_session(payload: MultiTurnInterviewInput, auth: d
 
     history.append({"role": "user", "content": payload.user_message})
 
-    # Episodic Cross-Session Memory integration for coaching
     system_prompt = f"You are a rigorous hiring manager agent interviewing candidate {auth['email']} for {payload.role}. Challenge their assumptions, reference prior coaching sessions, and maintain a professional tone."
     
     prompt_chain = "\n".join([f"{m['role'].upper()}: {m['content']}" for m in history])
