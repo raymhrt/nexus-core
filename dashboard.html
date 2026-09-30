@@ -254,7 +254,7 @@
                                 <!-- Adjustable Match Percentage Filter Slider Control -->
                                 <div class="pt-1">
                                     <label class="block text-[11px] font-semibold text-slate-300 mb-1">Min Match Fit Filter: <span id="minFitLabel" class="text-sky-400 font-bold">70%</span></label>
-                                    <input type="range" id="minMatchFitSlider" min="50" max="95" step="5" value="70" oninput="updateMinFitLabel(this.value)" onchange="applyMatchFilter()" class="w-full accent-sky-400 cursor-pointer">
+                                    <input type="range" id="minMatchFitSlider" min="50" max="95" step="5" value="70" oninput="updateMinFitLabel(this.value)" onchange="loadCareerMatches()" class="w-full accent-sky-400 cursor-pointer">
                                 </div>
                             </div>
                         </div>
@@ -907,54 +907,30 @@
         }
 
         async function loadCareerMatches() {
-            const btn = document.getElementById('refresh-matches-btn');
-            const originalHTML = btn ? btn.innerHTML : '';
-            if (btn) {
-                btn.disabled = true;
-                btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin text-cyan-400"></i>`;
-            }
-
             const apiKey = document.getElementById('apiKey').value.trim();
-            if (!apiKey) {
-                renderJobMatches([]);
-                if (btn) { btn.innerHTML = originalHTML; btn.disabled = false; }
-                return;
-            }
+            if (!apiKey) return;
+
+            const minFitSlider = document.getElementById('minMatchFitSlider');
+            const minFit = minFitSlider ? minFitSlider.value : 70;
 
             try {
-                const response = await fetch('/api/v1/career/matches', { headers: { 'x-api-key': apiKey } });
-                if (!response.ok) throw new Error('Failed to fetch matches. Check API key.');
+                const response = await fetch(`/api/v1/career/matches?min_fit=${minFit}`, { 
+                    headers: { 'x-api-key': apiKey } 
+                });
+                if (!response.ok) throw new Error('Failed to fetch matches.');
                 const data = await response.json();
                 
                 if (data.matches) {
                     cachedCareerMatches = data.matches;
                     applyMatchFilter();
-                    
                     document.getElementById('kpiTotalScanned').innerText = data.matches.length;
-
-                    if (data.credits_remaining !== undefined) {
-                        document.getElementById('sidebarCreditCount').innerText = data.credits_remaining;
-                    }
-                    if (data.limit !== undefined) {
-                        document.getElementById('sidebarCreditLimit').innerText = data.limit;
-                    }
-                    if (data.tier) {
-                        document.getElementById('sidebarTierBadge').innerText = data.tier;
-                    }
                     loadCredits();
                     showToast("Career matches refreshed successfully!");
-                } else {
-                    renderJobMatches([]);
                 }
             } catch (err) {
                 console.error('Failed to load career matches:', err);
                 renderJobMatches([]);
                 showToast(err.message || "Failed to refresh matches.", true);
-            } finally {
-                if (btn) {
-                    btn.innerHTML = originalHTML;
-                    btn.disabled = false;
-                }
             }
         }
 

@@ -137,7 +137,6 @@ def sanitize_job_title(title: str) -> str:
     if not title:
         return "Professional Role"
     cleaned = re.sub(r'\s+', ' ', title).strip()
-    # Clean up chopped or repeated institutional artifacts safely
     cleaned = re.sub(r'(?i)\b(Research Inno|Innovation Office Research Inno)$', 'Innovation Officer', cleaned)
     if len(cleaned) > 60:
         cleaned = cleaned[:57] + "..."
@@ -903,7 +902,7 @@ def get_credits(user=Depends(verify_api_key_only)):
     return {"status": "success", "credits": user["credits"], "limit": user["limit"], "tier": user["tier"]}
 
 @app.get("/api/v1/career/matches")
-def get_career_matches(user=Depends(verify_api_key_only)):
+def get_career_matches(min_fit: int = Query(50, ge=0, le=100), user=Depends(verify_api_key_only)):
     with db_transaction_scope() as (_, cursor):
         if DATABASE_URL:
             try:
@@ -930,10 +929,10 @@ def get_career_matches(user=Depends(verify_api_key_only)):
                            ats_portal_url, status,
                            1 - (embedding <=> %s::vector) AS semantic_similarity
                     FROM job_matches 
-                    WHERE user_email = %s AND fit_score >= 50
+                    WHERE user_email = %s AND fit_score >= %s
                     ORDER BY semantic_similarity DESC, timestamp DESC
                 """
-                cursor.execute(sql, (user_embedding, user["email"]))
+                cursor.execute(sql, (user_embedding, user["email"], min_fit))
             else:
                 sql = """
                     SELECT id, company_name, job_title as role_title, location, fit_score, match_rationale as rationale, 
@@ -943,10 +942,10 @@ def get_career_matches(user=Depends(verify_api_key_only)):
                            salary_benchmark, recruiter_verified, negotiation_strategy, cv_variant, cover_letter_variant, interview_playbook, 
                            ats_portal_url, status 
                     FROM job_matches 
-                    WHERE user_email = %s AND fit_score >= 50
+                    WHERE user_email = %s AND fit_score >= %s
                     ORDER BY timestamp DESC
                 """
-                cursor.execute(sql, (user["email"],))
+                cursor.execute(sql, (user["email"], min_fit))
         else:
             sql = """
                 SELECT id, company_name, job_title as role_title, location, fit_score, match_rationale as rationale, 
@@ -956,10 +955,10 @@ def get_career_matches(user=Depends(verify_api_key_only)):
                        salary_benchmark, recruiter_verified, negotiation_strategy, cv_variant, cover_letter_variant, interview_playbook, 
                        ats_portal_url, status 
                 FROM job_matches 
-                WHERE user_email = ? AND fit_score >= 50
+                WHERE user_email = ? AND fit_score >= ?
                 ORDER BY timestamp DESC
             """
-            cursor.execute(sql, (user["email"],))
+            cursor.execute(sql, (user["email"], min_fit))
 
         raw_matches = [dict(r) for r in cursor.fetchall()]
 
