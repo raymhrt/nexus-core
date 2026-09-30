@@ -206,12 +206,14 @@ def build_ghostwriter_prompt(master_cv_markdown: str, target_job_description: st
     You are an elite executive career strategist and technical CV writer.
     Your task is to tailor the candidate's Master CV to target the specific job description below.
 
-    RULES:
-    1. Base the tailored CV and cover letter on the provided Master CV text below. If the text is brief, expand professionally while keeping it realistic.
-    2. Return ONLY a valid JSON object matching the requested keys. No conversational preamble, no refusal text.
+    ABSOLUTE ZERO-HALLUCINATION RULES:
+    1. STRICT FACTUAL ACCURACY: You MUST use ONLY the candidate's actual name, education (University of the Witwatersrand), real degrees, real employment history (PhD Researcher at Wits, Production Manager at Transvaal Electric Motors), and real publications present in the Master CV below. 
+    2. NEVER invent fake names (e.g., Alex Morgan), fake locations (e.g., Boston, MA), or fake companies (e.g., BioNova Therapeutics). Keep Johannesburg, South Africa and the user's actual credentials intact.
+    3. STRATEGIC REFRAMING: Reorder bullet points, highlight relevant technical skills (e.g., SPR, ITC, protein biochemistry, assay optimization), and weave keywords from the target job description naturally into the professional summary and experience descriptions *without changing historical facts*.
+    4. Return ONLY a valid JSON object matching the requested keys. No conversational preamble, no refusal text.
 
     ---
-    USER'S MASTER CV:
+    USER'S MASTER CV (THE ONLY SOURCE OF TRUTH):
     {cv_content}
     ---
     
@@ -232,8 +234,8 @@ def build_ghostwriter_prompt(master_cv_markdown: str, target_job_description: st
     - "critical_missing": ["Missing 1", "Missing 2"]
     - "top_rejection_risks": ["Risk 1", "Risk 2", "Risk 3"]
     - "match_rationale": ["Rationale 1", "Rationale 2", "Rationale 3"]
-    - "tailored_cv": "A complete Markdown CV based on the user's background."
-    - "tailored_cover_letter": "A complete cover letter addressed to {company_name}."
+    - "tailored_cv": "A complete, ATS-optimized Markdown CV using Dr. Raymond Hartman's actual credentials and tailored to the job description."
+    - "tailored_cover_letter": "A compelling cover letter addressed to {company_name} highlighting Raymond's actual Wits PhD research and publications."
     - "salary_benchmark": "Estimated compensation range"
     - "negotiation_strategy": "Strategy details"
     - "interview_playbook": [{{"stage": "Screening", "focus": "Focus areas"}}, {{"stage": "Technical", "focus": "Focus areas"}}]
@@ -523,7 +525,6 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
             loop = asyncio.get_running_loop()
             raw_eval = await loop.run_in_executor(None, call_groq_ai, eval_prompt, "You are an elite recruitment AI returning precise raw JSON.")
             
-            # DEBUG LINE TO SEE WHAT GROQ ACTUALLY RETURNED:
             logger.info(f"RAW GROQ RESPONSE FOR MATCH {job.get('job_title')}: {raw_eval[:300]}...")
 
             eval_data = extract_json_safely(raw_eval, {})
@@ -1163,10 +1164,6 @@ async def tailor_user_specific_cv(
     payload: TailorRequest,
     auth: dict = Depends(verify_api_key_only)
 ):
-    """
-    Multi-tenant endpoint that fetches the authenticated user's master CV from user_profiles 
-    and applies a strict anti-hallucination prompt to generate an ATS-optimized tailored CV.
-    """
     with db_transaction_scope() as (_, cursor):
         cursor.execute(
             "SELECT profile_json FROM user_profiles WHERE email = %s" if DATABASE_URL else "SELECT profile_json FROM user_profiles WHERE email = ?",
