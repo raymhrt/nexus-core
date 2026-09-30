@@ -148,13 +148,23 @@ def extract_json_safely(raw_text: str, default: Any = None) -> Any:
     if not raw_text:
         return default
     try:
-        clean = re.sub(r'```(?:json)?\s*', '', raw_text)
-        clean = re.sub(r'\s*```', '', clean)
-        jm = re.search(r'(\{.*\}|\[.*\])', clean, re.DOTALL)
-        if jm:
-            return json.loads(jm.group(0))
+        clean = raw_text.strip()
+        if clean.startswith("```json"):
+            clean = clean[7:]
+        elif clean.startswith("```"):
+            clean = clean[3:]
+        if clean.endswith("```"):
+            clean = clean[:-3]
+        clean = clean.strip()
+        
         return json.loads(clean)
     except Exception:
+        try:
+            jm = re.search(r'(\{.*\}|\[.*\])', raw_text, re.DOTALL)
+            if jm:
+                return json.loads(jm.group(0))
+        except Exception:
+            pass
         return default
 
 def generate_text_embedding(text: str) -> List[float]:
@@ -186,61 +196,53 @@ def validate_real_world_job(job: dict) -> bool:
 def sanitize_ats_url(url: str, role_title: str, company_name: str) -> str:
     if url and "example" not in url and ("http://" in url or "https://" in url):
         return url
-    return f"https://www.linkedin.com/jobs/search/?keywords={urllib.parse.quote(role_title + ' ' + company_name)}"
+    return f"[https://www.linkedin.com/jobs/search/?keywords=](https://www.linkedin.com/jobs/search/?keywords=){urllib.parse.quote(role_title + ' ' + company_name)}"
 
 # ==================== ELITE STRATEGIST GHOSTWRITER PROMPT ENGINE ====================
 def build_ghostwriter_prompt(master_cv_markdown: str, target_job_description: str, target_role: str, company_name: str) -> str:
     return f"""
-    You are an elite hiring manager, enterprise ATS parsing engineer, and executive career strategist.
-    Your task is to evaluate the candidate's master CV against the target job description and generate a world-class, fully ATS-optimized tailored CV and cover letter that guarantees high machine parsing accuracy and interview conversion.
+    You are an elite executive career strategist and technical CV writer.
+    Your task is to tailor the candidate's exact Master CV to target the specific job description below.
 
-    CRITICAL MULTI-USER, ZERO-FABRICATION & ATS COMPLIANCE RULES:
-    1. ABSOLUTE SOURCE OF TRUTH: The USER'S MASTER CV provided below contains the candidate's real name, contact info, actual employment history, real educational degrees, and real publications. You MUST extract and use the user's actual name and details from it. NEVER output placeholder names like "John Doe".
-    2. ZERO FABRICATION: You are strictly FORBIDDEN from inventing, guessing, or altering:
-       - The candidate's real name, location, and contact details.
-       - Employment dates, company names, or job titles.
-       - Educational degrees, institutions, or graduation years.
-       - Publications, co-authors, journals, or publication years.
-       - Awards, scholarships, or certifications.
-    3. STRICT ATS OPTIMIZATION & PARSING COMPLIANCE:
-       - Use exact standard section headers recognized by ATS parsers: PROFESSIONAL SUMMARY, EDUCATION, CORE COMPETENCIES, TECHNICAL SKILLS, PROFESSIONAL EXPERIENCE, CERTIFICATIONS, AWARDS, PUBLICATIONS.
-       - Extract core keywords, technical tools, regulatory frameworks, and methodologies directly from the TARGET JOB DESCRIPTION below and integrate them naturally into the summary, core competencies, and experience bullet points to maximize keyword matching scores.
-       - Maintain a clean, single-column plain text / markdown layout with zero tables, zero graphics, and zero multi-column formatting.
-    4. TARGETED RE-FRAMING: Re-order and re-frame the user's *actual* experiences so they directly address the pain points and requirements of the target role: {target_role} at {company_name}.
+    CRITICAL RULES (NON-NEGOTIABLE):
+    1. ZERO PLACEHOLDERS / ZERO REDACTIONS: You are strictly forbidden from writing things like "Employment history available upon request" or leaving placeholder brackets like "[Your Name]" or "City, Country". You MUST use the exact name, locations, dates, institutions, degrees, and publication records from the user's Master CV provided below.
+    2. EXACT MASTER CV PRESERVATION: Retain the user's real institutions (e.g., University of the Witwatersrand, Transvaal Electric Motors) and real contact details (e.g., raymhrt@yahoo.com, Johannesburg, South Africa).
+    3. TARGETED RE-FRAMING: Re-order and re-phrase the bullet points under the user's *actual* experience to naturally integrate keywords from the target job description.
+    4. FORMATTING: Return the `tailored_cv` as a clean, complete, single-column Markdown document ready to be printed or parsed by an ATS.
 
     ---
-    USER'S MASTER CV (ABSOLUTE TRUTH):
+    USER'S MASTER CV (THE ABSOLUTE SOURCE OF TRUTH):
     {master_cv_markdown}
     ---
     
-    TARGET JOB DESCRIPTION:
+    TARGET JOB:
     Company: {company_name}
     Role: {target_role}
-    Description:
+    Job Description:
     {target_job_description}
     ---
     
-    EXECUTE THE FOLLOWING STEPS & RETURN STRICT JSON WITH THESE EXACT KEYS:
+    RETURN STRICT JSON WITH THESE EXACT KEYS:
     - "track": Choose ONE primary track ("A. Medical Affairs / MSL", "B. Clinical Research / CRA", "C. R&D / Laboratory Science / QC", "D. Commercial / Application Scientist", "E. Leadership / Strategy")
     - "seniority_fit": "Entry / Mid / Senior"
     - "fit_score": integer (0 to 99)
-    - "is_valid_match": boolean (set true for discovered positions)
-    - "matched_strengths": A JSON array of 3 distinct strings highlighting alignment strengths.
-    - "transferable_gaps": A JSON array of 3 strings detailing trainable or transferable gaps.
-    - "critical_missing": A JSON array of 2 strings identifying hard missing requirements or risk triggers.
-    - "top_rejection_risks": A JSON array of 3 targeted recruiter concerns.
-    - "match_rationale": A JSON array of 3 structured bullet strings detailing technical and strategic alignment.
-    - "tailored_cv": A fully formatted, ATS-compliant, 1-page markdown CV tailored specifically for the user matching this target role using ONLY their real master CV background, optimized with job-specific keywords and standard ATS headings.
-    - "tailored_cover_letter": A masterpiece cover letter written in the user's professional voice, addressed to the hiring team at {company_name}, incorporating their real doctoral/professional background and real name.
-    - "salary_benchmark": Estimated compensation range.
-    - "negotiation_strategy": Salary leverage points.
-    - "interview_playbook": A JSON array of 3 objects with keys "stage" and "focus".
+    - "is_valid_match": boolean (true)
+    - "matched_strengths": ["Strength 1", "Strength 2", "Strength 3"]
+    - "transferable_gaps": ["Gap 1", "Gap 2", "Gap 3"]
+    - "critical_missing": ["Missing 1", "Missing 2"]
+    - "top_rejection_risks": ["Risk 1", "Risk 2", "Risk 3"]
+    - "match_rationale": ["Rationale 1", "Rationale 2", "Rationale 3"]
+    - "tailored_cv": "A complete, fully written-out Markdown CV containing the user's real background, real jobs, real education, and tailored bullet points. NO PLACEHOLDERS."
+    - "tailored_cover_letter": "A complete cover letter written using the user's real name and background, addressed to {company_name}."
+    - "salary_benchmark": "Estimated compensation range"
+    - "negotiation_strategy": "Strategy details"
+    - "interview_playbook": [{{"stage": "Screening", "focus": "Focus areas"}}, {{"stage": "Technical", "focus": "Focus areas"}}]
     """
 
 def fetch_real_time_company_intelligence(company_name: str) -> str:
     try:
         clean_name = company_name.strip()
-        search_url = f"https://html.duckduckgo.com/html/?q={urllib.parse.quote(clean_name + ' news company milestones')}"
+        search_url = f"[https://html.duckduckgo.com/html/?q=](https://html.duckduckgo.com/html/?q=){urllib.parse.quote(clean_name + ' news company milestones')}"
         headers = {"User-Agent": "Mozilla/5.0"}
         res = requests.get(search_url, headers=headers, timeout=4)
         if res.status_code == 200:
@@ -286,7 +288,7 @@ def recursive_org_chart_decision_maker_discovery(company_name: str, job_title: s
 
     if HUNTER_API_KEY and c_clean:
         try:
-            url = f"https://api.hunter.io/v2/domain-search?domain={clean_domain}&department=executive&api_key={HUNTER_API_KEY}"
+            url = f"[https://api.hunter.io/v2/domain-search?domain=](https://api.hunter.io/v2/domain-search?domain=){clean_domain}&department=executive&api_key={HUNTER_API_KEY}"
             res = requests.get(url, timeout=5)
             if res.status_code == 200:
                 data = res.json().get("data", {})
@@ -349,7 +351,7 @@ def call_groq_ai(prompt: str, system_prompt: str = "You are the complete multi-t
     if cached:
         return cached
 
-    url = "https://api.groq.com/openai/v1/chat/completions"
+    url = "[https://api.groq.com/openai/v1/chat/completions](https://api.groq.com/openai/v1/chat/completions)"
     headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
     payload = {
         "model": "openai/gpt-oss-120b",
@@ -486,7 +488,7 @@ async def multi_tenant_job_infiltration(target_roles: str, location: str, count:
         for country in countries_to_try:
             if ADZUNA_APP_ID and ADZUNA_APP_KEY:
                 try:
-                    adzuna_url = f"https://api.adzuna.com/v1/api/jobs/{country}/search/1?app_id={ADZUNA_APP_ID}&app_key={ADZUNA_APP_KEY}&what={urllib.parse.quote(primary_term)}&content-type=application/json"
+                    adzuna_url = f"[https://api.adzuna.com/v1/api/jobs/](https://api.adzuna.com/v1/api/jobs/){country}/search/1?app_id={ADZUNA_APP_ID}&app_key={ADZUNA_APP_KEY}&what={urllib.parse.quote(primary_term)}&content-type=application/json"
                     res = requests.get(adzuna_url, timeout=6)
                     if res.status_code == 200:
                         for item in res.json().get("results", []):
@@ -1294,7 +1296,7 @@ async def dispatch_career_outreach(match_id: int, payload: OutreachDispatchReque
 
     if RESEND_API_KEY:
         headers = {"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"}
-        res = requests.post("https://api.resend.com/emails", json={
+        res = requests.post("[https://api.resend.com/emails](https://api.resend.com/emails)", json={
             "from": f"Swarm <{SENDER_EMAIL}>", 
             "to": [target_email], 
             "subject": payload.subject, 
@@ -1349,8 +1351,8 @@ def create_checkout_session(payload: Optional[PortalSessionRequest] = None, chec
         price_id = os.getenv("STRIPE_PRO_PRICE_ID", "price_1M...") if tier == "pro" else os.getenv("STRIPE_ENTERPRISE_PRICE_ID", "price_2M...")
         
         email = auth["email"] if auth else "user@example.com"
-        success_url = os.getenv("SUCCESS_URL", "https://nexus-core-yfou.onrender.com/?success=true")
-        cancel_url = os.getenv("CANCEL_URL", "https://nexus-core-yfou.onrender.com/?canceled=true")
+        success_url = os.getenv("SUCCESS_URL", "[https://nexus-core-yfou.onrender.com/?success=true](https://nexus-core-yfou.onrender.com/?success=true)")
+        cancel_url = os.getenv("CANCEL_URL", "[https://nexus-core-yfou.onrender.com/?canceled=true](https://nexus-core-yfou.onrender.com/?canceled=true)")
 
         checkout_session = stripe.checkout.Session.create(
             payment_method_types=['card'],
@@ -1376,7 +1378,7 @@ def create_customer_portal_session(auth: dict = Depends(verify_api_key_only)):
         if not customer_id:
             raise HTTPException(status_code=400, detail="No active Stripe customer account found.")
 
-        return_url = os.getenv("SUCCESS_URL", "https://nexus-core-yfou.onrender.com/")
+        return_url = os.getenv("SUCCESS_URL", "[https://nexus-core-yfou.onrender.com/](https://nexus-core-yfou.onrender.com/)")
         portal_session = stripe.billing_portal.Session.create(
             customer=customer_id,
             return_url=return_url
