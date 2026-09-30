@@ -751,7 +751,7 @@
             if (wave) wave.classList.add('hidden');
         }
 
-        // Kanban Drag & Drop with Confetti
+        // Kanban Drag & Drop with Confetti & Rollback Protection
         function allowDrop(ev) {
             ev.preventDefault();
         }
@@ -766,6 +766,7 @@
             const match = cachedCareerMatches.find(m => (m.id || 1) === matchId);
             if (!match) return;
 
+            const previousStatus = match.status || 'discovered';
             match.status = newStatus;
             renderKanbanBoard(cachedCareerMatches);
 
@@ -781,12 +782,18 @@
             const apiKey = document.getElementById('apiKey').value.trim();
             if (apiKey) {
                 try {
-                    await fetch(`/api/v1/career/matches/${matchId}/status`, {
+                    const res = await fetch(`/api/v1/career/matches/${matchId}/status`, {
                         method: 'PATCH',
                         headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
                         body: JSON.stringify({ status: newStatus })
                     });
-                } catch(e) {}
+                    if (!res.ok) throw new Error('Failed to update status on server');
+                } catch(e) {
+                    // Rollback state if server sync fails
+                    match.status = previousStatus;
+                    renderKanbanBoard(cachedCareerMatches);
+                    showToast("Failed to sync status change with server. Reverting card.", true);
+                }
             }
         }
 
