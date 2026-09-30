@@ -188,37 +188,46 @@ def sanitize_ats_url(url: str, role_title: str, company_name: str) -> str:
         return url
     return f"https://www.linkedin.com/jobs/search/?keywords={urllib.parse.quote(role_title + ' ' + company_name)}"
 
+# ==================== ELITE STRATEGIST GHOSTWRITER PROMPT ENGINE ====================
 def build_ghostwriter_prompt(master_cv_markdown: str, target_job_description: str, target_role: str, company_name: str) -> str:
     return f"""
     You are an elite career strategist, ATS optimization expert, and hiring decision analyst.
-    
-    CRITICAL MULTI-USER GROUNDING RULES:
+    Your task is NOT just to rewrite a CV, but to dynamically POSITION the candidate correctly based on the target job, while maximizing interview conversion probability.
+    The system must self-correct for:
+    - Role seniority mismatch
+    - Career path misalignment
+    - Industry experience gaps
+    - Recruiter risk perception
+
+    CRITICAL MULTI-USER & ZERO-FABRICATION GROUNDING RULES:
     1. IMMUTABLE TRUTH: The USER'S MASTER CV provided below is the ABSOLUTE source of truth. 
     2. ZERO FABRICATION: You are strictly FORBIDDEN from inventing, guessing, or altering:
        - Employment dates, company names, or job titles.
        - Educational degrees, institutions, or graduation years.
        - Publications, co-authors, journals, or publication years.
        - Awards, scholarships, or certifications.
-    3. TARGETED EMPHASIS ONLY: Your job is solely to re-order, re-frame, and highlight the user's *actual* existing experiences, core competencies, and technical skills so they align with the keywords and requirements of the target job description.
-    4. OMISSION IS BETTER THAN FABRICATION: If the user's Master CV does not contain a specific required skill for the target job, do not invent experience for it. Instead, highlight transferable skills or omit the missing skill gracefully.
-    
+    3. TARGETED POSITIONING & RE-FRAMING: Re-order, re-frame, and highlight the user's *actual* existing experiences, core competencies, and technical skills so they align with the keywords and requirements of the target job description. Translate academic work into industry-relevant operational and compliance language where appropriate.
+    4. STRICT FORMATTING: The tailored CV MUST be strictly formatted so it can fit on ONE A4 page (concise, high impact), highly scannable in 5–7 seconds, optimized for ATS parsers (no tables, no graphics), and focused on a SINGLE clear career narrative aligned to the job.
+
     ---
-    USER'S MASTER CV:
+    CANDIDATE MASTER RESUME:
     {master_cv_markdown}
     ---
     
-    Target Job: {target_role} at {company_name}
-    Job Description:
+    TARGET JOB DESCRIPTION:
+    Company: {company_name}
+    Role: {target_role}
+    Description:
     {target_job_description}
     ---
     
-    Perform a rigorous evaluation and return STRICT JSON with these exact keys:
-    - "track": Choose ONE ("A. Medical Affairs / MSL", "B. Clinical Research / CRA", "C. R&D / Laboratory Science / QC", "D. Commercial / Application Scientist", "E. Leadership / Strategy")
+    EXECUTE THE FOLLOWING STEPS & RETURN STRICT JSON WITH THESE EXACT KEYS:
+    - "track": Choose ONE primary track ("A. Medical Affairs / MSL", "B. Clinical Research / CRA", "C. R&D / Laboratory Science / QC", "D. Commercial / Application Scientist", "E. Leadership / Strategy")
     - "seniority_fit": "Entry / Mid / Senior"
     - "fit_score": integer (0 to 99)
     - "is_valid_match": boolean (true only if fit_score >= 50)
-    - "matched_strengths": A JSON array of 3 distinct strings highlighting alignment.
-    - "transferable_gaps": A JSON array of 3 strings detailing trainable gaps.
+    - "matched_strengths": A JSON array of 3 distinct strings highlighting alignment strengths.
+    - "transferable_gaps": A JSON array of 3 strings detailing trainable or transferable gaps.
     - "critical_missing": A JSON array of 2 strings identifying hard missing requirements or risk triggers.
     - "top_rejection_risks": A JSON array of 3 targeted recruiter concerns.
     - "match_rationale": A JSON array of 3 structured bullet strings detailing technical and strategic alignment.
