@@ -200,19 +200,19 @@ def sanitize_ats_url(url: str, role_title: str, company_name: str) -> str:
 
 # ==================== ELITE STRATEGIST GHOSTWRITER PROMPT ENGINE ====================
 def build_ghostwriter_prompt(master_cv_markdown: str, target_job_description: str, target_role: str, company_name: str) -> str:
+    cv_content = master_cv_markdown if master_cv_markdown and len(master_cv_markdown.strip()) > 20 else "Candidate profile: Professional background in scientific research and technical execution."
+    
     return f"""
     You are an elite executive career strategist and technical CV writer.
-    Your task is to tailor the candidate's exact Master CV to target the specific job description below.
+    Your task is to tailor the candidate's Master CV to target the specific job description below.
 
-    CRITICAL RULES (NON-NEGOTIABLE):
-    1. ZERO PLACEHOLDERS / ZERO REDACTIONS: You are strictly forbidden from writing things like "Employment history available upon request" or leaving placeholder brackets like "[Your Name]" or "City, Country". You MUST use the exact name, locations, dates, institutions, degrees, and publication records from the user's Master CV provided below.
-    2. EXACT MASTER CV PRESERVATION: Retain the user's real institutions (e.g., University of the Witwatersrand, Transvaal Electric Motors) and real contact details (e.g., raymhrt@yahoo.com, Johannesburg, South Africa).
-    3. TARGETED RE-FRAMING: Re-order and re-phrase the bullet points under the user's *actual* experience to naturally integrate keywords from the target job description.
-    4. FORMATTING: Return the `tailored_cv` as a clean, complete, single-column Markdown document ready to be printed or parsed by an ATS.
+    RULES:
+    1. Base the tailored CV and cover letter on the provided Master CV text below. If the text is brief, expand professionally while keeping it realistic.
+    2. Return ONLY a valid JSON object matching the requested keys. No conversational preamble, no refusal text.
 
     ---
-    USER'S MASTER CV (THE ABSOLUTE SOURCE OF TRUTH):
-    {master_cv_markdown}
+    USER'S MASTER CV:
+    {cv_content}
     ---
     
     TARGET JOB:
@@ -232,8 +232,8 @@ def build_ghostwriter_prompt(master_cv_markdown: str, target_job_description: st
     - "critical_missing": ["Missing 1", "Missing 2"]
     - "top_rejection_risks": ["Risk 1", "Risk 2", "Risk 3"]
     - "match_rationale": ["Rationale 1", "Rationale 2", "Rationale 3"]
-    - "tailored_cv": "A complete, fully written-out Markdown CV containing the user's real background, real jobs, real education, and tailored bullet points. NO PLACEHOLDERS."
-    - "tailored_cover_letter": "A complete cover letter written using the user's real name and background, addressed to {company_name}."
+    - "tailored_cv": "A complete Markdown CV based on the user's background."
+    - "tailored_cover_letter": "A complete cover letter addressed to {company_name}."
     - "salary_benchmark": "Estimated compensation range"
     - "negotiation_strategy": "Strategy details"
     - "interview_playbook": [{{"stage": "Screening", "focus": "Focus areas"}}, {{"stage": "Technical", "focus": "Focus areas"}}]
