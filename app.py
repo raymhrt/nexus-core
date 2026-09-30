@@ -173,9 +173,6 @@ def sanitize_ats_url(url: str, role_title: str, company_name: str) -> str:
     return f"https://www.linkedin.com/jobs/search/?keywords={urllib.parse.quote(role_title + ' ' + company_name)}"
 
 def build_ghostwriter_prompt(master_cv_markdown: str, target_job_description: str, target_role: str, company_name: str) -> str:
-    """
-    Constructs a strictly grounded, multi-tenant prompt for any user's uploaded Master CV.
-    """
     return f"""
     You are an elite career strategist, ATS optimization expert, and hiring decision analyst.
     
@@ -496,7 +493,6 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
             raw_url = job.get('ats_portal_url', '#')
             desc = job.get('job_description', '')
 
-            # Build strictly grounded multi-tenant prompt using user's uploaded master CV
             eval_prompt = build_ghostwriter_prompt(profile_content, desc, role, company)
 
             loop = asyncio.get_running_loop()
@@ -504,7 +500,7 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
             
             import re as regex_re
             jm_eval = regex_re.search(r'\{.*\}', raw_eval, regex_re.DOTALL)
-            eval_data = json.loads(jm_eval.group(0) if jm_eval else raw_eval)
+            eval_data = json.loads(jm_eval.group(0) if jm_eval else raw_eval) if jm_eval else {}
 
             if not eval_data or not eval_data.get('is_valid_match', True) or safe_int(eval_data.get('fit_score'), 0) < 60:
                 return None
@@ -518,6 +514,16 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
             else:
                 outreach_text = f"Dear Hiring Team at {company},\n\nI am writing to express my strong interest in the {role} position. With my background in high-impact technical execution and domain research, I am eager to contribute to your upcoming initiatives."
 
+            playbook_val = eval_data.get('interview_playbook', [
+                {"stage": "Technical Screen & Instrumentation Review", "focus": f"Demonstrate hands-on experience and troubleshooting."},
+                {"stage": "Method Development Deep Dive", "focus": f"Discuss past assay transitions and complex workflows."},
+                {"stage": "Cross-Functional & Culture Fit", "focus": f"Highlight collaboration and data integrity standards."}
+            ])
+            playbook_str = json.dumps(playbook_val) if isinstance(playbook_val, (list, dict)) else str(playbook_val)
+
+            rationale_val = eval_data.get('match_rationale', ["Verified domain competency and analytical methodology alignment."])
+            rationale_str = json.dumps(rationale_val) if isinstance(rationale_val, (list, dict)) else str(rationale_val)
+
             return {
                 "company_name": company,
                 "job_title": role,
@@ -526,7 +532,7 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
                 "fit_score": safe_int(eval_data.get('fit_score'), 82),
                 "track": eval_data.get('track', 'C. R&D / Laboratory Science / QC'),
                 "seniority_fit": eval_data.get('seniority_fit', 'Mid / Senior'),
-                "match_rationale": safe_str(eval_data.get('match_rationale', ["Verified domain competency and analytical methodology alignment."])),
+                "match_rationale": rationale_str,
                 "matched_requirements": eval_data.get('matched_strengths', ["Core Domain Technical Competency", "Data Analysis & Instrumentation Stewardship"]),
                 "transferable_gaps": eval_data.get('transferable_gaps', ["Secondary Toolchain Adaptation", "Industrial Throughput Scale"]),
                 "critical_missing": eval_data.get('critical_missing', ["Specific Industry Platform Certification", "Advanced Equipment Calibration Compliance"]),
@@ -540,16 +546,12 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
                 "negotiation_strategy": eval_data.get('negotiation_strategy', "Emphasize proven instrumentation troubleshooting and method development impact."),
                 "cv_variant": eval_data.get('tailored_cv', profile_content),
                 "cover_letter_variant": eval_data.get('tailored_cover_letter', "Dear Hiring Team,\n\nI am writing to express my strong interest..."),
-                "interview_playbook": safe_str(eval_data.get('interview_playbook', [
-                    {"stage": "Technical Screen & Instrumentation Review", "focus": f"Demonstrate hands-on experience with LC/GC platforms, ion source maintenance, and troubleshooting."},
-                    {"stage": "Method Development Deep Dive", "focus": f"Discuss past assay transitions from R&D to routine operations and complex matrix separation."},
-                    {"stage": "Cross-Functional & Culture Fit", "focus": f"Highlight collaboration with innovation, quality control, and data integrity standards."}
-                ])),
+                "interview_playbook": playbook_str,
                 "ats_portal_url": safe_portal_url,
                 "embedding": generate_text_embedding(f"{role} {company} {desc}")
             }
         except Exception as e:
-            logger.warning(f"Skipping job evaluation due to API hiccup: {e}")
+            logger.error(f"Error in evaluate_job_for_specific_user: {str(e)}", exc_info=True)
             return None
 
 def init_career_database():
@@ -845,11 +847,14 @@ class OutreachDispatchRequest(BaseModel):
     subject: str
     body: str
 
+class StatusUpdateRequest(BaseModel):
+    status: str
+
 class CheckoutRequest(BaseModel):
-    email: EmailStr
+    email: Optional[EmailStr] = None
     tier: str = "pro"
-    success_url: str
-    cancel_url: str
+    success_url: Optional[str] = None
+    cancel_url: Optional[str] = None
 
 class PortalSessionRequest(BaseModel):
     price_id: Optional[str] = None
@@ -1012,6 +1017,13 @@ def delete_career_match(match_id: int, user=Depends(verify_api_key_only)):
         sql = "DELETE FROM job_matches WHERE id = %s AND user_email = %s" if DATABASE_URL else "DELETE FROM job_matches WHERE id = ? AND user_email = ?"
         cursor.execute(sql, (match_id, user["email"]))
     return {"status": "success", "message": "Job match dismissed."}
+
+@app.patch("/api/v1/career/matches/{match_id}/status")
+def update_career_match_status(match_id: int, payload: StatusUpdateRequest, user=Depends(verify_api_key_only)):
+    with db_transaction_scope() as (_, cursor):
+        sql = "UPDATE job_matches SET status = %s WHERE id = %s AND user_email = %s" if DATABASE_URL else "UPDATE job_matches SET status = ? WHERE id = ? AND user_email = ?"
+        cursor.execute(sql, (payload.status, match_id, user["email"]))
+    return {"status": "success", "message": f"Match status updated to {payload.status}."}
 
 @app.post("/api/v1/career/matches/{match_id}/refresh")
 async def refresh_career_match(match_id: int, auth: dict = Depends(verify_api_key_only)):
@@ -1232,7 +1244,7 @@ async def salary_negotiator(payload: NegotiatorRequest, auth: dict = Depends(ver
 def create_checkout_session(payload: Optional[PortalSessionRequest] = None, checkout_req: Optional[CheckoutRequest] = None, auth: Optional[dict] = Depends(verify_api_key_only)):
     try:
         tier = "pro"
-        if checkout_req:
+        if checkout_req and checkout_req.tier:
             tier = checkout_req.tier
         elif payload and payload.price_id and "enterprise" in payload.price_id:
             tier = "enterprise"
@@ -1253,6 +1265,26 @@ def create_checkout_session(payload: Optional[PortalSessionRequest] = None, chec
             metadata={"tier": tier}
         )
         return {"url": checkout_session.url, "checkout_url": checkout_session.url}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/api/v1/billing/portal")
+def create_customer_portal_session(auth: dict = Depends(verify_api_key_only)):
+    try:
+        with db_transaction_scope() as (_, cursor):
+            cursor.execute("SELECT stripe_customer_id FROM subscribers WHERE email = %s" if DATABASE_URL else "SELECT stripe_customer_id FROM subscribers WHERE email = ?", (auth["email"],))
+            row = cursor.fetchone()
+        
+        customer_id = row["stripe_customer_id"] if row and isinstance(row, dict) else (row[0] if row else None)
+        if not customer_id:
+            raise HTTPException(status_code=400, detail="No active Stripe customer account found.")
+
+        return_url = os.getenv("SUCCESS_URL", "https://nexus-core-yfou.onrender.com/")
+        portal_session = stripe.billing_portal.Session.create(
+            customer=customer_id,
+            return_url=return_url
+        )
+        return {"url": portal_session.url, "portal_url": portal_session.url}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

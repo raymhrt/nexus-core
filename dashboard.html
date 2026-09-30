@@ -789,7 +789,6 @@
                     });
                     if (!res.ok) throw new Error('Failed to update status on server');
                 } catch(e) {
-                    // Rollback state if server sync fails
                     match.status = previousStatus;
                     renderKanbanBoard(cachedCareerMatches);
                     showToast("Failed to sync status change with server. Reverting card.", true);
