@@ -196,7 +196,7 @@ def validate_real_world_job(job: dict) -> bool:
 def sanitize_ats_url(url: str, role_title: str, company_name: str) -> str:
     if url and "example" not in url and ("http://" in url or "https://" in url):
         return url
-    return f"[https://www.linkedin.com/jobs/search/?keywords=](https://www.linkedin.com/jobs/search/?keywords=){urllib.parse.quote(role_title + ' ' + company_name)}"
+    return f"[https://www.linkedin.com](https://www.linkedin.com)" + f"/jobs/search/?keywords=" + urllib.parse.quote(role_title + ' ' + company_name)
 
 # ==================== ELITE STRATEGIST GHOSTWRITER PROMPT ENGINE ====================
 def build_ghostwriter_prompt(master_cv_markdown: str, target_job_description: str, target_role: str, company_name: str) -> str:
@@ -242,7 +242,7 @@ def build_ghostwriter_prompt(master_cv_markdown: str, target_job_description: st
 def fetch_real_time_company_intelligence(company_name: str) -> str:
     try:
         clean_name = company_name.strip()
-        search_url = f"[https://html.duckduckgo.com/html/?q=](https://html.duckduckgo.com/html/?q=){urllib.parse.quote(clean_name + ' news company milestones')}"
+        search_url = "[https://html.duckduckgo.com](https://html.duckduckgo.com)" + "/html/?q=" + urllib.parse.quote(clean_name + ' news company milestones')
         headers = {"User-Agent": "Mozilla/5.0"}
         res = requests.get(search_url, headers=headers, timeout=4)
         if res.status_code == 200:
@@ -288,7 +288,7 @@ def recursive_org_chart_decision_maker_discovery(company_name: str, job_title: s
 
     if HUNTER_API_KEY and c_clean:
         try:
-            url = f"[https://api.hunter.io/v2/domain-search?domain=](https://api.hunter.io/v2/domain-search?domain=){clean_domain}&department=executive&api_key={HUNTER_API_KEY}"
+            url = "[https://api.hunter.io](https://api.hunter.io)" + f"/v2/domain-search?domain={clean_domain}&department=executive&api_key={HUNTER_API_KEY}"
             res = requests.get(url, timeout=5)
             if res.status_code == 200:
                 data = res.json().get("data", {})
@@ -359,9 +359,10 @@ def call_groq_ai(prompt: str, system_prompt: str = "You are the complete multi-t
     }
 
     max_retries = 5
+    endpoint_url = "[https://api.groq.com](https://api.groq.com)" + "/openai/v1/chat/completions"
     for attempt in range(max_retries):
         try:
-            res = requests.post("[https://api.groq.com/openai/v1/chat/completions](https://api.groq.com/openai/v1/chat/completions)", json=payload, headers=headers, timeout=25)
+            res = requests.post(endpoint_url, json=payload, headers=headers, timeout=25)
             if res.status_code == 200:
                 data = res.json()
                 output = data["choices"][0]["message"]["content"]
@@ -487,7 +488,7 @@ async def multi_tenant_job_infiltration(target_roles: str, location: str, count:
         for country in countries_to_try:
             if ADZUNA_APP_ID and ADZUNA_APP_KEY:
                 try:
-                    adzuna_url = f"[https://api.adzuna.com/v1/api/jobs/](https://api.adzuna.com/v1/api/jobs/){country}/search/1?app_id={ADZUNA_APP_ID}&app_key={ADZUNA_APP_KEY}&what={urllib.parse.quote(primary_term)}&content-type=application/json"
+                    adzuna_url = "[https://api.adzuna.com](https://api.adzuna.com)" + f"/v1/api/jobs/{country}/search/1?app_id={ADZUNA_APP_ID}&app_key={ADZUNA_APP_KEY}&what={urllib.parse.quote(primary_term)}&content-type=application/json"
                     res = requests.get(adzuna_url, timeout=6)
                     if res.status_code == 200:
                         for item in res.json().get("results", []):
@@ -1295,7 +1296,7 @@ async def dispatch_career_outreach(match_id: int, payload: OutreachDispatchReque
 
     if RESEND_API_KEY:
         headers = {"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"}
-        res = requests.post("[https://api.resend.com/emails](https://api.resend.com/emails)", json={
+        res = requests.post("[https://api.resend.com](https://api.resend.com)" + "/emails", json={
             "from": f"Swarm <{SENDER_EMAIL}>", 
             "to": [target_email], 
             "subject": payload.subject, 
@@ -1350,8 +1351,8 @@ def create_checkout_session(payload: Optional[PortalSessionRequest] = None, chec
         price_id = os.getenv("STRIPE_PRO_PRICE_ID", "price_1M...") if tier == "pro" else os.getenv("STRIPE_ENTERPRISE_PRICE_ID", "price_2M...")
         
         email = auth["email"] if auth else "user@example.com"
-        success_url = os.getenv("SUCCESS_URL", "[https://nexus-core-yfou.onrender.com/?success=true](https://nexus-core-yfou.onrender.com/?success=true)")
-        cancel_url = os.getenv("CANCEL_URL", "[https://nexus-core-yfou.onrender.com/?canceled=true](https://nexus-core-yfou.onrender.com/?canceled=true)")
+        success_url = "[https://nexus-core-yfou.onrender.com](https://nexus-core-yfou.onrender.com)" + "/?success=true"
+        cancel_url = "[https://nexus-core-yfou.onrender.com](https://nexus-core-yfou.onrender.com)" + "/?canceled=true"
 
         checkout_session = stripe.checkout.Session.create(
             payment_method_types=['card'],
@@ -1377,7 +1378,7 @@ def create_customer_portal_session(auth: dict = Depends(verify_api_key_only)):
         if not customer_id:
             raise HTTPException(status_code=400, detail="No active Stripe customer account found.")
 
-        return_url = os.getenv("SUCCESS_URL", "[https://nexus-core-yfou.onrender.com/](https://nexus-core-yfou.onrender.com/)")
+        return_url = "[https://nexus-core-yfou.onrender.com](https://nexus-core-yfou.onrender.com)" + "/"
         portal_session = stripe.billing_portal.Session.create(
             customer=customer_id,
             return_url=return_url
