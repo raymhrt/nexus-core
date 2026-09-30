@@ -523,6 +523,9 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
             loop = asyncio.get_running_loop()
             raw_eval = await loop.run_in_executor(None, call_groq_ai, eval_prompt, "You are an elite recruitment AI returning precise raw JSON.")
             
+            # DEBUG LINE TO SEE WHAT GROQ ACTUALLY RETURNED:
+            logger.info(f"RAW GROQ RESPONSE FOR MATCH {job.get('job_title')}: {raw_eval[:300]}...")
+
             eval_data = extract_json_safely(raw_eval, {})
 
             if not eval_data:
