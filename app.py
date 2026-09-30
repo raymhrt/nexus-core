@@ -875,10 +875,11 @@ async def head_index():
 async def favicon():
     return Response(status_code=204)
 
-@app.get("/")
+@app.get("/", response_class=HTMLResponse)
 async def read_index():
-    if os.path.exists("dashboard.html"):
-        return FileResponse("dashboard.html")
+    html_path = os.path.join(os.path.dirname(__file__), "dashboard.html")
+    if os.path.exists(html_path):
+        return FileResponse(html_path)
     return HTMLResponse("<!DOCTYPE html><html><body style='background:#0a0f1d;color:#fff;font-family:sans-serif;padding:40px;'><h2>dashboard.html not found in root directory.</h2></body></html>")
 
 @app.get("/api/v1/credits")
@@ -1027,91 +1028,97 @@ def update_career_match_status(match_id: int, payload: StatusUpdateRequest, user
 
 @app.post("/api/v1/career/matches/{match_id}/refresh")
 async def refresh_career_match(match_id: int, auth: dict = Depends(verify_api_key_only)):
-    with db_transaction_scope() as (_, cursor):
-        sql = "SELECT company_name, job_title, job_description, location, ats_portal_url FROM job_matches WHERE id = %s AND user_email = %s" if DATABASE_URL else "SELECT company_name, job_title, job_description, location, ats_portal_url FROM job_matches WHERE id = ? AND user_email = ?"
-        cursor.execute(sql, (match_id, auth["email"]))
-        match_row = cursor.fetchone()
+    try:
+        with db_transaction_scope() as (_, cursor):
+            sql = "SELECT company_name, job_title, job_description, location, ats_portal_url FROM job_matches WHERE id = %s AND user_email = %s" if DATABASE_URL else "SELECT company_name, job_title, job_description, location, ats_portal_url FROM job_matches WHERE id = ? AND user_email = ?"
+            cursor.execute(sql, (match_id, auth["email"]))
+            match_row = cursor.fetchone()
 
-        if not match_row:
-            raise HTTPException(status_code=404, detail="Job match not found.")
+            if not match_row:
+                raise HTTPException(status_code=404, detail="Job match not found.")
 
-        cursor.execute("SELECT profile_json FROM user_profiles WHERE email = %s" if DATABASE_URL else "SELECT profile_json FROM user_profiles WHERE email = ?", (auth["email"],))
-        profile_row = cursor.fetchone()
+            cursor.execute("SELECT profile_json FROM user_profiles WHERE email = %s" if DATABASE_URL else "SELECT profile_json FROM user_profiles WHERE email = ?", (auth["email"],))
+            profile_row = cursor.fetchone()
 
-        if not profile_row:
-            raise HTTPException(status_code=400, detail="No master CV profile found. Please upload your CV first.")
+            if not profile_row:
+                raise HTTPException(status_code=400, detail="No master CV profile found. Please upload your CV first.")
 
-    m_dict = dict(match_row) if not isinstance(match_row, dict) else match_row
-    p_dict = dict(profile_row) if not isinstance(profile_row, dict) else profile_row
-    
-    profile_content = p_dict.get('profile_json', '')
-    job_payload = {
-        "company_name": m_dict.get("company_name"),
-        "job_title": m_dict.get("job_title"),
-        "job_description": m_dict.get("job_description"),
-        "location": m_dict.get("location"),
-        "ats_portal_url": m_dict.get("ats_portal_url")
-    }
+        m_dict = dict(match_row) if not isinstance(match_row, dict) else match_row
+        p_dict = dict(profile_row) if not isinstance(profile_row, dict) else profile_row
+        
+        profile_content = p_dict.get('profile_json', '')
+        job_payload = {
+            "company_name": m_dict.get("company_name"),
+            "job_title": m_dict.get("job_title"),
+            "job_description": m_dict.get("job_description"),
+            "location": m_dict.get("location"),
+            "ats_portal_url": m_dict.get("ats_portal_url")
+        }
 
-    evaluated = await evaluate_job_for_specific_user(job_payload, profile_content, auth["email"], AI_EVAL_SEMAPHORE)
-    if not evaluated:
-        raise HTTPException(status_code=500, detail="AI re-evaluation failed or fit score dropped below threshold.")
+        evaluated = await evaluate_job_for_specific_user(job_payload, profile_content, auth["email"], AI_EVAL_SEMAPHORE)
+        if not evaluated:
+            raise HTTPException(status_code=500, detail="AI re-evaluation failed or fit score dropped below threshold.")
 
-    with db_transaction_scope() as (_, cursor):
-        matched_reqs_json = json.dumps(evaluated.get('matched_requirements', []))
-        transferable_json = json.dumps(evaluated.get('transferable_gaps', []))
-        critical_json = json.dumps(evaluated.get('critical_missing', []))
+        with db_transaction_scope() as (_, cursor):
+            matched_reqs_json = json.dumps(evaluated.get('matched_requirements', []))
+            transferable_json = json.dumps(evaluated.get('transferable_gaps', []))
+            critical_json = json.dumps(evaluated.get('critical_missing', []))
 
-        if DATABASE_URL:
-            update_sql = """
-                UPDATE job_matches 
-                SET fit_score = %s, match_rationale = %s, matched_requirements = %s, 
-                    transferable_gaps = %s, critical_missing = %s, outreach_draft = %s, 
-                    salary_benchmark = %s, negotiation_strategy = %s, cv_variant = %s, 
-                    cover_letter_variant = %s, interview_playbook = %s, timestamp = NOW()
-                WHERE id = %s AND user_email = %s
-            """
-            cursor.execute(update_sql, (
-                safe_int(evaluated.get('fit_score'), 82),
-                safe_str(evaluated.get('match_rationale')),
-                matched_reqs_json,
-                transferable_json,
-                critical_json,
-                safe_str(evaluated.get('outreach_draft')),
-                safe_str(evaluated.get('salary_benchmark')),
-                safe_str(evaluated.get('negotiation_strategy')),
-                safe_str(evaluated.get('cv_variant')),
-                safe_str(evaluated.get('cover_letter_variant')),
-                safe_str(evaluated.get('interview_playbook')),
-                match_id,
-                auth["email"]
-            ))
-        else:
-            update_sql = """
-                UPDATE job_matches 
-                SET fit_score = ?, match_rationale = ?, matched_requirements = ?, 
-                    transferable_gaps = ?, critical_missing = ?, outreach_draft = ?, 
-                    salary_benchmark = ?, negotiation_strategy = ?, cv_variant = ?, 
-                    cover_letter_variant = ?, interview_playbook = ?, timestamp = datetime('now')
-                WHERE id = ? AND user_email = ?
-            """
-            cursor.execute(update_sql, (
-                safe_int(evaluated.get('fit_score'), 82),
-                safe_str(evaluated.get('match_rationale')),
-                matched_reqs_json,
-                transferable_json,
-                critical_json,
-                safe_str(evaluated.get('outreach_draft')),
-                safe_str(evaluated.get('salary_benchmark')),
-                safe_str(evaluated.get('negotiation_strategy')),
-                safe_str(evaluated.get('cv_variant')),
-                safe_str(evaluated.get('cover_letter_variant')),
-                safe_str(evaluated.get('interview_playbook')),
-                match_id,
-                auth["email"]
-            ))
+            if DATABASE_URL:
+                update_sql = """
+                    UPDATE job_matches 
+                    SET fit_score = %s, match_rationale = %s, matched_requirements = %s, 
+                        transferable_gaps = %s, critical_missing = %s, outreach_draft = %s, 
+                        salary_benchmark = %s, negotiation_strategy = %s, cv_variant = %s, 
+                        cover_letter_variant = %s, interview_playbook = %s, timestamp = NOW()
+                    WHERE id = %s AND user_email = %s
+                """
+                cursor.execute(update_sql, (
+                    safe_int(evaluated.get('fit_score'), 82),
+                    safe_str(evaluated.get('match_rationale')),
+                    matched_reqs_json,
+                    transferable_json,
+                    critical_json,
+                    safe_str(evaluated.get('outreach_draft')),
+                    safe_str(evaluated.get('salary_benchmark')),
+                    safe_str(evaluated.get('negotiation_strategy')),
+                    safe_str(evaluated.get('cv_variant')),
+                    safe_str(evaluated.get('cover_letter_variant')),
+                    safe_str(evaluated.get('interview_playbook')),
+                    match_id,
+                    auth["email"]
+                ))
+            else:
+                update_sql = """
+                    UPDATE job_matches 
+                    SET fit_score = ?, match_rationale = ?, matched_requirements = ?, 
+                        transferable_gaps = ?, critical_missing = ?, outreach_draft = ?, 
+                        salary_benchmark = ?, negotiation_strategy = ?, cv_variant = ?, 
+                        cover_letter_variant = ?, interview_playbook = ?, timestamp = datetime('now')
+                    WHERE id = ? AND user_email = ?
+                """
+                cursor.execute(update_sql, (
+                    safe_int(evaluated.get('fit_score'), 82),
+                    safe_str(evaluated.get('match_rationale')),
+                    matched_reqs_json,
+                    transferable_json,
+                    critical_json,
+                    safe_str(evaluated.get('outreach_draft')),
+                    safe_str(evaluated.get('salary_benchmark')),
+                    safe_str(evaluated.get('negotiation_strategy')),
+                    safe_str(evaluated.get('cv_variant')),
+                    safe_str(evaluated.get('cover_letter_variant')),
+                    safe_str(evaluated.get('interview_playbook')),
+                    match_id,
+                    auth["email"]
+                ))
 
-    return {"status": "success", "message": "Job match successfully refreshed with latest master CV variants."}
+        return {"status": "success", "message": "Job match successfully refreshed with latest master CV variants."}
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        logger.error(f"Error in refresh_career_match for ID {match_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Internal swarm error during match refresh: {str(e)}")
 
 @app.post("/api/v1/career/resume")
 async def save_career_resume(payload: ResumeInput, auth: dict = Depends(verify_api_key_only)):
