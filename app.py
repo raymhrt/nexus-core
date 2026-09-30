@@ -137,9 +137,26 @@ def sanitize_job_title(title: str) -> str:
     if not title:
         return "Professional Role"
     cleaned = re.sub(r'\s+', ' ', title).strip()
+    # Clean up chopped or repeated institutional artifacts safely
+    cleaned = re.sub(r'(?i)\b(Research Inno|Innovation Office Research Inno)$', 'Innovation Officer', cleaned)
     if len(cleaned) > 60:
         cleaned = cleaned[:57] + "..."
     return cleaned
+
+def extract_json_safely(raw_text: str, default: Any = None) -> Any:
+    if default is None:
+        default = {}
+    if not raw_text:
+        return default
+    try:
+        clean = re.sub(r'```(?:json)?\s*', '', raw_text)
+        clean = re.sub(r'\s*```', '', clean)
+        jm = re.search(r'(\{.*\}|\[.*\])', clean, re.DOTALL)
+        if jm:
+            return json.loads(jm.group(0))
+        return json.loads(clean)
+    except Exception:
+        return default
 
 def generate_text_embedding(text: str) -> List[float]:
     try:
@@ -200,7 +217,7 @@ def build_ghostwriter_prompt(master_cv_markdown: str, target_job_description: st
     - "track": Choose ONE ("A. Medical Affairs / MSL", "B. Clinical Research / CRA", "C. R&D / Laboratory Science / QC", "D. Commercial / Application Scientist", "E. Leadership / Strategy")
     - "seniority_fit": "Entry / Mid / Senior"
     - "fit_score": integer (0 to 99)
-    - "is_valid_match": boolean (true only if fit_score >= 60)
+    - "is_valid_match": boolean (true only if fit_score >= 50)
     - "matched_strengths": A JSON array of 3 distinct strings highlighting alignment.
     - "transferable_gaps": A JSON array of 3 strings detailing trainable gaps.
     - "critical_missing": A JSON array of 2 strings identifying hard missing requirements or risk triggers.
@@ -367,9 +384,7 @@ async def ai_adaptable_role_expansion(target_roles: str, user_profile_json: Opti
     """
     try:
         raw_ai = call_groq_ai(prompt, system_prompt="You are an expert recruitment data engineer returning raw JSON arrays.")
-        import re as regex_re
-        jm = regex_re.search(r'\[.*\]', raw_ai, regex_re.DOTALL)
-        phrases = json.loads(jm.group(0) if jm else raw_ai)
+        phrases = extract_json_safely(raw_ai, [])
         if isinstance(phrases, list) and phrases:
             cleaned = []
             for p in phrases:
@@ -486,7 +501,7 @@ async def multi_tenant_job_infiltration(target_roles: str, location: str, count:
 
 async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email: str, semaphore: asyncio.Semaphore) -> Optional[Dict]:
     async with semaphore:
-        await asyncio.sleep(3.5)
+        await asyncio.sleep(2.0)
         try:
             role = sanitize_job_title(job.get('job_title', 'Target Role'))
             company = job.get('company_name', 'Global Enterprise')
@@ -498,11 +513,9 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
             loop = asyncio.get_running_loop()
             raw_eval = await loop.run_in_executor(None, call_groq_ai, eval_prompt, "You are an elite recruitment AI returning precise raw JSON.")
             
-            import re as regex_re
-            jm_eval = regex_re.search(r'\{.*\}', raw_eval, regex_re.DOTALL)
-            eval_data = json.loads(jm_eval.group(0) if jm_eval else raw_eval) if jm_eval else {}
+            eval_data = extract_json_safely(raw_eval, {})
 
-            if not eval_data or not eval_data.get('is_valid_match', True) or safe_int(eval_data.get('fit_score'), 0) < 60:
+            if not eval_data or not eval_data.get('is_valid_match', True) or safe_int(eval_data.get('fit_score'), 0) < 50:
                 return None
 
             safe_portal_url = sanitize_ats_url(raw_url, role, company)
@@ -524,6 +537,9 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
             rationale_val = eval_data.get('match_rationale', ["Verified domain competency and analytical methodology alignment."])
             rationale_str = json.dumps(rationale_val) if isinstance(rationale_val, (list, dict)) else str(rationale_val)
 
+            tailored_cv_text = eval_data.get('tailored_cv') or eval_data.get('cv_variant') or profile_content
+            tailored_cl_text = eval_data.get('tailored_cover_letter') or eval_data.get('cover_letter_variant') or "Dear Hiring Team,\n\nI am writing to express my strong interest..."
+
             return {
                 "company_name": company,
                 "job_title": role,
@@ -544,8 +560,8 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
                 "outreach_draft": outreach_text,
                 "salary_benchmark": eval_data.get('salary_benchmark', "Competitive Market Rate"),
                 "negotiation_strategy": eval_data.get('negotiation_strategy', "Emphasize proven instrumentation troubleshooting and method development impact."),
-                "cv_variant": eval_data.get('tailored_cv', profile_content),
-                "cover_letter_variant": eval_data.get('tailored_cover_letter', "Dear Hiring Team,\n\nI am writing to express my strong interest..."),
+                "cv_variant": tailored_cv_text,
+                "cover_letter_variant": tailored_cl_text,
                 "interview_playbook": playbook_str,
                 "ats_portal_url": safe_portal_url,
                 "embedding": generate_text_embedding(f"{role} {company} {desc}")
@@ -694,7 +710,7 @@ async def isolated_user_job_scouting_worker(user_email: str, requested_count: in
         
         valid_results = [m for m in results if m is not None]
         if not valid_results:
-            await sse_broker.broadcast("career_swarm_update", {"user": user_email, "status": "no_matches", "message": "Scouting complete. No jobs met the strict >=60% fit filter."})
+            await sse_broker.broadcast("career_swarm_update", {"user": user_email, "status": "no_matches", "message": "Scouting complete. No jobs met the strict >=50% fit filter."})
             return
 
         valid_results.sort(key=lambda x: x.get('fit_score', 0), reverse=True)
@@ -827,7 +843,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="QuantCode Nexus Enterprise Apex API",
-    version="16.20.0",
+    version="16.21.0",
     description="Live Multi-Tenant Career Infiltration Engine with Universal Track Positioning & Telemetry.",
     lifespan=lifespan
 )
@@ -914,7 +930,7 @@ def get_career_matches(user=Depends(verify_api_key_only)):
                            ats_portal_url, status,
                            1 - (embedding <=> %s::vector) AS semantic_similarity
                     FROM job_matches 
-                    WHERE user_email = %s AND fit_score >= 60
+                    WHERE user_email = %s AND fit_score >= 50
                     ORDER BY semantic_similarity DESC, timestamp DESC
                 """
                 cursor.execute(sql, (user_embedding, user["email"]))
@@ -927,7 +943,7 @@ def get_career_matches(user=Depends(verify_api_key_only)):
                            salary_benchmark, recruiter_verified, negotiation_strategy, cv_variant, cover_letter_variant, interview_playbook, 
                            ats_portal_url, status 
                     FROM job_matches 
-                    WHERE user_email = %s AND fit_score >= 60
+                    WHERE user_email = %s AND fit_score >= 50
                     ORDER BY timestamp DESC
                 """
                 cursor.execute(sql, (user["email"],))
@@ -940,7 +956,7 @@ def get_career_matches(user=Depends(verify_api_key_only)):
                        salary_benchmark, recruiter_verified, negotiation_strategy, cv_variant, cover_letter_variant, interview_playbook, 
                        ats_portal_url, status 
                 FROM job_matches 
-                WHERE user_email = ? AND fit_score >= 60
+                WHERE user_email = ? AND fit_score >= 50
                 ORDER BY timestamp DESC
             """
             cursor.execute(sql, (user["email"],))
@@ -1136,9 +1152,7 @@ async def save_career_resume(payload: ResumeInput, auth: dict = Depends(verify_a
     parsed_profile = {}
     try:
         raw_ai = call_groq_ai(prompt, system_prompt="You are an expert recruitment JSON parser. Return valid raw JSON.")
-        import re
-        jm = re.search(r'\{.*\}', raw_ai, re.DOTALL)
-        parsed_profile = json.loads(jm.group(0) if jm else raw_ai)
+        parsed_profile = extract_json_safely(raw_ai, {})
     except Exception:
         pass
 
