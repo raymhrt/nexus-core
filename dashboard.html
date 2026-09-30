@@ -1009,12 +1009,12 @@
                 return `
                     <div id="job-card-${matchId}" onclick="openMatchDrawerByIndex(${idx})" class="bento-card rounded-xl p-5 mb-4 shadow-lg hover:border-sky-500/50 transition-all cursor-pointer flex flex-col justify-between">
                         <div>
-                            <div class="flex justify-between items-start mb-2">
-                                <div>
-                                    <h3 class="text-base font-bold text-white truncate max-w-[280px]" title="${escapeHtml(m.role_title)}">${escapeHtml(cleanTitle)}</h3>
-                                    <p class="text-emerald-400 font-medium text-xs truncate max-w-[280px]">${escapeHtml(m.company_name)} • <span class="text-slate-400">${escapeHtml(m.location)}</span></p>
+                            <div class="flex justify-between items-start gap-3 mb-2">
+                                <div class="min-w-0 flex-1">
+                                    <h3 class="text-base font-bold text-white truncate" title="${escapeHtml(m.role_title)}">${escapeHtml(cleanTitle)}</h3>
+                                    <p class="text-emerald-400 font-medium text-xs truncate">${escapeHtml(m.company_name)} • <span class="text-slate-400">${escapeHtml(m.location)}</span></p>
                                 </div>
-                                <div class="px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 rounded-full text-xs font-semibold whitespace-nowrap">
+                                <div class="px-2.5 py-1 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 rounded-full text-xs font-semibold whitespace-nowrap flex-shrink-0">
                                     ${fitScore}% Match
                                 </div>
                             </div>
