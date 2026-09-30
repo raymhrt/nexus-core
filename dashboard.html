@@ -164,7 +164,7 @@
                     </div>
                     <div class="bento-card p-4 rounded-2xl flex items-center justify-between shadow-lg">
                         <div>
-                            <p class="text-[10px] uppercase font-bold text-slate-400">High-Fit Matches (&gt;=70%)</p>
+                            <p class="text-[10px] uppercase font-bold text-slate-400">Filtered Matches</p>
                             <h4 class="text-lg font-black text-emerald-400 mt-0.5" id="kpiHighFit">--</h4>
                         </div>
                         <div class="p-2.5 bg-emerald-500/10 text-emerald-400 rounded-xl"><i class="fa-solid fa-bullseye text-sm"></i></div>
@@ -223,7 +223,7 @@
                             <h4 class="text-xs font-bold text-white flex items-center gap-2 mb-1">🎯 Target Job Criteria & Multi-Source Swarm</h4>
                             <p class="text-[11px] text-slate-400 mb-3">Define your target roles. Select from AI recommendations or enter custom titles.</p>
                             
-                            <!-- AI Recommended Roles Container (Adapted) -->
+                            <!-- AI Recommended Roles Container -->
                             <div id="aiRecommendationsContainer" class="mb-3 hidden">
                                 <span class="text-[10px] font-bold text-sky-400 uppercase tracking-wider block mb-1">
                                     <i class="fa-solid fa-wand-magic-sparkles mr-1"></i> AI Recommended Roles from CV:
@@ -251,6 +251,11 @@
                                         <input type="hidden" id="selected-job-count" value="5">
                                     </div>
                                 </div>
+                                <!-- Adjustable Match Percentage Filter Slider Control -->
+                                <div class="pt-1">
+                                    <label class="block text-[11px] font-semibold text-slate-300 mb-1">Min Match Fit Filter: <span id="minFitLabel" class="text-sky-400 font-bold">70%</span></label>
+                                    <input type="range" id="minMatchFitSlider" min="50" max="95" step="5" value="70" oninput="updateMinFitLabel(this.value)" onchange="applyMatchFilter()" class="w-full accent-sky-400 cursor-pointer">
+                                </div>
                             </div>
                         </div>
                         <button id="save-criteria-btn" onclick="saveCareerCriteria()" class="py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition shadow-lg shadow-emerald-600/20">Save Criteria & Launch Swarm ⚡</button>
@@ -262,7 +267,7 @@
                     <div class="flex flex-col md:flex-row items-center justify-between gap-4">
                         <div>
                             <h3 class="text-base font-bold text-white flex items-center gap-2">🎯 Discovered Job Matches & Granular Requirements</h3>
-                            <p class="text-xs text-slate-400">Aggregated simultaneously across LinkedIn, Indeed, Glassdoor, and Adzuna (Strict >= 70% Match Filter Active).</p>
+                            <p class="text-xs text-slate-400">Aggregated simultaneously across LinkedIn, Indeed, Glassdoor, and Adzuna (Adjustable Match Filter Active).</p>
                         </div>
                         <div class="flex items-center gap-3 w-full md:w-auto justify-end">
                             <!-- View Toggle Switcher -->
@@ -291,7 +296,7 @@
                         <!-- Column 1: Discovered -->
                         <div class="bg-inputbg border border-slate-800 rounded-xl p-4 space-y-3 min-w-[260px]" ondragover="allowDrop(event)" ondrop="dropKanbanCard(event, 'discovered')">
                             <div class="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-sky-400">
-                                <span>📥 Discovered (&gt;=70%)</span>
+                                <span>📥 Discovered Matches</span>
                                 <span id="kanbanCountDiscovered" class="px-2 py-0.5 bg-sky-500/10 rounded-full text-[10px]">0</span>
                             </div>
                             <div id="kanbanColDiscovered" class="space-y-3 min-h-[300px]"></div>
@@ -771,7 +776,7 @@
 
             const previousStatus = match.status || 'discovered';
             match.status = newStatus;
-            renderKanbanBoard(cachedCareerMatches);
+            applyMatchFilter();
 
             if (newStatus === 'offer' || newStatus === 'interview') {
                 try {
@@ -793,7 +798,7 @@
                     if (!res.ok) throw new Error('Failed to update status on server');
                 } catch(e) {
                     match.status = previousStatus;
-                    renderKanbanBoard(cachedCareerMatches);
+                    applyMatchFilter();
                     showToast("Failed to sync status change with server. Reverting card.", true);
                 }
             }
@@ -821,7 +826,7 @@
                 if (gridBtn) gridBtn.className = "px-3 py-1.5 rounded-lg text-xs font-bold transition text-slate-400 hover:text-slate-200";
                 if (kanbanContainer) kanbanContainer.classList.remove('hidden');
                 if (gridContainer) gridContainer.classList.add('hidden');
-                renderKanbanBoard(cachedCareerMatches);
+                applyMatchFilter();
             }
         }
 
@@ -851,6 +856,24 @@
             if (activeBtn) {
                 activeBtn.className = "w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition bg-sky-600 text-white shadow-lg shadow-sky-600/20";
             }
+        }
+
+        // Adjustable Match Filter Handlers
+        function updateMinFitLabel(val) {
+            const label = document.getElementById('minFitLabel');
+            if (label) label.innerText = `${val}%`;
+        }
+
+        function applyMatchFilter() {
+            const sliderVal = parseInt(document.getElementById('minMatchFitSlider').value, 10) || 70;
+            const filteredMatches = (cachedCareerMatches || []).filter(m => (m.fit_score || 0) >= sliderVal);
+            
+            renderJobMatches(filteredMatches);
+            if (currentViewMode === 'kanban') {
+                renderKanbanBoard(filteredMatches);
+            }
+            const highFitEl = document.getElementById('kpiHighFit');
+            if (highFitEl) highFitEl.innerText = filteredMatches.length;
         }
 
         async function loadCredits() {
@@ -904,12 +927,10 @@
                 const data = await response.json();
                 
                 if (data.matches) {
-                    cachedCareerMatches = data.matches.filter(m => (m.fit_score || 0) >= 70);
-                    renderJobMatches(cachedCareerMatches);
-                    if (currentViewMode === 'kanban') renderKanbanBoard(cachedCareerMatches);
+                    cachedCareerMatches = data.matches;
+                    applyMatchFilter();
                     
                     document.getElementById('kpiTotalScanned').innerText = data.matches.length;
-                    document.getElementById('kpiHighFit').innerText = cachedCareerMatches.length;
 
                     if (data.credits_remaining !== undefined) {
                         document.getElementById('sidebarCreditCount').innerText = data.credits_remaining;
@@ -985,7 +1006,8 @@
             const container = document.getElementById('jobMatchesContainer');
             if (!container) return;
 
-            const validMatches = (matches || []).filter(m => (m.fit_score || 0) >= 70);
+            const sliderVal = parseInt(document.getElementById('minMatchFitSlider')?.value || 70, 10);
+            const validMatches = (matches || []).filter(m => (m.fit_score || 0) >= sliderVal);
 
             if (validMatches.length === 0) {
                 container.innerHTML = `
@@ -993,8 +1015,8 @@
                         <div class="w-12 h-12 bg-sky-500/10 border border-sky-500/20 text-sky-400 rounded-2xl flex items-center justify-center mx-auto text-lg">
                             <i class="fa-solid fa-folder-open"></i>
                         </div>
-                        <h4 class="text-sm font-bold text-white">No high-confidence matches found (>= 70%)</h4>
-                        <p class="text-xs text-slate-400 max-w-md mx-auto">Launch the Multi-Source Swarm via the configuration panel above to scan high-fit roles.</p>
+                        <h4 class="text-sm font-bold text-white">No matches found meeting the ${sliderVal}% threshold</h4>
+                        <p class="text-xs text-slate-400 max-w-md mx-auto">Lower the Min Match Fit filter slider or scan additional roles via the configuration panel.</p>
                     </div>
                 `;
                 return;
@@ -1057,7 +1079,8 @@
             const colOffer = document.getElementById('kanbanColOffer');
             if (!colDiscovered) return;
 
-            const validMatches = (matches || []).filter(m => (m.fit_score || 0) >= 70);
+            const sliderVal = parseInt(document.getElementById('minMatchFitSlider')?.value || 70, 10);
+            const validMatches = (matches || []).filter(m => (m.fit_score || 0) >= sliderVal);
             const discovered = validMatches.filter(m => m.status === 'discovered' || !m.status);
             const autopilot = validMatches.filter(m => m.status === 'applied_autopilot');
             const outreach = validMatches.filter(m => m.status === 'outreached');
@@ -1114,7 +1137,9 @@
         }
 
         function openMatchDrawerByIndex(index) {
-            const match = cachedCareerMatches[index];
+            const sliderVal = parseInt(document.getElementById('minMatchFitSlider')?.value || 70, 10);
+            const validMatches = (cachedCareerMatches || []).filter(m => (m.fit_score || 0) >= sliderVal);
+            const match = validMatches[index];
             if (match) openMatchDrawer(match);
             else showToast("Could not load match details.", true);
         }
@@ -1134,6 +1159,7 @@
                 });
                 if (res.ok) {
                     cachedCareerMatches = cachedCareerMatches.filter(m => (m.id || 0) !== matchId);
+                    applyMatchFilter();
                     const card = document.getElementById(`job-card-${matchId}`);
                     if (card) { card.style.opacity = '0'; setTimeout(() => card.remove(), 300); }
                     showToast("Job match dismissed successfully.");
