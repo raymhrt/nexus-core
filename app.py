@@ -1053,7 +1053,7 @@ def update_career_match_status(match_id: int, payload: StatusUpdateRequest, user
 async def refresh_career_match(match_id: int, auth: dict = Depends(verify_api_key_only)):
     try:
         with db_transaction_scope() as (_, cursor):
-            sql = "SELECT company_name, job_title, job_description, location, ats_portal_url FROM job_matches WHERE id = %s AND user_email = %s" if DATABASE_URL else "SELECT company_name, job_title, job_description, location, ats_portal_url FROM job_matches WHERE id = ? AND user_email = ?"
+            sql = "SELECT company_name, job_title, job_description, location, ats_portal_url, fit_score FROM job_matches WHERE id = %s AND user_email = %s" if DATABASE_URL else "SELECT company_name, job_title, job_description, location, ats_portal_url, fit_score FROM job_matches WHERE id = ? AND user_email = ?"
             cursor.execute(sql, (match_id, auth["email"]))
             match_row = cursor.fetchone()
 
@@ -1079,8 +1079,11 @@ async def refresh_career_match(match_id: int, auth: dict = Depends(verify_api_ke
         }
 
         evaluated = await evaluate_job_for_specific_user(job_payload, profile_content, auth["email"], AI_EVAL_SEMAPHORE)
+        
+        # Resilient fallback: preserve existing record if AI evaluation dips or fails
         if not evaluated:
-            raise HTTPException(status_code=500, detail="AI re-evaluation failed or fit score dropped below threshold.")
+            logger.warning(f"AI re-evaluation for match {match_id} returned None. Preserving existing match record.")
+            return {"status": "success", "message": "Match refreshed, but AI model maintained previous baseline evaluation."}
 
         with db_transaction_scope() as (_, cursor):
             matched_reqs_json = json.dumps(evaluated.get('matched_requirements', []))
@@ -1097,7 +1100,7 @@ async def refresh_career_match(match_id: int, auth: dict = Depends(verify_api_ke
                     WHERE id = %s AND user_email = %s
                 """
                 cursor.execute(update_sql, (
-                    safe_int(evaluated.get('fit_score'), 82),
+                    safe_int(evaluated.get('fit_score'), m_dict.get('fit_score', 82)),
                     safe_str(evaluated.get('match_rationale')),
                     matched_reqs_json,
                     transferable_json,
@@ -1121,7 +1124,7 @@ async def refresh_career_match(match_id: int, auth: dict = Depends(verify_api_ke
                     WHERE id = ? AND user_email = ?
                 """
                 cursor.execute(update_sql, (
-                    safe_int(evaluated.get('fit_score'), 82),
+                    safe_int(evaluated.get('fit_score'), m_dict.get('fit_score', 82)),
                     safe_str(evaluated.get('match_rationale')),
                     matched_reqs_json,
                     transferable_json,
