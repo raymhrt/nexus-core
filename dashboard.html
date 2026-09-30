@@ -371,7 +371,7 @@
                                 </div>
                             </div>
                         </div>
-                        <button onclick="runTrialInterview()" class="mt-4 w-full py-2.5 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold transition shadow-lg shadow-sky-600/20">🎙️️ Evaluate Interview Response</button>
+                        <button onclick="runTrialInterview()" class="mt-4 w-full py-2.5 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold transition shadow-lg shadow-sky-600/20">🎙 Evaluate Interview Response</button>
                     </div>
 
                     <div class="bento-card p-6 rounded-2xl flex flex-col justify-between shadow-xl">
@@ -563,7 +563,7 @@
         </div>
     </div>
 
-    <!-- Frontend Controller Script -->
+    <!-- Frontend Controller Script (Hardened & Error-Checked) -->
     <script>
         lucide.createIcons();
 
@@ -609,9 +609,20 @@
             initSSETelemetry();
         };
 
-        // Feature 1: Spatial Swarm Radar Canvas Animation
+        function escapeHtml(str) {
+            if (!str) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
+        // Spatial Swarm Radar Canvas Animation
         function initRadarCanvas() {
             const canvas = document.getElementById('radarCanvas');
+            if (!canvas) return;
             const ctx = canvas.getContext('2d');
             let width = canvas.width = window.innerWidth;
             let height = canvas.height = window.innerHeight;
@@ -660,7 +671,6 @@
             animate();
         }
 
-        // Feature 5: Mobile Handoff QR Code Modal
         function openHandoffQRModal() {
             const modal = document.getElementById('mobileHandoffModal');
             const img = document.getElementById('handoffQRCodeImg');
@@ -673,48 +683,56 @@
             document.getElementById('mobileHandoffModal').classList.add('hidden');
         }
 
-        // Feature 3: Voice-Powered AI Interview Simulator
+        // Hardened Voice Speech Recognition with Fallback
         function toggleVoiceSpeechRecognition() {
             const micBtn = document.getElementById('voiceMicBtn');
             const micStatus = document.getElementById('micStatusText');
             const wave = document.getElementById('audioWaveVisualizer');
             const textarea = document.getElementById('interviewAnswer');
 
-            if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-                showToast("Speech Recognition is not supported in this browser. Try Chrome.", true);
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (!SpeechRecognition) {
+                showToast("Speech Recognition is not supported in this browser. Try Google Chrome.", true);
                 return;
             }
 
             if (!isListening) {
-                const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-                recognition = new SpeechRecognition();
-                recognition.continuous = true;
-                recognition.interimResults = true;
+                try {
+                    recognition = new SpeechRecognition();
+                    recognition.continuous = true;
+                    recognition.interimResults = true;
 
-                recognition.onstart = function() {
-                    isListening = true;
-                    micStatus.innerText = "Listening...";
-                    micBtn.className = "px-3 py-1 bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 rounded-xl text-xs font-bold transition flex items-center gap-1.5 animate-pulse";
-                    wave.classList.remove('hidden');
-                };
+                    recognition.onstart = function() {
+                        isListening = true;
+                        micStatus.innerText = "Listening...";
+                        micBtn.className = "px-3 py-1 bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 rounded-xl text-xs font-bold transition flex items-center gap-1.5 animate-pulse";
+                        wave.classList.remove('hidden');
+                    };
 
-                recognition.onresult = function(event) {
-                    let transcript = '';
-                    for (let i = event.resultIndex; i < event.results.length; i++) {
-                        transcript += event.results[i][0].transcript;
-                    }
-                    textarea.value = transcript;
-                };
+                    recognition.onresult = function(event) {
+                        let transcript = '';
+                        for (let i = event.resultIndex; i < event.results.length; i++) {
+                            transcript += event.results[i][0].transcript;
+                        }
+                        textarea.value = transcript;
+                    };
 
-                recognition.onerror = function() {
+                    recognition.onerror = function(e) {
+                        console.error('Speech recognition error:', e);
+                        stopVoiceRecognition();
+                        showToast("Voice recognition error or permission denied.", true);
+                    };
+
+                    recognition.onend = function() {
+                        stopVoiceRecognition();
+                    };
+
+                    recognition.start();
+                } catch(err) {
+                    console.error(err);
                     stopVoiceRecognition();
-                };
-
-                recognition.onend = function() {
-                    stopVoiceRecognition();
-                };
-
-                recognition.start();
+                    showToast("Could not initialize microphone recognition.", true);
+                }
             } else {
                 stopVoiceRecognition();
             }
@@ -722,16 +740,18 @@
 
         function stopVoiceRecognition() {
             isListening = false;
-            if (recognition) recognition.stop();
+            if (recognition) {
+                try { recognition.stop(); } catch(e) {}
+            }
             const micBtn = document.getElementById('voiceMicBtn');
             const micStatus = document.getElementById('micStatusText');
             const wave = document.getElementById('audioWaveVisualizer');
-            micStatus.innerText = "Start Voice";
-            micBtn.className = "px-3 py-1 bg-sky-500/20 hover:bg-sky-500/30 border border-sky-500/40 text-sky-300 rounded-xl text-xs font-bold transition flex items-center gap-1.5";
-            wave.classList.add('hidden');
+            if (micStatus) micStatus.innerText = "Start Voice";
+            if (micBtn) micBtn.className = "px-3 py-1 bg-sky-500/20 hover:bg-sky-500/30 border border-sky-500/40 text-sky-300 rounded-xl text-xs font-bold transition flex items-center gap-1.5";
+            if (wave) wave.classList.add('hidden');
         }
 
-        // Feature 4: Drag and Drop Kanban with Confetti
+        // Kanban Drag & Drop with Confetti
         function allowDrop(ev) {
             ev.preventDefault();
         }
@@ -750,11 +770,9 @@
             renderKanbanBoard(cachedCareerMatches);
 
             if (newStatus === 'offer' || newStatus === 'interview') {
-                confetti({
-                    particleCount: 100,
-                    spread: 70,
-                    origin: { y: 0.6 }
-                });
+                try {
+                    confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
+                } catch(e) {}
                 showToast("🎉 Awesome progress! Match moved to Interview / Offer pipeline.");
             } else {
                 showToast(`Match moved to ${newStatus.replace('_', ' ')}.`);
@@ -774,7 +792,7 @@
 
         function toggleConfigPanel() {
             const content = document.getElementById('configPanelContent');
-            content.classList.toggle('hidden');
+            if (content) content.classList.toggle('hidden');
         }
 
         function switchViewMode(mode) {
@@ -785,15 +803,15 @@
             const kanbanContainer = document.getElementById('kanbanContainer');
 
             if (mode === 'grid') {
-                gridBtn.className = "px-3 py-1.5 rounded-lg text-xs font-bold transition bg-sky-600 text-white shadow";
-                kanbanBtn.className = "px-3 py-1.5 rounded-lg text-xs font-bold transition text-slate-400 hover:text-slate-200";
-                gridContainer.classList.remove('hidden');
-                kanbanContainer.classList.add('hidden');
+                if (gridBtn) gridBtn.className = "px-3 py-1.5 rounded-lg text-xs font-bold transition bg-sky-600 text-white shadow";
+                if (kanbanBtn) kanbanBtn.className = "px-3 py-1.5 rounded-lg text-xs font-bold transition text-slate-400 hover:text-slate-200";
+                if (gridContainer) gridContainer.classList.remove('hidden');
+                if (kanbanContainer) kanbanContainer.classList.add('hidden');
             } else {
-                kanbanBtn.className = "px-3 py-1.5 rounded-lg text-xs font-bold transition bg-sky-600 text-white shadow";
-                gridBtn.className = "px-3 py-1.5 rounded-lg text-xs font-bold transition text-slate-400 hover:text-slate-200";
-                kanbanContainer.classList.remove('hidden');
-                gridContainer.classList.add('hidden');
+                if (kanbanBtn) kanbanBtn.className = "px-3 py-1.5 rounded-lg text-xs font-bold transition bg-sky-600 text-white shadow";
+                if (gridBtn) gridBtn.className = "px-3 py-1.5 rounded-lg text-xs font-bold transition text-slate-400 hover:text-slate-200";
+                if (kanbanContainer) kanbanContainer.classList.remove('hidden');
+                if (gridContainer) gridContainer.classList.add('hidden');
                 renderKanbanBoard(cachedCareerMatches);
             }
         }
@@ -831,8 +849,9 @@
             if (!apiKey) return;
             try {
                 const res = await fetch('/api/v1/credits', { headers: { 'x-api-key': apiKey } });
+                if (!res.ok) throw new Error('Authentication failed');
                 const data = await res.json();
-                if (res.ok && data.credits !== undefined) {
+                if (data.credits !== undefined) {
                     const credits = data.credits;
                     const limit = data.limit || 500;
                     document.getElementById('sidebarCreditCount').innerText = credits;
@@ -850,7 +869,9 @@
                         tierBadge.className = "text-sky-400 capitalize font-bold";
                     }
                 }
-            } catch (e) { console.error('Failed to load credits', e); }
+            } catch (e) {
+                console.error('Failed to load credits', e);
+            }
         }
 
         async function loadCareerMatches() {
@@ -870,9 +891,10 @@
 
             try {
                 const response = await fetch('/api/v1/career/matches', { headers: { 'x-api-key': apiKey } });
+                if (!response.ok) throw new Error('Failed to fetch matches. Check API key.');
                 const data = await response.json();
                 
-                if (response.ok && data.matches) {
+                if (data.matches) {
                     cachedCareerMatches = data.matches.filter(m => (m.fit_score || 0) >= 70);
                     renderJobMatches(cachedCareerMatches);
                     if (currentViewMode === 'kanban') renderKanbanBoard(cachedCareerMatches);
@@ -897,7 +919,7 @@
             } catch (err) {
                 console.error('Failed to load career matches:', err);
                 renderJobMatches([]);
-                showToast("Failed to refresh matches.", true);
+                showToast(err.message || "Failed to refresh matches.", true);
             } finally {
                 if (btn) {
                     btn.innerHTML = originalHTML;
@@ -1037,23 +1059,25 @@
             document.getElementById('kanbanCountOutreach').innerText = outreach.length;
             document.getElementById('kanbanCountOffer').innerText = offer.length;
 
-            const makeKanbanCard = (m) => {
-                const matchId = m.id || 1;
+            const makeKanbanCard = (m, idx) => {
+                const matchId = m.id || idx + 1;
+                const safeTitle = escapeHtml(cleanRoleTitle(m.role_title));
+                const safeCompany = escapeHtml(m.company_name);
                 return `
-                    <div draggable="true" ondragstart="dragKanbanCard(event, ${matchId})" class="bento-card p-3 rounded-xl space-y-1.5 shadow cursor-grab active:cursor-grabbing hover:border-sky-500 transition" onclick="openMatchDrawer(${JSON.stringify(m).replace(/"/g, '&quot;')})">
+                    <div draggable="true" ondragstart="dragKanbanCard(event, ${matchId})" class="bento-card p-3 rounded-xl space-y-1.5 shadow cursor-grab active:cursor-grabbing hover:border-sky-500 transition" onclick="openMatchDrawerById(${matchId})">
                         <div class="flex justify-between items-start">
-                            <span class="text-xs font-bold text-white truncate max-w-[140px]">${escapeHtml(cleanRoleTitle(m.role_title))}</span>
+                            <span class="text-xs font-bold text-white truncate max-w-[140px]">${safeTitle}</span>
                             <span class="text-[10px] text-emerald-400 font-bold">${m.fit_score}%</span>
                         </div>
-                        <p class="text-[11px] text-slate-400 truncate">${escapeHtml(m.company_name)}</p>
+                        <p class="text-[11px] text-slate-400 truncate">${safeCompany}</p>
                     </div>
                 `;
             };
 
-            colDiscovered.innerHTML = discovered.map(makeKanbanCard).join('') || '<p class="text-[11px] text-slate-600 italic">No cards</p>';
-            colAutopilot.innerHTML = autopilot.map(makeKanbanCard).join('') || '<p class="text-[11px] text-slate-600 italic">No cards</p>';
-            colOutreach.innerHTML = outreach.map(makeKanbanCard).join('') || '<p class="text-[11px] text-slate-600 italic">No cards</p>';
-            colOffer.innerHTML = offer.map(makeKanbanCard).join('') || '<p class="text-[11px] text-slate-600 italic">No cards</p>';
+            colDiscovered.innerHTML = discovered.map((m, i) => makeKanbanCard(m, i)).join('') || '<p class="text-[11px] text-slate-600 italic">No cards</p>';
+            colAutopilot.innerHTML = autopilot.map((m, i) => makeKanbanCard(m, i)).join('') || '<p class="text-[11px] text-slate-600 italic">No cards</p>';
+            colOutreach.innerHTML = outreach.map((m, i) => makeKanbanCard(m, i)).join('') || '<p class="text-[11px] text-slate-600 italic">No cards</p>';
+            colOffer.innerHTML = offer.map((m, i) => makeKanbanCard(m, i)).join('') || '<p class="text-[11px] text-slate-600 italic">No cards</p>';
         }
 
         function renderRecommendedRoles(roles) {
@@ -1082,6 +1106,12 @@
 
         function openMatchDrawerByIndex(index) {
             const match = cachedCareerMatches[index];
+            if (match) openMatchDrawer(match);
+            else showToast("Could not load match details.", true);
+        }
+
+        function openMatchDrawerById(matchId) {
+            const match = cachedCareerMatches.find(m => (m.id || 1) === matchId);
             if (match) openMatchDrawer(match);
             else showToast("Could not load match details.", true);
         }
@@ -1409,7 +1439,6 @@
             }
         }
 
-        // Feature 2: Holographic Sub-Score Radar Chart using Chart.js
         function initDrawerRadarChart(match) {
             const canvas = document.getElementById('drawerRadarChartCanvas');
             if (!canvas) return;
@@ -1454,9 +1483,11 @@
             const drawer = document.getElementById('side-drawer');
             const backdrop = document.getElementById('drawer-backdrop');
             const panel = document.getElementById('drawer-panel');
-            panel.classList.remove('open');
-            backdrop.classList.add('opacity-0', 'pointer-events-none');
-            setTimeout(() => drawer.classList.add('pointer-events-none'), 300);
+            if (panel) panel.classList.remove('open');
+            if (backdrop) backdrop.classList.add('opacity-0', 'pointer-events-none');
+            setTimeout(() => {
+                if (drawer) drawer.classList.add('pointer-events-none');
+            }, 300);
         }
 
         function openCareerOutreachModal(matchId) {
@@ -1641,11 +1672,6 @@
         }
 
         function logout() { localStorage.removeItem('nexus_api_key'); location.reload(); }
-
-        function escapeHtml(str) {
-            if (!str) return '';
-            return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
-        }
     </script>
 </body>
 </html>
