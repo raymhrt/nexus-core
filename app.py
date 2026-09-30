@@ -66,7 +66,7 @@ if DATABASE_URL:
     except Exception as e:
         logger.warning(f"Database connection pool initialization failed: {e}")
 
-AI_EVAL_SEMAPHORE = asyncio.Semaphore(2)
+AI_EVAL_SEMAPHORE = asyncio.Semaphore(1)
 
 class SSETelemetryBroker:
     def __init__(self):
@@ -483,7 +483,7 @@ async def multi_tenant_job_infiltration(target_roles: str, location: str, count:
 
 async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email: str, semaphore: asyncio.Semaphore) -> Optional[Dict]:
     async with semaphore:
-        await asyncio.sleep(1.5)
+        await asyncio.sleep(3.5)
         try:
             role = sanitize_job_title(job.get('job_title', 'Target Role'))
             company = job.get('company_name', 'Global Enterprise')
