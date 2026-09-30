@@ -494,7 +494,7 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
             You are an elite career strategist, ATS optimization expert, and hiring decision analyst.
             Your task is NOT just to rewrite a CV, but to dynamically POSITION the candidate correctly based on the job while maximizing interview conversion probability.
             
-            Candidate Profile:
+            MASTER CANDIDATE PROFILE / CV:
             {profile_content}
             
             Target Job: {role} at {company}
@@ -511,8 +511,8 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
             - "critical_missing": A JSON array of 2 strings identifying hard missing requirements or risk triggers.
             - "top_rejection_risks": A JSON array of 3 targeted recruiter concerns (e.g., lack of specific industry instrumentation, academic background).
             - "match_rationale": A JSON array of 3 structured bullet strings detailing technical and strategic alignment.
-            - "tailored_cv": A complete, highly scannable, strictly 1-page A4 formatted plain text CV optimized for ATS, following professional section orders (Summary, Core Skills, Professional Experience, Certifications, Technical Skills, Education, Publications).
-            - "tailored_cover_letter": A masterpiece cover letter matching the candidate's voice to the company's operational needs, structured with formal header, date, greeting, opening hook, methodology/rigor, collaboration, and formal sign-off.
+            - "tailored_cv": A complete, highly scannable, strictly 1-page A4 formatted plain text CV rewritten *specifically and entirely from the candidate's master profile above* to match this target role, using professional section orders (Summary, Core Competencies, Professional Experience with metric-driven bullets matching the job, Technical Expertise, Education, Publications). DO NOT output generic meta-text. Output the actual tailored CV content.
+            - "tailored_cover_letter": A masterpiece cover letter written in the candidate's professional voice, addressed to the hiring team at {company}, customized with a strong hook, methodology/rigor, collaboration, and formal sign-off based strictly on the candidate's master profile. DO NOT output placeholders. Output the full text of the cover letter.
             - "salary_benchmark": Estimated compensation range.
             - "negotiation_strategy": Salary leverage points.
             - "interview_playbook": A JSON array of 3 objects with keys "stage" and "focus" providing targeted technical/behavioral prep steps.
@@ -844,7 +844,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="QuantCode Nexus Enterprise Apex API",
-    version="16.18.0",
+    version="16.19.0",
     description="Live Multi-Tenant Career Infiltration Engine with Universal Track Positioning & Telemetry.",
     lifespan=lifespan
 )
