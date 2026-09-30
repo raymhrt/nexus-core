@@ -353,19 +353,6 @@ def call_groq_ai(prompt: str, system_prompt: str = "You are the complete multi-t
             
     raise HTTPException(status_code=502, detail="Groq AI inference failed across all retry attempts.")
 
-async def expert_tailored_resume_generation(resume_content: str, job_description: str) -> str:
-    gen_prompt = f"Tailor these resume impact bullets to strictly match this job description:\nResume: {resume_content}\nJob: {job_description}"
-    draft_output = call_groq_ai(gen_prompt, system_prompt="You are an expert resume writer optimizing for high ATS keyword scores.")
-
-    critique_prompt = f"Review these tailored resume bullets against the job description for missing ATS keywords, weak action verbs, or missing metrics:\nDraft: {draft_output}\nJob: {job_description}\n\nProvide constructive critique or return exact token 'APPROVED'."
-    critique = call_groq_ai(critique_prompt, system_prompt="You are a rigorous ATS compliance auditor.")
-
-    if "APPROVED" in critique.upper():
-        return draft_output
-
-    refine_prompt = f"Rewrite the draft resume bullets incorporating this expert critic feedback:\nDraft: {draft_output}\nFeedback: {critique}"
-    return call_groq_ai(refine_prompt, system_prompt="You are an elite executive resume editor executing final polishing.")
-
 async def ai_adaptable_role_expansion(target_roles: str, user_profile_json: Optional[str] = None) -> List[str]:
     prompt = f"""
     You are Agent 1 (Senior Search Strategist). Analyze the user's target roles and master CV profile to construct highly intelligent, flexible search queries.
@@ -503,43 +490,48 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
             raw_url = job.get('ats_portal_url', '#')
             desc = job.get('job_description', '')
 
-            prompt = f"""
-            Evaluate this live job posting for user {email} using our multi-agent committee.
-            Candidate CV: {profile_content}
-            Target Job Title: {role} at {company}
-            Job Description Snippet: {desc}
-
-            Return strict JSON (no markdown backticks, raw JSON only) with these exact keys:
-            - "is_valid_match": boolean (true ONLY if fit score >= 60 and highly relevant to candidate background)
+            eval_prompt = f"""
+            You are an elite career strategist, ATS optimization expert, and hiring decision analyst.
+            Your task is NOT just to rewrite a CV, but to dynamically POSITION the candidate correctly based on the job while maximizing interview conversion probability.
+            
+            Candidate Profile:
+            {profile_content}
+            
+            Target Job: {role} at {company}
+            Job Description:
+            {desc}
+            
+            Perform a rigorous evaluation and return STRICT JSON with these exact keys:
+            - "track": Choose ONE ("A. Medical Affairs / MSL", "B. Clinical Research / CRA", "C. R&D / Laboratory Science / QC", "D. Commercial / Application Scientist", "E. Leadership / Strategy")
+            - "seniority_fit": "Entry / Mid / Senior"
             - "fit_score": integer (0 to 99)
-            - "match_rationale": A clean, concise JSON array of 3 distinct bullet strings detailing alignment.
+            - "is_valid_match": boolean (true only if fit_score >= 60)
+            - "matched_strengths": A JSON array of 3 distinct strings highlighting alignment.
+            - "transferable_gaps": A JSON array of 3 strings detailing trainable gaps.
+            - "critical_missing": A JSON array of 2 strings identifying hard missing requirements or risk triggers.
+            - "top_rejection_risks": A JSON array of 3 targeted recruiter concerns (e.g., lack of specific industry instrumentation, academic background).
+            - "match_rationale": A JSON array of 3 structured bullet strings detailing technical and strategic alignment.
+            - "tailored_cv": A complete, highly scannable, strictly 1-page A4 formatted plain text CV optimized for ATS, following professional section orders (Summary, Core Skills, Professional Experience, Certifications, Technical Skills, Education, Publications).
+            - "tailored_cover_letter": A masterpiece cover letter matching the candidate's voice to the company's operational needs, structured with formal header, date, greeting, opening hook, methodology/rigor, collaboration, and formal sign-off.
             - "salary_benchmark": Estimated compensation range.
             - "negotiation_strategy": Salary leverage points.
-            - "interview_playbook": A JSON array of 3 objects with keys "stage" and "focus" providing customized, non-generic STAR/technical prep steps.
+            - "interview_playbook": A JSON array of 3 objects with keys "stage" and "focus" providing targeted technical/behavioral prep steps.
             """
-            
+
             loop = asyncio.get_running_loop()
-            raw_eval = await loop.run_in_executor(None, call_groq_ai, prompt)
+            raw_eval = await loop.run_in_executor(None, call_groq_ai, eval_prompt, "You are an elite recruitment AI returning precise raw JSON.")
+            
             import re as regex_re
             jm_eval = regex_re.search(r'\{.*\}', raw_eval, regex_re.DOTALL)
             eval_data = json.loads(jm_eval.group(0) if jm_eval else raw_eval)
 
-            if not eval_data or not eval_data.get('is_valid_match', False) or safe_int(eval_data.get('fit_score'), 0) < 60:
+            if not eval_data or not eval_data.get('is_valid_match', True) or safe_int(eval_data.get('fit_score'), 0) < 60:
                 return None
 
             safe_portal_url = sanitize_ats_url(raw_url, role, company)
             real_lead = recursive_org_chart_decision_maker_discovery(company, role, desc, target_location="Global")
             
-            try:
-                cv_variant = await expert_tailored_resume_generation(profile_content, desc)
-            except Exception:
-                cv_variant = profile_content
-
-            gaps = compute_skill_gaps(profile_content, role, desc)
-
-            job_embedding = generate_text_embedding(f"{role} {company} {desc}")
             intel = real_lead.get("company_intel", "")
-            
             if real_lead.get("has_verified_contact"):
                 outreach_text = f"Hi {real_lead['name']},\n\nI've been following {company}'s work—particularly noting your recent updates: {intel}\n\nWith my background in {role}, I would welcome a brief conversation regarding your strategic roadmap."
             else:
@@ -550,26 +542,30 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
                 "job_title": role,
                 "job_description": desc,
                 "location": job.get('location', "Global"),
-                "fit_score": safe_int(eval_data.get('fit_score'), 78),
-                "match_rationale": safe_str(eval_data.get('match_rationale', ["Verified peer-reviewed domain match."])),
-                "matched_requirements": gaps["matched"],
-                "transferable_gaps": gaps["transferable"],
-                "critical_missing": gaps["missing"],
+                "fit_score": safe_int(eval_data.get('fit_score'), 82),
+                "track": eval_data.get('track', 'C. R&D / Laboratory Science / QC'),
+                "seniority_fit": eval_data.get('seniority_fit', 'Mid / Senior'),
+                "match_rationale": safe_str(eval_data.get('match_rationale', ["Verified domain competency and analytical methodology alignment."])),
+                "matched_requirements": eval_data.get('matched_strengths', ["Core Domain Technical Competency", "Data Analysis & Instrumentation Stewardship"]),
+                "transferable_gaps": eval_data.get('transferable_gaps', ["Secondary Toolchain Adaptation", "Industrial Throughput Scale"]),
+                "critical_missing": eval_data.get('critical_missing', ["Specific Industry Platform Certification", "Advanced Equipment Calibration Compliance"]),
+                "top_rejection_risks": eval_data.get('top_rejection_risks', ["Transitioning from academic research to industrial throughput", "Platform-specific software adaptation"]),
                 "decision_maker_name": real_lead["name"],
                 "decision_maker_title": real_lead["title"],
                 "decision_maker_email": real_lead["email"],
                 "warm_intro_pathway": real_lead.get("pathway", "Org-Chart Verified Direct Match"),
                 "outreach_draft": outreach_text,
-                "salary_benchmark": eval_data.get('salary_benchmark', "Market Rate"),
-                "negotiation_strategy": eval_data.get('negotiation_strategy', "Emphasize specialized domain delivery."),
-                "cv_variant": cv_variant,
+                "salary_benchmark": eval_data.get('salary_benchmark', "Competitive Market Rate"),
+                "negotiation_strategy": eval_data.get('negotiation_strategy', "Emphasize proven instrumentation troubleshooting and method development impact."),
+                "cv_variant": eval_data.get('tailored_cv', profile_content),
+                "cover_letter_variant": eval_data.get('tailored_cover_letter', "Dear Hiring Team,\n\nI am writing to express my strong interest..."),
                 "interview_playbook": safe_str(eval_data.get('interview_playbook', [
-                    {"stage": "Recruiter Screen & Vector Alignment", "focus": f"Highlight core domain experience in {role} and validate compensation expectations."},
-                    {"stage": "Technical Deep Dive & Architecture Review", "focus": f"Prepare domain-specific STAR examples demonstrating past successful projects at {company} scale."},
-                    {"stage": "Executive & Culture Fit Final", "focus": f"Discuss strategic vision, cross-functional mentorship, and leadership capabilities."}
+                    {"stage": "Technical Screen & Instrumentation Review", "focus": f"Demonstrate hands-on experience with LC/GC platforms, ion source maintenance, and troubleshooting."},
+                    {"stage": "Method Development Deep Dive", "focus": f"Discuss past assay transitions from R&D to routine operations and complex matrix separation."},
+                    {"stage": "Cross-Functional & Culture Fit", "focus": f"Highlight collaboration with innovation, quality control, and data integrity standards."}
                 ])),
                 "ats_portal_url": safe_portal_url,
-                "embedding": job_embedding
+                "embedding": generate_text_embedding(f"{role} {company} {desc}")
             }
         except Exception as e:
             logger.warning(f"Skipping job evaluation due to API hiccup: {e}")
@@ -646,6 +642,7 @@ def init_career_database():
                 recruiter_verified INT DEFAULT 1,
                 negotiation_strategy TEXT DEFAULT '',
                 cv_variant TEXT,
+                cover_letter_variant TEXT,
                 interview_playbook TEXT DEFAULT '',
                 ats_portal_url TEXT,
                 embedding vector(768),
@@ -735,8 +732,8 @@ async def isolated_user_job_scouting_worker(user_email: str, requested_count: in
 
                 if DATABASE_URL:
                     sql = """
-                        INSERT INTO job_matches (user_email, company_name, job_title, job_description, location, fit_score, match_rationale, matched_requirements, transferable_gaps, critical_missing, decision_maker_name, decision_maker_title, decision_maker_email, warm_intro_pathway, outreach_draft, salary_benchmark, negotiation_strategy, cv_variant, interview_playbook, ats_portal_url, embedding, status)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::vector, 'discovered')
+                        INSERT INTO job_matches (user_email, company_name, job_title, job_description, location, fit_score, match_rationale, matched_requirements, transferable_gaps, critical_missing, decision_maker_name, decision_maker_title, decision_maker_email, warm_intro_pathway, outreach_draft, salary_benchmark, negotiation_strategy, cv_variant, cover_letter_variant, interview_playbook, ats_portal_url, embedding, status)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::vector, 'discovered')
                         ON CONFLICT DO NOTHING
                         RETURNING id;
                     """
@@ -759,6 +756,7 @@ async def isolated_user_job_scouting_worker(user_email: str, requested_count: in
                         safe_str(match_item.get('salary_benchmark')),
                         safe_str(match_item.get('negotiation_strategy')),
                         safe_str(match_item.get('cv_variant')),
+                        safe_str(match_item.get('cover_letter_variant')),
                         safe_str(match_item.get('interview_playbook')),
                         safe_str(match_item.get('ats_portal_url')),
                         vector_str
@@ -766,8 +764,8 @@ async def isolated_user_job_scouting_worker(user_email: str, requested_count: in
                     inserted = (ic.fetchone() is not None)
                 else:
                     sql = """
-                        INSERT OR IGNORE INTO job_matches (user_email, company_name, job_title, job_description, location, fit_score, match_rationale, matched_requirements, transferable_gaps, critical_missing, decision_maker_name, decision_maker_title, decision_maker_email, warm_intro_pathway, outreach_draft, salary_benchmark, negotiation_strategy, cv_variant, interview_playbook, ats_portal_url, status)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'discovered')
+                        INSERT OR IGNORE INTO job_matches (user_email, company_name, job_title, job_description, location, fit_score, match_rationale, matched_requirements, transferable_gaps, critical_missing, decision_maker_name, decision_maker_title, decision_maker_email, warm_intro_pathway, outreach_draft, salary_benchmark, negotiation_strategy, cv_variant, cover_letter_variant, interview_playbook, ats_portal_url, status)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'discovered')
                     """
                     ic.execute(sql, (
                         user_email,
@@ -788,6 +786,7 @@ async def isolated_user_job_scouting_worker(user_email: str, requested_count: in
                         safe_str(match_item.get('salary_benchmark')),
                         safe_str(match_item.get('negotiation_strategy')),
                         safe_str(match_item.get('cv_variant')),
+                        safe_str(match_item.get('cover_letter_variant')),
                         safe_str(match_item.get('interview_playbook')),
                         safe_str(match_item.get('ats_portal_url'))
                     ))
@@ -845,8 +844,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="QuantCode Nexus Enterprise Apex API",
-    version="16.17.0",
-    description="Live Multi-Tenant Career Infiltration Engine with Title Sanitization & Real-Time Telemetry.",
+    version="16.18.0",
+    description="Live Multi-Tenant Career Infiltration Engine with Universal Track Positioning & Telemetry.",
     lifespan=lifespan
 )
 
@@ -909,6 +908,7 @@ def get_career_matches(user=Depends(verify_api_key_only)):
                 cursor.execute("ALTER TABLE job_matches ADD COLUMN IF NOT EXISTS matched_requirements TEXT;")
                 cursor.execute("ALTER TABLE job_matches ADD COLUMN IF NOT EXISTS transferable_gaps TEXT;")
                 cursor.execute("ALTER TABLE job_matches ADD COLUMN IF NOT EXISTS critical_missing TEXT;")
+                cursor.execute("ALTER TABLE job_matches ADD COLUMN IF NOT EXISTS cover_letter_variant TEXT;")
                 cursor.execute("ALTER TABLE job_matches ADD COLUMN IF NOT EXISTS embedding vector(768);")
             except Exception:
                 pass
@@ -923,7 +923,7 @@ def get_career_matches(user=Depends(verify_api_key_only)):
                            matched_requirements, transferable_gaps, critical_missing,
                            decision_maker_name as networking_target_name, decision_maker_title as networking_target_role, 
                            decision_maker_email as networking_target_email, warm_intro_pathway, outreach_draft, 
-                           salary_benchmark, recruiter_verified, negotiation_strategy, cv_variant, interview_playbook, 
+                           salary_benchmark, recruiter_verified, negotiation_strategy, cv_variant, cover_letter_variant, interview_playbook, 
                            ats_portal_url, status,
                            1 - (embedding <=> %s::vector) AS semantic_similarity
                     FROM job_matches 
@@ -937,7 +937,7 @@ def get_career_matches(user=Depends(verify_api_key_only)):
                            matched_requirements, transferable_gaps, critical_missing,
                            decision_maker_name as networking_target_name, decision_maker_title as networking_target_role, 
                            decision_maker_email as networking_target_email, warm_intro_pathway, outreach_draft, 
-                           salary_benchmark, recruiter_verified, negotiation_strategy, cv_variant, interview_playbook, 
+                           salary_benchmark, recruiter_verified, negotiation_strategy, cv_variant, cover_letter_variant, interview_playbook, 
                            ats_portal_url, status 
                     FROM job_matches 
                     WHERE user_email = %s AND fit_score >= 60
@@ -950,7 +950,7 @@ def get_career_matches(user=Depends(verify_api_key_only)):
                        matched_requirements, transferable_gaps, critical_missing,
                        decision_maker_name as networking_target_name, decision_maker_title as networking_target_role, 
                        decision_maker_email as networking_target_email, warm_intro_pathway, outreach_draft, 
-                       salary_benchmark, recruiter_verified, negotiation_strategy, cv_variant, interview_playbook, 
+                       salary_benchmark, recruiter_verified, negotiation_strategy, cv_variant, cover_letter_variant, interview_playbook, 
                        ats_portal_url, status 
                 FROM job_matches 
                 WHERE user_email = ? AND fit_score >= 60
@@ -1010,6 +1010,7 @@ def get_career_matches(user=Depends(verify_api_key_only)):
             "recruiter_verified": m.get("recruiter_verified", 1),
             "negotiation_strategy": m.get("negotiation_strategy", ""),
             "cv_variant": m.get("cv_variant", ""),
+            "cover_letter_variant": m.get("cover_letter_variant", ""),
             "interview_playbook": m.get("interview_playbook", ""),
             "ats_portal_url": m.get("ats_portal_url", ""),
             "status": m.get("status", "discovered")
