@@ -1140,8 +1140,10 @@ async def refresh_career_match(match_id: int, auth: dict = Depends(verify_api_ke
     except HTTPException as he:
         raise he
     except Exception as e:
-        logger.error(f"CRITICAL REFRESH ERROR for match {match_id}: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Internal swarm error during match refresh: {str(e)}")
+        import traceback
+        tb = traceback.format_exc()
+        logger.error(f"DIAGNOSTIC REFRESH ERROR: {tb}")
+        raise HTTPException(status_code=500, detail=f"ERROR: {str(e)} | TB: {tb}")
 
 @app.post("/api/v1/career/resume")
 async def save_career_resume(payload: ResumeInput, auth: dict = Depends(verify_api_key_only)):
