@@ -866,6 +866,11 @@ class CareerCriteriaInput(BaseModel):
     locations: str
     job_count: Optional[int] = Field(default=3, ge=1, le=20)
 
+class TailorRequest(BaseModel):
+    job_description: str
+    job_title: str
+    company_name: str
+
 class OutreachDispatchRequest(BaseModel):
     subject: str
     body: str
@@ -1146,6 +1151,66 @@ async def refresh_career_match(match_id: int, auth: dict = Depends(verify_api_ke
         tb = traceback.format_exc()
         logger.error(f"DIAGNOSTIC REFRESH ERROR: {tb}")
         raise HTTPException(status_code=500, detail=f"ERROR: {str(e)} | TB: {tb}")
+
+@app.post("/api/v1/career/tailor-cv")
+async def tailor_user_specific_cv(
+    payload: TailorRequest,
+    auth: dict = Depends(verify_api_key_only)
+):
+    """
+    Multi-tenant endpoint that fetches the authenticated user's master CV from user_profiles 
+    and applies a strict anti-hallucination prompt to generate an ATS-optimized tailored CV.
+    """
+    with db_transaction_scope() as (_, cursor):
+        cursor.execute(
+            "SELECT profile_json FROM user_profiles WHERE email = %s" if DATABASE_URL else "SELECT profile_json FROM user_profiles WHERE email = ?",
+            (auth["email"],)
+        )
+        row = cursor.fetchone()
+
+    if not row:
+        raise HTTPException(status_code=400, detail="Master resume profile not found for this user. Please upload your CV first.")
+
+    user_data = dict(row) if not isinstance(row, dict) else row
+    master_resume = user_data.get("profile_json", "")
+
+    if not master_resume:
+        raise HTTPException(status_code=400, detail="Master resume content is empty.")
+
+    system_prompt = (
+        "You are an expert Scientific Resume Writer and ATS Optimization Engine. "
+        "Your task is to rewrite the provided user's master CV to align precisely with the target "
+        "job description for hiring manager appeal and ATS compliance. "
+        "CRITICAL RULES:\n"
+        "1. ZERO HALLUCINATION / STRICT FACTUALITY: You MUST ONLY use the actual employment history, "
+        "education, degrees, institutions, and achievements present in the user's master CV. "
+        "Do NOT invent fake employers or fake dates. Retain the user's real institutions and background.\n"
+        "2. TRUTH-BASED TRANSLATION: Reframe the user's actual academic and technical experience "
+        "to highlight relevance to the target job description.\n"
+        "3. ATS ALIGNMENT: Integrate essential keywords from the job description naturally into the professional "
+        "summary, core competencies, and bullet points.\n"
+        "4. FORMATTING: Output clean, professional Markdown."
+    )
+
+    user_content = f"""
+=== USER'S MASTER CV ===
+{master_resume}
+
+=== TARGET JOB ===
+Role: {payload.job_title}
+Company: {payload.company_name}
+Description: {payload.job_description}
+
+Generate the factually accurate, tailored CV in Markdown format.
+"""
+
+    prompt_combined = f"{system_prompt}\n\n{user_content}"
+    raw_response = call_groq_ai(prompt_combined, system_prompt="You are an expert resume writer generating tailored markdown CVs.")
+
+    return {
+        "status": "success",
+        "tailored_cv": raw_response
+    }
 
 @app.post("/api/v1/career/resume")
 async def save_career_resume(payload: ResumeInput, auth: dict = Depends(verify_api_key_only)):
