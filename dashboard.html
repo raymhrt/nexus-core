@@ -6,6 +6,7 @@
     <title>QuantCode Nexus Enterprise Apex | Ultimate Career Swarm Command Center</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://unpkg.com/lucide@latest"></script>
     <script>
@@ -44,9 +45,13 @@
         ::-webkit-scrollbar-track { background: #030712; }
         ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 3px; }
         ::-webkit-scrollbar-thumb:hover { background: #334155; }
+        canvas.radar-bg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 0; opacity: 0.3; }
     </style>
 </head>
-<body class="bg-darkbg text-slate-100 min-h-screen flex antialiased selection:bg-sky-500 selection:text-slate-950">
+<body class="bg-darkbg text-slate-100 min-h-screen flex antialiased selection:bg-sky-500 selection:text-slate-950 relative overflow-x-hidden">
+
+    <!-- Spatial Swarm Radar Canvas Background -->
+    <canvas id="radarCanvas" class="radar-bg"></canvas>
 
     <!-- Persistent Enterprise Sidebar -->
     <aside class="w-64 bg-sidebarbg border-r border-slate-800/80 flex flex-col justify-between hidden md:flex z-30 sticky top-0 h-screen">
@@ -77,7 +82,7 @@
         </div>
 
         <!-- Sidebar Footer / Gamified Credit Ring -->
-        <div class="p-4 border-t border-slate-800/80 space-y-3">
+        <div class="p-4 border-t border-slate-800/80 space-y-3 z-10">
             <div class="bg-inputbg border border-slate-800 p-3 rounded-xl flex items-center justify-between cursor-pointer hover:border-sky-500/50 transition" onclick="switchTab('subscription')" title="Click to view subscription tiers & credits">
                 <div>
                     <div class="text-[10px] text-slate-400 uppercase font-bold mb-0.5">Tier: <span id="sidebarTierBadge" class="text-sky-400">Starter</span></div>
@@ -100,7 +105,7 @@
     </aside>
 
     <!-- Main Workspace -->
-    <div class="flex-1 flex flex-col min-h-screen">
+    <div class="flex-1 flex flex-col min-h-screen z-10">
 
         <!-- Sticky Header Bar -->
         <header class="sticky top-0 z-20 glass-panel border-b border-slate-800/80 px-6 py-3.5 flex items-center justify-between">
@@ -110,9 +115,12 @@
                     <span class="text-xs font-bold uppercase tracking-wider text-emerald-400">Swarm Active</span>
                 </div>
                 <div class="h-4 w-[1px] bg-slate-800 hidden sm:block"></div>
-                <p id="swarm-status-text" class="text-xs text-slate-400 font-medium hidden sm:block">Autonomous agents indexing global multi-source feeds & aligning vector CVs...</p>
+                <p id="swarm-status-text" class="text-xs text-slate-400 font-medium hidden sm:block">Autonomous spatial agents indexing global multi-source vectors...</p>
             </div>
             <div class="flex items-center space-x-3">
+                <button onclick="openHandoffQRModal()" class="px-3 py-1.5 bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/40 text-purple-300 rounded-lg text-xs font-semibold transition flex items-center gap-1.5" title="Handoff session to mobile device">
+                    <i class="fa-solid fa-qrcode"></i> Mobile Handoff
+                </button>
                 <div id="sse-status-badge" class="flex items-center space-x-1.5 bg-emerald-500/10 border border-emerald-500/30 px-2.5 py-1 rounded-full text-[11px] font-semibold text-emerald-400">
                     <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
                     <span>Telemetry Connected</span>
@@ -275,10 +283,10 @@
                         </div>
                     </div>
 
-                    <!-- Kanban Pipeline Container (Hidden by Default) -->
+                    <!-- Kanban Pipeline Container (Drag & Drop Enabled) -->
                     <div id="kanbanContainer" class="hidden grid grid-cols-1 md:grid-cols-4 gap-4 overflow-x-auto pb-4">
                         <!-- Column 1: Discovered -->
-                        <div class="bg-inputbg border border-slate-800 rounded-xl p-4 space-y-3 min-w-[260px]">
+                        <div class="bg-inputbg border border-slate-800 rounded-xl p-4 space-y-3 min-w-[260px]" ondragover="allowDrop(event)" ondrop="dropKanbanCard(event, 'discovered')">
                             <div class="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-sky-400">
                                 <span>📥 Discovered (&gt;=70%)</span>
                                 <span id="kanbanCountDiscovered" class="px-2 py-0.5 bg-sky-500/10 rounded-full text-[10px]">0</span>
@@ -286,7 +294,7 @@
                             <div id="kanbanColDiscovered" class="space-y-3 min-h-[300px]"></div>
                         </div>
                         <!-- Column 2: Auto-Pilot / Applied -->
-                        <div class="bg-inputbg border border-slate-800 rounded-xl p-4 space-y-3 min-w-[260px]">
+                        <div class="bg-inputbg border border-slate-800 rounded-xl p-4 space-y-3 min-w-[260px]" ondragover="allowDrop(event)" ondrop="dropKanbanCard(event, 'applied_autopilot')">
                             <div class="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-indigo-400">
                                 <span>⚡ Auto-Pilot Queued</span>
                                 <span id="kanbanCountAutopilot" class="px-2 py-0.5 bg-indigo-500/10 rounded-full text-[10px]">0</span>
@@ -294,15 +302,15 @@
                             <div id="kanbanColAutopilot" class="space-y-3 min-h-[300px]"></div>
                         </div>
                         <!-- Column 3: Outreach Sent -->
-                        <div class="bg-inputbg border border-slate-800 rounded-xl p-4 space-y-3 min-w-[260px]">
+                        <div class="bg-inputbg border border-slate-800 rounded-xl p-4 space-y-3 min-w-[260px]" ondragover="allowDrop(event)" ondrop="dropKanbanCard(event, 'outreached')">
                             <div class="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-purple-400">
-                                <span>✉️️ Outreach Sent</span>
+                                <span>✉ Outreach Sent</span>
                                 <span id="kanbanCountOutreach" class="px-2 py-0.5 bg-purple-500/10 rounded-full text-[10px]">0</span>
                             </div>
                             <div id="kanbanColOutreach" class="space-y-3 min-h-[300px]"></div>
                         </div>
                         <!-- Column 4: Interview & Offer -->
-                        <div class="bg-inputbg border border-slate-800 rounded-xl p-4 space-y-3 min-w-[260px]">
+                        <div class="bg-inputbg border border-slate-800 rounded-xl p-4 space-y-3 min-w-[260px]" ondragover="allowDrop(event)" ondrop="dropKanbanCard(event, 'offer')">
                             <div class="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-emerald-400">
                                 <span>🎯 Interview / Offer</span>
                                 <span id="kanbanCountOffer" class="px-2 py-0.5 bg-emerald-500/10 rounded-full text-[10px]">0</span>
@@ -334,20 +342,36 @@
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     <div class="bento-card p-6 rounded-2xl flex flex-col justify-between shadow-xl">
                         <div>
-                            <h3 class="text-sm font-bold text-white flex items-center gap-2"><i class="fa-solid fa-headset text-sky-400"></i> AI Trial Interview Simulator</h3>
-                            <p class="text-xs text-slate-400 mt-1 mb-4">Simulate a high-stakes technical or behavioral interview tailored to your target job profile.</p>
+                            <div class="flex items-center justify-between mb-1">
+                                <h3 class="text-sm font-bold text-white flex items-center gap-2"><i class="fa-solid fa-headset text-sky-400"></i> AI Voice Trial Interview Simulator</h3>
+                                <button onclick="toggleVoiceSpeechRecognition()" id="voiceMicBtn" class="px-3 py-1 bg-sky-500/20 hover:bg-sky-500/30 border border-sky-500/40 text-sky-300 rounded-xl text-xs font-bold transition flex items-center gap-1.5">
+                                    <i class="fa-solid fa-microphone"></i> <span id="micStatusText">Start Voice</span>
+                                </button>
+                            </div>
+                            <p class="text-xs text-slate-400 mb-4">Simulate a high-stakes technical interview with speech-to-text input & audio wave visualizer.</p>
+                            
+                            <!-- Audio Wave Visualizer Simulation Bar -->
+                            <div id="audioWaveVisualizer" class="hidden h-6 bg-slate-950 border border-sky-500/40 rounded-lg mb-3 flex items-center justify-center gap-1 px-3">
+                                <div class="w-1 bg-sky-400 h-2 animate-pulse"></div>
+                                <div class="w-1 bg-sky-400 h-5 animate-pulse" style="animation-delay: 0.1s"></div>
+                                <div class="w-1 bg-sky-400 h-3 animate-pulse" style="animation-delay: 0.2s"></div>
+                                <div class="w-1 bg-sky-400 h-6 animate-pulse" style="animation-delay: 0.3s"></div>
+                                <div class="w-1 bg-sky-400 h-4 animate-pulse" style="animation-delay: 0.4s"></div>
+                                <span class="text-[10px] font-mono text-sky-300 ml-2">Listening to speech stream...</span>
+                            </div>
+
                             <div class="space-y-3">
                                 <div>
                                     <label class="text-xs text-slate-400 font-semibold">Target Company & Role</label>
                                     <input type="text" id="interviewRole" class="w-full mt-1 bg-inputbg border border-slate-800 rounded-xl p-2.5 text-xs text-slate-200 focus:outline-none focus:border-sky-500" placeholder="e.g. Senior Research Scientist">
                                 </div>
                                 <div>
-                                    <label class="text-xs text-slate-400 font-semibold">Your Answer / Response to Practice</label>
-                                    <textarea id="interviewAnswer" rows="4" class="w-full mt-1 bg-inputbg border border-slate-800 rounded-xl p-3 text-xs text-slate-200 focus:outline-none focus:border-sky-500" placeholder="Type how you would answer a technical or behavioral question..."></textarea>
+                                    <label class="text-xs text-slate-400 font-semibold">Your Answer / Voice Transcript</label>
+                                    <textarea id="interviewAnswer" rows="4" class="w-full mt-1 bg-inputbg border border-slate-800 rounded-xl p-3 text-xs text-slate-200 focus:outline-none focus:border-sky-500" placeholder="Type or use voice input to answer technical interview question..."></textarea>
                                 </div>
                             </div>
                         </div>
-                        <button onclick="runTrialInterview()" class="mt-4 w-full py-2.5 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold transition shadow-lg shadow-sky-600/20">🎙️ Evaluate Interview Response</button>
+                        <button onclick="runTrialInterview()" class="mt-4 w-full py-2.5 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold transition shadow-lg shadow-sky-600/20">🎙️️ Evaluate Interview Response</button>
                     </div>
 
                     <div class="bento-card p-6 rounded-2xl flex flex-col justify-between shadow-xl">
@@ -449,7 +473,7 @@
 
                 <!-- Mission Control Tab Nav -->
                 <div class="flex gap-2 bg-inputbg p-1 rounded-xl border border-slate-800 mt-4">
-                    <button onclick="switchDrawerTab('intel')" id="drawerTabIntel" class="flex-1 py-1.5 rounded-lg text-xs font-bold transition bg-sky-600 text-white shadow">Match Intel & Gaps</button>
+                    <button onclick="switchDrawerTab('intel')" id="drawerTabIntel" class="flex-1 py-1.5 rounded-lg text-xs font-bold transition bg-sky-600 text-white shadow">Match Intel & Radar</button>
                     <button onclick="switchDrawerTab('outreach')" id="drawerTabOutreach" class="flex-1 py-1.5 rounded-lg text-xs font-bold transition text-slate-400 hover:text-slate-200">Decision Maker</button>
                     <button onclick="switchDrawerTab('playbook')" id="drawerTabPlaybook" class="flex-1 py-1.5 rounded-lg text-xs font-bold transition text-slate-400 hover:text-slate-200">Interview Playbook</button>
                 </div>
@@ -465,6 +489,21 @@
         </div>
     </div>
 
+    <!-- Mobile Handoff QR Code Modal -->
+    <div id="mobileHandoffModal" class="hidden fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex justify-center items-center p-4">
+        <div class="bento-card border-sky-500/40 p-6 rounded-2xl max-w-sm w-full shadow-2xl text-center space-y-4">
+            <div class="flex justify-between items-center">
+                <span class="text-xs font-bold uppercase tracking-wider text-sky-400"><i class="fa-solid fa-qrcode mr-1"></i> Mobile Handoff QR</span>
+                <button onclick="closeHandoffQRModal()" class="text-slate-400 hover:text-white">&times;</button>
+            </div>
+            <p class="text-xs text-slate-300">Scan with your smartphone camera to instantly sync and open your QuantCode Apex session on mobile.</p>
+            <div class="bg-white p-4 rounded-xl inline-block mx-auto">
+                <img id="handoffQRCodeImg" src="" alt="Session QR Code" class="w-48 h-48 mx-auto object-contain">
+            </div>
+            <button onclick="closeHandoffQRModal()" class="w-full py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold transition">Done</button>
+        </div>
+    </div>
+
     <!-- Multi-Touch Outreach Sequence Modal -->
     <div id="careerOutreachModal" class="hidden fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex justify-center items-center p-4">
         <div class="bento-card border-purple-500/40 p-6 rounded-2xl max-w-2xl w-full shadow-2xl space-y-4">
@@ -472,13 +511,6 @@
                 <span class="text-xs font-bold uppercase tracking-wider text-purple-400 flex items-center gap-2"><i class="fa-solid fa-paper-plane text-purple-400"></i> Multi-Touch Networking Sequence Builder</span>
                 <button onclick="closeCareerOutreachModal()" class="text-slate-400 hover:text-white">&times;</button>
             </div>
-            
-            <div class="grid grid-cols-3 gap-2 border-b border-slate-800 pb-3">
-                <button class="py-1.5 px-3 bg-purple-500/20 border border-purple-500/40 text-purple-300 rounded-lg text-xs font-bold">Touch 1: Email Intro</button>
-                <button class="py-1.5 px-3 bg-slate-800 text-slate-400 rounded-lg text-xs font-medium hover:text-slate-200">Touch 2: LinkedIn Note</button>
-                <button class="py-1.5 px-3 bg-slate-800 text-slate-400 rounded-lg text-xs font-medium hover:text-slate-200">Touch 3: Follow-up (Day 4)</button>
-            </div>
-
             <div class="space-y-3">
                 <div>
                     <label class="block text-[10px] font-bold uppercase text-slate-400 mb-1">Target Decision Maker</label>
@@ -500,7 +532,7 @@
         </div>
     </div>
 
-    <!-- AI Ghostwriter & Tailored CV/Cover Letter Modal -->
+    <!-- AI Ghostwriter Modal -->
     <div id="aiGhostwriterModal" class="hidden fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex justify-center items-center p-4">
         <div class="bento-card border-sky-500/40 p-6 rounded-2xl max-w-4xl w-full shadow-2xl space-y-4 max-h-[90vh] flex flex-col">
             <div class="flex items-center justify-between border-b border-slate-800 pb-3">
@@ -513,20 +545,14 @@
                 </div>
                 <button onclick="closeGhostwriterModal()" class="text-slate-400 hover:text-white">&times;</button>
             </div>
-
-            <!-- Tab Switcher -->
             <div class="flex gap-2 bg-inputbg p-1 rounded-xl border border-slate-800 w-fit">
                 <button onclick="switchGhostwriterTab('cv')" id="ghostTabCv" class="px-4 py-1.5 rounded-lg text-xs font-bold transition bg-sky-600 text-white shadow">Tailored Resume Variant</button>
                 <button onclick="switchGhostwriterTab('letter')" id="ghostTabLetter" class="px-4 py-1.5 rounded-lg text-xs font-bold transition text-slate-400 hover:text-slate-200">Target Cover Letter</button>
             </div>
-
-            <!-- Content Area -->
             <div class="flex-1 overflow-y-auto space-y-3 bg-inputbg p-4 rounded-xl border border-slate-800 font-mono text-xs text-slate-200 min-h-[300px]">
                 <div id="ghostContentCv" class="space-y-2 whitespace-pre-wrap">Generating hyper-optimized resume variant aligned with target ATS keywords...</div>
                 <div id="ghostContentLetter" class="hidden space-y-2 whitespace-pre-wrap">Generating executive cover letter tailored to company culture cues...</div>
             </div>
-
-            <!-- Footer Actions -->
             <div class="flex items-center justify-between pt-2 border-t border-slate-800">
                 <span class="text-[10px] text-slate-400"><i class="fa-solid fa-circle-check text-emerald-400 mr-1"></i> ATS Keyword Vector Match Verified</span>
                 <div class="flex gap-3">
@@ -549,8 +575,12 @@
         let sseEventSource = null;
         let currentViewMode = 'grid';
         let activeGhostwriterData = { cv: '', letter: '' };
+        let recognition = null;
+        let isListening = false;
+        let drawerRadarChart = null;
 
         window.onload = function() {
+            initRadarCanvas();
             const savedKey = localStorage.getItem('nexus_api_key');
             if (savedKey) {
                 document.getElementById('apiKey').value = savedKey;
@@ -576,24 +606,175 @@
                 } catch(e) {}
             }
 
-            const urlParams = new URLSearchParams(window.location.search);
-            const bannerContainer = document.getElementById('alertBannerContainer');
-            if (urlParams.get('success') === 'true') {
-                bannerContainer.innerHTML = `<div class="p-4 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 rounded-xl text-xs font-bold mb-4 flex items-center justify-between"><span>🎉 Subscription activated successfully! Credits and tier upgraded.</span><button onclick="this.parentElement.remove()" class="text-emerald-400 font-bold">&times;</button></div>`;
-            } else if (urlParams.get('canceled') === 'true') {
-                bannerContainer.innerHTML = `<div class="p-4 bg-amber-500/10 border border-amber-500/30 text-amber-400 rounded-xl text-xs font-bold mb-4 flex items-center justify-between"><span>⚠️️ Checkout process was canceled. You can try again anytime.</span><button onclick="this.parentElement.remove()" class="text-amber-400 font-bold">&times;</button></div>`;
-            }
-
             initSSETelemetry();
         };
 
+        // Feature 1: Spatial Swarm Radar Canvas Animation
+        function initRadarCanvas() {
+            const canvas = document.getElementById('radarCanvas');
+            const ctx = canvas.getContext('2d');
+            let width = canvas.width = window.innerWidth;
+            let height = canvas.height = window.innerHeight;
+
+            window.addEventListener('resize', () => {
+                width = canvas.width = window.innerWidth;
+                height = canvas.height = window.innerHeight;
+            });
+
+            const particles = Array.from({ length: 35 }, () => ({
+                x: Math.random() * width,
+                y: Math.random() * height,
+                vx: (Math.random() - 0.5) * 0.6,
+                vy: (Math.random() - 0.5) * 0.6,
+                radius: Math.random() * 2 + 1
+            }));
+
+            function animate() {
+                ctx.clearRect(0, 0, width, height);
+                ctx.fillStyle = 'rgba(56, 189, 248, 0.4)';
+                ctx.strokeStyle = 'rgba(56, 189, 248, 0.1)';
+
+                particles.forEach((p, idx) => {
+                    p.x += p.vx;
+                    p.y += p.vy;
+                    if (p.x < 0 || p.x > width) p.vx *= -1;
+                    if (p.y < 0 || p.y > height) p.vy *= -1;
+
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    for (let j = idx + 1; j < particles.length; j++) {
+                        const p2 = particles[j];
+                        const dist = Math.hypot(p.x - p2.x, p.y - p2.y);
+                        if (dist < 130) {
+                            ctx.beginPath();
+                            ctx.moveTo(p.x, p.y);
+                            ctx.lineTo(p2.x, p2.y);
+                            ctx.stroke();
+                        }
+                    }
+                });
+                requestAnimationFrame(animate);
+            }
+            animate();
+        }
+
+        // Feature 5: Mobile Handoff QR Code Modal
+        function openHandoffQRModal() {
+            const modal = document.getElementById('mobileHandoffModal');
+            const img = document.getElementById('handoffQRCodeImg');
+            const currentUrl = window.location.href;
+            img.src = `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(currentUrl)}`;
+            modal.classList.remove('hidden');
+        }
+
+        function closeHandoffQRModal() {
+            document.getElementById('mobileHandoffModal').classList.add('hidden');
+        }
+
+        // Feature 3: Voice-Powered AI Interview Simulator
+        function toggleVoiceSpeechRecognition() {
+            const micBtn = document.getElementById('voiceMicBtn');
+            const micStatus = document.getElementById('micStatusText');
+            const wave = document.getElementById('audioWaveVisualizer');
+            const textarea = document.getElementById('interviewAnswer');
+
+            if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+                showToast("Speech Recognition is not supported in this browser. Try Chrome.", true);
+                return;
+            }
+
+            if (!isListening) {
+                const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+                recognition = new SpeechRecognition();
+                recognition.continuous = true;
+                recognition.interimResults = true;
+
+                recognition.onstart = function() {
+                    isListening = true;
+                    micStatus.innerText = "Listening...";
+                    micBtn.className = "px-3 py-1 bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 rounded-xl text-xs font-bold transition flex items-center gap-1.5 animate-pulse";
+                    wave.classList.remove('hidden');
+                };
+
+                recognition.onresult = function(event) {
+                    let transcript = '';
+                    for (let i = event.resultIndex; i < event.results.length; i++) {
+                        transcript += event.results[i][0].transcript;
+                    }
+                    textarea.value = transcript;
+                };
+
+                recognition.onerror = function() {
+                    stopVoiceRecognition();
+                };
+
+                recognition.onend = function() {
+                    stopVoiceRecognition();
+                };
+
+                recognition.start();
+            } else {
+                stopVoiceRecognition();
+            }
+        }
+
+        function stopVoiceRecognition() {
+            isListening = false;
+            if (recognition) recognition.stop();
+            const micBtn = document.getElementById('voiceMicBtn');
+            const micStatus = document.getElementById('micStatusText');
+            const wave = document.getElementById('audioWaveVisualizer');
+            micStatus.innerText = "Start Voice";
+            micBtn.className = "px-3 py-1 bg-sky-500/20 hover:bg-sky-500/30 border border-sky-500/40 text-sky-300 rounded-xl text-xs font-bold transition flex items-center gap-1.5";
+            wave.classList.add('hidden');
+        }
+
+        // Feature 4: Drag and Drop Kanban with Confetti
+        function allowDrop(ev) {
+            ev.preventDefault();
+        }
+
+        function dragKanbanCard(ev, matchId) {
+            ev.dataTransfer.setData("text/plain", matchId);
+        }
+
+        async function dropKanbanCard(ev, newStatus) {
+            ev.preventDefault();
+            const matchId = parseInt(ev.dataTransfer.getData("text/plain"));
+            const match = cachedCareerMatches.find(m => (m.id || 1) === matchId);
+            if (!match) return;
+
+            match.status = newStatus;
+            renderKanbanBoard(cachedCareerMatches);
+
+            if (newStatus === 'offer' || newStatus === 'interview') {
+                confetti({
+                    particleCount: 100,
+                    spread: 70,
+                    origin: { y: 0.6 }
+                });
+                showToast("🎉 Awesome progress! Match moved to Interview / Offer pipeline.");
+            } else {
+                showToast(`Match moved to ${newStatus.replace('_', ' ')}.`);
+            }
+
+            const apiKey = document.getElementById('apiKey').value.trim();
+            if (apiKey) {
+                try {
+                    await fetch(`/api/v1/career/matches/${matchId}/status`, {
+                        method: 'PATCH',
+                        headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ status: newStatus })
+                    });
+                } catch(e) {}
+            }
+        }
+
         function toggleConfigPanel() {
             const content = document.getElementById('configPanelContent');
-            if (content.classList.contains('hidden')) {
-                content.classList.remove('hidden');
-            } else {
-                content.classList.add('hidden');
-            }
+            content.classList.toggle('hidden');
         }
 
         function switchViewMode(mode) {
@@ -729,18 +910,10 @@
             let postUrl = m.ats_portal_url || '#';
             const companyName = (m.company_name || '').toLowerCase();
             
-            if (companyName.includes('biovac')) {
-                return 'https://biovac.teamtailor.com/jobs';
-            }
-            if (companyName.includes('csir')) {
-                return 'https://candidate.csir.co.za/psc/EMPLOYEE/HRMS/c/HRS_HRAM_FL.HRS_CG_SEARCH_FL.GBL?FOCUS=Applicant';
-            }
-            if (companyName.includes('samrc') || companyName.includes('medical research council')) {
-                return 'https://samrcjobs.mcidirecthire.com/Search/Index';
-            }
-            if (companyName.includes('aspen')) {
-                return 'https://aspen.mcidirecthire.com/SouthAfrica/External/CurrentOpportunities';
-            }
+            if (companyName.includes('biovac')) return 'https://biovac.teamtailor.com/jobs';
+            if (companyName.includes('csir')) return 'https://candidate.csir.co.za';
+            if (companyName.includes('samrc')) return 'https://samrcjobs.mcidirecthire.com';
+            if (companyName.includes('aspen')) return 'https://aspen.mcidirecthire.com';
 
             const allowedATS = ['greenhouse.io', 'lever.co', 'myworkdayjobs.com', 'ashbyhq.com', 'bamboohr.com', 'teamtailor.com', 'mcidirecthire.com', 'standardbank.com', 'csir.co.za'];
             let isAllowed = allowedATS.some(domain => postUrl.toLowerCase().includes(domain));
@@ -762,26 +935,19 @@
                 }
             }
             cleaned = uniqueWords.join(' ');
-            if (cleaned.length > 50) {
-                cleaned = cleaned.substring(0, 47) + '...';
-            }
+            if (cleaned.length > 50) cleaned = cleaned.substring(0, 47) + '...';
             return cleaned;
         }
 
         function parseCleanRationale(rawRationale) {
             if (!rawRationale) return "High alignment with your master core competencies and technical background.";
             let text = rawRationale;
-            if (Array.isArray(text)) {
-                text = text.join(' ');
-            }
+            if (Array.isArray(text)) text = text.join(' ');
             try {
                 const parsed = JSON.parse(text);
                 if (Array.isArray(parsed)) text = parsed.join(' ');
             } catch (e) {}
-            
-            // Clean escaped json artifacts and unicode bullet symbols
-            text = text.replace(/["\[\]]+/g, '').replace(/\\u2013|\\u2010|\\u2014/g, '-').replace(/\\u2022/g, '');
-            return text.trim();
+            return text.replace(/["\[\]]+/g, '').replace(/\\u2013|\\u2010|\\u2014/g, '-').replace(/\\u2022/g, '').trim();
         }
 
         function renderJobMatches(matches) {
@@ -797,7 +963,7 @@
                             <i class="fa-solid fa-folder-open"></i>
                         </div>
                         <h4 class="text-sm font-bold text-white">No high-confidence matches found (>= 70%)</h4>
-                        <p class="text-xs text-slate-400 max-w-md mx-auto">Launch the Multi-Source Swarm via the configuration panel above to scan high-fit roles meeting the strict alignment threshold.</p>
+                        <p class="text-xs text-slate-400 max-w-md mx-auto">Launch the Multi-Source Swarm via the configuration panel above to scan high-fit roles.</p>
                     </div>
                 `;
                 return;
@@ -823,20 +989,12 @@
                                     ${fitScore}% Match
                                 </div>
                             </div>
-
                             <p class="text-xs text-slate-300 line-clamp-2 my-2">${escapeHtml(parsedSnippet)}</p>
                         </div>
-
-                        <!-- Clean Action Tray -->
                         <div class="flex items-center justify-between gap-2 pt-3 border-t border-slate-800/80 mt-2" onclick="event.stopPropagation()">
                             <div class="flex items-center space-x-2">
-                                <a href="${escapeHtml(postUrl)}" target="_blank" class="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-lg transition-colors shadow">
-                                    Apply ↗
-                                </a>
-                                ${isApplied ? 
-                                    `<span class="px-2.5 py-1.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 rounded-lg text-xs font-bold">✅ Auto-Applied</span>` :
-                                    `<button onclick="triggerAutopilot(${matchId})" class="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg transition-colors">Auto-Apply ⚡</button>`
-                                }
+                                <a href="${escapeHtml(postUrl)}" target="_blank" class="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-lg transition-colors shadow">Apply ↗</a>
+                                ${isApplied ? `<span class="px-2.5 py-1.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 rounded-lg text-xs font-bold">✅ Auto-Applied</span>` : `<button onclick="triggerAutopilot(${matchId})" class="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg transition-colors">Auto-Apply ⚡</button>`}
                             </div>
                             <div class="flex items-center space-x-1.5">
                                 <button onclick="openMatchDrawerByIndex(${idx})" class="px-2.5 py-1.5 bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 border border-sky-500/30 text-xs font-semibold rounded-lg transition-colors">Details</button>
@@ -850,25 +1008,15 @@
 
         async function refreshJobMatch(matchId) {
             if (!confirm("Are you sure you want to regenerate the tailored CV and cover letter using your latest master CV?")) return;
-            
             try {
                 const response = await fetch(`/api/v1/career/matches/${matchId}/refresh`, {
                     method: 'POST',
-                    headers: {
-                        'x-api-key': localStorage.getItem('nexus_api_key') || ''
-                    }
+                    headers: { 'x-api-key': localStorage.getItem('nexus_api_key') || '' }
                 });
                 const data = await response.json();
-                if (response.ok) {
-                    alert(data.message);
-                    location.reload();
-                } else {
-                    alert("Error: " + (data.detail || "Failed to refresh match."));
-                }
-            } catch (err) {
-                console.error(err);
-                alert("Network error while refreshing match.");
-            }
+                if (response.ok) { alert(data.message); location.reload(); }
+                else { alert("Error: " + (data.detail || "Failed to refresh match.")); }
+            } catch (err) { alert("Network error while refreshing match."); }
         }
 
         function renderKanbanBoard(matches) {
@@ -876,11 +1024,9 @@
             const colAutopilot = document.getElementById('kanbanColAutopilot');
             const colOutreach = document.getElementById('kanbanColOutreach');
             const colOffer = document.getElementById('kanbanColOffer');
-
             if (!colDiscovered) return;
 
             const validMatches = (matches || []).filter(m => (m.fit_score || 0) >= 70);
-            
             const discovered = validMatches.filter(m => m.status === 'discovered' || !m.status);
             const autopilot = validMatches.filter(m => m.status === 'applied_autopilot');
             const outreach = validMatches.filter(m => m.status === 'outreached');
@@ -891,15 +1037,18 @@
             document.getElementById('kanbanCountOutreach').innerText = outreach.length;
             document.getElementById('kanbanCountOffer').innerText = offer.length;
 
-            const makeKanbanCard = (m) => `
-                <div class="bento-card p-3 rounded-xl space-y-1.5 shadow cursor-pointer hover:border-sky-500 transition" onclick="openMatchDrawer(${JSON.stringify(m).replace(/"/g, '&quot;')})">
-                    <div class="flex justify-between items-start">
-                        <span class="text-xs font-bold text-white truncate max-w-[140px]">${escapeHtml(cleanRoleTitle(m.role_title))}</span>
-                        <span class="text-[10px] text-emerald-400 font-bold">${m.fit_score}%</span>
+            const makeKanbanCard = (m) => {
+                const matchId = m.id || 1;
+                return `
+                    <div draggable="true" ondragstart="dragKanbanCard(event, ${matchId})" class="bento-card p-3 rounded-xl space-y-1.5 shadow cursor-grab active:cursor-grabbing hover:border-sky-500 transition" onclick="openMatchDrawer(${JSON.stringify(m).replace(/"/g, '&quot;')})">
+                        <div class="flex justify-between items-start">
+                            <span class="text-xs font-bold text-white truncate max-w-[140px]">${escapeHtml(cleanRoleTitle(m.role_title))}</span>
+                            <span class="text-[10px] text-emerald-400 font-bold">${m.fit_score}%</span>
+                        </div>
+                        <p class="text-[11px] text-slate-400 truncate">${escapeHtml(m.company_name)}</p>
                     </div>
-                    <p class="text-[11px] text-slate-400 truncate">${escapeHtml(m.company_name)}</p>
-                </div>
-            `;
+                `;
+            };
 
             colDiscovered.innerHTML = discovered.map(makeKanbanCard).join('') || '<p class="text-[11px] text-slate-600 italic">No cards</p>';
             colAutopilot.innerHTML = autopilot.map(makeKanbanCard).join('') || '<p class="text-[11px] text-slate-600 italic">No cards</p>';
@@ -911,16 +1060,12 @@
             const container = document.getElementById('aiRecommendationsContainer');
             const listContainer = document.getElementById('aiRecommendedRolesList');
             if (!container || !listContainer) return;
-
-            if (!roles || roles.length === 0) {
-                container.classList.add('hidden');
-                return;
-            }
+            if (!roles || roles.length === 0) { container.classList.add('hidden'); return; }
 
             localStorage.setItem('nexus_ai_recommendations', JSON.stringify(roles));
             container.classList.remove('hidden');
             listContainer.innerHTML = roles.map(role => `
-                <button type="button" onclick="selectRecommendedRole('${escapeHtml(role)}')" class="px-2.5 py-1 bg-sky-500/10 hover:bg-sky-500/20 border border-sky-500/30 text-sky-300 rounded-lg text-[11px] font-semibold transition flex items-center gap-1">
+                <button type="button" onclick="selectRecommendedRole('${escapeHtml(role)}')" class="px-2.5 py-1 bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/30 text-sky-300 rounded-lg text-[11px] font-semibold transition flex items-center gap-1">
                     <i class="fa-solid fa-plus text-[9px]"></i> ${escapeHtml(role)}
                 </button>
             `).join('');
@@ -930,21 +1075,15 @@
             const roleInput = document.getElementById('targetJobRoles');
             if (!roleInput) return;
             const currentVal = roleInput.value.trim();
-            if (!currentVal) {
-                roleInput.value = roleName;
-            } else if (!currentVal.toLowerCase().includes(roleName.toLowerCase())) {
-                roleInput.value = currentVal + ", " + roleName;
-            }
+            if (!currentVal) roleInput.value = roleName;
+            else if (!currentVal.toLowerCase().includes(roleName.toLowerCase())) roleInput.value = currentVal + ", " + roleName;
             showToast(`Added '${roleName}' to target roles!`);
         }
 
         function openMatchDrawerByIndex(index) {
             const match = cachedCareerMatches[index];
-            if (match) {
-                openMatchDrawer(match);
-            } else {
-                showToast("Could not load match details.", true);
-            }
+            if (match) openMatchDrawer(match);
+            else showToast("Could not load match details.", true);
         }
 
         async function dismissJobMatch(matchId) {
@@ -957,25 +1096,15 @@
                 if (res.ok) {
                     cachedCareerMatches = cachedCareerMatches.filter(m => (m.id || 0) !== matchId);
                     const card = document.getElementById(`job-card-${matchId}`);
-                    if (card) {
-                        card.style.opacity = '0';
-                        setTimeout(() => card.remove(), 300);
-                    }
+                    if (card) { card.style.opacity = '0'; setTimeout(() => card.remove(), 300); }
                     showToast("Job match dismissed successfully.");
-                } else {
-                    showToast("Failed to dismiss job match.", true);
-                }
-            } catch (e) {
-                showToast("Request failed to delete job match.", true);
-            }
+                } else { showToast("Failed to dismiss job match.", true); }
+            } catch (e) { showToast("Request failed to delete job match.", true); }
         }
 
         async function triggerAutopilot(matchId) {
             const apiKey = document.getElementById('apiKey').value.trim();
-            if (!apiKey) {
-                showToast("Please authenticate with your API key first.", true);
-                return;
-            }
+            if (!apiKey) { showToast("Please authenticate with your API key first.", true); return; }
 
             showToast("Initializing autonomous ATS worker container...");
             try {
@@ -986,15 +1115,9 @@
                 const data = await res.json();
                 if (res.ok) {
                     document.getElementById('kpiApplied').innerText = parseInt(document.getElementById('kpiApplied').innerText || '0') + 1;
-                    showToast("Auto-Pilot active! Check telemetry logs for live browser session progress.");
-                } else {
-                    showToast(data.detail || "Autopilot failed to start.", true);
-                    loadCareerMatches();
-                }
-            } catch (e) {
-                showToast("Network error triggering autopilot.", true);
-                loadCareerMatches();
-            }
+                    showToast("Auto-Pilot active! Check telemetry logs for progress.");
+                } else { showToast(data.detail || "Autopilot failed to start.", true); loadCareerMatches(); }
+            } catch (e) { showToast("Network error triggering autopilot.", true); loadCareerMatches(); }
         }
 
         async function openGhostwriterModal(matchId) {
@@ -1012,9 +1135,8 @@
             modal.classList.remove('hidden');
             
             setTimeout(() => {
-                const tailoredCv = match.cv_variant || `# ${match.role_title} - Tailored Candidate Profile\n\n## Professional Summary\nResults-driven expert with extensive experience aligning with ${match.company_name}'s core engineering and R&D pipelines.`;
+                const tailoredCv = match.cv_variant || `# ${match.role_title} - Tailored Candidate Profile\n\n## Professional Summary\nResults-driven expert aligning with ${match.company_name}'s core engineering and R&D pipelines.`;
                 const tailoredLetter = `Dear Hiring Team at ${match.company_name},\n\nI am writing to express my strong interest in the ${match.role_title} position.`;
-
                 activeGhostwriterData = { cv: tailoredCv, letter: tailoredLetter };
                 cvContainer.innerText = tailoredCv;
                 letterContainer.innerText = tailoredLetter;
@@ -1022,9 +1144,7 @@
             }, 1200);
         }
 
-        function closeGhostwriterModal() {
-            document.getElementById('aiGhostwriterModal').classList.add('hidden');
-        }
+        function closeGhostwriterModal() { document.getElementById('aiGhostwriterModal').classList.add('hidden'); }
 
         function switchGhostwriterTab(tab) {
             const cvBtn = document.getElementById('ghostTabCv');
@@ -1035,37 +1155,29 @@
             if (tab === 'cv') {
                 cvBtn.className = "px-4 py-1.5 rounded-lg text-xs font-bold transition bg-sky-600 text-white shadow";
                 letterBtn.className = "px-4 py-1.5 rounded-lg text-xs font-bold transition text-slate-400 hover:text-slate-200";
-                cvContent.classList.remove('hidden');
-                letterContent.classList.add('hidden');
+                cvContent.classList.remove('hidden'); letterContent.classList.add('hidden');
             } else {
                 letterBtn.className = "px-4 py-1.5 rounded-lg text-xs font-bold transition bg-sky-600 text-white shadow";
                 cvBtn.className = "px-4 py-1.5 rounded-lg text-xs font-bold transition text-slate-400 hover:text-slate-200";
-                letterContent.classList.remove('hidden');
-                cvContent.classList.add('hidden');
+                letterContent.classList.remove('hidden'); cvContent.classList.add('hidden');
             }
         }
 
         function copyGhostwriterOutput() {
             const isCvActive = !document.getElementById('ghostContentCv').classList.contains('hidden');
-            const textToCopy = isCvActive ? activeGhostwriterData.cv : activeGhostwriterData.letter;
-            navigator.clipboard.writeText(textToCopy);
+            navigator.clipboard.writeText(isCvActive ? activeGhostwriterData.cv : activeGhostwriterData.letter);
             showToast("Copied active asset to clipboard!");
         }
 
         function downloadGhostwriterAsset() {
             const isCvActive = !document.getElementById('ghostContentCv').classList.contains('hidden');
             const text = isCvActive ? activeGhostwriterData.cv : activeGhostwriterData.letter;
-            const filename = isCvActive ? 'tailored_resume_variant.md' : 'cover_letter.md';
-            
             const blob = new Blob([text], { type: 'text/markdown' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
-            a.href = url;
-            a.download = filename;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            showToast(`Downloaded ${filename} successfully!`);
+            a.href = url; a.download = isCvActive ? 'tailored_resume_variant.md' : 'cover_letter.md';
+            document.body.appendChild(a); a.click(); document.body.removeChild(a);
+            showToast("Downloaded asset successfully!");
         }
 
         async function runTrialInterview() {
@@ -1074,11 +1186,7 @@
             const answer = document.getElementById('interviewAnswer').value.trim();
             const out = document.getElementById('aiStudioOutput');
 
-            if (!role || !answer) {
-                showToast("Please enter target role and your answer.", true);
-                return;
-            }
-
+            if (!role || !answer) { showToast("Please enter target role and your answer.", true); return; }
             out.innerText = "Evaluating interview response with AI Swarm...";
             try {
                 const res = await fetch('/api/v1/career/interview/practice', {
@@ -1090,14 +1198,8 @@
                 if (res.ok) {
                     out.innerText = `### Trial Interview Feedback & Score\n\nScore: ${data.score || '88/100'}\n\nCritique & Improvements:\n${data.feedback || data.message}`;
                     showToast("Interview evaluation complete!");
-                } else {
-                    out.innerText = `Error: ${data.detail || 'Evaluation failed.'}`;
-                    showToast(data.detail || "Evaluation failed.", true);
-                }
-            } catch (e) {
-                out.innerText = "Network error during interview evaluation.";
-                showToast("Network error during evaluation.", true);
-            }
+                } else { out.innerText = `Error: ${data.detail || 'Evaluation failed.'}`; showToast(data.detail || "Evaluation failed.", true); }
+            } catch (e) { out.innerText = "Network error during interview evaluation."; showToast("Network error during evaluation.", true); }
         }
 
         async function runNegotiator() {
@@ -1106,11 +1208,7 @@
             const target = document.getElementById('targetCompensation').value.trim();
             const out = document.getElementById('aiStudioOutput');
 
-            if (!offer) {
-                showToast("Please enter offer details.", true);
-                return;
-            }
-
+            if (!offer) { showToast("Please enter offer details.", true); return; }
             out.innerText = "Generating negotiation counter-offer script...";
             try {
                 const res = await fetch('/api/v1/career/negotiate', {
@@ -1122,22 +1220,13 @@
                 if (res.ok) {
                     out.innerText = `### Autonomous Salary Negotiator Script\n\n${data.script || data.message}`;
                     showToast("Negotiation script generated!");
-                } else {
-                    out.innerText = `Error: ${data.detail || 'Generation failed.'}`;
-                    showToast(data.detail || "Generation failed.", true);
-                }
-            } catch (e) {
-                out.innerText = "Network error during negotiation generation.";
-                showToast("Network error during generation.", true);
-            }
+                } else { out.innerText = `Error: ${data.detail || 'Generation failed.'}`; showToast(data.detail || "Generation failed.", true); }
+            } catch (e) { out.innerText = "Network error during negotiation generation."; showToast("Network error during generation.", true); }
         }
 
         async function createCheckoutSession(tier) {
             const apiKey = document.getElementById('apiKey').value.trim();
-            if (tier === 'price_free') {
-                showToast("You are already on the Free tier.");
-                return;
-            }
+            if (tier === 'price_free') { showToast("You are already on the Free tier."); return; }
             try {
                 const res = await fetch('/api/v1/billing/create-checkout-session', {
                     method: 'POST',
@@ -1145,36 +1234,23 @@
                     body: JSON.stringify({ tier: tier })
                 });
                 const data = await res.json();
-                if (res.ok && (data.url || data.checkout_url)) {
-                    window.location.href = data.url || data.checkout_url;
-                } else {
-                    showToast(data.detail || "Failed to create checkout session.", true);
-                }
-            } catch (e) {
-                showToast("Checkout request failed.", true);
-            }
+                if (res.ok && (data.url || data.checkout_url)) { window.location.href = data.url || data.checkout_url; }
+                else { showToast(data.detail || "Failed to create checkout session.", true); }
+            } catch (e) { showToast("Checkout request failed.", true); }
         }
 
         async function openStripePortal() {
             const apiKey = document.getElementById('apiKey').value.trim();
-            if (!apiKey) {
-                showToast("Please authenticate with your API key first.", true);
-                return;
-            }
+            if (!apiKey) { showToast("Please authenticate with your API key first.", true); return; }
             try {
                 const res = await fetch('/api/v1/billing/portal', {
                     method: 'POST',
                     headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' }
                 });
                 const data = await res.json();
-                if (res.ok && (data.url || data.portal_url)) {
-                    window.location.href = data.url || data.portal_url;
-                } else {
-                    showToast(data.detail || "Stripe billing portal session unavailable.", true);
-                }
-            } catch (e) {
-                showToast("Failed to open billing portal.", true);
-            }
+                if (res.ok && (data.url || data.portal_url)) { window.location.href = data.url || data.portal_url; }
+                else { showToast(data.detail || "Stripe billing portal session unavailable.", true); }
+            } catch (e) { showToast("Failed to open billing portal.", true); }
         }
 
         function formatRationaleToBullets(rawRationale) {
@@ -1187,9 +1263,7 @@
                 } catch (e) {
                     sentences = rawRationale.replace(/[\u2010\u2011\u2012\u2013\u2014]/g, '-').split(/(?:\r?\n)+|(?<=[.!?])\s+(?=[A-Z])/);
                 }
-            } else if (Array.isArray(rawRationale)) {
-                sentences = rawRationale;
-            }
+            } else if (Array.isArray(rawRationale)) sentences = rawRationale;
             return sentences.map(s => `<li>${escapeHtml(String(s).trim().replace(/^["\[\]]+|[,\"]+$/g, '').replace(/\\u2013|\\u2010|\\u2014/g, '-'))}</li>`).join('');
         }
 
@@ -1197,16 +1271,12 @@
             if (!content) return '<p class="text-slate-500 italic">Playbook generating on next cycle...</p>';
             let parsedStages = content;
             if (typeof content === 'string') {
-                try {
-                    parsedStages = JSON.parse(content);
-                } catch (e) {
-                    return escapeHtml(content).replace(/\n/g, '<br>');
-                }
+                try { parsedStages = JSON.parse(content); } catch (e) { return escapeHtml(content).replace(/\n/g, '<br>'); }
             }
             if (Array.isArray(parsedStages)) {
                 return parsedStages.map((stageObj, idx) => {
                     const stageName = stageObj.stage || stageObj.title || `Stage ${idx + 1}`;
-                    const stageFocus = stageObj.focus || stageObj.description || stageObj.strategy || 'Analyze role requirements and prepare domain-specific STAR examples.';
+                    const stageFocus = stageObj.focus || stageObj.description || stageObj.strategy || 'Analyze role requirements and prepare STAR examples.';
                     return `
                         <div class="bg-slate-950/60 border border-slate-800 p-3.5 rounded-xl mb-2.5 last:mb-0 space-y-1">
                             <span class="text-xs font-bold text-sky-400">${escapeHtml(stageName)}</span>
@@ -1223,16 +1293,10 @@
             ['intel', 'outreach', 'playbook'].forEach(t => {
                 const btn = document.getElementById(`drawerTab${t.charAt(0).toUpperCase() + t.slice(1)}`);
                 if (btn) {
-                    if (t === tab) {
-                        btn.className = "flex-1 py-1.5 rounded-lg text-xs font-bold transition bg-sky-600 text-white shadow";
-                    } else {
-                        btn.className = "flex-1 py-1.5 rounded-lg text-xs font-bold transition text-slate-400 hover:text-slate-200";
-                    }
+                    btn.className = (t === tab) ? "flex-1 py-1.5 rounded-lg text-xs font-bold transition bg-sky-600 text-white shadow" : "flex-1 py-1.5 rounded-lg text-xs font-bold transition text-slate-400 hover:text-slate-200";
                 }
             });
-            if (activeMatchForDrawer) {
-                renderDrawerContent(activeMatchForDrawer);
-            }
+            if (activeMatchForDrawer) renderDrawerContent(activeMatchForDrawer);
         }
 
         function openMatchDrawer(match) {
@@ -1280,6 +1344,14 @@
             if (activeDrawerTab === 'intel') {
                 content.innerHTML = `
                     <div class="space-y-4">
+                        <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider">Holographic Sub-Score Radar</h3>
+                        <div class="bg-inputbg p-4 rounded-xl border border-slate-800 flex justify-center">
+                            <div class="w-64 h-56 relative">
+                                <canvas id="drawerRadarChartCanvas"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="space-y-4">
                         <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider">Granular Job Requirement Breakdown</h3>
                         <div class="bg-inputbg p-4 rounded-xl text-xs space-y-3 border border-slate-800">
                             <div>
@@ -1296,7 +1368,6 @@
                             </div>
                         </div>
                     </div>
-
                     <div class="space-y-2">
                         <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider">Structured Match Rationale</h3>
                         <div class="bg-inputbg p-4 rounded-xl text-xs text-slate-300 leading-relaxed border border-slate-800">
@@ -1306,6 +1377,7 @@
                         </div>
                     </div>
                 `;
+                setTimeout(() => initDrawerRadarChart(match), 50);
             } else if (activeDrawerTab === 'outreach') {
                 content.innerHTML = `
                     <div class="space-y-3">
@@ -1337,11 +1409,51 @@
             }
         }
 
+        // Feature 2: Holographic Sub-Score Radar Chart using Chart.js
+        function initDrawerRadarChart(match) {
+            const canvas = document.getElementById('drawerRadarChartCanvas');
+            if (!canvas) return;
+            if (drawerRadarChart) drawerRadarChart.destroy();
+
+            const fit = match.fit_score || 75;
+            const techScore = Math.min(100, fit + 5);
+            const cultureScore = Math.max(50, fit - 10);
+            const compScore = Math.min(100, fit + 2);
+            const seniorityScore = Math.max(60, fit - 5);
+
+            drawerRadarChart = new Chart(canvas, {
+                type: 'radar',
+                data: {
+                    labels: ['Technical Stack', 'Culture Fit', 'Compensation', 'Seniority Index', 'Domain Match'],
+                    datasets: [{
+                        label: 'Fit Vector',
+                        data: [techScore, cultureScore, compScore, seniorityScore, fit],
+                        backgroundColor: 'rgba(56, 189, 248, 0.2)',
+                        borderColor: '#38bdf8',
+                        pointBackgroundColor: '#38bdf8',
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        r: {
+                            angleLines: { color: 'rgba(255, 255, 255, 0.1)' },
+                            grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                            pointLabels: { color: '#94a3b8', font: { size: 10 } },
+                            ticks: { display: false, max: 100 }
+                        }
+                    },
+                    plugins: { legend: { display: false } }
+                }
+            });
+        }
+
         function closeSideDrawer() {
             const drawer = document.getElementById('side-drawer');
             const backdrop = document.getElementById('drawer-backdrop');
             const panel = document.getElementById('drawer-panel');
-
             panel.classList.remove('open');
             backdrop.classList.add('opacity-0', 'pointer-events-none');
             setTimeout(() => drawer.classList.add('pointer-events-none'), 300);
@@ -1360,9 +1472,7 @@
             document.getElementById('careerOutreachModal').classList.remove('hidden');
         }
 
-        function closeCareerOutreachModal() {
-            document.getElementById('careerOutreachModal').classList.add('hidden');
-        }
+        function closeCareerOutreachModal() { document.getElementById('careerOutreachModal').classList.add('hidden'); }
 
         async function dispatchCareerOutreach() {
             const apiKey = document.getElementById('apiKey').value.trim();
@@ -1376,13 +1486,8 @@
                     body: JSON.stringify({ subject, body })
                 });
                 const data = await res.json();
-                if (res.ok) {
-                    showToast(data.message || "Multi-touch sequence dispatched successfully!");
-                    closeCareerOutreachModal();
-                    loadCareerMatches();
-                } else {
-                    showToast(data.detail || "Failed to dispatch sequence.", true);
-                }
+                if (res.ok) { showToast(data.message || "Multi-touch sequence dispatched successfully!"); closeCareerOutreachModal(); loadCareerMatches(); }
+                else { showToast(data.detail || "Failed to dispatch sequence.", true); }
             } catch (err) { showToast("Dispatch request failed.", true); }
         }
 
@@ -1404,29 +1509,16 @@
                 });
                 const data = await res.json();
                 if (res.ok) {
-                    btn.innerHTML = `✅ Indexed!`;
-                    btn.classList.add('bg-emerald-600');
+                    btn.innerHTML = `✅ Indexed!`; btn.classList.add('bg-emerald-600');
                     showToast(data.message || "Resume optimized successfully!");
-                    
                     document.getElementById('profileHealthScore').innerText = '94%';
                     document.getElementById('profileHealthBar').style.width = '94%';
-
-                    if (data.recommended_roles && Array.isArray(data.recommended_roles)) {
-                        renderRecommendedRoles(data.recommended_roles);
-                    }
-
+                    if (data.recommended_roles && Array.isArray(data.recommended_roles)) renderRecommendedRoles(data.recommended_roles);
                     loadCredits();
-                    setTimeout(() => {
-                        btn.innerHTML = originalText;
-                        btn.classList.remove('bg-emerald-600');
-                        btn.disabled = false;
-                    }, 3000);
-                } else {
-                    throw new Error(data.detail || 'Failed to analyze resume.');
-                }
+                    setTimeout(() => { btn.innerHTML = originalText; btn.classList.remove('bg-emerald-600'); btn.disabled = false; }, 3000);
+                } else { throw new Error(data.detail || 'Failed to analyze resume.'); }
             } catch (err) { 
-                btn.innerHTML = `❌ Error`;
-                showToast(err.message || "Network request failed.", true); 
+                btn.innerHTML = `❌ Error`; showToast(err.message || "Network request failed.", true); 
                 setTimeout(() => { btn.innerHTML = originalText; btn.disabled = false; }, 3000);
             }
         }
@@ -1453,7 +1545,7 @@
                             <i class="fa-solid fa-satellite-dish fa-spin"></i>
                         </div>
                         <h4 class="text-sm font-bold text-white">Career Swarm is Actively Scouting...</h4>
-                        <p class="text-xs text-slate-400 max-w-md mx-auto">Autonomous agents are indexing live multi-source feeds concurrently. Matches will appear here automatically via live telemetry once indexed.</p>
+                        <p class="text-xs text-slate-400 max-w-md mx-auto">Autonomous agents are indexing live multi-source feeds concurrently.</p>
                     </div>
                 `;
             }
@@ -1466,21 +1558,12 @@
                 });
                 const data = await res.json();
                 if (res.ok) {
-                    btn.innerHTML = `✅ Swarm Deployed!`;
-                    btn.classList.add('bg-emerald-600');
-                    showToast(data.message || "Criteria saved & swarm deployed!");
-                    loadCredits();
-                    setTimeout(() => {
-                        btn.innerHTML = originalText;
-                        btn.classList.remove('bg-emerald-600');
-                        btn.disabled = false;
-                    }, 3000);
-                } else {
-                    throw new Error(data.detail || 'Failed to launch swarm.');
-                }
+                    btn.innerHTML = `✅ Swarm Deployed!`; btn.classList.add('bg-emerald-600');
+                    showToast(data.message || "Criteria saved & swarm deployed!"); loadCredits();
+                    setTimeout(() => { btn.innerHTML = originalText; btn.classList.remove('bg-emerald-600'); btn.disabled = false; }, 3000);
+                } else { throw new Error(data.detail || 'Failed to launch swarm.'); }
             } catch (err) { 
-                btn.innerHTML = `❌ Error`;
-                showToast(err.message || "Network request failed.", true); 
+                btn.innerHTML = `❌ Error`; showToast(err.message || "Network request failed.", true); 
                 setTimeout(() => { btn.innerHTML = originalText; btn.disabled = false; }, 3000);
             }
         }
@@ -1504,56 +1587,35 @@
 
                             const entry = document.createElement('div');
                             entry.className = "border-b border-cyan-950/40 pb-1 leading-snug";
-                            
                             let colorClass = "text-cyan-300";
                             if (parsed.event.includes('complete') || parsed.event.includes('success')) colorClass = "text-emerald-400";
                             else if (parsed.event.includes('error') || parsed.event.includes('fail')) colorClass = "text-rose-400";
                             
                             entry.innerHTML = `<span class="text-slate-500">[${timestamp}]</span> <strong class="${colorClass}">${escapeHtml(parsed.event)}:</strong> <span class="text-slate-300">${escapeHtml(logMessage)}</span>`;
-
-                            if (careerLog) {
-                                careerLog.appendChild(entry);
-                                careerLog.scrollTop = careerLog.scrollHeight;
-                            }
+                            if (careerLog) { careerLog.appendChild(entry); careerLog.scrollTop = careerLog.scrollHeight; }
                         }
-                        
-                        if (parsed.event === 'career_swarm_update') {
-                            loadCareerMatches();
-                            loadCredits();
-                            showToast("Swarm complete! New verified matches loaded.");
-                        } else if (parsed.event === 'autopilot_complete') {
-                            loadCareerMatches();
-                            loadCredits();
-                        }
+                        if (parsed.event === 'career_swarm_update') { loadCareerMatches(); loadCredits(); showToast("Swarm complete! New verified matches loaded."); }
+                        else if (parsed.event === 'autopilot_complete') { loadCareerMatches(); loadCredits(); }
                     } catch (e) { }
                 };
 
-                sseEventSource.onerror = function() {
-                    if (sseEventSource) sseEventSource.close();
-                    setTimeout(initSSETelemetry, 5000);
-                };
-            } catch (e) {
-                setTimeout(initSSETelemetry, 5000);
-            }
+                sseEventSource.onerror = function() { if (sseEventSource) sseEventSource.close(); setTimeout(initSSETelemetry, 5000); };
+            } catch (e) { setTimeout(initSSETelemetry, 5000); }
         }
 
         function clearTerminalLogs() {
             const careerLog = document.getElementById('careerTelemetryLog');
-            if (careerLog) {
-                careerLog.innerHTML = `<p class="text-slate-600">// Telemetry log cleared.</p>`;
-            }
+            if (careerLog) careerLog.innerHTML = `<p class="text-slate-600">// Telemetry log cleared.</p>`;
         }
 
         function toggleTerminalStream() {
             isTerminalPaused = !isTerminalPaused;
             const btn = document.getElementById('terminalToggleBtn');
             if (isTerminalPaused) {
-                btn.innerText = "Resume";
-                btn.className = "px-2.5 py-1 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 rounded-lg text-[10px] font-mono transition";
+                btn.innerText = "Resume"; btn.className = "px-2.5 py-1 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 rounded-lg text-[10px] font-mono transition";
                 showToast("Telemetry terminal paused.");
             } else {
-                btn.innerText = "Pause";
-                btn.className = "px-2.5 py-1 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 text-cyan-300 rounded-lg text-[10px] font-mono transition";
+                btn.innerText = "Pause"; btn.className = "px-2.5 py-1 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 text-cyan-300 rounded-lg text-[10px] font-mono transition";
                 showToast("Telemetry terminal resumed.");
             }
         }
@@ -1562,40 +1624,27 @@
             const container = document.getElementById('toastContainer');
             if (!container) return;
             const toast = document.createElement('div');
-            toast.className = `bg-cardbg border ${isError ? 'border-rose-500 text-rose-300' : 'border-sky-500 text-slate-100'} px-4 py-3 rounded-xl text-xs font-semibold shadow-2xl flex items-center gap-2 animate-fade-in`;
+            toast.className = `bento-card border ${isError ? 'border-rose-500 text-rose-300' : 'border-sky-500 text-slate-100'} px-4 py-3 rounded-xl text-xs font-semibold shadow-2xl flex items-center gap-2 animate-fade-in`;
             toast.innerHTML = `<i class="fa-solid ${isError ? 'fa-triangle-exclamation text-rose-400' : 'fa-circle-check text-emerald-400'}"></i> <span>${message}</span>`;
             container.appendChild(toast);
             setTimeout(() => toast.remove(), isError ? 5000 : 3000);
         }
 
-        function triggerReset() {
-            localStorage.removeItem('nexus_api_key');
-            document.getElementById('apiKey').value = '';
-            showToast("API Key reset successfully.");
-        }
+        function triggerReset() { localStorage.removeItem('nexus_api_key'); document.getElementById('apiKey').value = ''; showToast("API Key reset successfully."); }
 
         async function saveAndFetch() {
             const apiKey = document.getElementById('apiKey').value.trim();
             if (!apiKey) { alert("Please enter a valid API key."); return; }
             localStorage.setItem('nexus_api_key', apiKey);
-            loadCareerMatches();
-            loadCredits();
+            loadCareerMatches(); loadCredits();
             showToast("Successfully authenticated & telemetry loaded!");
         }
 
-        function logout() {
-            localStorage.removeItem('nexus_api_key');
-            location.reload();
-        }
+        function logout() { localStorage.removeItem('nexus_api_key'); location.reload(); }
 
         function escapeHtml(str) {
             if (!str) return '';
-            return String(str)
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;')
-                .replace(/"/g, '&quot;')
-                .replace(/'/g, '&#039;');
+            return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
         }
     </script>
 </body>
