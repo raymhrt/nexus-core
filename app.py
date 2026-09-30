@@ -66,7 +66,6 @@ if DATABASE_URL:
     except Exception as e:
         logger.warning(f"Database connection pool initialization failed: {e}")
 
-# Global Concurrency Throttle Semaphore (Max 2 concurrent AI inference calls to prevent HTTP 429)
 AI_EVAL_SEMAPHORE = asyncio.Semaphore(2)
 
 class SSETelemetryBroker:
@@ -134,6 +133,14 @@ def safe_int(val: Any, default: int = 88) -> int:
 def hash_api_key(api_key: str) -> str:
     return hashlib.sha256(api_key.encode("utf-8")).hexdigest()
 
+def sanitize_job_title(title: str) -> str:
+    if not title:
+        return "Professional Role"
+    cleaned = re.sub(r'\s+', ' ', title).strip()
+    if len(cleaned) > 60:
+        cleaned = cleaned[:57] + "..."
+    return cleaned
+
 def generate_text_embedding(text: str) -> List[float]:
     try:
         hasher = hashlib.sha256(text.encode('utf-8'))
@@ -194,7 +201,8 @@ def compute_skill_gaps(resume_text: str, job_title: str, job_description: str = 
     if not transferable:
         transferable = ["Secondary Toolchain Adaptation", "Cross-Functional Collaboration"]
     if not missing:
-        missing = [f"Advanced Enterprise Certification for {job_title}", "Specific Instrumentation Compliance"]
+        short_title = sanitize_job_title(job_title)
+        missing = [f"Advanced Enterprise Certification for {short_title}", "Specific Instrumentation Compliance"]
 
     return {
         "matched": matched[:4],
@@ -332,7 +340,6 @@ def call_groq_ai(prompt: str, system_prompt: str = "You are the complete multi-t
                 set_cached_ai_response(cache_key, output)
                 return output
             elif res.status_code in [429, 502, 503]:
-                # Exponential backoff with jitter
                 sleep_time = (2 ** attempt) + random.uniform(0.5, 1.5)
                 logger.warning(f"Groq API status {res.status_code} received. Retrying in {sleep_time:.2f}s (attempt {attempt + 1}/{max_retries})...")
                 time.sleep(sleep_time)
@@ -446,9 +453,10 @@ async def multi_tenant_job_infiltration(target_roles: str, location: str, count:
             
             if df_jobs is not None and not df_jobs.empty:
                 for _, row in df_jobs.iterrows():
+                    raw_title = str(row.get("title", term))
                     job_item = {
                         "company_name": str(row.get("company", "Global Enterprise")),
-                        "job_title": str(row.get("title", term)),
+                        "job_title": sanitize_job_title(raw_title),
                         "location": str(row.get("location", location)),
                         "job_description": str(row.get("description", "Full job specs available on direct ATS portal.")),
                         "ats_portal_url": str(row.get("job_url", ""))
@@ -470,9 +478,10 @@ async def multi_tenant_job_infiltration(target_roles: str, location: str, count:
                     res = requests.get(adzuna_url, timeout=6)
                     if res.status_code == 200:
                         for item in res.json().get("results", []):
+                            raw_title = item.get("title", primary_term)
                             job_item = {
                                 "company_name": item.get("company", {}).get("display_name", "Global Enterprise"),
-                                "job_title": item.get("title", primary_term),
+                                "job_title": sanitize_job_title(raw_title),
                                 "location": item.get("location", {}).get("display_name", location),
                                 "job_description": item.get("description", "Full job specs available on direct ATS portal."),
                                 "ats_portal_url": item.get("redirect_url", "")
@@ -487,10 +496,9 @@ async def multi_tenant_job_infiltration(target_roles: str, location: str, count:
 
 async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email: str, semaphore: asyncio.Semaphore) -> Optional[Dict]:
     async with semaphore:
-        # Add a polite delay to respect RPM rate limits and stagger API requests
         await asyncio.sleep(1.5)
         try:
-            role = job.get('job_title', 'Target Role')
+            role = sanitize_job_title(job.get('job_title', 'Target Role'))
             company = job.get('company_name', 'Global Enterprise')
             raw_url = job.get('ats_portal_url', '#')
             desc = job.get('job_description', '')
@@ -694,17 +702,19 @@ async def isolated_user_job_scouting_worker(user_email: str, requested_count: in
         u_dict = dict(user_row) if not isinstance(user_row, dict) else user_row
         profile_content = u_dict.get('profile_json', '')
 
+        await sse_broker.broadcast("multi_tenant_telemetry", {"user": user_email, "message": f"Scraping global multi-source feeds across LinkedIn & Indeed..."})
         raw_jobs = await multi_tenant_job_infiltration(target_roles, target_locations, requested_count * 15, user_profile_json=profile_content)
         if not raw_jobs:
             await sse_broker.broadcast("career_swarm_update", {"user": user_email, "status": "no_jobs", "message": "Scouting completed, but zero live positions matched current aggregators."})
             return
         
-        # Use AI_EVAL_SEMAPHORE (max 2 concurrent) to prevent 429 rate limit storms
+        await sse_broker.broadcast("multi_tenant_telemetry", {"user": user_email, "message": f"Discovered {len(raw_jobs)} positions. Running multi-agent AI vector evaluations..."})
         evaluation_tasks = [evaluate_job_for_specific_user(job, profile_content, user_email, AI_EVAL_SEMAPHORE) for job in raw_jobs[:20]]
         results = await asyncio.gather(*evaluation_tasks)
         
         valid_results = [m for m in results if m is not None]
         if not valid_results:
+            await sse_broker.broadcast("career_swarm_update", {"user": user_email, "status": "no_matches", "message": "Scouting complete. No jobs met the strict >=60% fit filter."})
             return
 
         valid_results.sort(key=lambda x: x.get('fit_score', 0), reverse=True)
@@ -789,9 +799,10 @@ async def isolated_user_job_scouting_worker(user_email: str, requested_count: in
                         ic.execute(deduct_sql, (user_email,))
                     saved_count += 1
 
-        await sse_broker.broadcast("career_swarm_update", {"user": user_email, "status": "scouted", "message": f"Indexed {saved_count} verified matches."})
+        await sse_broker.broadcast("career_swarm_update", {"user": user_email, "status": "scouted", "message": f"Swarm completed. Indexed {saved_count} verified high-fit matches."})
     except Exception as e:
         logger.error(f"Error in isolated worker for {user_email}: {str(e)}", exc_info=True)
+        await sse_broker.broadcast("multi_tenant_telemetry", {"user": user_email, "message": f"Swarm worker encountered a recoverable exception."})
 
 async def run_autonomous_ats_autopilot_worker(match_id: int, user_email: str, ats_url: str):
     steps = [
@@ -834,8 +845,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="QuantCode Nexus Enterprise Apex API",
-    version="16.16.0",
-    description="Live Multi-Tenant Career Infiltration Engine with Rate-Limited Concurrency.",
+    version="16.17.0",
+    description="Live Multi-Tenant Career Infiltration Engine with Title Sanitization & Real-Time Telemetry.",
     lifespan=lifespan
 )
 
@@ -951,7 +962,7 @@ def get_career_matches(user=Depends(verify_api_key_only)):
 
     normalized_matches = []
     for m in raw_matches:
-        role_t = m.get("role_title") or m.get("job_title") or ""
+        role_t = sanitize_job_title(m.get("role_title") or m.get("job_title") or "")
         rat = m.get("rationale") or m.get("match_rationale") or ""
         dm_name = m.get("networking_target_name") or m.get("decision_maker_name") or ""
         dm_role = m.get("networking_target_role") or m.get("decision_maker_title") or ""
@@ -968,6 +979,10 @@ def get_career_matches(user=Depends(verify_api_key_only)):
             except Exception:
                 return [val]
 
+        matched_arr = parse_json_array(m.get("matched_requirements"), ["Core Domain Competency"])
+        transferable_arr = parse_json_array(m.get("transferable_gaps"), ["Secondary Toolchain Adaptation"])
+        critical_arr = parse_json_array(m.get("critical_missing"), ["Specific Enterprise Certification"])
+
         normalized_matches.append({
             "id": m.get("id"),
             "company_name": m.get("company_name", ""),
@@ -977,9 +992,12 @@ def get_career_matches(user=Depends(verify_api_key_only)):
             "fit_score": m.get("fit_score", 0),
             "rationale": rat,
             "match_rationale": rat,
-            "matched_requirements": parse_json_array(m.get("matched_requirements"), ["Core Domain Competency"]),
-            "transferable_gaps": parse_json_array(m.get("transferable_gaps"), ["Secondary Toolchain Adaptation"]),
-            "critical_missing": parse_json_array(m.get("critical_missing"), ["Specific Enterprise Certification"]),
+            "matched_requirements": matched_arr,
+            "matched_requirements_count": len(matched_arr),
+            "transferable_gaps": transferable_arr,
+            "transferable_gaps_count": len(transferable_arr),
+            "critical_missing": critical_arr,
+            "critical_missing_count": len(critical_arr),
             "networking_target_name": dm_name,
             "decision_maker_name": dm_name,
             "networking_target_role": dm_role,
