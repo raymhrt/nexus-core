@@ -223,8 +223,11 @@
                             <h4 class="text-xs font-bold text-white flex items-center gap-2 mb-1">🎯 Target Job Criteria & Multi-Source Swarm</h4>
                             <p class="text-[11px] text-slate-400 mb-3">Define your target roles. Select from AI recommendations or enter custom titles.</p>
                             
+                            <!-- AI Recommended Roles Container (Adapted) -->
                             <div id="aiRecommendationsContainer" class="mb-3 hidden">
-                                <span class="text-[10px] font-bold text-sky-400 uppercase tracking-wider block mb-1"><i class="fa-solid fa-wand-magic-sparkles mr-1"></i> AI Recommended Roles from CV:</span>
+                                <span class="text-[10px] font-bold text-sky-400 uppercase tracking-wider block mb-1">
+                                    <i class="fa-solid fa-wand-magic-sparkles mr-1"></i> AI Recommended Roles from CV:
+                                </span>
                                 <div id="aiRecommendedRolesList" class="flex flex-wrap gap-1.5"></div>
                             </div>
 
@@ -751,7 +754,7 @@
             if (wave) wave.classList.add('hidden');
         }
 
-        // Kanban Drag & Drop with Confetti & Rollback Protection
+        // Kanban Drag & Drop with Confetti & Rollback Protection (Adapted)
         function allowDrop(ev) {
             ev.preventDefault();
         }
@@ -762,7 +765,7 @@
 
         async function dropKanbanCard(ev, newStatus) {
             ev.preventDefault();
-            const matchId = parseInt(ev.dataTransfer.getData("text/plain"));
+            const matchId = parseInt(ev.dataTransfer.getData("text/plain"), 10);
             const match = cachedCareerMatches.find(m => (m.id || 1) === matchId);
             if (!match) return;
 
