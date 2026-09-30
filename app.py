@@ -172,43 +172,49 @@ def sanitize_ats_url(url: str, role_title: str, company_name: str) -> str:
         return url
     return f"https://www.linkedin.com/jobs/search/?keywords={urllib.parse.quote(role_title + ' ' + company_name)}"
 
-def compute_skill_gaps(resume_text: str, job_title: str, job_description: str = "") -> dict:
-    resume_lower = resume_text.lower()
-    desc_lower = job_description.lower()
+def build_ghostwriter_prompt(master_cv_markdown: str, target_job_description: str, target_role: str, company_name: str) -> str:
+    """
+    Constructs a strictly grounded, multi-tenant prompt for any user's uploaded Master CV.
+    """
+    return f"""
+    You are an elite career strategist, ATS optimization expert, and hiring decision analyst.
     
-    common_skills = [
-        "python", "molecular biology", "biochemistry", "structural biology", "x-ray crystallography",
-        "spr", "itc", "protein-dna", "drug-discovery", "machine learning", "pytorch", "aws", "docker",
-        "kubernetes", "leadership", "mentorship", "experimental design", "quantitative analysis"
-    ]
+    CRITICAL MULTI-USER GROUNDING RULES:
+    1. IMMUTABLE TRUTH: The USER'S MASTER CV provided below is the ABSOLUTE source of truth. 
+    2. ZERO FABRICATION: You are strictly FORBIDDEN from inventing, guessing, or altering:
+       - Employment dates, company names, or job titles.
+       - Educational degrees, institutions, or graduation years.
+       - Publications, co-authors, journals, or publication years.
+       - Awards, scholarships, or certifications.
+    3. TARGETED EMPHASIS ONLY: Your job is solely to re-order, re-frame, and highlight the user's *actual* existing experiences, core competencies, and technical skills so they align with the keywords and requirements of the target job description.
+    4. OMISSION IS BETTER THAN FABRICATION: If the user's Master CV does not contain a specific required skill for the target job, do not invent experience for it. Instead, highlight transferable skills or omit the missing skill gracefully.
     
-    matched = []
-    transferable = []
-    missing = []
+    ---
+    USER'S MASTER CV:
+    {master_cv_markdown}
+    ---
     
-    for skill in common_skills:
-        skill_formatted = skill.replace("-", " ").title()
-        if skill in resume_lower:
-            if skill in desc_lower or not desc_lower:
-                matched.append(skill_formatted)
-            else:
-                transferable.append(skill_formatted)
-        elif skill in desc_lower:
-            missing.append(skill_formatted)
-
-    if not matched:
-        matched = ["Core Domain Technical Competency", "Quantitative Experimental Design"]
-    if not transferable:
-        transferable = ["Secondary Toolchain Adaptation", "Cross-Functional Collaboration"]
-    if not missing:
-        short_title = sanitize_job_title(job_title)
-        missing = [f"Advanced Enterprise Certification for {short_title}", "Specific Instrumentation Compliance"]
-
-    return {
-        "matched": matched[:4],
-        "transferable": transferable[:3],
-        "missing": missing[:3]
-    }
+    Target Job: {target_role} at {company_name}
+    Job Description:
+    {target_job_description}
+    ---
+    
+    Perform a rigorous evaluation and return STRICT JSON with these exact keys:
+    - "track": Choose ONE ("A. Medical Affairs / MSL", "B. Clinical Research / CRA", "C. R&D / Laboratory Science / QC", "D. Commercial / Application Scientist", "E. Leadership / Strategy")
+    - "seniority_fit": "Entry / Mid / Senior"
+    - "fit_score": integer (0 to 99)
+    - "is_valid_match": boolean (true only if fit_score >= 60)
+    - "matched_strengths": A JSON array of 3 distinct strings highlighting alignment.
+    - "transferable_gaps": A JSON array of 3 strings detailing trainable gaps.
+    - "critical_missing": A JSON array of 2 strings identifying hard missing requirements or risk triggers.
+    - "top_rejection_risks": A JSON array of 3 targeted recruiter concerns.
+    - "match_rationale": A JSON array of 3 structured bullet strings detailing technical and strategic alignment.
+    - "tailored_cv": A complete, professional 1-page plain text CV tailored specifically for the user matching this target role using *only* their real master CV background, real publications, and real education.
+    - "tailored_cover_letter": A masterpiece cover letter written in the user's professional voice, addressed to the hiring team at {company_name}, incorporating their real doctoral/professional background.
+    - "salary_benchmark": Estimated compensation range.
+    - "negotiation_strategy": Salary leverage points.
+    - "interview_playbook": A JSON array of 3 objects with keys "stage" and "focus".
+    """
 
 def fetch_real_time_company_intelligence(company_name: str) -> str:
     try:
@@ -490,38 +496,8 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
             raw_url = job.get('ats_portal_url', '#')
             desc = job.get('job_description', '')
 
-            eval_prompt = f"""
-            You are an elite career strategist, ATS optimization expert, and hiring decision analyst.
-            Your task is to dynamically adapt Raymond Hartman's ACTUAL master CV profile below to match the target role without inventing fake personal data, fake education, or fake past companies.
-            
-            STRICT RULES FOR CV & COVER LETTER GENERATION:
-            1. You MUST use Raymond Hartman's exact real background (PhD in Molecular & Cell Biology from Wits, Wits research experience, Transvaal Electric Motors production management, actual Wits awards/scholarships, and real publications with Blane, Fanucchi, etc.).
-            2. DO NOT output placeholder names like "John Doe". Always use Raymond Hartman.
-            3. Highlight relevant skills from his master profile that align with the job description while maintaining complete factual accuracy.
-            
-            MASTER CANDIDATE PROFILE / CV:
-            {profile_content}
-            
-            Target Job: {role} at {company}
-            Job Description:
-            {desc}
-            
-            Perform a rigorous evaluation and return STRICT JSON with these exact keys:
-            - "track": Choose ONE ("A. Medical Affairs / MSL", "B. Clinical Research / CRA", "C. R&D / Laboratory Science / QC", "D. Commercial / Application Scientist", "E. Leadership / Strategy")
-            - "seniority_fit": "Entry / Mid / Senior"
-            - "fit_score": integer (0 to 99)
-            - "is_valid_match": boolean (true only if fit_score >= 60)
-            - "matched_strengths": A JSON array of 3 distinct strings highlighting alignment.
-            - "transferable_gaps": A JSON array of 3 strings detailing trainable gaps.
-            - "critical_missing": A JSON array of 2 strings identifying hard missing requirements or risk triggers.
-            - "top_rejection_risks": A JSON array of 3 targeted recruiter concerns.
-            - "match_rationale": A JSON array of 3 structured bullet strings detailing technical and strategic alignment.
-            - "tailored_cv": A complete, professional 1-page plain text CV tailored specifically for Raymond Hartman matching this target role using his real Wits experience, real publications, and real education.
-            - "tailored_cover_letter": A masterpiece cover letter written in Raymond Hartman's professional voice, addressed to the hiring team at {company}, incorporating his real Wits doctoral background and publications.
-            - "salary_benchmark": Estimated compensation range.
-            - "negotiation_strategy": Salary leverage points.
-            - "interview_playbook": A JSON array of 3 objects with keys "stage" and "focus".
-            """
+            # Build strictly grounded multi-tenant prompt using user's uploaded master CV
+            eval_prompt = build_ghostwriter_prompt(profile_content, desc, role, company)
 
             loop = asyncio.get_running_loop()
             raw_eval = await loop.run_in_executor(None, call_groq_ai, eval_prompt, "You are an elite recruitment AI returning precise raw JSON.")
@@ -849,7 +825,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="QuantCode Nexus Enterprise Apex API",
-    version="16.19.0",
+    version="16.20.0",
     description="Live Multi-Tenant Career Infiltration Engine with Universal Track Positioning & Telemetry.",
     lifespan=lifespan
 )
