@@ -89,7 +89,7 @@
                         <circle cx="18" cy="18" r="14" stroke="currentColor" stroke-width="3" class="text-slate-800 fill-none"></circle>
                         <circle id="creditCircleRing" cx="18" cy="18" r="14" stroke="currentColor" stroke-width="3" stroke-dasharray="88" stroke-dashoffset="22" class="text-sky-400 fill-none transition-all duration-500"></circle>
                     </svg>
-                    <span class="absolute text-[9px] font-bold text-sky-300" id="creditPercentText">15%</span>
+                    <span class="absolute text-[9px] font-bold text-sky-300" id="creditPercentText">--%</span>
                 </div>
             </div>
             <button onclick="logout()" class="w-full py-2 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-400 text-xs font-semibold rounded-xl transition flex items-center justify-center gap-2">
@@ -295,7 +295,7 @@
                         <!-- Column 3: Outreach Sent -->
                         <div class="bg-inputbg border border-slate-800 rounded-xl p-4 space-y-3 min-w-[260px]">
                             <div class="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-purple-400">
-                                <span>✉️ Outreach Sent</span>
+                                <span>✉️️ Outreach Sent</span>
                                 <span id="kanbanCountOutreach" class="px-2 py-0.5 bg-purple-500/10 rounded-full text-[10px]">0</span>
                             </div>
                             <div id="kanbanColOutreach" class="space-y-3 min-h-[300px]"></div>
@@ -680,7 +680,7 @@
                 const data = await response.json();
                 
                 if (response.ok && data.matches) {
-                    cachedCareerMatches = data.matches.filter(m => (m.fit_score || 0) >= 60);
+                    cachedCareerMatches = data.matches.filter(m => (m.fit_score || 0) >= 70);
                     renderJobMatches(cachedCareerMatches);
                     if (currentViewMode === 'kanban') renderKanbanBoard(cachedCareerMatches);
                     
@@ -739,31 +739,28 @@
             return postUrl;
         }
 
-        function formatRationaleToBullets(rawRationale) {
-            if (!rawRationale) return `<li>Strong multi-source verified alignment.</li>`;
-            
-            let sentences = [];
-            if (typeof rawRationale === 'string') {
-                try {
-                    const parsed = JSON.parse(rawRationale);
-                    if (Array.isArray(parsed)) {
-                        sentences = parsed;
-                    }
-                } catch (e) {
-                    sentences = rawRationale.replace(/[\u2010\u2011\u2012\u2013\u2014]/g, '-').split(/(?:\r?\n)+|(?<=[.!?])\s+(?=[A-Z])/);
+        function cleanRoleTitle(title) {
+            if (!title) return 'Professional Role';
+            let cleaned = title.trim();
+            const words = cleaned.split(/\s+/);
+            const uniqueWords = [];
+            for (let i = 0; i < words.length; i++) {
+                if (i === 0 || words[i].toLowerCase() !== words[i - 1].toLowerCase()) {
+                    uniqueWords.push(words[i]);
                 }
-            } else if (Array.isArray(rawRationale)) {
-                sentences = rawRationale;
             }
-
-            return sentences.map(s => `<li>${escapeHtml(String(s).trim().replace(/^["\[\]]+|[,\"]+$/g, '').replace(/[\u2010\u2011\u2012\u2013\u2014]/g, '-'))}</li>`).join('');
+            cleaned = uniqueWords.join(' ');
+            if (cleaned.length > 50) {
+                cleaned = cleaned.substring(0, 47) + '...';
+            }
+            return cleaned;
         }
 
         function renderJobMatches(matches) {
             const container = document.getElementById('jobMatchesContainer');
             if (!container) return;
 
-            const validMatches = (matches || []).filter(m => (m.fit_score || 0) >= 60);
+            const validMatches = (matches || []).filter(m => (m.fit_score || 0) >= 70);
 
             if (validMatches.length === 0) {
                 container.innerHTML = `
@@ -771,7 +768,7 @@
                         <div class="w-12 h-12 bg-sky-500/10 border border-sky-500/20 text-sky-400 rounded-2xl flex items-center justify-center mx-auto text-lg">
                             <i class="fa-solid fa-folder-open"></i>
                         </div>
-                        <h4 class="text-sm font-bold text-white">No high-confidence matches found (>= 60%)</h4>
+                        <h4 class="text-sm font-bold text-white">No high-confidence matches found (>= 70%)</h4>
                         <p class="text-xs text-slate-400 max-w-md mx-auto">Launch the Multi-Source Swarm via the configuration panel above to scan high-fit roles meeting the strict alignment threshold.</p>
                     </div>
                 `;
@@ -779,73 +776,41 @@
             }
 
             container.innerHTML = validMatches.map((m, idx) => {
-                const fitScore = m.fit_score || 60;
+                const fitScore = m.fit_score || 70;
                 const matchId = m.id || idx + 1;
                 const postUrl = sanitizeJobUrl(m);
                 const isApplied = m.status === 'applied_autopilot';
+                const cleanTitle = cleanRoleTitle(m.role_title || m.job_title);
                 
-                const hasValidEmail = m.networking_target_email && !m.networking_target_email.includes('example.com');
-                const hasContact = hasValidEmail || (m.decision_maker_email && !m.decision_maker_email.includes('example.com'));
-                const leadName = hasContact ? (m.networking_target_name || m.decision_maker_name) : 'Direct ATS Portal Submission';
-                const leadRole = hasContact ? (m.networking_target_role || m.decision_maker_title) : 'Hiring Team';
-
-                const rationaleBullets = formatRationaleToBullets(m.rationale || m.match_rationale);
-
-                const matchedReqs = m.matched_requirements || m.strengths || ["Domain Expertise", "Experimental Design", "Data Analysis"];
-                const transferableGaps = m.transferable_gaps || m.trainable_skills || ["Advanced Cloud Deployment", "Large-Scale Budgeting"];
-                const criticalMissing = m.critical_missing || m.missing_skills || ["Kubernetes / Docker Swarm", "Direct P&L Management"];
-
                 return `
-                    <div id="job-card-${matchId}" onclick="openMatchDrawerByIndex(${idx})" class="bg-slate-900 border border-slate-800 rounded-xl p-6 mb-4 shadow-lg hover:border-emerald-500/50 transition-all cursor-pointer flex flex-col justify-between">
+                    <div id="job-card-${matchId}" onclick="openMatchDrawerByIndex(${idx})" class="bg-slate-900 border border-slate-800 rounded-xl p-5 mb-4 shadow-lg hover:border-emerald-500/50 transition-all cursor-pointer flex flex-col justify-between">
                         <div>
-                            <div class="flex justify-between items-start mb-3">
+                            <div class="flex justify-between items-start mb-2">
                                 <div>
-                                    <h3 class="text-lg font-bold text-white">${escapeHtml(m.role_title)}</h3>
-                                    <p class="text-emerald-400 font-medium text-xs">${escapeHtml(m.company_name)} • <span class="text-slate-400">${escapeHtml(m.location)}</span></p>
+                                    <h3 class="text-base font-bold text-white truncate max-w-[280px]" title="${escapeHtml(m.role_title)}">${escapeHtml(cleanTitle)}</h3>
+                                    <p class="text-emerald-400 font-medium text-xs truncate max-w-[280px]">${escapeHtml(m.company_name)} • <span class="text-slate-400">${escapeHtml(m.location)}</span></p>
                                 </div>
-                                <div class="px-2.5 py-1 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 rounded-full text-xs font-semibold">
+                                <div class="px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 rounded-full text-xs font-semibold whitespace-nowrap">
                                     ${fitScore}% Match
                                 </div>
                             </div>
 
-                            <!-- Granular Requirement Breakdown Matrix -->
-                            <div class="space-y-1.5 my-3 bg-slate-950/70 p-3.5 rounded-xl border border-slate-800 text-[11px]">
-                                <div class="text-emerald-400 font-bold flex items-center gap-1.5"><i class="fa-solid fa-check text-[10px]"></i> Matched Strengths (${matchedReqs.length}): <span class="text-slate-300 font-normal">${escapeHtml(matchedReqs.slice(0, 2).join(', '))}</span></div>
-                                <div class="text-amber-400 font-bold flex items-center gap-1.5"><i class="fa-solid fa-arrows-split-up-and-left text-[10px]"></i> Transferable Gaps (${transferableGaps.length}): <span class="text-slate-300 font-normal">${escapeHtml(transferableGaps.slice(0, 2).join(', '))}</span></div>
-                                <div class="text-rose-400 font-bold flex items-center gap-1.5"><i class="fa-solid fa-triangle-exclamation text-[10px]"></i> Critical Missing (${criticalMissing.length}): <span class="text-slate-300 font-normal">${escapeHtml(criticalMissing.slice(0, 2).join(', '))}</span></div>
-                            </div>
-
-                            <!-- Structured Rationale View -->
-                            <div class="my-3 text-slate-300 text-xs bg-slate-950/50 p-3.5 rounded-lg border border-slate-800/80">
-                                <p class="font-semibold text-slate-200 mb-1.5">AI Strategic Alignment Rationale:</p>
-                                <ul class="list-disc list-inside space-y-1 text-slate-300">
-                                    ${rationaleBullets}
-                                </ul>
-                            </div>
-
-                            <div class="text-[11px] text-slate-400 mb-3">
-                                <strong>Target Contact:</strong> ${escapeHtml(leadName)} (${escapeHtml(leadRole)})
-                            </div>
+                            <p class="text-xs text-slate-300 line-clamp-2 my-2">${escapeHtml(m.rationale || m.match_rationale || 'High alignment with your master core competencies and technical background.')}</p>
                         </div>
 
-                        <!-- Clean Action Tray -->
-                        <div class="flex items-center justify-between gap-2 pt-3 border-t border-slate-800" onclick="event.stopPropagation()">
+                        <!-- Streamlined Action Tray -->
+                        <div class="flex items-center justify-between gap-2 pt-3 border-t border-slate-800/80 mt-2" onclick="event.stopPropagation()">
                             <div class="flex items-center space-x-2">
-                                <a href="${escapeHtml(postUrl)}" target="_blank" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-lg transition-colors shadow">
+                                <a href="${escapeHtml(postUrl)}" target="_blank" class="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-lg transition-colors shadow">
                                     Apply ↗
                                 </a>
                                 ${isApplied ? 
-                                    `<span class="px-2.5 py-1.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 rounded-lg text-xs font-bold">✅ Auto-Applied</span>` :
-                                    `<button onclick="triggerAutopilot(${matchId})" class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg transition-colors">Auto-Apply ⚡</button>`
+                                    `<span class="px-2 py-1.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 rounded-lg text-xs font-bold">✅ Auto-Applied</span>` :
+                                    `<button onclick="triggerAutopilot(${matchId})" class="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg transition-colors">Auto-Apply ⚡</button>`
                                 }
                             </div>
                             <div class="flex items-center space-x-1.5">
-                                <button onclick="refreshJobMatch(${matchId})" class="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded text-sm transition" title="Refresh Match">
-                                    🔄 Refresh with Latest CV
-                                </button>
-                                <button onclick="openGhostwriterModal(${matchId})" title="AI Ghostwriter & Tailored CV" class="px-2.5 py-1.5 bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 border border-sky-500/30 text-xs rounded-lg transition-colors flex items-center gap-1 font-semibold"><i class="fa-solid fa-wand-magic-sparkles"></i> AI CV</button>
-                                <button onclick="openMatchDrawerByIndex(${idx})" title="View Playbook" class="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg transition-colors">Playbook</button>
-                                ${hasContact ? `<button onclick="openCareerOutreachModal(${matchId})" title="Send Direct Outreach" class="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-purple-300 text-xs rounded-lg transition-colors"><i class="fa-solid fa-envelope"></i></button>` : ''}
+                                <button onclick="openMatchDrawerByIndex(${idx})" class="px-2.5 py-1.5 bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 border border-sky-500/30 text-xs font-semibold rounded-lg transition-colors">Details</button>
                                 <button onclick="dismissJobMatch(${matchId})" title="Dismiss Match" class="px-2 py-1.5 bg-slate-800 hover:bg-rose-900/30 text-slate-400 hover:text-rose-400 text-xs rounded-lg transition-colors"><i class="fa-solid fa-trash"></i></button>
                             </div>
                         </div>
@@ -867,7 +832,7 @@
                 const data = await response.json();
                 if (response.ok) {
                     alert(data.message);
-                    location.reload(); // Reload dashboard to pull updated variants
+                    location.reload();
                 } else {
                     alert("Error: " + (data.detail || "Failed to refresh match."));
                 }
@@ -885,7 +850,7 @@
 
             if (!colDiscovered) return;
 
-            const validMatches = (matches || []).filter(m => (m.fit_score || 0) >= 60);
+            const validMatches = (matches || []).filter(m => (m.fit_score || 0) >= 70);
             
             const discovered = validMatches.filter(m => m.status === 'discovered' || !m.status);
             const autopilot = validMatches.filter(m => m.status === 'applied_autopilot');
@@ -898,9 +863,9 @@
             document.getElementById('kanbanCountOffer').innerText = offer.length;
 
             const makeKanbanCard = (m) => `
-                <div class="bg-cardbg border border-slate-800 p-3.5 rounded-xl space-y-2 shadow cursor-pointer hover:border-sky-500 transition" onclick="openMatchDrawer(${JSON.stringify(m).replace(/"/g, '&quot;')})">
+                <div class="bg-cardbg border border-slate-800 p-3 rounded-xl space-y-1.5 shadow cursor-pointer hover:border-sky-500 transition" onclick="openMatchDrawer(${JSON.stringify(m).replace(/"/g, '&quot;')})">
                     <div class="flex justify-between items-start">
-                        <span class="text-xs font-bold text-white truncate max-w-[140px]">${escapeHtml(m.role_title)}</span>
+                        <span class="text-xs font-bold text-white truncate max-w-[140px]">${escapeHtml(cleanRoleTitle(m.role_title))}</span>
                         <span class="text-[10px] text-emerald-400 font-bold">${m.fit_score}%</span>
                     </div>
                     <p class="text-[11px] text-slate-400 truncate">${escapeHtml(m.company_name)}</p>
@@ -1018,9 +983,8 @@
             modal.classList.remove('hidden');
             
             setTimeout(() => {
-                const tailoredCv = match.cv_variant || `# ${match.role_title} - Tailored Candidate Profile\n\n## Professional Summary\nResults-driven expert with extensive experience aligning with ${match.company_name}'s core engineering and R&D pipelines. Proven proficiency in technical oversight, experimental design, and quantitative decision-making.\n\n## Core Competencies for ${match.company_name}\n- Strategic alignment with ${match.role_title} deliverables.\n- Advanced domain techniques and cross-functional team mentorship.\n- Rigorous methodological execution and high-impact output.\n\n## Professional Experience\n### Senior Specialist & Lead Consultant\n- Spearheaded multi-source initiatives mirroring the oversight required at ${match.company_name}.\n- Optimized research and execution workflows, driving 40% efficiency gains.`;
-
-                const tailoredLetter = `Dear Hiring Team at ${match.company_name},\n\nI am writing to express my strong interest in the ${match.role_title} position. With my extensive background in advanced technical research, quantitative analysis, and strategic team leadership, I am confident in my ability to immediately contribute to your high-performance pipelines.\n\nYour team's commitment to cutting-edge innovation closely mirrors my professional trajectory. In my previous roles, I successfully orchestrated complex R&D projects, mentored junior specialists, and delivered measurable results under strict deadlines. I am particularly drawn to ${match.company_name}'s focus on excellence and scaling impactful solutions.\n\nI welcome the opportunity to discuss how my technical expertise and leadership background align with your upcoming objectives.\n\nSincerely,\nCandidate`;
+                const tailoredCv = match.cv_variant || `# ${match.role_title} - Tailored Candidate Profile\n\n## Professional Summary\nResults-driven expert with extensive experience aligning with ${match.company_name}'s core engineering and R&D pipelines.`;
+                const tailoredLetter = `Dear Hiring Team at ${match.company_name},\n\nI am writing to express my strong interest in the ${match.role_title} position.`;
 
                 activeGhostwriterData = { cv: tailoredCv, letter: tailoredLetter };
                 cvContainer.innerText = tailoredCv;
@@ -1184,9 +1148,24 @@
             }
         }
 
+        function formatRationaleToBullets(rawRationale) {
+            if (!rawRationale) return `<li>Strong multi-source verified alignment.</li>`;
+            let sentences = [];
+            if (typeof rawRationale === 'string') {
+                try {
+                    const parsed = JSON.parse(rawRationale);
+                    if (Array.isArray(parsed)) sentences = parsed;
+                } catch (e) {
+                    sentences = rawRationale.replace(/[\u2010\u2011\u2012\u2013\u2014]/g, '-').split(/(?:\r?\n)+|(?<=[.!?])\s+(?=[A-Z])/);
+                }
+            } else if (Array.isArray(rawRationale)) {
+                sentences = rawRationale;
+            }
+            return sentences.map(s => `<li>${escapeHtml(String(s).trim().replace(/^["\[\]]+|[,\"]+$/g, ''))}</li>`).join('');
+        }
+
         function formatPlaybookContent(content) {
             if (!content) return '<p class="text-slate-500 italic">Playbook generating on next cycle...</p>';
-            
             let parsedStages = content;
             if (typeof content === 'string') {
                 try {
@@ -1195,22 +1174,18 @@
                     return escapeHtml(content).replace(/\n/g, '<br>');
                 }
             }
-
             if (Array.isArray(parsedStages)) {
                 return parsedStages.map((stageObj, idx) => {
                     const stageName = stageObj.stage || stageObj.title || `Stage ${idx + 1}`;
                     const stageFocus = stageObj.focus || stageObj.description || stageObj.strategy || 'Analyze role requirements and prepare domain-specific STAR examples.';
                     return `
                         <div class="bg-slate-950/60 border border-slate-800 p-3.5 rounded-xl mb-2.5 last:mb-0 space-y-1">
-                            <div class="flex items-center justify-between">
-                                <span class="text-xs font-bold text-sky-400">${escapeHtml(stageName)}</span>
-                            </div>
-                            <p class="text-xs text-slate-300 leading-relaxed"><strong class="text-slate-200">Focus & Strategy:</strong> ${escapeHtml(stageFocus)}</p>
+                            <span class="text-xs font-bold text-sky-400">${escapeHtml(stageName)}</span>
+                            <p class="text-xs text-slate-300 leading-relaxed"><strong class="text-slate-200">Focus:</strong> ${escapeHtml(stageFocus)}</p>
                         </div>
                     `;
                 }).join('');
             }
-
             return escapeHtml(String(content)).replace(/\n/g, '<br>');
         }
 
@@ -1234,18 +1209,17 @@
             const targetRole = hasContact ? (match.networking_target_role || match.decision_maker_title) : '';
             const drawerRationaleBullets = formatRationaleToBullets(match.rationale || match.match_rationale);
 
-            const matchedReqs = match.matched_requirements || match.strengths || ["Domain Expertise", "Experimental Design", "Data Analysis"];
-            const transferableGaps = match.transferable_gaps || match.trainable_skills || ["Advanced Cloud Deployment", "Large-Scale Budgeting"];
-            const criticalMissing = match.critical_missing || match.missing_skills || ["Kubernetes / Docker Swarm", "Direct P&L Management"];
+            const matchedReqs = match.matched_requirements || ["Domain Expertise", "Experimental Design"];
+            const transferableGaps = match.transferable_gaps || ["Advanced Cloud Deployment"];
+            const criticalMissing = match.critical_missing || ["Specific Platform Certification"];
 
-            // Populate Sticky Footer Action Buttons
             actionButtonsContainer.innerHTML = `
                 <a href="${escapeHtml(postUrl)}" target="_blank" class="px-3 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold transition shadow">🌐 View Posting ↗</a>
-                <button onclick="triggerAutopilot(${matchId})" class="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition shadow">Auto-Apply ⚡</button>
+                <button onclick="refreshJobMatch(${matchId})" class="px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition shadow">🔄 Refresh CV</button>
+                <button onclick="openGhostwriterModal(${matchId})" class="px-3 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-bold transition shadow">AI CV</button>
             `;
 
             content.innerHTML = `
-                <!-- Granular Requirement Breakdown Matrix -->
                 <div class="space-y-3">
                     <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider">Granular Job Requirement Breakdown</h3>
                     <div class="bg-inputbg p-4 rounded-xl text-xs space-y-3 border border-slate-800">
@@ -1272,26 +1246,26 @@
                         </ul>
                     </div>
                 </div>
+
                 <div class="space-y-2">
                     <div class="flex items-center justify-between">
                         <h3 class="text-xs font-bold text-cyan-400 uppercase tracking-wider">Decision Maker & Networking Target</h3>
-                        <span class="text-[9px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded-full font-medium">Zero-Mock Verification Active</span>
                     </div>
                     <div class="bg-inputbg p-4 rounded-xl text-xs text-slate-300 border border-slate-800 space-y-1">
                         ${hasContact ? `
                             <p><strong>Name:</strong> ${escapeHtml(targetName)}</p>
                             <p><strong>Title:</strong> ${escapeHtml(targetRole)}</p>
                             <p><strong>Verified Email:</strong> <code class="text-sky-300">${escapeHtml(targetEmail)}</code></p>
-                            <p><strong>Pathway:</strong> <span class="text-emerald-400">${escapeHtml(match.warm_intro_pathway || 'Live Verified Corporate Domain Match')}</span></p>
                             <div class="pt-3">
-                                <button onclick="openCareerOutreachModal(${matchId}); closeSideDrawer();" class="w-full py-2 bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/40 text-purple-300 font-bold rounded-xl text-xs transition">✉️ Customize & Send Multi-Touch Sequence</button>
+                                <button onclick="openCareerOutreachModal(${matchId}); closeSideDrawer();" class="w-full py-2 bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/40 text-purple-300 font-bold rounded-xl text-xs transition">✉️ Customize & Send Sequence</button>
                             </div>
                         ` : `
                             <p class="text-amber-400 font-semibold mb-1">🔒 Direct Portal Submission Active</p>
-                            <p class="text-[11px] text-slate-400">Verified direct recruiter contact is private for this employer. Apply directly through their secure ATS channel to maintain compliance.</p>
+                            <p class="text-[11px] text-slate-400">Verified direct recruiter contact is private. Apply directly through their secure ATS channel.</p>
                         `}
                     </div>
                 </div>
+
                 <div class="space-y-2">
                     <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider">🎯 Elite Interview Playbook & STAR Guide</h3>
                     <div class="bg-inputbg p-4 rounded-xl text-xs text-slate-300 border border-slate-800 leading-relaxed">
@@ -1464,13 +1438,11 @@
                         const parsed = JSON.parse(event.data);
                         const timestamp = parsed.timestamp ? new Date(parsed.timestamp).toLocaleTimeString() : new Date().toLocaleTimeString();
                         if (parsed.event === 'connected' || parsed.event === 'ping') return;
-
                         if (!parsed.event || typeof parsed.event !== 'string') return;
 
                         if (['multi_tenant_telemetry', 'career_swarm_update', 'autopilot_progress', 'autopilot_complete', 'multi_tenant_launched'].includes(parsed.event)) {
-                            const logMessage = parsed.message || (parsed.data && parsed.data.message) || JSON.stringify(parsed.data || parsed);
-                            
-                            if (logMessage.length < 3 || logMessage === "Laboratory Manager" || logMessage === "Head of Technical Department") return;
+                            const logMessage = parsed.message || (parsed.data && parsed.data.message) || '';
+                            if (!logMessage || logMessage.length < 3 || logMessage === "--") return;
 
                             const entry = document.createElement('div');
                             entry.className = "border-b border-cyan-950/40 pb-1 leading-snug";
@@ -1499,12 +1471,10 @@
                 };
 
                 sseEventSource.onerror = function() {
-                    console.warn("SSE connection lost. Reconnecting in 5s...");
                     if (sseEventSource) sseEventSource.close();
                     setTimeout(initSSETelemetry, 5000);
                 };
             } catch (e) {
-                console.error("Failed to establish SSE telemetry connection:", e);
                 setTimeout(initSSETelemetry, 5000);
             }
         }
