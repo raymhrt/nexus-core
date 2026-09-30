@@ -33,6 +33,7 @@
         body { font-family: 'Plus Jakarta Sans', sans-serif; }
         .mono { font-family: 'JetBrains Mono', monospace; }
         .glass-panel { background: rgba(17, 24, 39, 0.85); backdrop-filter: blur(16px); border: 1px solid rgba(56, 189, 248, 0.15); }
+        .bento-card { background: linear-gradient(135deg, rgba(17, 24, 39, 0.9) 0%, rgba(11, 17, 32, 0.95) 100%); border: 1px solid rgba(56, 189, 248, 0.2); box-shadow: 0 10px 30px -10px rgba(0,0,0,0.5); }
         .slide-over { transform: translateX(100%); transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
         .slide-over.open { transform: translateX(0); }
         @keyframes pulse-slow { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
@@ -77,7 +78,7 @@
 
         <!-- Sidebar Footer / Gamified Credit Ring -->
         <div class="p-4 border-t border-slate-800/80 space-y-3">
-            <div class="bg-inputbg border border-slate-800 p-3 rounded-xl flex items-center justify-between">
+            <div class="bg-inputbg border border-slate-800 p-3 rounded-xl flex items-center justify-between cursor-pointer hover:border-sky-500/50 transition" onclick="switchTab('subscription')" title="Click to view subscription tiers & credits">
                 <div>
                     <div class="text-[10px] text-slate-400 uppercase font-bold mb-0.5">Tier: <span id="sidebarTierBadge" class="text-sky-400">Starter</span></div>
                     <div class="text-xs font-black mono text-white"><span id="sidebarCreditCount">--</span> / <span id="sidebarCreditLimit">500</span> Credits</div>
@@ -130,7 +131,7 @@
         <main class="flex-1 p-6 md:p-8 max-w-7xl w-full mx-auto space-y-6">
 
             <!-- Global Authentication Bar (API Key) -->
-            <div class="bg-cardbg border border-sky-500/20 p-4 rounded-2xl flex flex-col md:flex-row items-center gap-4 shadow-xl">
+            <div class="bento-card p-4 rounded-2xl flex flex-col md:flex-row items-center gap-4 shadow-xl">
                 <div class="w-full md:w-auto flex-grow flex items-center gap-3">
                     <span class="text-xs font-bold uppercase tracking-wider text-accent whitespace-nowrap"><i class="fa-solid fa-key text-amber-400 mr-1"></i> API Key:</span>
                     <input type="password" id="apiKey" placeholder="Enter your x-api-key (e.g. qcn_...)" class="w-full bg-inputbg border border-slate-700/80 rounded-xl px-3.5 py-2.5 text-xs mono focus:outline-none focus:border-accent text-white">
@@ -146,28 +147,28 @@
 
                 <!-- Top KPI Metric Bar -->
                 <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <div class="bg-cardbg border border-slate-800 p-4 rounded-2xl flex items-center justify-between shadow-lg">
+                    <div class="bento-card p-4 rounded-2xl flex items-center justify-between shadow-lg">
                         <div>
                             <p class="text-[10px] uppercase font-bold text-slate-400">Total Scanned</p>
                             <h4 class="text-lg font-black text-white mt-0.5" id="kpiTotalScanned">--</h4>
                         </div>
                         <div class="p-2.5 bg-sky-500/10 text-sky-400 rounded-xl"><i class="fa-solid fa-radar text-sm"></i></div>
                     </div>
-                    <div class="bg-cardbg border border-slate-800 p-4 rounded-2xl flex items-center justify-between shadow-lg">
+                    <div class="bento-card p-4 rounded-2xl flex items-center justify-between shadow-lg">
                         <div>
-                            <p class="text-[10px] uppercase font-bold text-slate-400">High-Fit Matches (&gt;=60%)</p>
+                            <p class="text-[10px] uppercase font-bold text-slate-400">High-Fit Matches (&gt;=70%)</p>
                             <h4 class="text-lg font-black text-emerald-400 mt-0.5" id="kpiHighFit">--</h4>
                         </div>
                         <div class="p-2.5 bg-emerald-500/10 text-emerald-400 rounded-xl"><i class="fa-solid fa-bullseye text-sm"></i></div>
                     </div>
-                    <div class="bg-cardbg border border-slate-800 p-4 rounded-2xl flex items-center justify-between shadow-lg">
+                    <div class="bento-card p-4 rounded-2xl flex items-center justify-between shadow-lg">
                         <div>
                             <p class="text-[10px] uppercase font-bold text-slate-400">Autopilot Applied</p>
                             <h4 class="text-lg font-black text-indigo-400 mt-0.5" id="kpiApplied">0</h4>
                         </div>
                         <div class="p-2.5 bg-indigo-500/10 text-indigo-400 rounded-xl"><i class="fa-solid fa-bolt text-sm"></i></div>
                     </div>
-                    <div class="bg-cardbg border border-slate-800 p-4 rounded-2xl flex items-center justify-between shadow-lg">
+                    <div class="bento-card p-4 rounded-2xl flex items-center justify-between shadow-lg">
                         <div>
                             <p class="text-[10px] uppercase font-bold text-slate-400">Swarm Status</p>
                             <h4 class="text-xs font-bold text-emerald-400 mt-1 uppercase tracking-wide">Operational</h4>
@@ -197,7 +198,7 @@
                 </div>
 
                 <!-- Collapsible Swarm Configuration Panel -->
-                <div id="configPanelContent" class="hidden bg-cardbg border border-slate-800 p-6 rounded-2xl shadow-xl grid grid-cols-1 lg:grid-cols-2 gap-6 animate-fade-in">
+                <div id="configPanelContent" class="hidden bento-card p-6 rounded-2xl shadow-xl grid grid-cols-1 lg:grid-cols-2 gap-6 animate-fade-in">
                     <!-- Master Resume Column -->
                     <div class="flex flex-col justify-between space-y-4">
                         <div>
@@ -246,11 +247,11 @@
                 </div>
 
                 <!-- View Switcher & Feed Header -->
-                <div class="bg-cardbg border border-slate-800 p-6 rounded-2xl space-y-6 shadow-xl">
+                <div class="bento-card p-6 rounded-2xl space-y-6 shadow-xl">
                     <div class="flex flex-col md:flex-row items-center justify-between gap-4">
                         <div>
                             <h3 class="text-base font-bold text-white flex items-center gap-2">🎯 Discovered Job Matches & Granular Requirements</h3>
-                            <p class="text-xs text-slate-400">Aggregated simultaneously across LinkedIn, Indeed, Glassdoor, and Adzuna (Strict >= 60% Match Filter Active).</p>
+                            <p class="text-xs text-slate-400">Aggregated simultaneously across LinkedIn, Indeed, Glassdoor, and Adzuna (Strict >= 70% Match Filter Active).</p>
                         </div>
                         <div class="flex items-center gap-3 w-full md:w-auto justify-end">
                             <!-- View Toggle Switcher -->
@@ -279,7 +280,7 @@
                         <!-- Column 1: Discovered -->
                         <div class="bg-inputbg border border-slate-800 rounded-xl p-4 space-y-3 min-w-[260px]">
                             <div class="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-sky-400">
-                                <span>📥 Discovered (&gt;=60%)</span>
+                                <span>📥 Discovered (&gt;=70%)</span>
                                 <span id="kanbanCountDiscovered" class="px-2 py-0.5 bg-sky-500/10 rounded-full text-[10px]">0</span>
                             </div>
                             <div id="kanbanColDiscovered" class="space-y-3 min-h-[300px]"></div>
@@ -312,7 +313,7 @@
                 </div>
 
                 <!-- Cyber-Themed Live SSE Terminal with Action Toolbar -->
-                <div class="bg-cardbg border border-slate-800 p-6 rounded-2xl flex flex-col shadow-xl">
+                <div class="bento-card p-6 rounded-2xl flex flex-col shadow-xl">
                     <div class="flex items-center justify-between mb-3">
                         <h3 class="text-xs font-bold text-cyan-400 uppercase tracking-wider flex items-center gap-2">
                             <i class="fa-solid fa-terminal text-cyan-400"></i> Live Cyber Swarm Terminal & Telemetry
@@ -331,7 +332,7 @@
             <!-- ==================== TAB 2: TRIAL INTERVIEWER & NEGOTIATOR ==================== -->
             <div id="tab-interview" class="hidden space-y-6 animate-fade-in">
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    <div class="bg-cardbg border border-slate-800 p-6 rounded-2xl flex flex-col justify-between shadow-xl">
+                    <div class="bento-card p-6 rounded-2xl flex flex-col justify-between shadow-xl">
                         <div>
                             <h3 class="text-sm font-bold text-white flex items-center gap-2"><i class="fa-solid fa-headset text-sky-400"></i> AI Trial Interview Simulator</h3>
                             <p class="text-xs text-slate-400 mt-1 mb-4">Simulate a high-stakes technical or behavioral interview tailored to your target job profile.</p>
@@ -349,7 +350,7 @@
                         <button onclick="runTrialInterview()" class="mt-4 w-full py-2.5 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold transition shadow-lg shadow-sky-600/20">🎙️ Evaluate Interview Response</button>
                     </div>
 
-                    <div class="bg-cardbg border border-slate-800 p-6 rounded-2xl flex flex-col justify-between shadow-xl">
+                    <div class="bento-card p-6 rounded-2xl flex flex-col justify-between shadow-xl">
                         <div>
                             <h3 class="text-sm font-bold text-white flex items-center gap-2"><i class="fa-solid fa-scale-balanced text-emerald-400"></i> Autonomous Salary Negotiator</h3>
                             <p class="text-xs text-slate-400 mt-1 mb-4">Generate counter-offer wording, equity breakdown arguments, and negotiation strategies.</p>
@@ -368,7 +369,7 @@
                     </div>
                 </div>
 
-                <div class="bg-cardbg border border-slate-800 p-6 rounded-2xl space-y-3 shadow-xl">
+                <div class="bento-card p-6 rounded-2xl space-y-3 shadow-xl">
                     <h4 class="text-xs font-bold text-slate-400 uppercase tracking-wider">AI Studio Output Console</h4>
                     <div id="aiStudioOutput" class="bg-inputbg border border-slate-800 p-4 rounded-xl text-xs font-mono text-slate-300 min-h-[140px] whitespace-pre-wrap leading-relaxed">
                         Select a simulation or negotiation action above to generate expert AI feedback...
@@ -379,7 +380,7 @@
             <!-- ==================== TAB 3: SUBSCRIBER HUB & BILLING ==================== -->
             <div id="tab-subscription" class="hidden space-y-6 animate-fade-in">
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <div class="bg-cardbg border border-slate-800 p-6 rounded-2xl flex flex-col justify-between shadow-xl">
+                    <div class="bento-card p-6 rounded-2xl flex flex-col justify-between shadow-xl">
                         <div>
                             <span class="px-2.5 py-1 bg-slate-800 text-slate-300 rounded-lg text-xs font-mono font-bold">Free Tier</span>
                             <h3 class="text-xl font-black text-white mt-4">$0 <span class="text-xs text-slate-400 font-normal">/ forever</span></h3>
@@ -392,7 +393,7 @@
                         <button onclick="createCheckoutSession('price_free')" class="mt-6 w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-bold transition">Current Tier</button>
                     </div>
 
-                    <div class="bg-cardbg border border-sky-500/50 p-6 rounded-2xl flex flex-col justify-between relative shadow-2xl shadow-sky-500/10">
+                    <div class="bento-card border-sky-500/50 p-6 rounded-2xl flex flex-col justify-between relative shadow-2xl shadow-sky-500/10">
                         <div class="absolute -top-3 right-4 bg-sky-500 text-slate-950 text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full">Most Popular</div>
                         <div>
                             <span class="px-2.5 py-1 bg-sky-500/10 text-sky-400 border border-sky-500/30 rounded-lg text-xs font-mono font-bold">Pro Career Swarm</span>
@@ -407,7 +408,7 @@
                         <button onclick="createCheckoutSession('pro')" class="mt-6 w-full py-2.5 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold transition shadow-lg shadow-sky-600/20">Upgrade to Pro 🚀</button>
                     </div>
 
-                    <div class="bg-cardbg border border-amber-500/40 p-6 rounded-2xl flex flex-col justify-between shadow-xl">
+                    <div class="bento-card border-amber-500/40 p-6 rounded-2xl flex flex-col justify-between shadow-xl">
                         <div>
                             <span class="px-2.5 py-1 bg-amber-500/10 text-amber-400 border border-amber-500/30 rounded-lg text-xs font-mono font-bold">Enterprise Apex</span>
                             <h3 class="text-xl font-black text-white mt-4">$99 <span class="text-xs text-slate-400 font-normal">/ month</span></h3>
@@ -421,7 +422,7 @@
                     </div>
                 </div>
 
-                <div class="bg-cardbg border border-slate-800 p-6 rounded-2xl flex flex-col md:flex-row items-center justify-between gap-4 shadow-xl">
+                <div class="bento-card p-6 rounded-2xl flex flex-col md:flex-row items-center justify-between gap-4 shadow-xl">
                     <div>
                         <h4 class="text-sm font-bold text-white">Manage Active Stripe Subscription & Invoices</h4>
                         <p class="text-xs text-slate-400 mt-0.5">Access your customer portal to update billing methods, view invoices, or change your tier.</p>
@@ -432,7 +433,7 @@
         </main>
     </div>
 
-    <!-- Slide-Over Side Drawer for Deep Match Details -->
+    <!-- Slide-Over Mission Control Drawer for Deep Match Details -->
     <div id="side-drawer" class="fixed inset-0 z-50 overflow-hidden pointer-events-none">
         <div id="drawer-backdrop" class="absolute inset-0 bg-black/60 backdrop-blur-sm opacity-0 transition-opacity pointer-events-none" onclick="closeSideDrawer()"></div>
         <div class="absolute inset-y-0 right-0 max-w-xl w-full flex pl-10">
@@ -445,7 +446,16 @@
                     </div>
                     <button onclick="closeSideDrawer()" class="p-2 text-slate-400 hover:text-white"><i class="fa-solid fa-xmark text-base"></i></button>
                 </div>
+
+                <!-- Mission Control Tab Nav -->
+                <div class="flex gap-2 bg-inputbg p-1 rounded-xl border border-slate-800 mt-4">
+                    <button onclick="switchDrawerTab('intel')" id="drawerTabIntel" class="flex-1 py-1.5 rounded-lg text-xs font-bold transition bg-sky-600 text-white shadow">Match Intel & Gaps</button>
+                    <button onclick="switchDrawerTab('outreach')" id="drawerTabOutreach" class="flex-1 py-1.5 rounded-lg text-xs font-bold transition text-slate-400 hover:text-slate-200">Decision Maker</button>
+                    <button onclick="switchDrawerTab('playbook')" id="drawerTabPlaybook" class="flex-1 py-1.5 rounded-lg text-xs font-bold transition text-slate-400 hover:text-slate-200">Interview Playbook</button>
+                </div>
+
                 <div id="drawer-content" class="space-y-6 pt-4 flex-1"></div>
+
                 <!-- Sticky Action Footer Inside Drawer -->
                 <div class="sticky bottom-0 bg-slate-900 pt-4 mt-6 border-t border-slate-800 flex items-center justify-between gap-3">
                     <div id="drawerActionButtons" class="flex items-center gap-2"></div>
@@ -457,7 +467,7 @@
 
     <!-- Multi-Touch Outreach Sequence Modal -->
     <div id="careerOutreachModal" class="hidden fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex justify-center items-center p-4">
-        <div class="bg-cardbg border border-purple-500/40 p-6 rounded-2xl max-w-2xl w-full shadow-2xl space-y-4">
+        <div class="bento-card border-purple-500/40 p-6 rounded-2xl max-w-2xl w-full shadow-2xl space-y-4">
             <div class="flex items-center justify-between">
                 <span class="text-xs font-bold uppercase tracking-wider text-purple-400 flex items-center gap-2"><i class="fa-solid fa-paper-plane text-purple-400"></i> Multi-Touch Networking Sequence Builder</span>
                 <button onclick="closeCareerOutreachModal()" class="text-slate-400 hover:text-white">&times;</button>
@@ -492,7 +502,7 @@
 
     <!-- AI Ghostwriter & Tailored CV/Cover Letter Modal -->
     <div id="aiGhostwriterModal" class="hidden fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex justify-center items-center p-4">
-        <div class="bg-cardbg border border-sky-500/40 p-6 rounded-2xl max-w-4xl w-full shadow-2xl space-y-4 max-h-[90vh] flex flex-col">
+        <div class="bento-card border-sky-500/40 p-6 rounded-2xl max-w-4xl w-full shadow-2xl space-y-4 max-h-[90vh] flex flex-col">
             <div class="flex items-center justify-between border-b border-slate-800 pb-3">
                 <div class="flex items-center gap-2">
                     <div class="p-2 bg-sky-500/10 text-sky-400 rounded-lg"><i class="fa-solid fa-wand-magic-sparkles"></i></div>
@@ -532,6 +542,8 @@
         lucide.createIcons();
 
         let cachedCareerMatches = [];
+        let activeMatchForDrawer = null;
+        let activeDrawerTab = 'intel';
         let activeCareerMatchIdForEmail = null;
         let isTerminalPaused = false;
         let sseEventSource = null;
@@ -569,7 +581,7 @@
             if (urlParams.get('success') === 'true') {
                 bannerContainer.innerHTML = `<div class="p-4 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 rounded-xl text-xs font-bold mb-4 flex items-center justify-between"><span>🎉 Subscription activated successfully! Credits and tier upgraded.</span><button onclick="this.parentElement.remove()" class="text-emerald-400 font-bold">&times;</button></div>`;
             } else if (urlParams.get('canceled') === 'true') {
-                bannerContainer.innerHTML = `<div class="p-4 bg-amber-500/10 border border-amber-500/30 text-amber-400 rounded-xl text-xs font-bold mb-4 flex items-center justify-between"><span>⚠️ Checkout process was canceled. You can try again anytime.</span><button onclick="this.parentElement.remove()" class="text-amber-400 font-bold">&times;</button></div>`;
+                bannerContainer.innerHTML = `<div class="p-4 bg-amber-500/10 border border-amber-500/30 text-amber-400 rounded-xl text-xs font-bold mb-4 flex items-center justify-between"><span>⚠️️ Checkout process was canceled. You can try again anytime.</span><button onclick="this.parentElement.remove()" class="text-amber-400 font-bold">&times;</button></div>`;
             }
 
             initSSETelemetry();
@@ -756,6 +768,22 @@
             return cleaned;
         }
 
+        function parseCleanRationale(rawRationale) {
+            if (!rawRationale) return "High alignment with your master core competencies and technical background.";
+            let text = rawRationale;
+            if (Array.isArray(text)) {
+                text = text.join(' ');
+            }
+            try {
+                const parsed = JSON.parse(text);
+                if (Array.isArray(parsed)) text = parsed.join(' ');
+            } catch (e) {}
+            
+            // Clean escaped json artifacts and unicode bullet symbols
+            text = text.replace(/["\[\]]+/g, '').replace(/\\u2013|\\u2010|\\u2014/g, '-').replace(/\\u2022/g, '');
+            return text.trim();
+        }
+
         function renderJobMatches(matches) {
             const container = document.getElementById('jobMatchesContainer');
             if (!container) return;
@@ -781,9 +809,10 @@
                 const postUrl = sanitizeJobUrl(m);
                 const isApplied = m.status === 'applied_autopilot';
                 const cleanTitle = cleanRoleTitle(m.role_title || m.job_title);
+                const parsedSnippet = parseCleanRationale(m.rationale || m.match_rationale);
                 
                 return `
-                    <div id="job-card-${matchId}" onclick="openMatchDrawerByIndex(${idx})" class="bg-slate-900 border border-slate-800 rounded-xl p-5 mb-4 shadow-lg hover:border-emerald-500/50 transition-all cursor-pointer flex flex-col justify-between">
+                    <div id="job-card-${matchId}" onclick="openMatchDrawerByIndex(${idx})" class="bento-card rounded-xl p-5 mb-4 shadow-lg hover:border-sky-500/50 transition-all cursor-pointer flex flex-col justify-between">
                         <div>
                             <div class="flex justify-between items-start mb-2">
                                 <div>
@@ -795,23 +824,23 @@
                                 </div>
                             </div>
 
-                            <p class="text-xs text-slate-300 line-clamp-2 my-2">${escapeHtml(m.rationale || m.match_rationale || 'High alignment with your master core competencies and technical background.')}</p>
+                            <p class="text-xs text-slate-300 line-clamp-2 my-2">${escapeHtml(parsedSnippet)}</p>
                         </div>
 
-                        <!-- Streamlined Action Tray -->
+                        <!-- Clean Action Tray -->
                         <div class="flex items-center justify-between gap-2 pt-3 border-t border-slate-800/80 mt-2" onclick="event.stopPropagation()">
                             <div class="flex items-center space-x-2">
                                 <a href="${escapeHtml(postUrl)}" target="_blank" class="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-lg transition-colors shadow">
                                     Apply ↗
                                 </a>
                                 ${isApplied ? 
-                                    `<span class="px-2 py-1.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 rounded-lg text-xs font-bold">✅ Auto-Applied</span>` :
+                                    `<span class="px-2.5 py-1.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 rounded-lg text-xs font-bold">✅ Auto-Applied</span>` :
                                     `<button onclick="triggerAutopilot(${matchId})" class="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg transition-colors">Auto-Apply ⚡</button>`
                                 }
                             </div>
                             <div class="flex items-center space-x-1.5">
                                 <button onclick="openMatchDrawerByIndex(${idx})" class="px-2.5 py-1.5 bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 border border-sky-500/30 text-xs font-semibold rounded-lg transition-colors">Details</button>
-                                <button onclick="dismissJobMatch(${matchId})" title="Dismiss Match" class="px-2 py-1.5 bg-slate-800 hover:bg-rose-900/30 text-slate-400 hover:text-rose-400 text-xs rounded-lg transition-colors"><i class="fa-solid fa-trash"></i></button>
+                                <button onclick="dismissJobMatch(${matchId})" title="Dismiss Match" class="px-2.5 py-1.5 bg-slate-800 hover:bg-rose-900/30 text-slate-400 hover:text-rose-400 text-xs rounded-lg transition-colors"><i class="fa-solid fa-trash"></i></button>
                             </div>
                         </div>
                     </div>
@@ -863,7 +892,7 @@
             document.getElementById('kanbanCountOffer').innerText = offer.length;
 
             const makeKanbanCard = (m) => `
-                <div class="bg-cardbg border border-slate-800 p-3 rounded-xl space-y-1.5 shadow cursor-pointer hover:border-sky-500 transition" onclick="openMatchDrawer(${JSON.stringify(m).replace(/"/g, '&quot;')})">
+                <div class="bento-card p-3 rounded-xl space-y-1.5 shadow cursor-pointer hover:border-sky-500 transition" onclick="openMatchDrawer(${JSON.stringify(m).replace(/"/g, '&quot;')})">
                     <div class="flex justify-between items-start">
                         <span class="text-xs font-bold text-white truncate max-w-[140px]">${escapeHtml(cleanRoleTitle(m.role_title))}</span>
                         <span class="text-[10px] text-emerald-400 font-bold">${m.fit_score}%</span>
@@ -1161,7 +1190,7 @@
             } else if (Array.isArray(rawRationale)) {
                 sentences = rawRationale;
             }
-            return sentences.map(s => `<li>${escapeHtml(String(s).trim().replace(/^["\[\]]+|[,\"]+$/g, ''))}</li>`).join('');
+            return sentences.map(s => `<li>${escapeHtml(String(s).trim().replace(/^["\[\]]+|[,\"]+$/g, '').replace(/\\u2013|\\u2010|\\u2014/g, '-'))}</li>`).join('');
         }
 
         function formatPlaybookContent(content) {
@@ -1189,19 +1218,48 @@
             return escapeHtml(String(content)).replace(/\n/g, '<br>');
         }
 
+        function switchDrawerTab(tab) {
+            activeDrawerTab = tab;
+            ['intel', 'outreach', 'playbook'].forEach(t => {
+                const btn = document.getElementById(`drawerTab${t.charAt(0).toUpperCase() + t.slice(1)}`);
+                if (btn) {
+                    if (t === tab) {
+                        btn.className = "flex-1 py-1.5 rounded-lg text-xs font-bold transition bg-sky-600 text-white shadow";
+                    } else {
+                        btn.className = "flex-1 py-1.5 rounded-lg text-xs font-bold transition text-slate-400 hover:text-slate-200";
+                    }
+                }
+            });
+            if (activeMatchForDrawer) {
+                renderDrawerContent(activeMatchForDrawer);
+            }
+        }
+
         function openMatchDrawer(match) {
+            activeMatchForDrawer = match;
+            activeDrawerTab = 'intel';
+            switchDrawerTab('intel');
+
             const drawer = document.getElementById('side-drawer');
             const backdrop = document.getElementById('drawer-backdrop');
             const panel = document.getElementById('drawer-panel');
-            const content = document.getElementById('drawer-content');
-            const actionButtonsContainer = document.getElementById('drawerActionButtons');
             
-            document.getElementById('drawerRoleTitle').innerText = match.role_title || 'Role Details';
+            document.getElementById('drawerRoleTitle').innerText = cleanRoleTitle(match.role_title) || 'Role Details';
             document.getElementById('drawerCompanySubtitle').innerText = `${match.company_name || ''} • ${match.location || ''}`;
 
+            renderDrawerContent(match);
+
+            drawer.classList.remove('pointer-events-none');
+            backdrop.classList.remove('opacity-0', 'pointer-events-none');
+            panel.classList.add('open');
+        }
+
+        function renderDrawerContent(match) {
+            const content = document.getElementById('drawer-content');
+            const actionButtonsContainer = document.getElementById('drawerActionButtons');
             let postUrl = sanitizeJobUrl(match);
             const matchId = match.id || 1;
-            
+
             const hasValidEmail = match.networking_target_email && !match.networking_target_email.includes('example.com');
             const hasContact = hasValidEmail || (match.decision_maker_email && !match.decision_maker_email.includes('example.com'));
             const targetName = hasContact ? (match.networking_target_name || match.decision_maker_name) : '';
@@ -1219,64 +1277,64 @@
                 <button onclick="openGhostwriterModal(${matchId})" class="px-3 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-bold transition shadow">AI CV</button>
             `;
 
-            content.innerHTML = `
-                <div class="space-y-3">
-                    <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider">Granular Job Requirement Breakdown</h3>
-                    <div class="bg-inputbg p-4 rounded-xl text-xs space-y-3 border border-slate-800">
-                        <div>
-                            <span class="text-emerald-400 font-bold block mb-1">✅ Matched Strengths (${matchedReqs.length}):</span>
-                            <ul class="list-disc list-inside text-slate-300 space-y-0.5">${matchedReqs.map(r => `<li>${escapeHtml(r)}</li>`).join('')}</ul>
-                        </div>
-                        <div>
-                            <span class="text-amber-400 font-bold block mb-1">⚠️ Transferable / Trainable Gaps (${transferableGaps.length}):</span>
-                            <ul class="list-disc list-inside text-slate-300 space-y-0.5">${transferableGaps.map(r => `<li>${escapeHtml(r)}</li>`).join('')}</ul>
-                        </div>
-                        <div>
-                            <span class="text-rose-400 font-bold block mb-1">❌ Critical Missing Requirements (${criticalMissing.length}):</span>
-                            <ul class="list-disc list-inside text-slate-300 space-y-0.5">${criticalMissing.map(r => `<li>${escapeHtml(r)}</li>`).join('')}</ul>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="space-y-2">
-                    <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider">Structured Match Rationale</h3>
-                    <div class="bg-inputbg p-4 rounded-xl text-xs text-slate-300 leading-relaxed border border-slate-800">
-                        <ul class="list-disc list-inside space-y-1.5 text-slate-300">
-                            ${drawerRationaleBullets}
-                        </ul>
-                    </div>
-                </div>
-
-                <div class="space-y-2">
-                    <div class="flex items-center justify-between">
-                        <h3 class="text-xs font-bold text-cyan-400 uppercase tracking-wider">Decision Maker & Networking Target</h3>
-                    </div>
-                    <div class="bg-inputbg p-4 rounded-xl text-xs text-slate-300 border border-slate-800 space-y-1">
-                        ${hasContact ? `
-                            <p><strong>Name:</strong> ${escapeHtml(targetName)}</p>
-                            <p><strong>Title:</strong> ${escapeHtml(targetRole)}</p>
-                            <p><strong>Verified Email:</strong> <code class="text-sky-300">${escapeHtml(targetEmail)}</code></p>
-                            <div class="pt-3">
-                                <button onclick="openCareerOutreachModal(${matchId}); closeSideDrawer();" class="w-full py-2 bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/40 text-purple-300 font-bold rounded-xl text-xs transition">✉️ Customize & Send Sequence</button>
+            if (activeDrawerTab === 'intel') {
+                content.innerHTML = `
+                    <div class="space-y-4">
+                        <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider">Granular Job Requirement Breakdown</h3>
+                        <div class="bg-inputbg p-4 rounded-xl text-xs space-y-3 border border-slate-800">
+                            <div>
+                                <span class="text-emerald-400 font-bold block mb-1">✅ Matched Strengths (${matchedReqs.length}):</span>
+                                <ul class="list-disc list-inside text-slate-300 space-y-0.5">${matchedReqs.map(r => `<li>${escapeHtml(r)}</li>`).join('')}</ul>
                             </div>
-                        ` : `
-                            <p class="text-amber-400 font-semibold mb-1">🔒 Direct Portal Submission Active</p>
-                            <p class="text-[11px] text-slate-400">Verified direct recruiter contact is private. Apply directly through their secure ATS channel.</p>
-                        `}
+                            <div>
+                                <span class="text-amber-400 font-bold block mb-1">⚠️ Transferable / Trainable Gaps (${transferableGaps.length}):</span>
+                                <ul class="list-disc list-inside text-slate-300 space-y-0.5">${transferableGaps.map(r => `<li>${escapeHtml(r)}</li>`).join('')}</ul>
+                            </div>
+                            <div>
+                                <span class="text-rose-400 font-bold block mb-1">❌ Critical Missing Requirements (${criticalMissing.length}):</span>
+                                <ul class="list-disc list-inside text-slate-300 space-y-0.5">${criticalMissing.map(r => `<li>${escapeHtml(r)}</li>`).join('')}</ul>
+                            </div>
+                        </div>
                     </div>
-                </div>
 
-                <div class="space-y-2">
-                    <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider">🎯 Elite Interview Playbook & STAR Guide</h3>
-                    <div class="bg-inputbg p-4 rounded-xl text-xs text-slate-300 border border-slate-800 leading-relaxed">
-                        ${formatPlaybookContent(match.interview_playbook)}
+                    <div class="space-y-2">
+                        <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider">Structured Match Rationale</h3>
+                        <div class="bg-inputbg p-4 rounded-xl text-xs text-slate-300 leading-relaxed border border-slate-800">
+                            <ul class="list-disc list-inside space-y-1.5 text-slate-300">
+                                ${drawerRationaleBullets}
+                            </ul>
+                        </div>
                     </div>
-                </div>
-            `;
-
-            drawer.classList.remove('pointer-events-none');
-            backdrop.classList.remove('opacity-0', 'pointer-events-none');
-            panel.classList.add('open');
+                `;
+            } else if (activeDrawerTab === 'outreach') {
+                content.innerHTML = `
+                    <div class="space-y-3">
+                        <h3 class="text-xs font-bold text-cyan-400 uppercase tracking-wider">Decision Maker & Networking Target</h3>
+                        <div class="bg-inputbg p-4 rounded-xl text-xs text-slate-300 border border-slate-800 space-y-2">
+                            ${hasContact ? `
+                                <p><strong>Name:</strong> ${escapeHtml(targetName)}</p>
+                                <p><strong>Title:</strong> ${escapeHtml(targetRole)}</p>
+                                <p><strong>Verified Email:</strong> <code class="text-sky-300">${escapeHtml(targetEmail)}</code></p>
+                                <div class="pt-3">
+                                    <button onclick="openCareerOutreachModal(${matchId}); closeSideDrawer();" class="w-full py-2.5 bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/40 text-purple-300 font-bold rounded-xl text-xs transition">✉️ Customize & Send Sequence</button>
+                                </div>
+                            ` : `
+                                <p class="text-amber-400 font-semibold mb-1">🔒 Direct Portal Submission Active</p>
+                                <p class="text-[11px] text-slate-400">Verified direct recruiter contact is private. Apply directly through their secure ATS channel.</p>
+                            `}
+                        </div>
+                    </div>
+                `;
+            } else if (activeDrawerTab === 'playbook') {
+                content.innerHTML = `
+                    <div class="space-y-3">
+                        <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider">🎯 Elite Interview Playbook & STAR Guide</h3>
+                        <div class="bg-inputbg p-4 rounded-xl text-xs text-slate-300 border border-slate-800 leading-relaxed">
+                            ${formatPlaybookContent(match.interview_playbook)}
+                        </div>
+                    </div>
+                `;
+            }
         }
 
         function closeSideDrawer() {
@@ -1297,7 +1355,7 @@
             const targetEmail = match.networking_target_email || match.decision_maker_email || '';
             
             document.getElementById('careerModalContact').value = `${targetName} (${targetEmail})`;
-            document.getElementById('careerModalSubject').value = `Inquiry regarding ${match.role_title || match.job_title} at ${match.company_name}`;
+            document.getElementById('careerModalSubject').value = `Inquiry regarding ${cleanRoleTitle(match.role_title || match.job_title)} at ${match.company_name}`;
             document.getElementById('careerModalBody').value = match.outreach_draft || `Hi ${targetName},\n\nI noticed your team at ${match.company_name} is expanding...`;
             document.getElementById('careerOutreachModal').classList.remove('hidden');
         }
