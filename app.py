@@ -351,8 +351,6 @@ def call_groq_ai(prompt: str, system_prompt: str = "You are the complete multi-t
     if cached:
         return cached
 
-    # Pristine URL string without any markdown artifacts
-    url = "[https://api.groq.com/openai/v1/chat/completions](https://api.groq.com/openai/v1/chat/completions)"
     headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
     payload = {
         "model": "openai/gpt-oss-120b",
@@ -363,7 +361,7 @@ def call_groq_ai(prompt: str, system_prompt: str = "You are the complete multi-t
     max_retries = 5
     for attempt in range(max_retries):
         try:
-            res = requests.post(url, json=payload, headers=headers, timeout=25)
+            res = requests.post("[https://api.groq.com/openai/v1/chat/completions](https://api.groq.com/openai/v1/chat/completions)", json=payload, headers=headers, timeout=25)
             if res.status_code == 200:
                 data = res.json()
                 output = data["choices"][0]["message"]["content"]
