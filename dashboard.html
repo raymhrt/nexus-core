@@ -86,7 +86,7 @@
             <div class="bg-inputbg border border-slate-800 p-3 rounded-xl flex items-center justify-between cursor-pointer hover:border-sky-500/50 transition" onclick="switchTab('subscription')" title="Click to view subscription tiers & credits">
                 <div>
                     <div class="text-[10px] text-slate-400 uppercase font-bold mb-0.5">Tier: <span id="sidebarTierBadge" class="text-sky-400">Starter</span></div>
-                    <div class="text-xs font-black mono text-white"><span id="sidebarCreditCount">--</span> / <span id="sidebarCreditLimit">500</span> Credits</div>
+                    <div class="text-xs font-black mono text-white"><span id="sidebarCreditCount">--</span> / <span id="sidebarCreditLimit">100</span> Credits</div>
                     <div class="text-[9px] text-sky-400/80 font-mono mt-0.5" id="creditAllowanceText">Allowance Remaining</div>
                 </div>
                 <!-- Circular Progress Ring -->
@@ -251,10 +251,10 @@
                                         <input type="hidden" id="selected-job-count" value="5">
                                     </div>
                                 </div>
-                                <!-- Adjustable Match Percentage Filter Slider Control -->
+                                <!-- Adjustable Match Percentage Filter Slider Control (Default 50%) -->
                                 <div class="pt-1">
-                                    <label class="block text-[11px] font-semibold text-slate-300 mb-1">Min Match Fit Filter: <span id="minFitLabel" class="text-sky-400 font-bold">70%</span></label>
-                                    <input type="range" id="minMatchFitSlider" min="50" max="95" step="5" value="70" oninput="updateMinFitLabel(this.value)" onchange="loadCareerMatches()" class="w-full accent-sky-400 cursor-pointer">
+                                    <label class="block text-[11px] font-semibold text-slate-300 mb-1">Min Match Fit Filter: <span id="minFitLabel" class="text-sky-400 font-bold">50%</span></label>
+                                    <input type="range" id="minMatchFitSlider" min="0" max="95" step="5" value="50" oninput="updateMinFitLabel(this.value)" onchange="loadCareerMatches()" class="w-full accent-sky-400 cursor-pointer">
                                 </div>
                             </div>
                         </div>
@@ -865,7 +865,7 @@
         }
 
         function applyMatchFilter() {
-            const sliderVal = parseInt(document.getElementById('minMatchFitSlider').value, 10) || 70;
+            const sliderVal = parseInt(document.getElementById('minMatchFitSlider').value, 10) || 50;
             const filteredMatches = (cachedCareerMatches || []).filter(m => (m.fit_score || 0) >= sliderVal);
             
             renderJobMatches(filteredMatches);
@@ -885,7 +885,7 @@
                 const data = await res.json();
                 if (data.credits !== undefined) {
                     const credits = data.credits;
-                    const limit = data.limit || 500;
+                    const limit = data.limit || 100;
                     document.getElementById('sidebarCreditCount').innerText = credits;
                     document.getElementById('sidebarCreditLimit').innerText = limit;
                     
@@ -911,7 +911,7 @@
             if (!apiKey) return;
 
             const minFitSlider = document.getElementById('minMatchFitSlider');
-            const minFit = minFitSlider ? minFitSlider.value : 70;
+            const minFit = minFitSlider ? minFitSlider.value : 50;
 
             try {
                 const response = await fetch(`/api/v1/career/matches?min_fit=${minFit}`, { 
@@ -982,7 +982,7 @@
             const container = document.getElementById('jobMatchesContainer');
             if (!container) return;
 
-            const sliderVal = parseInt(document.getElementById('minMatchFitSlider')?.value || 70, 10);
+            const sliderVal = parseInt(document.getElementById('minMatchFitSlider')?.value || 50, 10);
             const validMatches = (matches || []).filter(m => (m.fit_score || 0) >= sliderVal);
 
             if (validMatches.length === 0) {
@@ -999,7 +999,7 @@
             }
 
             container.innerHTML = validMatches.map((m, idx) => {
-                const fitScore = m.fit_score || 70;
+                const fitScore = m.fit_score || 50;
                 const matchId = m.id || idx + 1;
                 const postUrl = sanitizeJobUrl(m);
                 const isApplied = m.status === 'applied_autopilot';
@@ -1055,7 +1055,7 @@
             const colOffer = document.getElementById('kanbanColOffer');
             if (!colDiscovered) return;
 
-            const sliderVal = parseInt(document.getElementById('minMatchFitSlider')?.value || 70, 10);
+            const sliderVal = parseInt(document.getElementById('minMatchFitSlider')?.value || 50, 10);
             const validMatches = (matches || []).filter(m => (m.fit_score || 0) >= sliderVal);
             const discovered = validMatches.filter(m => m.status === 'discovered' || !m.status);
             const autopilot = validMatches.filter(m => m.status === 'applied_autopilot');
@@ -1113,7 +1113,7 @@
         }
 
         function openMatchDrawerByIndex(index) {
-            const sliderVal = parseInt(document.getElementById('minMatchFitSlider')?.value || 70, 10);
+            const sliderVal = parseInt(document.getElementById('minMatchFitSlider')?.value || 50, 10);
             const validMatches = (cachedCareerMatches || []).filter(m => (m.fit_score || 0) >= sliderVal);
             const match = validMatches[index];
             if (match) openMatchDrawer(match);
@@ -1455,7 +1455,7 @@
             if (!canvas) return;
             if (drawerRadarChart) drawerRadarChart.destroy();
 
-            const fit = match.fit_score || 75;
+            const fit = match.fit_score || 50;
             const techScore = Math.min(100, fit + 5);
             const cultureScore = Math.max(50, fit - 10);
             const compScore = Math.min(100, fit + 2);

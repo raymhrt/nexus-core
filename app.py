@@ -224,7 +224,7 @@ def build_ghostwriter_prompt(master_cv_markdown: str, target_job_description: st
     - "track": Choose ONE primary track ("A. Medical Affairs / MSL", "B. Clinical Research / CRA", "C. R&D / Laboratory Science / QC", "D. Commercial / Application Scientist", "E. Leadership / Strategy")
     - "seniority_fit": "Entry / Mid / Senior"
     - "fit_score": integer (0 to 99)
-    - "is_valid_match": boolean (true only if fit_score >= 50)
+    - "is_valid_match": boolean (set true for discovered positions)
     - "matched_strengths": A JSON array of 3 distinct strings highlighting alignment strengths.
     - "transferable_gaps": A JSON array of 3 strings detailing trainable or transferable gaps.
     - "critical_missing": A JSON array of 2 strings identifying hard missing requirements or risk triggers.
@@ -522,7 +522,7 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
             
             eval_data = extract_json_safely(raw_eval, {})
 
-            if not eval_data or not eval_data.get('is_valid_match', True) or safe_int(eval_data.get('fit_score'), 0) < 50:
+            if not eval_data:
                 return None
 
             safe_portal_url = sanitize_ats_url(raw_url, role, company)
@@ -717,7 +717,7 @@ async def isolated_user_job_scouting_worker(user_email: str, requested_count: in
         
         valid_results = [m for m in results if m is not None]
         if not valid_results:
-            await sse_broker.broadcast("career_swarm_update", {"user": user_email, "status": "no_matches", "message": "Scouting complete. No jobs met the strict >=50% fit filter."})
+            await sse_broker.broadcast("career_swarm_update", {"user": user_email, "status": "no_matches", "message": "Scouting complete. No jobs met evaluation criteria."})
             return
 
         valid_results.sort(key=lambda x: x.get('fit_score', 0), reverse=True)
@@ -804,7 +804,7 @@ async def isolated_user_job_scouting_worker(user_email: str, requested_count: in
                         ic.execute(deduct_sql, (user_email,))
                     saved_count += 1
 
-        await sse_broker.broadcast("career_swarm_update", {"user": user_email, "status": "scouted", "message": f"Swarm completed. Indexed {saved_count} verified high-fit matches."})
+        await sse_broker.broadcast("career_swarm_update", {"user": user_email, "status": "scouted", "message": f"Swarm completed. Indexed {saved_count} verified matches."})
     except Exception as e:
         logger.error(f"Error in isolated worker for {user_email}: {str(e)}", exc_info=True)
         await sse_broker.broadcast("multi_tenant_telemetry", {"user": user_email, "message": f"Swarm worker encountered a recoverable exception."})
@@ -1080,7 +1080,6 @@ async def refresh_career_match(match_id: int, auth: dict = Depends(verify_api_ke
 
         evaluated = await evaluate_job_for_specific_user(job_payload, profile_content, auth["email"], AI_EVAL_SEMAPHORE)
         
-        # Resilient fallback: preserve existing record if AI evaluation dips or fails
         if not evaluated:
             logger.warning(f"AI re-evaluation for match {match_id} returned None. Preserving existing match record.")
             return {"status": "success", "message": "Match refreshed, but AI model maintained previous baseline evaluation."}
