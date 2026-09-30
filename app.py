@@ -1140,7 +1140,7 @@ async def refresh_career_match(match_id: int, auth: dict = Depends(verify_api_ke
     except HTTPException as he:
         raise he
     except Exception as e:
-        logger.error(f"Error in refresh_career_match for ID {match_id}: {str(e)}", exc_info=True)
+        logger.error(f"CRITICAL REFRESH ERROR for match {match_id}: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Internal swarm error during match refresh: {str(e)}")
 
 @app.post("/api/v1/career/resume")
