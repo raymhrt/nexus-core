@@ -351,7 +351,8 @@ def call_groq_ai(prompt: str, system_prompt: str = "You are the complete multi-t
     if cached:
         return cached
 
-    url = "[https://api.groq.com/openai/v1/chat/completions](https://api.groq.com/openai/v1/chat/completions)"
+    # Clean URL string to prevent markdown artifact injection
+    url = "[https://api.groq.com/openai/v1/chat/completions](https://api.groq.com/openai/v1/chat/completions)".strip("[]()'")
     headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
     payload = {
         "model": "openai/gpt-oss-120b",
