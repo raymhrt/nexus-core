@@ -191,19 +191,22 @@ def sanitize_ats_url(url: str, role_title: str, company_name: str) -> str:
 # ==================== ELITE STRATEGIST GHOSTWRITER PROMPT ENGINE ====================
 def build_ghostwriter_prompt(master_cv_markdown: str, target_job_description: str, target_role: str, company_name: str) -> str:
     return f"""
-    You are an elite career strategist, ATS optimization expert, and hiring decision analyst.
-    Your task is NOT just to rewrite a CV, but to dynamically POSITION the candidate correctly based on the target job, while maximizing interview conversion probability.
+    You are an elite hiring manager, enterprise ATS parsing engineer, and executive career strategist.
+    Your task is to evaluate the candidate's master CV against the target job description and generate a world-class, fully ATS-optimized tailored CV and cover letter that guarantees high machine parsing accuracy and interview conversion.
 
-    CRITICAL MULTI-USER & ZERO-FABRICATION GROUNDING RULES:
+    CRITICAL MULTI-USER, ZERO-FABRICATION & ATS COMPLIANCE RULES:
     1. ABSOLUTE SOURCE OF TRUTH: The USER'S MASTER CV provided below contains the candidate's real name, contact info, actual employment history, real educational degrees, and real publications. You MUST extract and use the user's actual name and details from it. NEVER output placeholder names like "John Doe".
     2. ZERO FABRICATION: You are strictly FORBIDDEN from inventing, guessing, or altering:
-       - The candidate's real name and contact details.
+       - The candidate's real name, location, and contact details.
        - Employment dates, company names, or job titles.
        - Educational degrees, institutions, or graduation years.
        - Publications, co-authors, journals, or publication years.
        - Awards, scholarships, or certifications.
-    3. TARGETED RE-FRAMING & HIGHLIGHTING: Re-order, re-frame, and highlight the user's *actual* existing experiences, core competencies, and technical skills so they align with the keywords and requirements of the target job description. Translate academic work into industry-relevant operational and compliance language where appropriate.
-    4. STRICT FORMATTING: The tailored CV MUST be formatted strictly so it can fit on ONE A4 page (concise, high impact), highly scannable in 5–7 seconds, optimized for ATS parsers (no tables, no graphics), and focused on a SINGLE clear career narrative aligned to the job.
+    3. STRICT ATS OPTIMIZATION & PARSING COMPLIANCE:
+       - Use exact standard section headers recognized by ATS parsers: PROFESSIONAL SUMMARY, EDUCATION, CORE COMPETENCIES, TECHNICAL SKILLS, PROFESSIONAL EXPERIENCE, CERTIFICATIONS, AWARDS, PUBLICATIONS.
+       - Extract core keywords, technical tools, regulatory frameworks, and methodologies directly from the TARGET JOB DESCRIPTION below and integrate them naturally into the summary, core competencies, and experience bullet points to maximize keyword matching scores.
+       - Maintain a clean, single-column plain text / markdown layout with zero tables, zero graphics, and zero multi-column formatting.
+    4. TARGETED RE-FRAMING: Re-order and re-frame the user's *actual* experiences so they directly address the pain points and requirements of the target role: {target_role} at {company_name}.
 
     ---
     USER'S MASTER CV (ABSOLUTE TRUTH):
@@ -227,7 +230,7 @@ def build_ghostwriter_prompt(master_cv_markdown: str, target_job_description: st
     - "critical_missing": A JSON array of 2 strings identifying hard missing requirements or risk triggers.
     - "top_rejection_risks": A JSON array of 3 targeted recruiter concerns.
     - "match_rationale": A JSON array of 3 structured bullet strings detailing technical and strategic alignment.
-    - "tailored_cv": A complete, professional 1-page plain text CV tailored specifically for the user matching this target role using ONLY their real master CV background, real name, real publications, and real education.
+    - "tailored_cv": A fully formatted, ATS-compliant, 1-page markdown CV tailored specifically for the user matching this target role using ONLY their real master CV background, optimized with job-specific keywords and standard ATS headings.
     - "tailored_cover_letter": A masterpiece cover letter written in the user's professional voice, addressed to the hiring team at {company_name}, incorporating their real doctoral/professional background and real name.
     - "salary_benchmark": Estimated compensation range.
     - "negotiation_strategy": Salary leverage points.
