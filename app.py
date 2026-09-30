@@ -492,7 +492,12 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
 
             eval_prompt = f"""
             You are an elite career strategist, ATS optimization expert, and hiring decision analyst.
-            Your task is NOT just to rewrite a CV, but to dynamically POSITION the candidate correctly based on the job while maximizing interview conversion probability.
+            Your task is to dynamically adapt Raymond Hartman's ACTUAL master CV profile below to match the target role without inventing fake personal data, fake education, or fake past companies.
+            
+            STRICT RULES FOR CV & COVER LETTER GENERATION:
+            1. You MUST use Raymond Hartman's exact real background (PhD in Molecular & Cell Biology from Wits, Wits research experience, Transvaal Electric Motors production management, actual Wits awards/scholarships, and real publications with Blane, Fanucchi, etc.).
+            2. DO NOT output placeholder names like "John Doe". Always use Raymond Hartman.
+            3. Highlight relevant skills from his master profile that align with the job description while maintaining complete factual accuracy.
             
             MASTER CANDIDATE PROFILE / CV:
             {profile_content}
@@ -509,13 +514,13 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
             - "matched_strengths": A JSON array of 3 distinct strings highlighting alignment.
             - "transferable_gaps": A JSON array of 3 strings detailing trainable gaps.
             - "critical_missing": A JSON array of 2 strings identifying hard missing requirements or risk triggers.
-            - "top_rejection_risks": A JSON array of 3 targeted recruiter concerns (e.g., lack of specific industry instrumentation, academic background).
+            - "top_rejection_risks": A JSON array of 3 targeted recruiter concerns.
             - "match_rationale": A JSON array of 3 structured bullet strings detailing technical and strategic alignment.
-            - "tailored_cv": A complete, highly scannable, strictly 1-page A4 formatted plain text CV rewritten *specifically and entirely from the candidate's master profile above* to match this target role, using professional section orders (Summary, Core Competencies, Professional Experience with metric-driven bullets matching the job, Technical Expertise, Education, Publications). DO NOT output generic meta-text. Output the actual tailored CV content.
-            - "tailored_cover_letter": A masterpiece cover letter written in the candidate's professional voice, addressed to the hiring team at {company}, customized with a strong hook, methodology/rigor, collaboration, and formal sign-off based strictly on the candidate's master profile. DO NOT output placeholders. Output the full text of the cover letter.
+            - "tailored_cv": A complete, professional 1-page plain text CV tailored specifically for Raymond Hartman matching this target role using his real Wits experience, real publications, and real education.
+            - "tailored_cover_letter": A masterpiece cover letter written in Raymond Hartman's professional voice, addressed to the hiring team at {company}, incorporating his real Wits doctoral background and publications.
             - "salary_benchmark": Estimated compensation range.
             - "negotiation_strategy": Salary leverage points.
-            - "interview_playbook": A JSON array of 3 objects with keys "stage" and "focus" providing targeted technical/behavioral prep steps.
+            - "interview_playbook": A JSON array of 3 objects with keys "stage" and "focus".
             """
 
             loop = asyncio.get_running_loop()
@@ -1031,6 +1036,94 @@ def delete_career_match(match_id: int, user=Depends(verify_api_key_only)):
         sql = "DELETE FROM job_matches WHERE id = %s AND user_email = %s" if DATABASE_URL else "DELETE FROM job_matches WHERE id = ? AND user_email = ?"
         cursor.execute(sql, (match_id, user["email"]))
     return {"status": "success", "message": "Job match dismissed."}
+
+@app.post("/api/v1/career/matches/{match_id}/refresh")
+async def refresh_career_match(match_id: int, auth: dict = Depends(verify_api_key_only)):
+    with db_transaction_scope() as (_, cursor):
+        sql = "SELECT company_name, job_title, job_description, location, ats_portal_url FROM job_matches WHERE id = %s AND user_email = %s" if DATABASE_URL else "SELECT company_name, job_title, job_description, location, ats_portal_url FROM job_matches WHERE id = ? AND user_email = ?"
+        cursor.execute(sql, (match_id, auth["email"]))
+        match_row = cursor.fetchone()
+
+        if not match_row:
+            raise HTTPException(status_code=404, detail="Job match not found.")
+
+        cursor.execute("SELECT profile_json FROM user_profiles WHERE email = %s" if DATABASE_URL else "SELECT profile_json FROM user_profiles WHERE email = ?", (auth["email"],))
+        profile_row = cursor.fetchone()
+
+        if not profile_row:
+            raise HTTPException(status_code=400, detail="No master CV profile found. Please upload your CV first.")
+
+    m_dict = dict(match_row) if not isinstance(match_row, dict) else match_row
+    p_dict = dict(profile_row) if not isinstance(profile_row, dict) else profile_row
+    
+    profile_content = p_dict.get('profile_json', '')
+    job_payload = {
+        "company_name": m_dict.get("company_name"),
+        "job_title": m_dict.get("job_title"),
+        "job_description": m_dict.get("job_description"),
+        "location": m_dict.get("location"),
+        "ats_portal_url": m_dict.get("ats_portal_url")
+    }
+
+    evaluated = await evaluate_job_for_specific_user(job_payload, profile_content, auth["email"], AI_EVAL_SEMAPHORE)
+    if not evaluated:
+        raise HTTPException(status_code=500, detail="AI re-evaluation failed or fit score dropped below threshold.")
+
+    with db_transaction_scope() as (_, cursor):
+        matched_reqs_json = json.dumps(evaluated.get('matched_requirements', []))
+        transferable_json = json.dumps(evaluated.get('transferable_gaps', []))
+        critical_json = json.dumps(evaluated.get('critical_missing', []))
+
+        if DATABASE_URL:
+            update_sql = """
+                UPDATE job_matches 
+                SET fit_score = %s, match_rationale = %s, matched_requirements = %s, 
+                    transferable_gaps = %s, critical_missing = %s, outreach_draft = %s, 
+                    salary_benchmark = %s, negotiation_strategy = %s, cv_variant = %s, 
+                    cover_letter_variant = %s, interview_playbook = %s, timestamp = NOW()
+                WHERE id = %s AND user_email = %s
+            """
+            cursor.execute(update_sql, (
+                safe_int(evaluated.get('fit_score'), 82),
+                safe_str(evaluated.get('match_rationale')),
+                matched_reqs_json,
+                transferable_json,
+                critical_json,
+                safe_str(evaluated.get('outreach_draft')),
+                safe_str(evaluated.get('salary_benchmark')),
+                safe_str(evaluated.get('negotiation_strategy')),
+                safe_str(evaluated.get('cv_variant')),
+                safe_str(evaluated.get('cover_letter_variant')),
+                safe_str(evaluated.get('interview_playbook')),
+                match_id,
+                auth["email"]
+            ))
+        else:
+            update_sql = """
+                UPDATE job_matches 
+                SET fit_score = ?, match_rationale = ?, matched_requirements = ?, 
+                    transferable_gaps = ?, critical_missing = ?, outreach_draft = ?, 
+                    salary_benchmark = ?, negotiation_strategy = ?, cv_variant = ?, 
+                    cover_letter_variant = ?, interview_playbook = ?, timestamp = datetime('now')
+                WHERE id = ? AND user_email = ?
+            """
+            cursor.execute(update_sql, (
+                safe_int(evaluated.get('fit_score'), 82),
+                safe_str(evaluated.get('match_rationale')),
+                matched_reqs_json,
+                transferable_json,
+                critical_json,
+                safe_str(evaluated.get('outreach_draft')),
+                safe_str(evaluated.get('salary_benchmark')),
+                safe_str(evaluated.get('negotiation_strategy')),
+                safe_str(evaluated.get('cv_variant')),
+                safe_str(evaluated.get('cover_letter_variant')),
+                safe_str(evaluated.get('interview_playbook')),
+                match_id,
+                auth["email"]
+            ))
+
+    return {"status": "success", "message": "Job match successfully refreshed with latest master CV variants."}
 
 @app.post("/api/v1/career/resume")
 async def save_career_resume(payload: ResumeInput, auth: dict = Depends(verify_api_key_only)):

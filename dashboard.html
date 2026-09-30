@@ -840,6 +840,9 @@
                                 }
                             </div>
                             <div class="flex items-center space-x-1.5">
+                                <button onclick="refreshJobMatch(${matchId})" class="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded text-sm transition" title="Refresh Match">
+                                    🔄 Refresh with Latest CV
+                                </button>
                                 <button onclick="openGhostwriterModal(${matchId})" title="AI Ghostwriter & Tailored CV" class="px-2.5 py-1.5 bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 border border-sky-500/30 text-xs rounded-lg transition-colors flex items-center gap-1 font-semibold"><i class="fa-solid fa-wand-magic-sparkles"></i> AI CV</button>
                                 <button onclick="openMatchDrawerByIndex(${idx})" title="View Playbook" class="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg transition-colors">Playbook</button>
                                 ${hasContact ? `<button onclick="openCareerOutreachModal(${matchId})" title="Send Direct Outreach" class="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-purple-300 text-xs rounded-lg transition-colors"><i class="fa-solid fa-envelope"></i></button>` : ''}
@@ -849,6 +852,29 @@
                     </div>
                 `;
             }).join('');
+        }
+
+        async function refreshJobMatch(matchId) {
+            if (!confirm("Are you sure you want to regenerate the tailored CV and cover letter using your latest master CV?")) return;
+            
+            try {
+                const response = await fetch(`/api/v1/career/matches/${matchId}/refresh`, {
+                    method: 'POST',
+                    headers: {
+                        'x-api-key': localStorage.getItem('nexus_api_key') || ''
+                    }
+                });
+                const data = await response.json();
+                if (response.ok) {
+                    alert(data.message);
+                    location.reload(); // Reload dashboard to pull updated variants
+                } else {
+                    alert("Error: " + (data.detail || "Failed to refresh match."));
+                }
+            } catch (err) {
+                console.error(err);
+                alert("Network error while refreshing match.");
+            }
         }
 
         function renderKanbanBoard(matches) {
@@ -1439,13 +1465,11 @@
                         const timestamp = parsed.timestamp ? new Date(parsed.timestamp).toLocaleTimeString() : new Date().toLocaleTimeString();
                         if (parsed.event === 'connected' || parsed.event === 'ping') return;
 
-                        // CRITICAL FIX: Ignore raw strings or job titles leaking into telemetry
                         if (!parsed.event || typeof parsed.event !== 'string') return;
 
                         if (['multi_tenant_telemetry', 'career_swarm_update', 'autopilot_progress', 'autopilot_complete', 'multi_tenant_launched'].includes(parsed.event)) {
                             const logMessage = parsed.message || (parsed.data && parsed.data.message) || JSON.stringify(parsed.data || parsed);
                             
-                            // Prevent raw job titles from showing up as log events
                             if (logMessage.length < 3 || logMessage === "Laboratory Manager" || logMessage === "Head of Technical Department") return;
 
                             const entry = document.createElement('div');
@@ -1471,9 +1495,7 @@
                             loadCareerMatches();
                             loadCredits();
                         }
-                    } catch (e) { 
-                        // Silently catch non-JSON text frames to prevent parser spam
-                    }
+                    } catch (e) { }
                 };
 
                 sseEventSource.onerror = function() {
