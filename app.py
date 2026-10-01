@@ -197,35 +197,19 @@ def sanitize_ats_url(url: str, role_title: str, company_name: str) -> str:
 def build_ghostwriter_prompt(master_cv_markdown: str, target_job_description: str, target_role: str, company_name: str, tone: str = "executive_leader") -> str:
     cv_content = master_cv_markdown if master_cv_markdown and len(master_cv_markdown.strip()) > 20 else "Candidate profile: Professional background in scientific research and technical execution."
     return f"""
-    You are an elite career strategist, ATS optimization expert, and hiring decision analyst.
-    Your task is NOT just to rewrite a CV, but to dynamically POSITION the candidate correctly based on the job, while maximizing interview conversion probability.
+    You are an elite executive career strategist, ATS optimization expert, and hiring decision analyst.
+    Your task is to generate a flawless, production-ready, highly scannable 1-page tailored CV and cover letter.
 
-    TONE CALIBRATION: {tone} (Apply this tone across the tailored resume and cover letter phrasing).
+    TONE CALIBRATION: {tone} (Apply this tone across all phrasing).
 
-    STEP 1: ROLE CLASSIFICATION (MANDATORY)
-    Classify the job into ONE primary track:
-    - A. Medical Affairs / MSL
-    - B. Clinical Research / CRA / Clinical Ops
-    - C. R&D / Laboratory Science / QC
-    - D. Commercial / Application Scientist / Field Technical
-    - E. Leadership / Strategy / Director
-
-    STEP 2: ZERO-HALLUCINATION & FACTUAL INTEGRITY RULES (CRITICAL)
-    1. STRICT SOURCE ANCHORING: You MUST use ONLY the candidate's actual name, real degrees, real university (e.g., University of the Witwatersrand, Durban University of Technology), actual employment history (e.g., University of the Witwatersrand PhD Researcher, Transvaal Electric Motors Production Manager), and verified publications present in the Master CV below.
-    2. NO FABRICATED UNIVERSITIES OR ROLES: Never output placeholders like "(Institution not disclosed in source data)" if the Master CV clearly provides the University of the Witwatersrand or other institutions. If specific sections are missing, derive professional achievements strictly from the provided Master CV text.
-    3. REAL METRICS ONLY: Re-order and re-phrase bullet points using the Google X-Y-Z formula based on the candidate's actual achievements.
-
-    STEP 3: AUTO-POSITIONING & RISK REDUCTION
-    - If the candidate lacks direct industry experience, reframe academic work as applied, transferable, compliance-aligned research comparable to industrial standards.
-    - If leadership experience is insufficient for a Director role, reframe as "High-potential individual contributor with leadership trajectory." Do NOT fabricate executive leadership history.
-    - Enforce a single-track career narrative matching the target job.
-
-    STEP 4: STRICT FORMAT & LENGTH CONSTRAINTS
-    - The tailored CV MUST be rigorously compressed to fit strictly on ONE A4 page equivalent (concise, high-impact bullets, no dense paragraphs).
-    - ATS-optimized layout: Clean markdown sections, no tables, no graphics, no multi-column formatting.
+    CRITICAL EXECUTION RULES (ZERO PLACEHOLDERS):
+    1. EXTRACT REAL DATA: You MUST parse the Master CV below to extract the candidate's exact full name (e.g., Raymond Hartman, PhD), contact details (email, phone, location), real degrees and universities (University of the Witwatersrand, Durban University of Technology), and real publications.
+    2. ABSOLUTE BAN ON BRACKET PLACEHOLDERS: Never output placeholders like "[Name not provided]", "(Year)", or "[Institution not disclosed]". If a specific graduation year is not explicitly listed, omit the year parentheses or derive the timeline logically from the employment history without using brackets.
+    3. THE X-Y-Z METRIC FORMULA: Frame professional experience and achievements using strict Google X-Y-Z metrics ("Accomplished [X], as measured by [Y], by doing [Z]").
+    4. ATS-SAFE FORMATTING: Use clean Markdown headers. No tables, no graphics, no multi-column layouts.
 
     ---
-    USER'S MASTER CV (THE ONLY SOURCE OF TRUTH):
+    USER'S MASTER CV (THE ONLY SOURCE OF TRUTH - PARSE CAREFULLY):
     {cv_content}
     ---
     
@@ -242,11 +226,11 @@ def build_ghostwriter_prompt(master_cv_markdown: str, target_job_description: st
     - "fit_score": integer (0 to 99)
     - "is_valid_match": boolean (true)
     - "matched_strengths": ["Strength 1", "Strength 2", "Strength 3"]
-    - "transferable_gaps": ["Gap 1", "Gap 2", "Gap 3"]
-    - "critical_missing": ["Missing 1", "Missing 2"]
-    - "top_rejection_risks": ["Risk 1", "Risk 2", "Risk 3"]
-    - "match_rationale": ["Rationale 1", "Rationale 2", "Rationale 3"]
-    - "tailored_cv": "A complete, ATS-optimized 1-page Markdown CV using the user's actual credentials (University of the Witwatersrand, etc.), framed with X-Y-Z metrics and tailored to the job description."
+    - "transferable_gaps": ["Gap 1", "Gap 2"]
+    - "critical_missing": ["Missing 1"]
+    - "top_rejection_risks": ["Risk 1", "Risk 2"]
+    - "match_rationale": ["Rationale 1", "Rationale 2"]
+    - "tailored_cv": "A complete, ATS-optimized 1-page Markdown CV featuring the candidate's real name, contact details, real education from the master CV, X-Y-Z bullet points tailored directly to the target job, and condensed real publications."
     - "tailored_cover_letter": "A compelling 3-paragraph pain-point cover letter addressed to {company_name}."
     - "salary_benchmark": "Estimated compensation range"
     - "negotiation_strategy": "Strategy details"
