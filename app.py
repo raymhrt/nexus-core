@@ -9,6 +9,7 @@ import random
 import uuid
 import re
 import urllib.parse
+import time  # <--- Added missing time import
 from typing import List, Dict, Optional, Any
 from datetime import datetime, timedelta, timezone
 from contextlib import asynccontextmanager, contextmanager
