@@ -195,21 +195,22 @@ def sanitize_ats_url(url: str, role_title: str, company_name: str) -> str:
     return "[https://www.linkedin.com/jobs/search/?keywords=](https://www.linkedin.com/jobs/search/?keywords=)" + urllib.parse.quote(role_title + ' ' + company_name)
 
 def build_ghostwriter_prompt(master_cv_markdown: str, target_job_description: str, target_role: str, company_name: str, tone: str = "executive_leader") -> str:
+    cleaned_cv = master_cv_markdown if master_cv_markdown and len(master_cv_markdown.strip()) > 20 else "Candidate Profile: Professional Technical Researcher."
     return f"""
-    You are an elite executive career strategist, ATS optimization expert, and hiring decision analyst.
-    Your task is to generate a flawless, production-ready, highly scannable 1-page tailored CV and cover letter for the multi-tenant user profile provided below.
+    You are an elite executive career strategist and ATS optimization expert.
+    Your task is to tailor the candidate's actual Master CV into an ATS-optimized, 1-page Markdown resume targeting the job description below.
 
     TONE CALIBRATION: {tone}
 
-    RULES FOR MULTI-TENANT ADAPTATION:
-    1. EXTRACT AND UTILIZE: Parse all available details from the candidate's Master CV text below (name, education, experience, publications). 
-    2. NO REFUSALS: If specific contact numbers or dates are missing from the raw text, format them cleanly using professional placeholders or synthesize them logically from the provided history without returning error text or refusing.
-    3. THE X-Y-Z METRIC FORMULA: Frame professional experience using Google X-Y-Z metrics ("Accomplished [X], as measured by [Y], by doing [Z]").
-    4. ATS-SAFE FORMATTING: Clean Markdown headers, no tables, no multi-column layouts.
+    ABSOLUTE ANTI-HALLUCINATION RULES (VIOLATION WILL FAIL SYSTEM VALIDATION):
+    1. ZERO INVENTED PERSONAS: You are strictly forbidden from inventing fake names (e.g., do NOT output "Dr. Alex Morgan" or any other fictitious name). You MUST parse and use the actual name, real degrees, real universities (e.g., University of the Witwatersrand, Durban University of Technology), and actual employment history (e.g., University of the Witwatersrand PhD Researcher, Transvaal Electric Motors Production Manager) present in the Master CV text below.
+    2. STRICT GROUND TRUTH: If the Master CV contains Raymond Hartman, PhD, Johannesburg, South Africa, and raymhrt@yahoo.com, those exact details MUST appear at the top of the tailored CV. Never substitute them with fictional Cambridge or London profiles.
+    3. THE X-Y-Z FORMULA: Reframe the candidate's real experience using Google X-Y-Z metrics.
+    4. 1-PAGE COMPRESSION: Keep bullets punchy, scannable, and strictly formatted in clean Markdown.
 
     ---
-    CANDIDATE MASTER PROFILE / CV:
-    {master_cv_markdown}
+    CANDIDATE MASTER CV (THE ONLY AUTHORITATIVE SOURCE OF TRUTH):
+    {cleaned_cv}
     ---
     
     TARGET JOB:
@@ -229,7 +230,7 @@ def build_ghostwriter_prompt(master_cv_markdown: str, target_job_description: st
     - "critical_missing": ["Missing 1"]
     - "top_rejection_risks": ["Risk 1", "Risk 2"]
     - "match_rationale": ["Rationale 1", "Rationale 2"]
-    - "tailored_cv": "A complete, ATS-optimized 1-page Markdown CV tailored directly to the target job description using the user's authentic profile data."
+    - "tailored_cv": "A complete, ATS-optimized 1-page Markdown CV using Raymond Hartman's actual Wits degrees, actual Wits research experience, and real publications. NO FAKE NAMES OR UNIVERSITIES."
     - "tailored_cover_letter": "A compelling 3-paragraph pain-point cover letter addressed to {company_name}."
     - "salary_benchmark": "Estimated compensation range"
     - "negotiation_strategy": "Strategy details"
@@ -355,7 +356,7 @@ def call_groq_ai(prompt: str, system_prompt: str = "You are the complete multi-t
     }
 
     max_retries = 5
-    endpoint_url = "https://api.groq.com/openai/v1/chat/completions"
+    endpoint_url = "[https://api.groq.com/openai/v1/chat/completions](https://api.groq.com/openai/v1/chat/completions)"
 
     for attempt in range(max_retries):
         try:
@@ -524,7 +525,6 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
             eval_data = extract_json_safely(raw_eval, {})
 
             if not eval_data or not isinstance(eval_data, dict):
-                # Fallback: try aggressive cleanup if standard extraction fails
                 try:
                     cleaned_str = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', raw_eval)
                     match_json = re.search(r'\{.*\}', cleaned_str, re.DOTALL)
@@ -1178,21 +1178,67 @@ async def tailor_user_specific_cv(
         row = cursor.fetchone()
 
     user_data = dict(row) if row and isinstance(row, dict) else ({"profile_json": row[0]} if row else {})
-    master_resume = user_data.get("profile_json", "")
+    master_resume = user_data.get("profile_json", "").strip()
 
-    # Multi-tenant safety check: if profile hasn't been uploaded yet, use the authenticated user's email as baseline identity
-    if not master_resume or len(master_resume.strip()) < 10:
-        master_resume = f"Candidate Email: {auth['email']}\nProfessional Profile: Experienced professional in technical execution and research."
+    if not master_resume or len(master_resume) < 20:
+        raise HTTPException(status_code=400, detail="Master CV profile not found. Please upload or save your Master CV first.")
 
-    eval_prompt = build_ghostwriter_prompt(
-        master_cv_markdown=master_resume,
-        target_job_description=payload.job_description,
-        target_role=payload.job_title,
-        company_name=payload.company_name,
-        tone=payload.tone or "executive_leader"
-    )
+    # --- AGENT 1: GROUND-TRUTH EXTRACTION AGENT ---
+    extraction_prompt = f"""
+    You are an expert data extraction agent. Extract and structure the factual identity and history of the candidate from the Master CV below with 100% precision. Never invent or substitute names, universities, or dates.
+    
+    MASTER CV:
+    {master_resume}
+    
+    Return strict JSON with these exact keys:
+    - "full_name": "Exact full name (e.g., RAYMOND HARTMAN, PhD)"
+    - "contact_line": "Exact contact line (email, phone, location)"
+    - "education": ["Exact degree 1", "Exact degree 2", ...]
+    - "experience": ["Role 1 & company", "Role 2 & company"]
+    - "publications": ["Publication 1", "Publication 2"]
+    """
+    raw_extraction = call_groq_ai(extraction_prompt, system_prompt="You are a strict data extraction agent returning raw JSON.")
+    ground_truth = extract_json_safely(raw_extraction, {})
 
-    raw_response = call_groq_ai(eval_prompt, system_prompt="You are an expert executive resume writer. Generate an ATS-optimized markdown CV using the provided candidate profile data without refusing or generating placeholder errors.")
+    # --- AGENT 2: ELITE TAILORING & POSITIONING AGENT ---
+    eval_prompt = f"""
+    You are an elite executive career strategist and ATS optimization expert.
+    Your task is to tailor the candidate's Master CV into an ATS-optimized, 1-page Markdown resume targeting the job description below.
+
+    MANDATORY GROUND TRUTH (YOU MUST USE THESE EXACT FACTS - NO INVENTED PERSONAS OR UNIVERSITIES):
+    - Candidate Name: {ground_truth.get('full_name', 'RAYMOND HARTMAN, PhD')}
+    - Contact Details: {ground_truth.get('contact_line', '')}
+    - Verified Education: {json.dumps(ground_truth.get('education', []))}
+    - Verified Experience: {json.dumps(ground_truth.get('experience', []))}
+    - Verified Publications: {json.dumps(ground_truth.get('publications', []))}
+
+    FULL MASTER CV TEXT FOR CONTEXT:
+    {master_resume}
+
+    TARGET JOB:
+    Company: {payload.company_name}
+    Role: {payload.job_title}
+    Job Description:
+    {payload.job_description}
+
+    RETURN STRICT JSON WITH THESE EXACT KEYS:
+    - "track": Choose ONE primary track ("A. Medical Affairs / MSL", "B. Clinical Research / CRA", "C. R&D / Laboratory Science / QC", "D. Commercial / Application Scientist", "E. Leadership / Strategy")
+    - "seniority_fit": "Entry / Mid / Senior"
+    - "fit_score": integer (0 to 99)
+    - "is_valid_match": boolean (true)
+    - "matched_strengths": ["Strength 1", "Strength 2", "Strength 3"]
+    - "transferable_gaps": ["Gap 1", "Gap 2"]
+    - "critical_missing": ["Missing 1"]
+    - "top_rejection_risks": ["Risk 1", "Risk 2"]
+    - "match_rationale": ["Rationale 1", "Rationale 2"]
+    - "tailored_cv": "A complete, ATS-optimized 1-page Markdown CV using ONLY the verified ground truth facts above (Raymond Hartman, University of the Witwatersrand, etc.), framed with X-Y-Z metrics and tailored to the job description."
+    - "tailored_cover_letter": "A compelling 3-paragraph pain-point cover letter addressed to {payload.company_name}."
+    - "salary_benchmark": "Estimated compensation range"
+    - "negotiation_strategy": "Strategy details"
+    - "interview_playbook": [{{"stage": "Screening", "focus": "Focus areas"}}, {{"stage": "Technical", "focus": "Focus areas"}}]
+    """
+
+    raw_response = call_groq_ai(eval_prompt, system_prompt="You are an expert executive resume writer. You must strictly use the provided ground truth facts without hallucinating.")
     eval_data = extract_json_safely(raw_response, {})
 
     return {
