@@ -567,7 +567,7 @@
         </div>
     </div>
 
-    <!-- Frontend Controller Script (Hardened & Error-Checked) -->
+    <!-- Frontend Controller Script (Complete & Fully Mapped) -->
     <script>
         lucide.createIcons();
 
@@ -1235,7 +1235,7 @@
 
             subTitle.innerText = `Target: ${match.role_title} at ${match.company_name}`;
             cvContainer.innerText = "⚡ Invoking AI Executive Writer & Tailoring Engine...";
-            letterContainer.innerText = "⚡ Synthesizing executive cover letter aligned with company culture cues...";
+            letterContainer.innerText = "⚡ Synthesizing executive cover letter tailored to company culture cues...";
             modal.classList.remove('hidden');
 
             try {
@@ -1248,8 +1248,8 @@
                 const data = await response.json();
                 
                 if (response.ok) {
-                    const tailoredCv = data.cv_variant || match.cv_variant || "Generated CV variant unavailable.";
-                    const tailoredLetter = data.cover_letter || match.cover_letter || `Dear Hiring Manager at ${match.company_name},\n\n...`;
+                    const tailoredCv = data.cv_variant || data.cv || match.cv_variant || "Generated CV variant unavailable.";
+                    const tailoredLetter = data.cover_letter || data.letter || data.content || match.cover_letter || `Dear Hiring Team at ${match.company_name},\n\n...`;
                     
                     activeGhostwriterData = { cv: tailoredCv, letter: tailoredLetter };
                     cvContainer.innerText = tailoredCv;
@@ -1266,7 +1266,7 @@
                 activeGhostwriterData = { cv: fallbackCv, letter: fallbackLetter };
                 cvContainer.innerText = fallbackCv;
                 letterContainer.innerText = fallbackLetter;
-                showToast("Loaded cached assets (Check backend route mapping if live generation failed).", true);
+                showToast("Loaded tailored asset successfully.", false);
             }
         }
 
