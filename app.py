@@ -359,7 +359,7 @@ def call_groq_ai(prompt: str, system_prompt: str = "You are the complete multi-t
     payload = {
         "model": "openai/gpt-oss-120b",
         "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}],
-        "temperature": 0.2
+        "temperature": 0.2,
         "max_tokens": 4096  # <--- PREVENTS TRUNCATION
     }
 
