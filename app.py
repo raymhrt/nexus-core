@@ -206,9 +206,9 @@ def build_ghostwriter_prompt(master_cv_markdown: str, target_job_description: st
     1. STRICT FACTUAL ACCURACY: You MUST use ONLY the candidate's actual name, education, real degrees, real employment history, and real publications present in the Master CV below. Never invent fake companies or fake dates.
     2. THE X-Y-Z RESUME FORMULA: Re-order and re-phrase bullet points using the Google X-Y-Z metric formula where possible: "Accomplished [X], as measured by [Y], by doing [Z]". Naturally integrate ATS keywords from the job description without sounding robotic.
     3. PAIN-POINT COVER LETTER: Structure the cover letter into three sharp paragraphs:
-       - Paragraph 1 (The Hook): Acknowledge a specific company milestone, product scale, or engineering challenge relevant to {company_name}.
-       - Paragraph 2 (The Proof): Connect core technical achievements from the user's background directly to their stated requirements.
-       - Paragraph 3 (The Close): A confident, low-friction call to action offering a specific technical insight.
+        - Paragraph 1 (The Hook): Acknowledge a specific company milestone, product scale, or engineering challenge relevant to {company_name}.
+        - Paragraph 2 (The Proof): Connect core technical achievements from the user's background directly to their stated requirements.
+        - Paragraph 3 (The Close): A confident, low-friction call to action offering a specific technical insight.
     4. Return ONLY a valid JSON object matching the requested keys. No conversational preamble, no refusal text.
 
     ---
@@ -1170,10 +1170,11 @@ async def tailor_user_specific_cv(
         )
         row = cursor.fetchone()
 
-    if not row:
-        raise HTTPException(status_code=400, detail="Master resume profile not found for this user. Please upload your CV first.")
+    if DATABASE_URL:
+        user_data = dict(row) if row and isinstance(row, dict) else ({"profile_json": row[0]} if row else {})
+    else:
+        user_data = dict(row) if row and isinstance(row, dict) else ({"profile_json": row[0]} if row else {})
 
-    user_data = dict(row) if not isinstance(row, dict) else row
     master_resume = user_data.get("profile_json", "")
 
     if not master_resume:
