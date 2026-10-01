@@ -1230,9 +1230,6 @@ async def tailor_saved_match(match_id: int, auth: dict = Depends(verify_api_key_
     - "tailored_cv": "Complete 1-page Markdown CV string."
     """
 
-    raw_response = call_groq_ai(eval_prompt, system_prompt="You are an expert executive resume writer. Output valid JSON.")
-    eval_data = extract_json_safely(raw_response, {})
-
     cl_prompt = f"""
     You are an expert technical cover letter writer and corporate intelligence strategist.
     Write the core body paragraphs (Paragraphs 1, 2, and 3) for an executive cover letter for the candidate applying to {company_name} for the {job_title} position.
@@ -1250,8 +1247,15 @@ async def tailor_saved_match(match_id: int, auth: dict = Depends(verify_api_key_
     - Do NOT include headers, dates, or salutations in your output—return only the body paragraphs.
     """
 
-    raw_cl = call_groq_ai(cl_prompt, system_prompt="You are an expert executive cover letter writer. Return professional body prose.")
-    
+    loop = asyncio.get_running_loop()
+    try:
+        raw_response = await loop.run_in_executor(None, call_groq_ai, eval_prompt, "You are an expert executive resume writer. Output valid JSON.")
+        eval_data = extract_json_safely(raw_response, {})
+
+        raw_cl = await loop.run_in_executor(None, call_groq_ai, cl_prompt, "You are an expert executive cover letter writer. Return professional body prose.")
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"AI generation failed during tailoring: {str(e)}")
+
     clean_body = raw_cl.strip()
     if clean_body.startswith("Dear") or clean_body.startswith("Candidate"):
         clean_body = re.sub(r'^(Candidate Email:.*?\n|Re:.*?\n|Dear.*?\n)+', '', clean_body, flags=re.IGNORECASE).strip()
