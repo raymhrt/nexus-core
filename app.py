@@ -5,7 +5,6 @@ import json
 import secrets
 import sqlite3
 import hashlib
-import time
 import random
 import uuid
 import re
@@ -93,29 +92,39 @@ sse_broker = SSETelemetryBroker()
 
 @contextmanager
 def db_transaction_scope():
-    if db_pool:
-        conn = db_pool.getconn()
-        conn.cursor_factory = RealDictCursor
-    else:
-        conn = sqlite3.connect("quantcode_career_monetized.db")
-        conn.row_factory = sqlite3.Row
-     
-    cursor = conn.cursor()
+    conn = None
+    cursor = None
     try:
+        if db_pool:
+            conn = db_pool.getconn()
+            conn.cursor_factory = RealDictCursor
+        else:
+            conn = sqlite3.connect("quantcode_career_monetized.db")
+            conn.row_factory = sqlite3.Row
+        
+        cursor = conn.cursor()
         yield conn, cursor
         conn.commit()
     except Exception as e:
-        conn.rollback()
+        if conn:
+            conn.rollback()
         raise e
     finally:
-        cursor.close()
-        if db_pool:
+        if cursor:
+            try:
+                cursor.close()
+            except Exception:
+                pass
+        if db_pool and conn:
             try:
                 db_pool.putconn(conn)
             except Exception:
                 pass
-        else:
-            conn.close()
+        elif conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 def safe_str(val: Any) -> str:
     if val is None:
@@ -159,10 +168,8 @@ def extract_json_safely(raw_text: str, default: Any = None) -> Any:
         return json.loads(clean)
     except Exception:
         try:
-            # If JSON is truncated, attempt to salvage valid keys or auto-close brackets
             fixed = raw_text.strip()
             if not fixed.endswith("}"):
-                # Find the last valid comma or closing quote and close the JSON object
                 last_brace = fixed.rfind("}")
                 if last_brace != -1:
                     fixed = fixed[:last_brace+1]
@@ -210,8 +217,8 @@ def build_ghostwriter_prompt(master_cv_markdown: str, target_job_description: st
     TONE CALIBRATION: {tone}
 
     ABSOLUTE ANTI-HALLUCINATION RULES (VIOLATION WILL FAIL SYSTEM VALIDATION):
-    1. ZERO INVENTED PERSONAS: You are strictly forbidden from inventing fake names (e.g., do NOT output "Dr. Alex Morgan" or any other fictitious name). You MUST parse and use the actual name, real degrees, real universities (e.g., University of the Witwatersrand, Durban University of Technology), and actual employment history (e.g., University of the Witwatersrand PhD Researcher, Transvaal Electric Motors Production Manager) present in the Master CV text below.
-    2. STRICT GROUND TRUTH: If the Master CV contains Raymond Hartman, PhD, Johannesburg, South Africa, and raymhrt@yahoo.com, those exact details MUST appear at the top of the tailored CV. Never substitute them with fictional Cambridge or London profiles.
+    1. ZERO INVENTED PERSONAS: You are strictly forbidden from inventing fake names (e.g., do NOT output "Dr. Alex Morgan" or any other fictitious name). You MUST parse and use the actual name, real degrees, real universities (e.g., University of the Witwatersrand, Durban University of Technology), and actual employment history present in the Master CV text below.
+    2. STRICT GROUND TRUTH: If the Master CV contains a specific name, city, and email, those exact details MUST appear at the top of the tailored CV. Never substitute them with fictional profiles.
     3. THE X-Y-Z FORMULA: Reframe the candidate's real experience using Google X-Y-Z metrics.
     4. 1-PAGE COMPRESSION: Keep bullets punchy, scannable, and strictly formatted in clean Markdown.
 
@@ -237,7 +244,7 @@ def build_ghostwriter_prompt(master_cv_markdown: str, target_job_description: st
     - "critical_missing": ["Missing 1"]
     - "top_rejection_risks": ["Risk 1", "Risk 2"]
     - "match_rationale": ["Rationale 1", "Rationale 2"]
-    - "tailored_cv": "A complete, ATS-optimized 1-page Markdown CV using Raymond Hartman's actual Wits degrees, actual Wits research experience, and real publications. NO FAKE NAMES OR UNIVERSITIES."
+    - "tailored_cv": "A complete, ATS-optimized 1-page Markdown CV using the candidate's actual background and degrees. NO FAKE NAMES OR UNIVERSITIES."
     - "tailored_cover_letter": "A compelling 3-paragraph pain-point cover letter addressed to {company_name}."
     - "salary_benchmark": "Estimated compensation range"
     - "negotiation_strategy": "Strategy details"
@@ -360,11 +367,11 @@ def call_groq_ai(prompt: str, system_prompt: str = "You are the complete multi-t
         "model": "openai/gpt-oss-120b",
         "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}],
         "temperature": 0.2,
-        "max_tokens": 4096  # <--- PREVENTS TRUNCATION
+        "max_tokens": 4096
     }
 
     max_retries = 5
-    endpoint_url = "https://api.groq.com/openai/v1/chat/completions"
+    endpoint_url = "[https://api.groq.com/openai/v1/chat/completions](https://api.groq.com/openai/v1/chat/completions)"
 
     for attempt in range(max_retries):
         try:
@@ -532,19 +539,18 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
 
             eval_data = extract_json_safely(raw_eval, {})
 
-            # Safety fallback if JSON extraction returned empty or malformed data
             if not eval_data or not isinstance(eval_data, dict):
                 eval_data = {
                     "track": "C. R&D / Laboratory Science / QC",
                     "seniority_fit": "Senior",
                     "fit_score": 82,
-                    "matched_strengths": ["Molecular Biology & Biochemistry Expertise", "Biophysical Characterization (SPR/ITC)"],
+                    "matched_strengths": ["Technical Execution & Domain Analysis", "Methodology Design"],
                     "transferable_gaps": ["Industry-specific platform scaling"],
                     "critical_missing": ["Advanced compliance certification"],
-                    "top_rejection_risks": ["Transition from academic research to high-throughput commercial QC"],
-                    "match_rationale": ["Strong methodological alignment with experimental design and protein-DNA interaction workflows."],
+                    "top_rejection_risks": ["Transition from independent research to high-throughput commercial QC"],
+                    "match_rationale": ["Strong methodological alignment with experimental design and technical workflows."],
                     "tailored_cv": profile_content,
-                    "tailored_cover_letter": f"Dear Hiring Team at {company},\n\nI am writing to express my strong interest in the {role} position. With my background in molecular research and biophysical characterization, I am eager to contribute."
+                    "tailored_cover_letter": f"Dear Hiring Team at {company},\n\nI am writing to express my strong interest in the {role} position. With my background in technical research and execution, I am eager to contribute."
                 }
 
             safe_portal_url = sanitize_ats_url(raw_url, role, company)
@@ -557,8 +563,8 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
                 outreach_text = f"Dear Hiring Team at {company},\n\nI am writing to express my strong interest in the {role} position. With my background in high-impact technical execution and domain research, I am eager to contribute to your upcoming initiatives."
 
             playbook_val = eval_data.get('interview_playbook', [
-                {"stage": "Technical Screen & Instrumentation Review", "focus": f"Demonstrate hands-on experience and troubleshooting."},
-                {"stage": "Method Development Deep Dive", "focus": f"Discuss past assay transitions and complex workflows."},
+                {"stage": "Technical Screen & Competency Review", "focus": f"Demonstrate hands-on experience and problem-solving."},
+                {"stage": "Methodology Deep Dive", "focus": f"Discuss past projects and complex workflows."},
                 {"stage": "Cross-Functional & Culture Fit", "focus": f"Highlight collaboration and data integrity standards."}
             ])
             playbook_str = json.dumps(playbook_val) if isinstance(playbook_val, (list, dict)) else str(playbook_val)
@@ -578,17 +584,17 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
                 "track": eval_data.get('track', 'C. R&D / Laboratory Science / QC'),
                 "seniority_fit": eval_data.get('seniority_fit', 'Mid / Senior'),
                 "match_rationale": rationale_str,
-                "matched_requirements": eval_data.get('matched_strengths', ["Core Domain Technical Competency", "Data Analysis & Instrumentation Stewardship"]),
+                "matched_requirements": eval_data.get('matched_strengths', ["Core Domain Technical Competency", "Data Analysis & Stewardship"]),
                 "transferable_gaps": eval_data.get('transferable_gaps', ["Secondary Toolchain Adaptation", "Industrial Throughput Scale"]),
                 "critical_missing": eval_data.get('critical_missing', ["Specific Industry Platform Certification", "Advanced Equipment Calibration Compliance"]),
-                "top_rejection_risks": eval_data.get('top_rejection_risks', ["Transitioning from academic research to industrial throughput", "Platform-specific software adaptation"]),
+                "top_rejection_risks": eval_data.get('top_rejection_risks', ["Transitioning from research to industrial throughput", "Platform-specific software adaptation"]),
                 "decision_maker_name": real_lead["name"],
                 "decision_maker_title": real_lead["title"],
                 "decision_maker_email": real_lead["email"],
                 "warm_intro_pathway": real_lead.get("pathway", "Org-Chart Verified Direct Match"),
                 "outreach_draft": outreach_text,
                 "salary_benchmark": eval_data.get('salary_benchmark', "Competitive Market Rate"),
-                "negotiation_strategy": eval_data.get('negotiation_strategy', "Emphasize proven instrumentation troubleshooting and method development impact."),
+                "negotiation_strategy": eval_data.get('negotiation_strategy', "Emphasize proven troubleshooting and method development impact."),
                 "cv_variant": tailored_cv_text,
                 "cover_letter_variant": tailored_cl_text,
                 "interview_playbook": playbook_str,
@@ -677,6 +683,16 @@ def init_career_database():
                 timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        if DATABASE_URL:
+            try:
+                cursor.execute("ALTER TABLE job_matches ADD COLUMN IF NOT EXISTS warm_intro_pathway TEXT DEFAULT '';")
+                cursor.execute("ALTER TABLE job_matches ADD COLUMN IF NOT EXISTS matched_requirements TEXT;")
+                cursor.execute("ALTER TABLE job_matches ADD COLUMN IF NOT EXISTS transferable_gaps TEXT;")
+                cursor.execute("ALTER TABLE job_matches ADD COLUMN IF NOT EXISTS critical_missing TEXT;")
+                cursor.execute("ALTER TABLE job_matches ADD COLUMN IF NOT EXISTS cover_letter_variant TEXT;")
+                cursor.execute("ALTER TABLE job_matches ADD COLUMN IF NOT EXISTS embedding vector(768);")
+            except Exception:
+                pass
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS interview_sessions (
                 session_id TEXT PRIMARY KEY,
@@ -941,16 +957,6 @@ def get_credits(user=Depends(verify_api_key_only)):
 def get_career_matches(min_fit: int = Query(50, ge=0, le=100), user=Depends(verify_api_key_only)):
     with db_transaction_scope() as (_, cursor):
         if DATABASE_URL:
-            try:
-                cursor.execute("ALTER TABLE job_matches ADD COLUMN IF NOT EXISTS warm_intro_pathway TEXT DEFAULT '';")
-                cursor.execute("ALTER TABLE job_matches ADD COLUMN IF NOT EXISTS matched_requirements TEXT;")
-                cursor.execute("ALTER TABLE job_matches ADD COLUMN IF NOT EXISTS transferable_gaps TEXT;")
-                cursor.execute("ALTER TABLE job_matches ADD COLUMN IF NOT EXISTS critical_missing TEXT;")
-                cursor.execute("ALTER TABLE job_matches ADD COLUMN IF NOT EXISTS cover_letter_variant TEXT;")
-                cursor.execute("ALTER TABLE job_matches ADD COLUMN IF NOT EXISTS embedding vector(768);")
-            except Exception:
-                pass
-
             cursor.execute("SELECT embedding FROM user_profiles WHERE email = %s", (user["email"],))
             prof_row = cursor.fetchone()
             user_embedding = prof_row["embedding"] if prof_row and isinstance(prof_row, dict) else (prof_row[0] if prof_row else None)
@@ -1190,7 +1196,6 @@ async def tailor_user_specific_cv(
     user_data = dict(row) if row and isinstance(row, dict) else ({"profile_json": row[0]} if row else {})
     stored_profile = user_data.get("profile_json", "").strip()
 
-    # Unpack profile JSON metadata or raw resume text dynamically
     master_resume = ""
     if stored_profile.startswith("{"):
         try:
@@ -1209,7 +1214,6 @@ Suggested Professional Roles: {roles_txt}
     else:
         master_resume = stored_profile if stored_profile else f"Candidate profile for {auth['email']} targeting {payload.job_title}."
 
-    # --- AGENT STEP 1: COMPANY INTEL & TRANSFERABLE GAP BRIDGING ---
     intel_prompt = f"""
     You are an expert corporate intelligence and career positioning agent.
     Analyze the target company, role, and candidate profile to formulate a persuasive narrative.
@@ -1239,7 +1243,6 @@ Suggested Professional Roles: {roles_txt}
         "transferable_gaps": ["Rigorous analytical troubleshooting and structured methodology transfer seamlessly."]
     })
 
-    # --- AGENT STEP 2: EVALUATION & TAILORED CV GENERATION ---
     eval_prompt = f"""
     You are an elite executive career strategist and ATS optimization expert.
     Tailor the candidate's master profile into an ATS-optimized, 1-page Markdown resume targeting the job description below.
@@ -1283,7 +1286,6 @@ Suggested Professional Roles: {roles_txt}
 Dedicated professional with specialized background aligned with {payload.job_title}. Proven capability in executing complex technical workflows and driving project deliverables.
 """
 
-    # --- AGENT STEP 3: DEDICATED COVER LETTER GENERATION WITH SKILL BRIDGING ---
     cl_prompt = f"""
     You are an expert technical cover letter writer and corporate intelligence strategist.
     Write a formal, comprehensive, multi-paragraph executive cover letter for the candidate applying to {payload.company_name} for the {payload.job_title} position.
@@ -1323,9 +1325,9 @@ Dear Hiring Team at {payload.company_name},
 
 I am writing to express my strong interest in the {payload.job_title} position. {intel_data.get('company_summary')} With my extensive background in technical execution, experimental design, assay optimisation, and rigorous data analysis, I am eager to contribute to your upcoming initiatives.
 
-Throughout my academic and professional career, I have independently planned and executed complex research projects from initial concept through laboratory execution, quantitative analysis, and technical reporting. My work has required me to design and optimise experimental workflows, troubleshoot performance bottlenecks, evaluate complex datasets, and translate findings into actionable strategies.
+Throughout my career, I have independently planned and executed complex projects from initial concept through execution, quantitative analysis, and technical reporting. My work has required me to design workflows, troubleshoot performance bottlenecks, evaluate complex datasets, and translate findings into actionable strategies.
 
-While my primary background has centered on specialized research and technical operations rather than direct industry tenure in this exact niche, my core competencies offer highly transferable value. Specifically, {', '.join(intel_data.get('transferable_bridges', ['my experience in systematic root-cause problem-solving and rapid methodology adaptation ensures I can bridge technical gaps quickly']))}. This rigorous foundation enables me to contribute effectively to {payload.company_name}'s cross-functional teams from day one.
+While my background has centered on specialized research and technical operations rather than direct industry tenure in this exact niche, my core competencies offer highly transferable value. Specifically, {', '.join(intel_data.get('transferable_bridges', ['my experience in systematic root-cause problem-solving and rapid methodology adaptation ensures I can bridge technical gaps quickly']))}. This rigorous foundation enables me to contribute effectively to {payload.company_name}'s cross-functional teams from day one.
 
 I would welcome the opportunity to discuss how my technical adaptability and problem-solving framework can support {payload.company_name}'s continued success.
 
@@ -1354,7 +1356,6 @@ Kind regards,
 
 @app.post("/api/v1/career/resume")
 async def save_career_resume(payload: ResumeInput, auth: dict = Depends(verify_api_key_only)):
-    # 1. Analyze for recommended roles/metadata
     prompt = f"""
     Analyze this master CV / resume text for user {auth['email']}.
     Extract core skills, seniority, primary domain, and generate 4 to 6 highly accurate professional job titles / recommended roles based strictly on this text.
@@ -1391,7 +1392,6 @@ async def save_career_resume(payload: ResumeInput, auth: dict = Depends(verify_a
     embedding_vector = generate_text_embedding(payload.resume_content)
     vector_str = "[" + ",".join(map(str, embedding_vector)) + "]"
 
-    # Store the actual raw resume content submitted by the user
     raw_master_text = payload.resume_content.strip()
 
     with db_transaction_scope() as (_, cursor):
