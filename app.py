@@ -1180,7 +1180,6 @@ async def tailor_user_specific_cv(
     payload: TailorRequest,
     auth: dict = Depends(verify_api_key_only)
 ):
-    # 1. Fetch the authenticated user's profile dynamically from the database
     with db_transaction_scope() as (_, cursor):
         cursor.execute(
             "SELECT profile_json FROM user_profiles WHERE email = %s" if DATABASE_URL else "SELECT profile_json FROM user_profiles WHERE email = ?",
@@ -1191,33 +1190,33 @@ async def tailor_user_specific_cv(
     user_data = dict(row) if row and isinstance(row, dict) else ({"profile_json": row[0]} if row else {})
     stored_profile = user_data.get("profile_json", "").strip()
 
-    # 2. If the stored profile is empty or looks like a JSON dictionary of metadata, convert/format it into readable resume text dynamically
+    # UNIVERSAL MULTI-TENANT CONVERSION: If stored_profile is a JSON metadata blob, unpack it into readable prose 
+    # so the LLM treats it as candidate background text rather than echoing JSON.
     master_resume = ""
-    if not stored_profile:
-        master_resume = f"Profile for user {auth['email']}. Professional seeking {payload.job_title} positions."
-    elif stored_profile.startswith("{"):
+    if stored_profile.startswith("{"):
         try:
             meta = json.loads(stored_profile)
-            skills_list = ", ".join(meta.get("skills", []))
-            roles_list = ", ".join(meta.get("recommended_roles", []))
+            skills_txt = ", ".join(meta.get("skills", []))
+            roles_txt = ", ".join(meta.get("recommended_roles", []))
             master_resume = f"""
-Candidate Email: {auth['email']}
+Candidate Email / User: {auth['email']}
 Seniority Level: {meta.get('seniority', 'Professional')}
-Primary Domain: {meta.get('primary_domain', 'General Technical / R&D')}
-Core Skills: {skills_list}
-Target / Recommended Roles: {roles_list}
+Primary Domain: {meta.get('primary_domain', 'Specialized Technical Domain')}
+Core Skills & Competencies: {skills_txt}
+Suggested Professional Roles: {roles_txt}
             """.strip()
         except Exception:
             master_resume = stored_profile
     else:
-        master_resume = stored_profile
+        master_resume = stored_profile if stored_profile else f"Candidate profile for {auth['email']} targeting {payload.job_title}."
 
-    # 3. Dynamic AI Tailoring Prompt using ONLY the user's fetched profile data
     eval_prompt = f"""
     You are an elite executive career strategist and ATS optimization expert.
-    Your task is to tailor the candidate's Master CV/Profile into an ATS-optimized, 1-page Markdown resume targeting the job description below.
+    Your task is to tailor the candidate's profile/CV into an ATS-optimized, 1-page Markdown resume targeting the job description below.
 
-    CANDIDATE MASTER PROFILE / CV (User: {auth['email']}):
+    CRITICAL INSTRUCTION: You must output clean Markdown formatting for the CV (starting with # Candidate Name, followed by sections like ## Professional Summary, ## Core Competencies, ## Experience). DO NOT output raw JSON inside the tailored_cv field.
+
+    CANDIDATE MASTER PROFILE:
     {master_resume}
 
     TARGET JOB:
@@ -1236,42 +1235,44 @@ Target / Recommended Roles: {roles_list}
     - "critical_missing": ["Missing 1"]
     - "top_rejection_risks": ["Risk 1", "Risk 2"]
     - "match_rationale": ["Rationale 1", "Rationale 2"]
-    - "tailored_cv": "A complete, ATS-optimized 1-page Markdown CV formatted with clean professional headings (Summary, Experience, Skills, Education) based strictly on the candidate's profile above, tailored to the job description with X-Y-Z metrics."
-    - "tailored_cover_letter": "A compelling 3-paragraph pain-point cover letter addressed to {payload.company_name} for the candidate."
+    - "tailored_cv": "A complete, ATS-optimized 1-page Markdown CV string (NOT a JSON object) structured with standard Markdown headings (#, ##) and bullet points highlighting relevant achievements matching the target job."
+    - "tailored_cover_letter": "A compelling 3-paragraph cover letter addressed to {payload.company_name}."
     - "salary_benchmark": "Estimated compensation range"
     - "negotiation_strategy": "Strategy details"
-    - "interview_playbook": [{{"stage": "Screening", "focus": "Focus areas"}}, {{"stage": "Technical", "focus": "Focus areas"}}]
+    - "interview_playbook": [{{"stage": "Screening", "focus": "Focus areas"}}]
     """
 
-    raw_response = call_groq_ai(eval_prompt, system_prompt="You are an expert executive resume writer. You must strictly output valid JSON containing a Markdown CV under 'tailored_cv'.")
+    raw_response = call_groq_ai(eval_prompt, system_prompt="You are an expert executive resume writer. Output valid JSON. The tailored_cv value must be pure Markdown text, never a JSON string.")
     eval_data = extract_json_safely(raw_response, {})
 
-    # Fallback if AI output is missing tailored_cv
-    tailored_cv_markdown = eval_data.get("tailored_cv")
+    # Safety check: If tailored_cv is missing or accidentally returned as JSON, generate a clean dynamic Markdown fallback
+    tailored_cv_markdown = eval_data.get("tailored_cv", "")
     if not tailored_cv_markdown or tailored_cv_markdown.startswith("{"):
-        tailored_cv_markdown = f"""# Professional Resume ({auth['email']})
-Target Role: {payload.job_title} at {payload.company_name}
+        tailored_cv_markdown = f"""# Professional CV – {auth['email']}
+**Target Position:** {payload.job_title} at {payload.company_name}
 
 ---
 
 ### Professional Summary
-Results-driven professional with deep technical expertise aligned with {payload.job_title}. Proven track record of executing complex projects, optimizing workflows, and delivering high-impact results.
+Dedicated professional with specialized background aligned with {payload.job_title}. Proven capability in executing complex technical workflows, problem-solving, and driving project deliverables.
 
 ---
 
 ### Core Competencies & Skills
-Derived from user profile data. Expert in problem-solving, technical execution, and cross-functional collaboration.
+- Technical Execution & Analysis
+- Cross-Functional Collaboration
+- Project Management & Process Optimization
 
 ---
 
 ### Professional Background
-- **Active Contributor & Specialist** | Managed technical operations, data analysis, and domain-specific execution.
-- **Project Execution** | Streamlined workflows and improved efficiency using structured problem-solving methodologies.
+- **Specialist / Researcher** | Executed technical mandates, evaluated complex datasets, and ensured rigorous quality standards.
+- **Operations & Technical Management** | Streamlined processes, resolved technical roadblocks, and supported organizational objectives.
 
 ---
 
-### Master Profile Reference
-{master_resume[:1000]}
+### Profile Data Reference
+{master_resume}
 """
 
     return {
@@ -1282,6 +1283,7 @@ Derived from user profile data. Expert in problem-solving, technical execution, 
 
 @app.post("/api/v1/career/resume")
 async def save_career_resume(payload: ResumeInput, auth: dict = Depends(verify_api_key_only)):
+    # 1. Analyze for recommended roles/metadata
     prompt = f"""
     Analyze this master CV / resume text for user {auth['email']}.
     Extract core skills, seniority, primary domain, and generate 4 to 6 highly accurate professional job titles / recommended roles based strictly on this text.
@@ -1318,18 +1320,20 @@ async def save_career_resume(payload: ResumeInput, auth: dict = Depends(verify_a
     embedding_vector = generate_text_embedding(payload.resume_content)
     vector_str = "[" + ",".join(map(str, embedding_vector)) + "]"
 
+    # Store the actual raw resume content submitted by the user
+    raw_master_text = payload.resume_content.strip()
+
     with db_transaction_scope() as (_, cursor):
-        profile_str = json.dumps(parsed_profile)
         if DATABASE_URL:
-            cursor.execute("INSERT INTO user_profiles (email, profile_json, embedding, updated_at) VALUES (%s, %s, %s::vector, NOW()) ON CONFLICT (email) DO UPDATE SET profile_json = EXCLUDED.profile_json, embedding = EXCLUDED.embedding, updated_at = NOW()", (auth["email"], profile_str, vector_str))
+            cursor.execute("INSERT INTO user_profiles (email, profile_json, embedding, updated_at) VALUES (%s, %s, %s::vector, NOW()) ON CONFLICT (email) DO UPDATE SET profile_json = EXCLUDED.profile_json, embedding = EXCLUDED.embedding, updated_at = NOW()", (auth["email"], raw_master_text, vector_str))
         else:
-            cursor.execute("INSERT OR REPLACE INTO user_profiles (email, profile_json, updated_at) VALUES (?, ?, datetime('now'))", (auth["email"], profile_str))
+            cursor.execute("INSERT OR REPLACE INTO user_profiles (email, profile_json, updated_at) VALUES (?, ?, datetime('now'))", (auth["email"], raw_master_text))
             
     return {
         "status": "success", 
         "profile": parsed_profile, 
         "recommended_roles": parsed_profile.get("recommended_roles", []),
-        "message": "User CV indexed successfully with guaranteed role suggestions.", 
+        "message": "User CV indexed successfully.", 
         "credits_remaining": auth["credits"]
     }
 
