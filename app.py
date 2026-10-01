@@ -1250,13 +1250,13 @@ async def tailor_saved_match(match_id: int, auth: dict = Depends(verify_api_key_
 
     loop = asyncio.get_running_loop()
     try:
-        # Run concurrently using asyncio.gather so both complete within a single timeout window safely
-        raw_response, raw_cl = await asyncio.gather(
-            loop.run_in_executor(None, call_groq_ai, eval_prompt, "You are an expert executive resume writer. Output valid JSON."),
-            loop.run_in_executor(None, call_groq_ai, cl_prompt, "You are an expert executive cover letter writer. Return professional body prose.")
-        )
+        # Run sequentially to prevent gateway timeouts or model token congestion
+        raw_response = await loop.run_in_executor(None, call_groq_ai, eval_prompt, "You are an expert executive resume writer. Output valid JSON.")
         eval_data = extract_json_safely(raw_response, {})
+
+        raw_cl = await loop.run_in_executor(None, call_groq_ai, cl_prompt, "You are an expert executive cover letter writer. Return professional body prose.")
     except Exception as e:
+        logger.error(f"Tailor endpoint failure for match {match_id}: {str(e)}", exc_info=True)
         raise HTTPException(status_code=502, detail=f"AI generation failed during tailoring: {str(e)}")
 
     clean_body = raw_cl.strip()
