@@ -1190,8 +1190,7 @@ async def tailor_user_specific_cv(
     user_data = dict(row) if row and isinstance(row, dict) else ({"profile_json": row[0]} if row else {})
     stored_profile = user_data.get("profile_json", "").strip()
 
-    # UNIVERSAL MULTI-TENANT CONVERSION: If stored_profile is a JSON metadata blob, unpack it into readable prose 
-    # so the LLM treats it as candidate background text rather than echoing JSON.
+    # Unpack profile JSON metadata or raw resume text dynamically
     master_resume = ""
     if stored_profile.startswith("{"):
         try:
@@ -1210,11 +1209,48 @@ Suggested Professional Roles: {roles_txt}
     else:
         master_resume = stored_profile if stored_profile else f"Candidate profile for {auth['email']} targeting {payload.job_title}."
 
-    eval_prompt = f"""
-    You are an elite executive career strategist and ATS optimization expert.
-    Your task is to tailor the candidate's profile/CV into an ATS-optimized, 1-page Markdown resume targeting the job description below.
+    # --- AGENT STEP 1: COMPANY INTEL & TRANSFERABLE GAP BRIDGING ---
+    intel_prompt = f"""
+    You are an expert corporate intelligence and career positioning agent.
+    Analyze the target company, role, and candidate profile to formulate a persuasive narrative.
+    
+    Company: {payload.company_name}
+    Role: {payload.job_title}
+    Job Description: {payload.job_description}
+    
+    Candidate Master Profile:
+    {master_resume}
 
-    CRITICAL INSTRUCTION: You must output clean Markdown formatting for the CV (starting with # Candidate Name, followed by sections like ## Professional Summary, ## Core Competencies, ## Experience). DO NOT output raw JSON inside the tailored_cv field.
+    Task:
+    1. Summarize what {payload.company_name} focuses on or values based on the job description and company name.
+    2. Identify potential skill/experience gaps between the candidate's background and the target role.
+    3. Formulate strong **transferable skill bridges** showing why the candidate's existing background makes them uniquely adaptable and successful despite minor domain/tool gaps.
+    
+    Return strict JSON with these exact keys:
+    - "company_summary": "1-2 sentences summarizing the company's focus/mission relevant to the role."
+    - "identified_gaps": ["Gap 1", "Gap 2"]
+    - "transferable_bridges": ["Bridge explanation 1", "Bridge explanation 2"]
+    """
+    
+    intel_raw = call_groq_ai(intel_prompt, system_prompt="You are a corporate research agent returning raw JSON.")
+    intel_data = extract_json_safely(intel_raw, {
+        "company_summary": f"{payload.company_name} is a high-growth organization driving innovation in its sector.",
+        "identified_gaps": ["Direct industry platform tenure"],
+        "transferable_gaps": ["Rigorous analytical troubleshooting and structured methodology transfer seamlessly."]
+    })
+
+    # --- AGENT STEP 2: ELITE CV & COVER LETTER GENERATION ---
+    eval_prompt = f"""
+    You are an elite executive career strategist and technical cover letter writer.
+    Generate TWO outputs based on the candidate's profile, company research, and transferable skill bridges:
+    
+    1. "tailored_cv": A complete, ATS-optimized 1-page Markdown CV string structured with clean Markdown headings (#, ##) and X-Y-Z metric bullet points tailored to the job.
+    2. "tailored_cover_letter": A formal, multi-paragraph executive cover letter that:
+       - Starts with a clean candidate contact header, date, and Re: line.
+       - Paragraph 1: Expresses enthusiasm for {payload.company_name} (incorporating company intelligence: "{intel_data.get('company_summary')}") and applies for {payload.job_title}.
+       - Paragraph 2: Details core technical alignment, highlighting specific master profile competencies.
+       - Paragraph 3: **Explicitly and persuasively bridges skill gaps using transferable strengths** (addressing gaps like {json.dumps(intel_data.get('identified_gaps'))} through transferable bridges like {json.dumps(intel_data.get('transferable_bridges'))}).
+       - Paragraph 4: Strong concluding call to action and professional sign-off.
 
     CANDIDATE MASTER PROFILE:
     {master_resume}
@@ -1231,21 +1267,21 @@ Suggested Professional Roles: {roles_txt}
     - "fit_score": integer (0 to 99)
     - "is_valid_match": boolean (true)
     - "matched_strengths": ["Strength 1", "Strength 2", "Strength 3"]
-    - "transferable_gaps": ["Gap 1", "Gap 2"]
+    - "transferable_gaps": ["Gap 1"]
     - "critical_missing": ["Missing 1"]
-    - "top_rejection_risks": ["Risk 1", "Risk 2"]
-    - "match_rationale": ["Rationale 1", "Rationale 2"]
-    - "tailored_cv": "A complete, ATS-optimized 1-page Markdown CV string (NOT a JSON object) structured with standard Markdown headings (#, ##) and bullet points highlighting relevant achievements matching the target job."
-    - "tailored_cover_letter": "A compelling 3-paragraph cover letter addressed to {payload.company_name}."
+    - "top_rejection_risks": ["Risk 1"]
+    - "match_rationale": ["Rationale 1"]
+    - "tailored_cv": "Complete 1-page Markdown CV string."
+    - "tailored_cover_letter": "A rigorous, multi-paragraph executive cover letter with header, company intelligence integration, and explicit transferable skill bridging."
     - "salary_benchmark": "Estimated compensation range"
     - "negotiation_strategy": "Strategy details"
     - "interview_playbook": [{{"stage": "Screening", "focus": "Focus areas"}}]
     """
 
-    raw_response = call_groq_ai(eval_prompt, system_prompt="You are an expert executive resume writer. Output valid JSON. The tailored_cv value must be pure Markdown text, never a JSON string.")
+    raw_response = call_groq_ai(eval_prompt, system_prompt="You are an expert executive resume and cover letter writer. Output valid JSON with detailed professional prose.")
     eval_data = extract_json_safely(raw_response, {})
 
-    # Safety check: If tailored_cv is missing or accidentally returned as JSON, generate a clean dynamic Markdown fallback
+    # Retrieve or fallback CV
     tailored_cv_markdown = eval_data.get("tailored_cv", "")
     if not tailored_cv_markdown or tailored_cv_markdown.startswith("{"):
         tailored_cv_markdown = f"""# Professional CV – {auth['email']}
@@ -1262,23 +1298,39 @@ Dedicated professional with specialized background aligned with {payload.job_tit
 - Technical Execution & Analysis
 - Cross-Functional Collaboration
 - Project Management & Process Optimization
-
----
-
-### Professional Background
-- **Specialist / Researcher** | Executed technical mandates, evaluated complex datasets, and ensured rigorous quality standards.
-- **Operations & Technical Management** | Streamlined processes, resolved technical roadblocks, and supported organizational objectives.
-
----
-
-### Profile Data Reference
-{master_resume}
 """
+
+    # Retrieve or fallback Cover Letter with intelligent transferable skill bridging
+    today_date = "01 October 2026"
+    default_cl = f"""Candidate Name / {auth['email']}
+Location: Global / Remote
+Email: {auth['email']}
+Date: {today_date}
+Re: {payload.job_title}
+
+Dear Hiring Team,
+
+I am writing to express my strong interest in the {payload.job_title} position at {payload.company_name}. {intel_data.get('company_summary')} With my background in rigorous technical execution, experimental design, and quantitative analysis, I am eager to contribute to your upcoming initiatives.
+
+Throughout my academic and professional career, I have independently planned and executed complex projects from initial concept through laboratory execution, quantitative analysis, and technical reporting. My work has required me to design and optimise experimental workflows, troubleshoot performance bottlenecks, and translate findings into actionable strategies.
+
+While my primary background has centered on specialized research and technical operations rather than direct industry tenure in this exact niche, my core competencies offer highly transferable value. Specifically, my experience in systematic root-cause problem-solving, rapid methodology adaptation, and rigorous data validation ensures I can bridge technical gaps quickly and contribute effectively to {payload.company_name}'s cross-functional teams.
+
+I would welcome the opportunity to discuss how my technical adaptability and problem-solving framework can support {payload.company_name}'s continued success.
+
+Kind regards,
+
+{auth['email']}
+"""
+
+    tailored_cl = eval_data.get("tailored_cover_letter", "")
+    if not tailored_cl or len(tailored_cl) < 150 or tailored_cl.startswith("{"):
+        tailored_cl = default_cl
 
     return {
         "status": "success",
         "tailored_cv": tailored_cv_markdown,
-        "tailored_cover_letter": eval_data.get("tailored_cover_letter", f"Dear Hiring Team at {payload.company_name},\n\nI am writing to express my strong interest in the {payload.job_title} position...")
+        "tailored_cover_letter": tailored_cl
     }
 
 @app.post("/api/v1/career/resume")
