@@ -197,19 +197,32 @@ def sanitize_ats_url(url: str, role_title: str, company_name: str) -> str:
 def build_ghostwriter_prompt(master_cv_markdown: str, target_job_description: str, target_role: str, company_name: str, tone: str = "executive_leader") -> str:
     cv_content = master_cv_markdown if master_cv_markdown and len(master_cv_markdown.strip()) > 20 else "Candidate profile: Professional background in scientific research and technical execution."
     return f"""
-    You are an elite executive career strategist, expert hiring manager, and technical CV writer.
-    Your task is to tailor the candidate's Master CV and write a high-impact cover letter targeting the specific job description below.
+    You are an elite career strategist, ATS optimization expert, and hiring decision analyst.
+    Your task is NOT just to rewrite a CV, but to dynamically POSITION the candidate correctly based on the job, while maximizing interview conversion probability.
 
     TONE CALIBRATION: {tone} (Apply this tone across the tailored resume and cover letter phrasing).
 
-    ABSOLUTE ZERO-HALLUCINATION & EXPERT WRITING RULES:
-    1. STRICT FACTUAL ACCURACY: You MUST use ONLY the candidate's actual name, education, real degrees, real employment history, and real publications present in the Master CV below. Never invent fake companies or fake dates. If specific sections (such as employment history) are not provided in the Master CV text, write out the actual professional experience, roles, responsibilities, and achievements based on the candidate's domain expertise and technical profile outlined in the CV text, rather than outputting placeholders like "[Name not provided]".
-    2. THE X-Y-Z RESUME FORMULA: Re-order and re-phrase bullet points using the Google X-Y-Z metric formula where possible: "Accomplished [X], as measured by [Y], by doing [Z]". Naturally integrate ATS keywords from the job description without sounding robotic.
-    3. PAIN-POINT COVER LETTER: Structure the cover letter into three sharp paragraphs:
-        - Paragraph 1 (The Hook): Acknowledge a specific company milestone, product scale, or engineering challenge relevant to {company_name}.
-        - Paragraph 2 (The Proof): Connect core technical achievements from the user's background directly to their stated requirements.
-        - Paragraph 3 (The Close): A confident, low-friction call to action offering a specific technical insight.
-    4. Return ONLY a valid JSON object matching the requested keys. No conversational preamble, no refusal text.
+    STEP 1: ROLE CLASSIFICATION (MANDATORY)
+    Classify the job into ONE primary track:
+    - A. Medical Affairs / MSL
+    - B. Clinical Research / CRA / Clinical Ops
+    - C. R&D / Laboratory Science / QC
+    - D. Commercial / Application Scientist / Field Technical
+    - E. Leadership / Strategy / Director
+
+    STEP 2: ZERO-HALLUCINATION & FACTUAL INTEGRITY RULES (CRITICAL)
+    1. STRICT SOURCE ANCHORING: You MUST use ONLY the candidate's actual name, real degrees, real university (e.g., University of the Witwatersrand, Durban University of Technology), actual employment history (e.g., University of the Witwatersrand PhD Researcher, Transvaal Electric Motors Production Manager), and verified publications present in the Master CV below.
+    2. NO FABRICATED UNIVERSITIES OR ROLES: Never output placeholders like "(Institution not disclosed in source data)" if the Master CV clearly provides the University of the Witwatersrand or other institutions. If specific sections are missing, derive professional achievements strictly from the provided Master CV text.
+    3. REAL METRICS ONLY: Re-order and re-phrase bullet points using the Google X-Y-Z formula based on the candidate's actual achievements.
+
+    STEP 3: AUTO-POSITIONING & RISK REDUCTION
+    - If the candidate lacks direct industry experience, reframe academic work as applied, transferable, compliance-aligned research comparable to industrial standards.
+    - If leadership experience is insufficient for a Director role, reframe as "High-potential individual contributor with leadership trajectory." Do NOT fabricate executive leadership history.
+    - Enforce a single-track career narrative matching the target job.
+
+    STEP 4: STRICT FORMAT & LENGTH CONSTRAINTS
+    - The tailored CV MUST be rigorously compressed to fit strictly on ONE A4 page equivalent (concise, high-impact bullets, no dense paragraphs).
+    - ATS-optimized layout: Clean markdown sections, no tables, no graphics, no multi-column formatting.
 
     ---
     USER'S MASTER CV (THE ONLY SOURCE OF TRUTH):
@@ -233,7 +246,7 @@ def build_ghostwriter_prompt(master_cv_markdown: str, target_job_description: st
     - "critical_missing": ["Missing 1", "Missing 2"]
     - "top_rejection_risks": ["Risk 1", "Risk 2", "Risk 3"]
     - "match_rationale": ["Rationale 1", "Rationale 2", "Rationale 3"]
-    - "tailored_cv": "A complete, ATS-optimized Markdown CV using the user's actual credentials, framed with X-Y-Z metrics and tailored to the job description."
+    - "tailored_cv": "A complete, ATS-optimized 1-page Markdown CV using the user's actual credentials (University of the Witwatersrand, etc.), framed with X-Y-Z metrics and tailored to the job description."
     - "tailored_cover_letter": "A compelling 3-paragraph pain-point cover letter addressed to {company_name}."
     - "salary_benchmark": "Estimated compensation range"
     - "negotiation_strategy": "Strategy details"
