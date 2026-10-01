@@ -371,7 +371,7 @@ def call_groq_ai(prompt: str, system_prompt: str = "You are the complete multi-t
     }
 
     max_retries = 5
-    endpoint_url = "https://api.groq.com/openai/v1/chat/completions"
+    endpoint_url = "[https://api.groq.com/openai/v1/chat/completions](https://api.groq.com/openai/v1/chat/completions)"
 
     for attempt in range(max_retries):
         try:
@@ -1181,6 +1181,99 @@ async def refresh_career_match(match_id: int, auth: dict = Depends(verify_api_ke
         logger.error(f"DIAGNOSTIC REFRESH ERROR: {tb}")
         raise HTTPException(status_code=500, detail=f"ERROR: {str(e)} | TB: {tb}")
 
+@app.post("/api/v1/career/matches/{match_id}/tailor")
+async def tailor_saved_match(match_id: int, auth: dict = Depends(verify_api_key_only)):
+    with db_transaction_scope() as (_, cursor):
+        sql = "SELECT company_name, job_title, job_description FROM job_matches WHERE id = %s AND user_email = %s" if DATABASE_URL else "SELECT company_name, job_title, job_description FROM job_matches WHERE id = ? AND user_email = ?"
+        cursor.execute(sql, (match_id, auth["email"]))
+        match_row = cursor.fetchone()
+
+        if not match_row:
+            raise HTTPException(status_code=404, detail="Job match not found.")
+
+        cursor.execute("SELECT profile_json FROM user_profiles WHERE email = %s" if DATABASE_URL else "SELECT profile_json FROM user_profiles WHERE email = ?", (auth["email"],))
+        profile_row = cursor.fetchone()
+
+        if not profile_row:
+            raise HTTPException(status_code=400, detail="No master CV profile found. Please upload your CV first.")
+
+    m_dict = dict(match_row) if not isinstance(match_row, dict) else match_row
+    p_dict = dict(profile_row) if not isinstance(profile_row, dict) else profile_row
+    
+    master_resume = p_dict.get('profile_json', '')
+    company_name = m_dict.get('company_name', '')
+    job_title = m_dict.get('job_title', '')
+    job_description = m_dict.get('job_description', '')
+
+    eval_prompt = f"""
+    You are an elite executive career strategist and ATS optimization expert.
+    Tailor the candidate's master profile into an ATS-optimized, 1-page Markdown resume targeting the job description below.
+
+    CANDIDATE MASTER PROFILE:
+    {master_resume}
+
+    TARGET JOB:
+    Company: {company_name}
+    Role: {job_title}
+    Job Description:
+    {job_description}
+
+    RETURN STRICT JSON WITH THESE EXACT KEYS:
+    - "track": Choose ONE primary track ("A. Medical Affairs / MSL", "B. Clinical Research / CRA", "C. R&D / Laboratory Science / QC", "D. Commercial / Application Scientist", "E. Leadership / Strategy")
+    - "seniority_fit": "Entry / Mid / Senior"
+    - "fit_score": integer (0 to 99)
+    - "is_valid_match": boolean (true)
+    - "matched_strengths": ["Strength 1", "Strength 2"]
+    - "transferable_gaps": ["Gap 1"]
+    - "critical_missing": ["Missing 1"]
+    - "tailored_cv": "Complete 1-page Markdown CV string."
+    """
+
+    raw_response = call_groq_ai(eval_prompt, system_prompt="You are an expert executive resume writer. Output valid JSON.")
+    eval_data = extract_json_safely(raw_response, {})
+
+    cl_prompt = f"""
+    You are an expert technical cover letter writer and corporate intelligence strategist.
+    Write the core body paragraphs (Paragraphs 1, 2, and 3) for an executive cover letter for the candidate applying to {company_name} for the {job_title} position.
+
+    CANDIDATE MASTER PROFILE:
+    {master_resume}
+
+    TARGET JOB DESCRIPTION:
+    {job_description}
+
+    INSTRUCTIONS FOR THE BODY:
+    - Paragraph 1: Express strong enthusiasm for {company_name} and the specific {job_title} role.
+    - Paragraph 2: Highlight core technical alignment and detailed master profile competencies.
+    - Paragraph 3: Persuasively bridge skill gaps using transferable strengths.
+    - Do NOT include headers, dates, or salutations in your output—return only the body paragraphs.
+    """
+
+    raw_cl = call_groq_ai(cl_prompt, system_prompt="You are an expert executive cover letter writer. Return professional body prose.")
+    
+    clean_body = raw_cl.strip()
+    if clean_body.startswith("Dear") or clean_body.startswith("Candidate"):
+        clean_body = re.sub(r'^(Candidate Email:.*?\n|Re:.*?\n|Dear.*?\n)+', '', clean_body, flags=re.IGNORECASE).strip()
+
+    tailored_cl = f"""Candidate Email: {auth['email']}
+Date: 01 October 2026
+Re: {job_title} at {company_name}
+
+Dear Hiring Team at {company_name},
+
+{clean_body}
+
+Kind regards,
+
+{auth['email']}
+"""
+
+    return {
+        "status": "success",
+        "tailored_cv": eval_data.get("tailored_cv", master_resume),
+        "tailored_cover_letter": tailored_cl
+    }
+
 @app.post("/api/v1/career/tailor-cv")
 async def tailor_user_specific_cv(
     payload: TailorRequest,
@@ -1288,7 +1381,7 @@ Dedicated professional with specialized background aligned with {payload.job_tit
 
     cl_prompt = f"""
     You are an expert technical cover letter writer and corporate intelligence strategist.
-    Write a formal, comprehensive, multi-paragraph executive cover letter for the candidate applying to {payload.company_name} for the {payload.job_title} position.
+    Write the core body paragraphs (Paragraphs 1, 2, and 3) for an executive cover letter for the candidate applying to {payload.company_name} for the {payload.job_title} position.
 
     CANDIDATE MASTER PROFILE:
     {master_resume}
@@ -1301,35 +1394,26 @@ Dedicated professional with specialized background aligned with {payload.job_tit
     TARGET JOB DESCRIPTION:
     {payload.job_description}
 
-    MANDATORY REQUIREMENTS FOR THE COVER LETTER:
-    1. Start with a professional header (Candidate Email: {auth['email']}, Date: 01 October 2026, Re: {payload.job_title}).
-    2. Formal Salutation ("Dear Hiring Team at {payload.company_name},").
-    3. Paragraph 1: Express strong enthusiasm for {payload.company_name} and the specific {payload.job_title} role, incorporating the company summary: "{intel_data.get('company_summary')}".
-    4. Paragraph 2: Highlight core technical alignment, detailing specific master profile competencies.
-    5. Paragraph 3: **Explicitly and persuasively bridge skill gaps using transferable strengths**, connecting the identified gaps to the transferable bridges.
-    6. Paragraph 4: Concluding call to action and professional sign-off.
-
-    Return ONLY the raw plain text or Markdown text of the cover letter. Do not wrap it in JSON.
+    INSTRUCTIONS FOR THE BODY:
+    - Paragraph 1: Express strong enthusiasm for {payload.company_name} and the specific {payload.job_title} role, incorporating the company summary.
+    - Paragraph 2: Highlight core technical alignment and detailed master profile competencies.
+    - Paragraph 3: Persuasively bridge skill gaps using transferable strengths.
+    - Do NOT include headers, dates, or salutations in your output—return only the body paragraphs.
     """
 
-    raw_cl = call_groq_ai(cl_prompt, system_prompt="You are an expert executive cover letter writer. Return professional, fully articulated prose.")
+    raw_cl = call_groq_ai(cl_prompt, system_prompt="You are an expert executive cover letter writer. Return professional body prose.")
     
-    tailored_cl = raw_cl.strip()
-    if not tailored_cl or len(tailored_cl) < 150 or tailored_cl.startswith("{"):
-        today_date = "01 October 2026"
-        tailored_cl = f"""Candidate Email: {auth['email']}
-Date: {today_date}
+    clean_body = raw_cl.strip()
+    if clean_body.startswith("Dear") or clean_body.startswith("Candidate"):
+        clean_body = re.sub(r'^(Candidate Email:.*?\n|Re:.*?\n|Dear.*?\n)+', '', clean_body, flags=re.IGNORECASE).strip()
+
+    tailored_cl = f"""Candidate Email: {auth['email']}
+Date: 01 October 2026
 Re: {payload.job_title} at {payload.company_name}
 
 Dear Hiring Team at {payload.company_name},
 
-I am writing to express my strong interest in the {payload.job_title} position. {intel_data.get('company_summary')} With my extensive background in technical execution, experimental design, assay optimisation, and rigorous data analysis, I am eager to contribute to your upcoming initiatives.
-
-Throughout my career, I have independently planned and executed complex projects from initial concept through execution, quantitative analysis, and technical reporting. My work has required me to design workflows, troubleshoot performance bottlenecks, evaluate complex datasets, and translate findings into actionable strategies.
-
-While my background has centered on specialized research and technical operations rather than direct industry tenure in this exact niche, my core competencies offer highly transferable value. Specifically, {', '.join(intel_data.get('transferable_bridges', ['my experience in systematic root-cause problem-solving and rapid methodology adaptation ensures I can bridge technical gaps quickly']))}. This rigorous foundation enables me to contribute effectively to {payload.company_name}'s cross-functional teams from day one.
-
-I would welcome the opportunity to discuss how my technical adaptability and problem-solving framework can support {payload.company_name}'s continued success.
+{clean_body}
 
 Kind regards,
 
