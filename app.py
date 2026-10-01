@@ -159,9 +159,16 @@ def extract_json_safely(raw_text: str, default: Any = None) -> Any:
         return json.loads(clean)
     except Exception:
         try:
-            jm = re.search(r'(\{.*\}|\[.*\])', raw_text, re.DOTALL)
+            # Fallback for truncated JSON: try to extract substring or auto-close brackets
+            jm = re.search(r'(\{.*|\[.*)', raw_text, re.DOTALL)
             if jm:
-                return json.loads(jm.group(0))
+                snippet = jm.group(0).strip()
+                # Basic auto-repair for truncated JSON strings
+                if snippet.count('{') > snippet.count('}'):
+                    snippet += '}' * (snippet.count('{') - snippet.count('}'))
+                if snippet.count('[') > snippet.count(']'):
+                    snippet += ']' * (snippet.count('[') - snippet.count(']'))
+                return json.loads(snippet)
         except Exception:
             pass
         return default
@@ -353,6 +360,7 @@ def call_groq_ai(prompt: str, system_prompt: str = "You are the complete multi-t
         "model": "openai/gpt-oss-120b",
         "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}],
         "temperature": 0.2
+        "max_tokens": 4096  # <--- PREVENTS TRUNCATION
     }
 
     max_retries = 5
