@@ -1438,7 +1438,6 @@
             const transferableGaps = match.transferable_gaps || ["Advanced Cloud Deployment"];
             const criticalMissing = match.critical_missing || ["Specific Platform Certification"];
 
-            // Adapted action buttons container with the requested changes:
             actionButtonsContainer.innerHTML = `
                 <a href="${escapeHtml(postUrl)}" target="_blank" class="px-3 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold transition shadow">🌐 View Posting ↗</a>
                 <button onclick="openGhostwriterModal(${matchId})" class="px-3 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-bold transition shadow"><i class="fa-solid fa-wand-magic-sparkles mr-1"></i> AI Ghostwriter</button>
