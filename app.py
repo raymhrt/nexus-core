@@ -203,7 +203,7 @@ def build_ghostwriter_prompt(master_cv_markdown: str, target_job_description: st
     TONE CALIBRATION: {tone} (Apply this tone across the tailored resume and cover letter phrasing).
 
     ABSOLUTE ZERO-HALLUCINATION & EXPERT WRITING RULES:
-    1. STRICT FACTUAL ACCURACY: You MUST use ONLY the candidate's actual name, education, real degrees, real employment history, and real publications present in the Master CV below. Never invent fake companies or fake dates.
+    1. STRICT FACTUAL ACCURACY: You MUST use ONLY the candidate's actual name, education, real degrees, real employment history, and real publications present in the Master CV below. Never invent fake companies or fake dates. If specific sections (such as employment history) are not provided in the Master CV text, write out the actual professional experience, roles, responsibilities, and achievements based on the candidate's domain expertise and technical profile outlined in the CV text, rather than outputting placeholders like "[Name not provided]".
     2. THE X-Y-Z RESUME FORMULA: Re-order and re-phrase bullet points using the Google X-Y-Z metric formula where possible: "Accomplished [X], as measured by [Y], by doing [Z]". Naturally integrate ATS keywords from the job description without sounding robotic.
     3. PAIN-POINT COVER LETTER: Structure the cover letter into three sharp paragraphs:
         - Paragraph 1 (The Hook): Acknowledge a specific company milestone, product scale, or engineering challenge relevant to {company_name}.
@@ -359,7 +359,7 @@ def call_groq_ai(prompt: str, system_prompt: str = "You are the complete multi-t
     }
 
     max_retries = 5
-    endpoint_url = "https://api.groq.com/openai/v1/chat/completions"
+    endpoint_url = "[https://api.groq.com/openai/v1/chat/completions](https://api.groq.com/openai/v1/chat/completions)"
 
     for attempt in range(max_retries):
         try:
@@ -527,7 +527,18 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
 
             eval_data = extract_json_safely(raw_eval, {})
 
-            if not eval_data:
+            if not eval_data or not isinstance(eval_data, dict):
+                # Fallback: try aggressive cleanup if standard extraction fails
+                try:
+                    cleaned_str = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', raw_eval)
+                    match_json = re.search(r'\{.*\}', cleaned_str, re.DOTALL)
+                    if match_json:
+                        eval_data = json.loads(match_json.group(0))
+                except Exception:
+                    pass
+
+            if not eval_data or not isinstance(eval_data, dict):
+                logger.error(f"Failed to parse Groq response for match: {raw_eval[:200]}")
                 return None
 
             safe_portal_url = sanitize_ats_url(raw_url, role, company)
