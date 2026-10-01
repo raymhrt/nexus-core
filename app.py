@@ -1422,6 +1422,7 @@ async def stripe_webhook(request: Request):
     return {"status": "success"}
 
 @app.get("/api/v1/stream/telemetry")
+@app.get("/api/v1/career/telemetry/stream")
 async def stream_telemetry(request: Request):
     queue = await sse_broker.subscribe()
     async def event_generator():
