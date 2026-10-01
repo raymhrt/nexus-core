@@ -78,7 +78,7 @@
                     <span class="absolute text-[9px] font-bold text-sky-300" id="creditPercentText">--%</span>
                 </div>
             </div>
-            <button onclick="logout()" class="w-full py-2 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-400 text-xs font-semibold rounded-xl transition flex items-center justify-center gap-2">
+            <button onclick="logout()" class="w-full py-2 bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/30 text-rose-400 text-xs font-semibold rounded-xl transition flex items-center justify-center gap-2">
                 <i class="fa-solid fa-right-from-bracket"></i> Sign Out
             </button>
         </div>
@@ -749,7 +749,7 @@
             document.getElementById('mobileHandoffModal').classList.add('hidden');
         }
 
-        // Hardened Voice Speech Recognition with Fallback
+        // Hardened Voice Speech Recognition with Fallback & Toast Integrations
         function toggleVoiceSpeechRecognition() {
             const micBtn = document.getElementById('voiceMicBtn');
             const micStatus = document.getElementById('micStatusText');
@@ -815,6 +815,21 @@
             if (micStatus) micStatus.innerText = "Start Voice";
             if (micBtn) micBtn.className = "px-3 py-1 bg-sky-500/20 hover:bg-sky-500/30 border border-sky-500/40 text-sky-300 rounded-xl text-xs font-bold transition flex items-center gap-1.5";
             if (wave) wave.classList.add('hidden');
+        }
+
+        function showToast(message, isError = false) {
+            const container = document.getElementById('toastContainer');
+            if (!container) return;
+            const toast = document.createElement('div');
+            toast.className = `p-4 rounded-xl text-xs font-semibold shadow-2xl border flex items-center gap-3 animate-fade-in ${
+                isError ? 'bg-rose-950/90 border-rose-500/40 text-rose-200' : 'bg-slate-900/90 border-sky-500/40 text-sky-200'
+            }`;
+            toast.innerHTML = `<i class="fa-solid ${isError ? 'fa-triangle-exclamation text-rose-400' : 'fa-circle-check text-sky-400'}"></i><span>${escapeHtml(message)}</span>`;
+            container.appendChild(toast);
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                setTimeout(() => toast.remove(), 300);
+            }, 4000);
         }
 
         // Kanban Drag & Drop with Confetti & Rollback Protection
@@ -1717,16 +1732,6 @@
         function logout() {
             localStorage.removeItem('nexus_api_key');
             location.reload();
-        }
-
-        function showToast(message, isError = false) {
-            const container = document.getElementById('toastContainer');
-            if (!container) return;
-            const toast = document.createElement('div');
-            toast.className = `bento-card border ${isError ? 'border-rose-500 text-rose-300' : 'border-sky-500 text-slate-100'} px-4 py-3 rounded-xl text-xs font-semibold shadow-2xl flex items-center gap-2 animate-fade-in`;
-            toast.innerHTML = `<i class="fa-solid ${isError ? 'fa-triangle-exclamation text-rose-400' : 'fa-circle-check text-emerald-400'}"></i> <span>${escapeHtml(message)}</span>`;
-            container.appendChild(toast);
-            setTimeout(() => toast.remove(), isError ? 5000 : 3000);
         }
 
         function clearTerminalLogs() {
