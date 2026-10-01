@@ -237,7 +237,7 @@ def build_ghostwriter_prompt(master_cv_markdown: str, target_job_description: st
     - "tailored_cover_letter": "A compelling 3-paragraph pain-point cover letter addressed to {company_name}."
     - "salary_benchmark": "Estimated compensation range"
     - "negotiation_strategy": "Strategy details"
-    - "interview_playbook": [{"stage": "Screening", "focus": "Focus areas"}, {"stage": "Technical", "focus": "Focus areas"}]
+    - "interview_playbook": [{{"stage": "Screening", "focus": "Focus areas"}}, {{"stage": "Technical", "focus": "Focus areas"}}]
     """
 
 def fetch_real_time_company_intelligence(company_name: str) -> str:
