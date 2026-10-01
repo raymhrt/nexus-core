@@ -156,7 +156,6 @@ def extract_json_safely(raw_text: str, default: Any = None) -> Any:
         if clean.endswith("```"):
             clean = clean[:-3]
         clean = clean.strip()
-        
         return json.loads(clean)
     except Exception:
         try:
@@ -181,16 +180,13 @@ def generate_text_embedding(text: str) -> List[float]:
 def validate_real_world_job(job: dict) -> bool:
     if not job.get("job_title") or not job.get("company_name"):
         return False
-        
     text_blob = f"{job.get('job_title', '')} {job.get('company_name', '')}".lower()
     mock_markers = ["test job", "lorem ipsum", "placeholder", "foo bar", "example company"]
     if any(m in text_blob for m in mock_markers):
         return False
-        
     url = job.get("ats_portal_url", "")
     if not url.startswith("http://") and not url.startswith("https://"):
         return False
-        
     return True
 
 def sanitize_ats_url(url: str, role_title: str, company_name: str) -> str:
@@ -198,18 +194,16 @@ def sanitize_ats_url(url: str, role_title: str, company_name: str) -> str:
         return url
     return f"[https://www.linkedin.com/jobs/search/?keywords=](https://www.linkedin.com/jobs/search/?keywords=)" + urllib.parse.quote(role_title + ' ' + company_name)
 
-# ==================== ELITE STRATEGIST GHOSTWRITER PROMPT ENGINE ====================
 def build_ghostwriter_prompt(master_cv_markdown: str, target_job_description: str, target_role: str, company_name: str) -> str:
     cv_content = master_cv_markdown if master_cv_markdown and len(master_cv_markdown.strip()) > 20 else "Candidate profile: Professional background in scientific research and technical execution."
-    
     return f"""
     You are an elite executive career strategist and technical CV writer.
     Your task is to tailor the candidate's Master CV to target the specific job description below.
 
     ABSOLUTE ZERO-HALLUCINATION RULES:
-    1. STRICT FACTUAL ACCURACY: You MUST use ONLY the candidate's actual name, education (University of the Witwatersrand), real degrees, real employment history (PhD Researcher at Wits, Production Manager at Transvaal Electric Motors), and real publications present in the Master CV below. 
-    2. NEVER invent fake names (e.g., Alex Morgan), fake locations (e.g., Boston, MA), or fake companies (e.g., BioNova Therapeutics). Keep Johannesburg, South Africa and the user's actual credentials intact.
-    3. STRATEGIC REFRAMING: Reorder bullet points, highlight relevant technical skills (e.g., SPR, ITC, protein biochemistry, assay optimization), and weave keywords from the target job description naturally into the professional summary and experience descriptions *without changing historical facts*.
+    1. STRICT FACTUAL ACCURACY: You MUST use ONLY the candidate's actual name, education, real degrees, real employment history, and real publications present in the Master CV below. 
+    2. NEVER invent fake names, fake locations, or fake companies. Keep the user's actual credentials intact.
+    3. STRATEGIC REFRAMING: Reorder bullet points, highlight relevant technical skills, and weave keywords from the target job description naturally into the professional summary and experience descriptions *without changing historical facts*.
     4. Return ONLY a valid JSON object matching the requested keys. No conversational preamble, no refusal text.
 
     ---
@@ -234,8 +228,8 @@ def build_ghostwriter_prompt(master_cv_markdown: str, target_job_description: st
     - "critical_missing": ["Missing 1", "Missing 2"]
     - "top_rejection_risks": ["Risk 1", "Risk 2", "Risk 3"]
     - "match_rationale": ["Rationale 1", "Rationale 2", "Rationale 3"]
-    - "tailored_cv": "A complete, ATS-optimized Markdown CV using Dr. Raymond Hartman's actual credentials and tailored to the job description."
-    - "tailored_cover_letter": "A compelling cover letter addressed to {company_name} highlighting Raymond's actual Wits PhD research and publications."
+    - "tailored_cv": "A complete, ATS-optimized Markdown CV using the user's actual credentials and tailored to the job description."
+    - "tailored_cover_letter": "A compelling cover letter addressed to {company_name} highlighting the user's actual research and achievements."
     - "salary_benchmark": "Estimated compensation range"
     - "negotiation_strategy": "Strategy details"
     - "interview_playbook": [{{"stage": "Screening", "focus": "Focus areas"}}, {{"stage": "Technical", "focus": "Focus areas"}}]
@@ -244,7 +238,7 @@ def build_ghostwriter_prompt(master_cv_markdown: str, target_job_description: st
 def fetch_real_time_company_intelligence(company_name: str) -> str:
     try:
         clean_name = company_name.strip()
-        search_url = "[https://html.duckduckgo.com/html/?q=](https://html.duckduckgo.com/html/?q=)" + urllib.parse.quote(clean_name + ' news company milestones')
+        search_url = f"[https://html.duckduckgo.com/html/?q=](https://html.duckduckgo.com/html/?q=)" + urllib.parse.quote(clean_name + ' news company milestones')
         headers = {"User-Agent": "Mozilla/5.0"}
         res = requests.get(search_url, headers=headers, timeout=4)
         if res.status_code == 200:
@@ -271,7 +265,6 @@ def fetch_real_time_company_intelligence(company_name: str) -> str:
 
 def recursive_org_chart_decision_maker_discovery(company_name: str, job_title: str, job_description: str = "", target_location: str = "") -> Dict[str, Any]:
     c_clean = company_name.strip().lower()
-    
     tld = "com"
     loc_lower = (target_location + " " + job_description).lower()
     if "south africa" in loc_lower or "za" in c_clean or "johannesburg" in loc_lower or "cape town" in loc_lower:
@@ -290,7 +283,7 @@ def recursive_org_chart_decision_maker_discovery(company_name: str, job_title: s
 
     if HUNTER_API_KEY and c_clean:
         try:
-            url = "[https://api.hunter.io/v2/domain-search?domain=](https://api.hunter.io/v2/domain-search?domain=)" + clean_domain + f"&department=executive&api_key={HUNTER_API_KEY}"
+            url = f"[https://api.hunter.io/v2/domain-search?domain=](https://api.hunter.io/v2/domain-search?domain=)" + clean_domain + f"&department=executive&api_key={HUNTER_API_KEY}"
             res = requests.get(url, timeout=5)
             if res.status_code == 200:
                 data = res.json().get("data", {})
@@ -491,7 +484,7 @@ async def multi_tenant_job_infiltration(target_roles: str, location: str, count:
         for country in countries_to_try:
             if ADZUNA_APP_ID and ADZUNA_APP_KEY:
                 try:
-                    adzuna_url = "[https://api.adzuna.com/v1/api/jobs/](https://api.adzuna.com/v1/api/jobs/)" + country + f"/search/1?app_id={ADZUNA_APP_ID}&app_key={ADZUNA_APP_KEY}&what={urllib.parse.quote(primary_term)}&content-type=application/json"
+                    adzuna_url = f"[https://api.adzuna.com/v1/api/jobs/](https://api.adzuna.com/v1/api/jobs/)" + country + f"/search/1?app_id={ADZUNA_APP_ID}&app_key={ADZUNA_APP_KEY}&what={urllib.parse.quote(primary_term)}&content-type=application/json"
                     res = requests.get(adzuna_url, timeout=6)
                     if res.status_code == 200:
                         for item in res.json().get("results", []):
@@ -857,7 +850,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="QuantCode Nexus Enterprise Apex API",
-    version="16.21.0",
+    version="16.25.0",
     description="Live Multi-Tenant Career Infiltration Engine with Universal Track Positioning & Telemetry.",
     lifespan=lifespan
 )
