@@ -192,18 +192,23 @@ def validate_real_world_job(job: dict) -> bool:
 def sanitize_ats_url(url: str, role_title: str, company_name: str) -> str:
     if url and "example" not in url and ("http://" in url or "https://" in url):
         return url
-    return f"[https://www.linkedin.com/jobs/search/?keywords=](https://www.linkedin.com/jobs/search/?keywords=)" + urllib.parse.quote(role_title + ' ' + company_name)
+    return "[https://www.linkedin.com/jobs/search/?keywords=](https://www.linkedin.com/jobs/search/?keywords=)" + urllib.parse.quote(role_title + ' ' + company_name)
 
-def build_ghostwriter_prompt(master_cv_markdown: str, target_job_description: str, target_role: str, company_name: str) -> str:
+def build_ghostwriter_prompt(master_cv_markdown: str, target_job_description: str, target_role: str, company_name: str, tone: str = "executive_leader") -> str:
     cv_content = master_cv_markdown if master_cv_markdown and len(master_cv_markdown.strip()) > 20 else "Candidate profile: Professional background in scientific research and technical execution."
     return f"""
-    You are an elite executive career strategist and technical CV writer.
-    Your task is to tailor the candidate's Master CV to target the specific job description below.
+    You are an elite executive career strategist, expert hiring manager, and technical CV writer.
+    Your task is to tailor the candidate's Master CV and write a high-impact cover letter targeting the specific job description below.
 
-    ABSOLUTE ZERO-HALLUCINATION RULES:
-    1. STRICT FACTUAL ACCURACY: You MUST use ONLY the candidate's actual name, education, real degrees, real employment history, and real publications present in the Master CV below. 
-    2. NEVER invent fake names, fake locations, or fake companies. Keep the user's actual credentials intact.
-    3. STRATEGIC REFRAMING: Reorder bullet points, highlight relevant technical skills, and weave keywords from the target job description naturally into the professional summary and experience descriptions *without changing historical facts*.
+    TONE CALIBRATION: {tone} (Apply this tone across the tailored resume and cover letter phrasing).
+
+    ABSOLUTE ZERO-HALLUCINATION & EXPERT WRITING RULES:
+    1. STRICT FACTUAL ACCURACY: You MUST use ONLY the candidate's actual name, education, real degrees, real employment history, and real publications present in the Master CV below. Never invent fake companies or fake dates.
+    2. THE X-Y-Z RESUME FORMULA: Re-order and re-phrase bullet points using the Google X-Y-Z metric formula where possible: "Accomplished [X], as measured by [Y], by doing [Z]". Naturally integrate ATS keywords from the job description without sounding robotic.
+    3. PAIN-POINT COVER LETTER: Structure the cover letter into three sharp paragraphs:
+       - Paragraph 1 (The Hook): Acknowledge a specific company milestone, product scale, or engineering challenge relevant to {company_name}.
+       - Paragraph 2 (The Proof): Connect core technical achievements from the user's background directly to their stated requirements.
+       - Paragraph 3 (The Close): A confident, low-friction call to action offering a specific technical insight.
     4. Return ONLY a valid JSON object matching the requested keys. No conversational preamble, no refusal text.
 
     ---
@@ -228,17 +233,17 @@ def build_ghostwriter_prompt(master_cv_markdown: str, target_job_description: st
     - "critical_missing": ["Missing 1", "Missing 2"]
     - "top_rejection_risks": ["Risk 1", "Risk 2", "Risk 3"]
     - "match_rationale": ["Rationale 1", "Rationale 2", "Rationale 3"]
-    - "tailored_cv": "A complete, ATS-optimized Markdown CV using the user's actual credentials and tailored to the job description."
-    - "tailored_cover_letter": "A compelling cover letter addressed to {company_name} highlighting the user's actual research and achievements."
+    - "tailored_cv": "A complete, ATS-optimized Markdown CV using the user's actual credentials, framed with X-Y-Z metrics and tailored to the job description."
+    - "tailored_cover_letter": "A compelling 3-paragraph pain-point cover letter addressed to {company_name}."
     - "salary_benchmark": "Estimated compensation range"
     - "negotiation_strategy": "Strategy details"
-    - "interview_playbook": [{{"stage": "Screening", "focus": "Focus areas"}}, {{"stage": "Technical", "focus": "Focus areas"}}]
+    - "interview_playbook": [{"stage": "Screening", "focus": "Focus areas"}, {"stage": "Technical", "focus": "Focus areas"}]
     """
 
 def fetch_real_time_company_intelligence(company_name: str) -> str:
     try:
         clean_name = company_name.strip()
-        search_url = f"[https://html.duckduckgo.com/html/?q=](https://html.duckduckgo.com/html/?q=)" + urllib.parse.quote(clean_name + ' news company milestones')
+        search_url = "[https://html.duckduckgo.com/html/?q=](https://html.duckduckgo.com/html/?q=)" + urllib.parse.quote(clean_name + ' news company milestones')
         headers = {"User-Agent": "Mozilla/5.0"}
         res = requests.get(search_url, headers=headers, timeout=4)
         if res.status_code == 200:
@@ -354,7 +359,7 @@ def call_groq_ai(prompt: str, system_prompt: str = "You are the complete multi-t
     }
 
     max_retries = 5
-    endpoint_url = bytes([0x68, 0x74, 0x74, 0x70, 0x73, 0x3a, 0x2f, 0x2f, 0x61, 0x70, 0x69, 0x2e, 0x67, 0x72, 0x6f, 0x71, 0x2e, 0x63, 0x6f, 0x6d, 0x2f, 0x6f, 0x70, 0x65, 0x6e, 0x61, 0x69, 0x2f, 0x76, 0x31, 0x2f, 0x63, 0x68, 0x61, 0x74, 0x2f, 0x63, 0x6f, 0x6d, 0x70, 0x6c, 0x65, 0x74, 0x69, 0x6f, 0x6e, 0x73]).decode("utf-8")
+    endpoint_url = "[https://api.groq.com/openai/v1/chat/completions](https://api.groq.com/openai/v1/chat/completions)"
 
     for attempt in range(max_retries):
         try:
@@ -850,8 +855,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="QuantCode Nexus Enterprise Apex API",
-    version="16.25.0",
-    description="Live Multi-Tenant Career Infiltration Engine with Universal Track Positioning & Telemetry.",
+    version="16.30.0",
+    description="Live Multi-Tenant Career Infiltration Engine with Advanced AI Ghostwriter & Cover Letter Engine.",
     lifespan=lifespan
 )
 
@@ -870,6 +875,7 @@ class TailorRequest(BaseModel):
     job_description: str
     job_title: str
     company_name: str
+    tone: Optional[str] = "executive_leader"
 
 class OutreachDispatchRequest(BaseModel):
     subject: str
@@ -1173,39 +1179,21 @@ async def tailor_user_specific_cv(
     if not master_resume:
         raise HTTPException(status_code=400, detail="Master resume content is empty.")
 
-    system_prompt = (
-        "You are an expert Scientific Resume Writer and ATS Optimization Engine. "
-        "Your task is to rewrite the provided user's master CV to align precisely with the target "
-        "job description for hiring manager appeal and ATS compliance. "
-        "CRITICAL RULES:\n"
-        "1. ZERO HALLUCINATION / STRICT FACTUALITY: You MUST ONLY use the actual employment history, "
-        "education, degrees, institutions, and achievements present in the user's master CV. "
-        "Do NOT invent fake employers or fake dates. Retain the user's real institutions and background.\n"
-        "2. TRUTH-BASED TRANSLATION: Reframe the user's actual academic and technical experience "
-        "to highlight relevance to the target job description.\n"
-        "3. ATS ALIGNMENT: Integrate essential keywords from the job description naturally into the professional "
-        "summary, core competencies, and bullet points.\n"
-        "4. FORMATTING: Output clean, professional Markdown."
+    eval_prompt = build_ghostwriter_prompt(
+        master_cv_markdown=master_resume,
+        target_job_description=payload.job_description,
+        target_role=payload.job_title,
+        company_name=payload.company_name,
+        tone=payload.tone or "executive_leader"
     )
 
-    user_content = f"""
-=== USER'S MASTER CV ===
-{master_resume}
-
-=== TARGET JOB ===
-Role: {payload.job_title}
-Company: {payload.company_name}
-Description: {payload.job_description}
-
-Generate the factually accurate, tailored CV in Markdown format.
-"""
-
-    prompt_combined = f"{system_prompt}\n\n{user_content}"
-    raw_response = call_groq_ai(prompt_combined, system_prompt="You are an expert resume writer generating tailored markdown CVs.")
+    raw_response = call_groq_ai(eval_prompt, system_prompt="You are an expert executive resume writer and hiring manager generating optimized markdown variants.")
+    eval_data = extract_json_safely(raw_response, {})
 
     return {
         "status": "success",
-        "tailored_cv": raw_response
+        "tailored_cv": eval_data.get("tailored_cv", raw_response),
+        "tailored_cover_letter": eval_data.get("tailored_cover_letter", "")
     }
 
 @app.post("/api/v1/career/resume")
