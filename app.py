@@ -249,7 +249,7 @@ def call_groq_ai(prompt: str, system_prompt: str = "You are the complete multi-t
     }
 
     max_retries = 5
-    endpoint_url = "[https://api.groq.com/openai/v1/chat/completions](https://api.groq.com/openai/v1/chat/completions)"
+    endpoint_url = "https://api.groq.com/openai/v1/chat/completions"
 
     for attempt in range(max_retries):
         try:
@@ -344,6 +344,73 @@ async def generate_tailored_cover_letter(user_email: str, master_resume_text: st
         lambda: call_groq_ai(user_prompt, system_prompt=system_prompt)
     )
     return cover_letter_output.strip()
+
+async def audit_and_correct_tailored_documents(
+    user_email: str,
+    master_resume_text: str,
+    job_title: str,
+    company_name: str,
+    job_description: str,
+    draft_cv: str,
+    draft_cover_letter: str
+) -> Dict[str, Any]:
+    
+    system_prompt = f"""
+    You are an elite, hyper-critical Hiring Manager and Executive ATS Auditor. 
+    Your job is to audit a drafted Tailored CV and Cover Letter against the candidate's Master CV and the Target Job Description.
+
+    CRITICAL AUDIT CRITERIA TO CHECK:
+    1. GROUND TRUTH CHECK: Did the draft invent fake employment history, fake degrees, or false metrics not present in the Master CV? (Zero hallucination policy).
+    2. COMPLETENESS CHECK: Are all core skills, technical tools, and leadership competencies required by the Job Description addressed or bridged effectively?
+    3. OMISSION CHECK: Are there crucial qualifications from the Master CV that were mistakenly omitted?
+    4. CONTACT INTEGRITY: Does the contact header correctly feature the user's verified email ({user_email})?
+    5. PROFESSIONAL TONE: Is the cover letter tailored specifically to {company_name} without generic placeholders?
+
+    RETURN STRICT JSON WITH THESE EXACT KEYS:
+    - "issues_identified": ["Issue 1 discovered by hiring manager", "Issue 2..."]
+    - "missing_information": ["Missing item 1", "Missing item 2..."]
+    - "hallucinations_removed": ["Any false claim removed..."]
+    - "corrected_cv": "The fully corrected, flawless, recruiter-ready 1-page Markdown CV."
+    - "corrected_cover_letter": "The fully corrected, flawless executive cover letter."
+    """
+
+    user_prompt = f"""
+    CANDIDATE MASTER CV:
+    {master_resume_text}
+
+    TARGET JOB DESCRIPTION:
+    Company: {company_name}
+    Role: {job_title}
+    {job_description}
+
+    DRAFTED TAILORED CV:
+    {draft_cv}
+
+    DRAFTED COVER LETTER:
+    {draft_cover_letter}
+
+    Conduct your rigorous audit and return the corrected, pristine final output in raw JSON.
+    """
+
+    loop = asyncio.get_running_loop()
+    raw_response = await loop.run_in_executor(
+        None,
+        lambda: call_groq_ai(user_prompt, system_prompt=system_prompt)
+    )
+    
+    audit_data = extract_json_safely(raw_response, {})
+    
+    # Fallback if parsing fails
+    if not audit_data or not audit_data.get("corrected_cv"):
+        return {
+            "issues_identified": ["Formatting or parsing glitch caught; fallback applied."],
+            "missing_information": [],
+            "hallucinations_removed": [],
+            "corrected_cv": draft_cv,
+            "corrected_cover_letter": draft_cover_letter
+        }
+        
+    return audit_data
 
 def build_ghostwriter_prompt(master_cv_markdown: str, target_job_description: str, target_role: str, company_name: str, user_email: str, tone: str = "executive_leader") -> str:
     cleaned_cv = master_cv_markdown if master_cv_markdown and len(master_cv_markdown.strip()) > 20 else f"Candidate Profile: Professional Technical Researcher ({user_email})."
@@ -969,6 +1036,14 @@ class TailorRequest(BaseModel):
     company_name: str
     tone: Optional[str] = "executive_leader"
 
+class AuditTailoredDocumentsRequest(BaseModel):
+    job_description: str
+    job_title: str
+    company_name: str
+    master_resume_text: str
+    tailored_cv_text: str
+    tailored_cover_letter_text: str
+
 class OutreachDispatchRequest(BaseModel):
     subject: str
     body: str
@@ -1337,6 +1412,36 @@ async def tailor_user_specific_cv(
         "salary_benchmark": "Competitive Market Rate",
         "negotiation_strategy": "Emphasize proven experimental autonomy and technical problem-solving impact.",
         "interview_playbook": [{"stage": "Technical Screen", "focus": "Demonstrate analytical rigor and troubleshooting."}]
+    }
+
+@app.post("/api/v1/career/audit-and-correct")
+async def audit_and_correct_documents(
+    payload: AuditTailoredDocumentsRequest,
+    auth: dict = Depends(verify_api_key_only)
+):
+    """
+    Expert Hiring Manager review endpoint. Audits draft CV and cover letter against
+    the Master CV and Job Description, flags gaps/hallucinations, and returns corrected outputs.
+    """
+    audit_result = await audit_and_correct_tailored_documents(
+        user_email=auth["email"],
+        master_resume_text=payload.master_resume_text,
+        job_title=payload.job_title,
+        company_name=payload.company_name,
+        job_description=payload.job_description,
+        draft_cv=payload.tailored_cv_text,
+        draft_cover_letter=payload.tailored_cover_letter_text
+    )
+
+    return {
+        "status": "success",
+        "audit_report": {
+            "issues_identified": audit_result.get("issues_identified", []),
+            "missing_information": audit_result.get("missing_information", []),
+            "hallucinations_removed": audit_result.get("hallucinations_removed", [])
+        },
+        "corrected_cv": audit_result.get("corrected_cv"),
+        "corrected_cover_letter": audit_result.get("corrected_cover_letter")
     }
 
 @app.post("/api/v1/career/resume")
