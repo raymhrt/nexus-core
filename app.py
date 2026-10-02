@@ -1206,57 +1206,74 @@ async def tailor_saved_match(match_id: int, auth: dict = Depends(verify_api_key_
     job_title = m_dict.get('job_title', '')
     job_description = m_dict.get('job_description', '')
 
-    # UNIFIED ATOMIC MASTER PROMPT (Zero Truncation, Absolute Ground Truth, Pristine Quality)
-    unified_prompt = f"""
-    You are an elite executive career strategist, ATS optimization expert, and world-class technical writer.
-    Your objective is to ingest the candidate's actual Master CV and produce two pristine, highly polished artifacts targeting the specified job description in a single JSON response:
-    
-    1. "tailored_cv": A complete, 1-page ATS-optimized Markdown CV using Google X-Y-Z formula metrics. Strict constraint: Use ONLY the candidate's actual real name, degrees, universities, and work history from the Master CV below. ZERO fabricated personas or placeholders.
-    2. "tailored_cover_letter_body": A fully articulated, breathtaking 3-paragraph executive cover letter body (Paragraph 1: Magnetic opening expressing strategic alignment with {company_name}; Paragraph 2: Deep technical competency matching using exact master profile skills; Paragraph 3: Powerful bridge closing turning any gaps into transferable strengths). NEVER use ellipses (...) or truncations. Write out every single word in full, professional prose.
+    # 1. Dedicated CV Tailoring Prompt
+    cv_prompt = f"""
+    You are an elite executive career strategist and ATS optimization expert.
+    Tailor the candidate's master profile into an ATS-optimized, 1-page Markdown resume targeting the job description below.
 
-    ---
-    CANDIDATE MASTER CV (GROUND TRUTH):
+    CANDIDATE MASTER PROFILE:
     {master_resume}
-    ---
 
-    TARGET POSITION:
+    TARGET JOB:
     Company: {company_name}
     Role: {job_title}
     Job Description:
     {job_description}
-    ---
 
-    RETURN STRICT, VALID JSON WITH EXACTLY THESE KEYS (No extra markdown outside the JSON block):
+    RETURN STRICT JSON WITH THESE EXACT KEYS:
     - "track": Choose ONE primary track ("A. Medical Affairs / MSL", "B. Clinical Research / CRA", "C. R&D / Laboratory Science / QC", "D. Commercial / Application Scientist", "E. Leadership / Strategy")
     - "seniority_fit": "Entry / Mid / Senior"
     - "fit_score": integer (0 to 99)
     - "is_valid_match": boolean (true)
-    - "matched_strengths": ["Strength 1", "Strength 2", "Strength 3"]
-    - "transferable_gaps": ["Gap 1", "Gap 2"]
+    - "matched_strengths": ["Strength 1", "Strength 2"]
+    - "transferable_gaps": ["Gap 1"]
     - "critical_missing": ["Missing 1"]
-    - "tailored_cv": "Complete 1-page Markdown CV string."
-    - "tailored_cover_letter_body": "Complete, full 3-paragraph executive cover letter body in full prose without truncation or ellipses."
+    - "tailored_cv": "Complete 1-page Markdown CV string using the candidate's actual background and degrees. NO FAKE NAMES OR UNIVERSITIES."
+    """
+
+    # 2. Dedicated, Text-Only Cover Letter Prompt (Guarantees complete prose without JSON truncation)
+    cl_prompt = f"""
+    You are an expert technical cover letter writer and corporate intelligence strategist.
+    Write a compelling, fully articulated 3-paragraph executive cover letter body for the candidate applying to {company_name} for the {job_title} position.
+
+    CANDIDATE MASTER PROFILE:
+    {master_resume}
+
+    TARGET JOB DESCRIPTION:
+    {job_description}
+
+    CRITICAL INSTRUCTIONS:
+    - Write out the full 3-paragraph body in rich, professional prose.
+    - NEVER use ellipses (...), placeholders, or truncations. Every sentence must be fully written out.
+    - Return ONLY the raw paragraph text (no salutations, no sign-offs, no JSON formatting).
     """
 
     loop = asyncio.get_running_loop()
     try:
-        # We increase max tokens in the payload or use our robust groq caller
-        raw_response = await loop.run_in_executor(
+        # Execute sequentially so each model call has full token budget availability
+        raw_cv_response = await loop.run_in_executor(
             None, 
             call_groq_ai, 
-            unified_prompt, 
-            "You are an elite executive career strategist and technical writer returning meticulous, complete JSON."
+            cv_prompt, 
+            "You are an expert executive resume writer. Output valid JSON."
         )
-        eval_data = extract_json_safely(raw_response, {})
+        eval_data = extract_json_safely(raw_cv_response, {})
+
+        raw_cl = await loop.run_in_executor(
+            None, 
+            call_groq_ai, 
+            cl_prompt, 
+            "You are an expert technical writer. Return complete, unabridged professional prose."
+        )
     except Exception as e:
-        logger.error(f"Unified atomic tailoring failure for match {match_id}: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=502, detail=f"AI generation failed during unified tailoring: {str(e)}")
+        logger.error(f"Decoupled tailoring failure for match {match_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=502, detail=f"AI generation failed during tailoring: {str(e)}")
 
     tailored_cv_text = eval_data.get("tailored_cv", master_resume)
-    body_text = eval_data.get("tailored_cover_letter_body", "").strip()
-
-    # Enterprise Quality Control Guardrail: Verify no ellipsis or truncation exists
-    if not body_text or len(body_text) < 100 or "..." in body_text:
+    
+    # Clean and validate cover letter body
+    body_text = raw_cl.strip() if raw_cl else ""
+    if not body_text or len(body_text) < 80 or "..." in body_text:
         body_text = (
             f"I am writing to express my enthusiastic interest in the {job_title} position at {company_name}. "
             f"With my extensive background in quantitative research, molecular biology, and rigorous technical execution, "
