@@ -26,8 +26,15 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from pydantic import BaseModel, Field, EmailStr, ValidationError
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from dotenv import load_dotenv
-from psycopg2 import pool
-from psycopg2.extras import RealDictCursor
+
+# Optional Postgres pool imports wrapped gracefully for SQLite
+try:
+    from psycopg2 import pool
+    from psycopg2.extras import RealDictCursor
+except ImportError:
+    pool = None
+    RealDictCursor = None
+
 from jobspy import scrape_jobs
 
 load_dotenv()
@@ -59,7 +66,7 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 TRUSTED_ORIGINS = [origin.strip() for origin in os.getenv("TRUSTED_ORIGINS", "https://nexus-core-yfou.onrender.com,http://localhost:3000,http://127.0.0.1:8000").split(",") if origin.strip()]
 
 db_pool = None
-if DATABASE_URL:
+if DATABASE_URL and pool:
     try:
         db_url = DATABASE_URL.replace("postgres://", "postgresql://", 1)
         db_pool = pool.ThreadedConnectionPool(minconn=5, maxconn=40, dsn=db_url)
@@ -249,7 +256,7 @@ def call_groq_ai(prompt: str, system_prompt: str = "You are the complete multi-t
     }
 
     max_retries = 5
-    endpoint_url = "https://api.groq.com/openai/v1/chat/completions"
+    endpoint_url = "[https://api.groq.com/openai/v1/chat/completions](https://api.groq.com/openai/v1/chat/completions)"
 
     for attempt in range(max_retries):
         try:
@@ -273,7 +280,7 @@ def call_groq_ai(prompt: str, system_prompt: str = "You are the complete multi-t
             
     raise HTTPException(status_code=502, detail="Groq AI inference failed across all retry attempts.")
 
-# ==================== RESTORED TAILORING HELPERS ====================
+# ==================== TAILORING HELPERS ====================
 async def generate_tailored_cv(user_email: str, master_resume_text: str, job_title: str, company_name: str, job_description: str) -> str:
     system_prompt = f"""
     You are an elite executive career strategist and expert technical resume writer.
@@ -769,56 +776,111 @@ def init_career_database():
                 last_refill_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS api_keys (
-                id SERIAL PRIMARY KEY,
-                email TEXT REFERENCES subscribers(email),
-                key_hash TEXT UNIQUE,
-                key_name TEXT DEFAULT 'Default',
-                scope TEXT DEFAULT 'full',
-                role TEXT DEFAULT 'admin',
-                active INT DEFAULT 1,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS user_profiles (
-                email TEXT PRIMARY KEY,
-                profile_json TEXT,
-                embedding vector(768),
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS job_matches (
-                id SERIAL PRIMARY KEY,
-                user_email TEXT,
-                company_name TEXT,
-                job_title TEXT,
-                job_description TEXT,
-                location TEXT,
-                fit_score INT,
-                match_rationale TEXT,
-                matched_requirements TEXT,
-                transferable_gaps TEXT,
-                critical_missing TEXT,
-                status TEXT DEFAULT 'discovered',
-                decision_maker_name TEXT,
-                decision_maker_title TEXT,
-                decision_maker_email TEXT,
-                warm_intro_pathway TEXT DEFAULT '',
-                outreach_draft TEXT,
-                salary_benchmark TEXT DEFAULT 'Competitive Market Rate',
-                recruiter_verified INT DEFAULT 1,
-                negotiation_strategy TEXT DEFAULT '',
-                cv_variant TEXT,
-                cover_letter_variant TEXT,
-                interview_playbook TEXT DEFAULT '',
-                ats_portal_url TEXT,
-                embedding vector(768),
-                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
+        
+        # SQLite compatible primary key definitions & timestamps
+        if DATABASE_URL:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS api_keys (
+                    id SERIAL PRIMARY KEY,
+                    email TEXT REFERENCES subscribers(email),
+                    key_hash TEXT UNIQUE,
+                    key_name TEXT DEFAULT 'Default',
+                    scope TEXT DEFAULT 'full',
+                    role TEXT DEFAULT 'admin',
+                    active INT DEFAULT 1,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS user_profiles (
+                    email TEXT PRIMARY KEY,
+                    profile_json TEXT,
+                    embedding vector(768),
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS job_matches (
+                    id SERIAL PRIMARY KEY,
+                    user_email TEXT,
+                    company_name TEXT,
+                    job_title TEXT,
+                    job_description TEXT,
+                    location TEXT,
+                    fit_score INT,
+                    match_rationale TEXT,
+                    matched_requirements TEXT,
+                    transferable_gaps TEXT,
+                    critical_missing TEXT,
+                    status TEXT DEFAULT 'discovered',
+                    decision_maker_name TEXT,
+                    decision_maker_title TEXT,
+                    decision_maker_email TEXT,
+                    warm_intro_pathway TEXT DEFAULT '',
+                    outreach_draft TEXT,
+                    salary_benchmark TEXT DEFAULT 'Competitive Market Rate',
+                    recruiter_verified INT DEFAULT 1,
+                    negotiation_strategy TEXT DEFAULT '',
+                    cv_variant TEXT,
+                    cover_letter_variant TEXT,
+                    interview_playbook TEXT DEFAULT '',
+                    ats_portal_url TEXT,
+                    embedding vector(768),
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+        else:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS api_keys (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    email TEXT REFERENCES subscribers(email),
+                    key_hash TEXT UNIQUE,
+                    key_name TEXT DEFAULT 'Default',
+                    scope TEXT DEFAULT 'full',
+                    role TEXT DEFAULT 'admin',
+                    active INT DEFAULT 1,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS user_profiles (
+                    email TEXT PRIMARY KEY,
+                    profile_json TEXT,
+                    embedding TEXT,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS job_matches (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_email TEXT,
+                    company_name TEXT,
+                    job_title TEXT,
+                    job_description TEXT,
+                    location TEXT,
+                    fit_score INT,
+                    match_rationale TEXT,
+                    matched_requirements TEXT,
+                    transferable_gaps TEXT,
+                    critical_missing TEXT,
+                    status TEXT DEFAULT 'discovered',
+                    decision_maker_name TEXT,
+                    decision_maker_title TEXT,
+                    decision_maker_email TEXT,
+                    warm_intro_pathway TEXT DEFAULT '',
+                    outreach_draft TEXT,
+                    salary_benchmark TEXT DEFAULT 'Competitive Market Rate',
+                    recruiter_verified INT DEFAULT 1,
+                    negotiation_strategy TEXT DEFAULT '',
+                    cv_variant TEXT,
+                    cover_letter_variant TEXT,
+                    interview_playbook TEXT DEFAULT '',
+                    ats_portal_url TEXT,
+                    embedding TEXT,
+                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
         if DATABASE_URL:
             try:
                 cursor.execute("ALTER TABLE job_matches ADD COLUMN IF NOT EXISTS warm_intro_pathway TEXT DEFAULT '';")
@@ -949,8 +1011,8 @@ async def isolated_user_job_scouting_worker(user_email: str, requested_count: in
                     inserted = (ic.fetchone() is not None)
                 else:
                     sql = """
-                        INSERT OR IGNORE INTO job_matches (user_email, company_name, job_title, job_description, location, fit_score, match_rationale, matched_requirements, transferable_gaps, critical_missing, decision_maker_name, decision_maker_title, decision_maker_email, warm_intro_pathway, outreach_draft, salary_benchmark, negotiation_strategy, cv_variant, cover_letter_variant, interview_playbook, ats_portal_url, status)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'discovered')
+                        INSERT OR IGNORE INTO job_matches (user_email, company_name, job_title, job_description, location, fit_score, match_rationale, matched_requirements, transferable_gaps, critical_missing, decision_maker_name, decision_maker_title, decision_maker_email, warm_intro_pathway, outreach_draft, salary_benchmark, negotiation_strategy, cv_variant, cover_letter_variant, interview_playbook, ats_portal_url, embedding, status)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'discovered')
                     """
                     ic.execute(sql, (
                         user_email,
@@ -973,7 +1035,8 @@ async def isolated_user_job_scouting_worker(user_email: str, requested_count: in
                         safe_str(match_item.get('cv_variant')),
                         safe_str(match_item.get('cover_letter_variant')),
                         safe_str(match_item.get('interview_playbook')),
-                        safe_str(match_item.get('ats_portal_url'))
+                        safe_str(match_item.get('ats_portal_url')),
+                        vector_str
                     ))
                     inserted = (ic.rowcount > 0)
 
@@ -1214,7 +1277,7 @@ def get_career_matches(min_fit: int = Query(50, ge=0, le=100), user=Depends(veri
         "credits_remaining": user["credits"], 
         "limit": user["limit"], 
         "tier": user["tier"], 
-        "engine": "pgvector_cosine_similarity"
+        "engine": "pgvector_cosine_similarity" if DATABASE_URL else "sqlite_cosine_similarity"
     }
 
 @app.delete("/api/v1/career/matches/{match_id}")
@@ -1433,11 +1496,6 @@ async def audit_and_correct_tenant_documents(
     payload: TailorRequest,
     auth: dict = Depends(verify_api_key_only)
 ):
-    """
-    Multi-tenant audit endpoint. Dynamically fetches the logged-in user's master CV 
-    from the database, evaluates the draft against ground truth, fixes hallucinations/omissions,
-    and returns pristine corrected documents.
-    """
     user_email = auth["email"]
 
     with db_transaction_scope() as (_, cursor):
@@ -1536,7 +1594,7 @@ async def save_career_resume(payload: ResumeInput, auth: dict = Depends(verify_a
         if DATABASE_URL:
             cursor.execute("INSERT INTO user_profiles (email, profile_json, embedding, updated_at) VALUES (%s, %s, %s::vector, NOW()) ON CONFLICT (email) DO UPDATE SET profile_json = EXCLUDED.profile_json, embedding = EXCLUDED.embedding, updated_at = NOW()", (auth["email"], raw_master_text, vector_str))
         else:
-            cursor.execute("INSERT OR REPLACE INTO user_profiles (email, profile_json, updated_at) VALUES (?, ?, datetime('now'))", (auth["email"], raw_master_text))
+            cursor.execute("INSERT OR REPLACE INTO user_profiles (email, profile_json, embedding, updated_at) VALUES (?, ?, ?, datetime('now'))", (auth["email"], raw_master_text, vector_str))
             
     return {
         "status": "success", 
