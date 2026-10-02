@@ -1182,8 +1182,8 @@ async def refresh_career_match(match_id: int, auth: dict = Depends(verify_api_ke
         logger.error(f"DIAGNOSTIC REFRESH ERROR: {tb}")
         raise HTTPException(status_code=500, detail=f"ERROR: {str(e)} | TB: {tb}")
 
-@app.post("/api/v1/career/matches/{match_id}/tailor")
-async def tailor_saved_match(match_id: int, auth: dict = Depends(verify_api_key_only)):
+@app.post("/api/v1/career/matches/{match_id}/tailor-cv")
+async def tailor_saved_match_cv(match_id: int, auth: dict = Depends(verify_api_key_only)):
     with db_transaction_scope() as (_, cursor):
         sql = "SELECT company_name, job_title, job_description FROM job_matches WHERE id = %s AND user_email = %s" if DATABASE_URL else "SELECT company_name, job_title, job_description FROM job_matches WHERE id = ? AND user_email = ?"
         cursor.execute(sql, (match_id, auth["email"]))
@@ -1206,7 +1206,6 @@ async def tailor_saved_match(match_id: int, auth: dict = Depends(verify_api_key_
     job_title = m_dict.get('job_title', '')
     job_description = m_dict.get('job_description', '')
 
-    # 1. Dedicated CV Tailoring Prompt
     cv_prompt = f"""
     You are an elite executive career strategist and ATS optimization expert.
     Tailor the candidate's master profile into an ATS-optimized, 1-page Markdown resume targeting the job description below.
@@ -1231,59 +1230,78 @@ async def tailor_saved_match(match_id: int, auth: dict = Depends(verify_api_key_
     - "tailored_cv": "Complete 1-page Markdown CV string using the candidate's actual background and degrees. NO FAKE NAMES OR UNIVERSITIES."
     """
 
-    # 2. Dedicated, Text-Only Cover Letter Prompt (Guarantees complete prose without JSON truncation)
+    loop = asyncio.get_running_loop()
+    try:
+        raw_cv_response = await loop.run_in_executor(
+            None, 
+            lambda: call_groq_ai(cv_prompt, "You are an expert executive resume writer. Output valid JSON.", max_tokens=4096)
+        )
+        eval_data = extract_json_safely(raw_cv_response, {})
+    except Exception as e:
+        logger.error(f"CV tailoring failure for match {match_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=502, detail=f"AI generation failed during CV tailoring: {str(e)}")
+
+    return {
+        "status": "success",
+        "tailored_cv": eval_data.get("tailored_cv", master_resume)
+    }
+
+
+@app.post("/api/v1/career/matches/{match_id}/tailor-cover-letter")
+async def tailor_saved_match_cover_letter(match_id: int, auth: dict = Depends(verify_api_key_only)):
+    with db_transaction_scope() as (_, cursor):
+        sql = "SELECT company_name, job_title, job_description FROM job_matches WHERE id = %s AND user_email = %s" if DATABASE_URL else "SELECT company_name, job_title, job_description FROM job_matches WHERE id = ? AND user_email = ?"
+        cursor.execute(sql, (match_id, auth["email"]))
+        match_row = cursor.fetchone()
+
+        if not match_row:
+            raise HTTPException(status_code=404, detail="Job match not found.")
+
+        cursor.execute("SELECT profile_json FROM user_profiles WHERE email = %s" if DATABASE_URL else "SELECT profile_json FROM user_profiles WHERE email = ?", (auth["email"],))
+        profile_row = cursor.fetchone()
+
+        if not profile_row:
+            raise HTTPException(status_code=400, detail="No master CV profile found. Please upload your CV first.")
+
+    m_dict = dict(match_row) if not isinstance(match_row, dict) else match_row
+    p_dict = dict(profile_row) if not isinstance(profile_row, dict) else profile_row
+    
+    master_resume = p_dict.get('profile_json', '')
+    company_name = m_dict.get('company_name', '')
+    job_title = m_dict.get('job_title', '')
+    job_description = m_dict.get('job_description', '')
+
     cl_prompt = f"""
     You are an expert technical cover letter writer and corporate intelligence strategist.
-    Write a compelling, fully articulated 3-paragraph executive cover letter body for the candidate applying to {company_name} for the {job_title} position.
+    Write a formal, comprehensive, 3-paragraph executive cover letter body for a candidate applying to {company_name} for the {job_title} position.
 
-    CANDIDATE MASTER PROFILE:
+    CANDIDATE BACKGROUND:
     {master_resume}
 
-    TARGET JOB DESCRIPTION:
+    JOB DESCRIPTION:
     {job_description}
 
-    CRITICAL INSTRUCTIONS:
-    - Write out the full 3-paragraph body in rich, professional prose.
-    - NEVER use ellipses (...), placeholders, or truncations. Every sentence must be fully written out.
-    - Return ONLY the raw paragraph text (no salutations, no sign-offs, no JSON formatting).
+    RULES:
+    1. Write out every word in complete, professional prose sentences.
+    2. NEVER use ellipses (...), abbreviations, placeholders, or truncations.
+    3. Return ONLY the raw 3 paragraphs of body text (no salutations, no markdown formatting blocks, no sign-offs).
     """
 
     loop = asyncio.get_running_loop()
     try:
-        # Execute sequentially so each model call has full token budget availability
-        raw_cv_response = await loop.run_in_executor(
-            None, 
-            call_groq_ai, 
-            cv_prompt, 
-            "You are an expert executive resume writer. Output valid JSON."
-        )
-        eval_data = extract_json_safely(raw_cv_response, {})
-
         raw_cl = await loop.run_in_executor(
             None, 
-            call_groq_ai, 
-            cl_prompt, 
-            "You are an expert technical writer. Return complete, unabridged professional prose."
+            lambda: call_groq_ai(cl_prompt, "You are an expert technical writer. Return complete unabridged prose.", max_tokens=8192)
         )
     except Exception as e:
-        logger.error(f"Decoupled tailoring failure for match {match_id}: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=502, detail=f"AI generation failed during tailoring: {str(e)}")
+        logger.error(f"Cover letter generation failure for match {match_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=502, detail=f"AI generation failed during cover letter creation: {str(e)}")
 
-    tailored_cv_text = eval_data.get("tailored_cv", master_resume)
-    
-    # Clean and validate cover letter body
     body_text = raw_cl.strip() if raw_cl else ""
-    if not body_text or len(body_text) < 80 or "..." in body_text:
-        body_text = (
-            f"I am writing to express my enthusiastic interest in the {job_title} position at {company_name}. "
-            f"With my extensive background in quantitative research, molecular biology, and rigorous technical execution, "
-            f"I am well-prepared to lead and contribute to your advanced laboratory and scientific initiatives.\n\n"
-            f"My professional trajectory is anchored by hands-on leadership in designing complex assays, managing cross-functional workflows, "
-            f"and ensuring uncompromising data integrity. Reviewing your requirements for {job_title}, I see an immediate synergy with my "
-            f"core competencies in method validation, translational research, and high-throughput project delivery.\n\n"
-            f"I am eager to bring my rigorous analytical framework and dedication to scientific excellence to {company_name}. "
-            f"Thank you for your time and consideration, and I look forward to discussing how my background aligns with your strategic objectives."
-        )
+    
+    # If the model output is invalid or truncated, raise explicit error rather than injecting static fallback text
+    if not body_text or len(body_text) < 100 or "..." in body_text:
+        raise HTTPException(status_code=502, detail="AI returned truncated or incomplete cover letter text. Please retry.")
 
     tailored_cl = f"""Candidate Email: {auth['email']}
 Date: 02 October 2026
@@ -1300,7 +1318,6 @@ Kind regards,
 
     return {
         "status": "success",
-        "tailored_cv": tailored_cv_text,
         "tailored_cover_letter": tailored_cl
     }
 
