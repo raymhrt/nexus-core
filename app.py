@@ -210,70 +210,24 @@ def sanitize_ats_url(url: str, role_title: str, company_name: str) -> str:
     return "[https://www.linkedin.com/jobs/search/?keywords=](https://www.linkedin.com/jobs/search/?keywords=)" + urllib.parse.quote(role_title + ' ' + company_name)
 
 # ==================== MULTI-TENANT DYNAMIC AI TAILORING ENGINE ====================
-def extract_contact_metadata(master_resume_text: str, default_email: str) -> Dict[str, str]:
-    """
-    Parses the master CV text to extract the candidate's professional contact header 
-    (Name, Location, Phone, LinkedIn), falling back gracefully if needed.
-    """
-    lines = [line.strip() for line in master_resume_text.split('\n') if line.strip()]
-    
-    name = "Professional Candidate"
-    location = "Global"
-    email = default_email
-    phone = "+27 00 000 0000"
-    linkedin = "LinkedIn Profile"
-
-    if lines:
-        candidate_name_candidate = lines[0].replace("#", "").strip()
-        if len(candidate_name_candidate) < 50:
-            name = candidate_name_candidate
-
-    for line in lines[:10]:
-        line_lower = line.lower()
-        email_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', line)
-        if email_match:
-            email = email_match.group(0)
-        
-        phone_match = re.search(r'(\+?\d[\d\s\-–—()]{8,}\d)', line)
-        if phone_match and not email_match:
-            phone = phone_match.group(0).strip()
-            
-        if any(loc_keyword in line_lower for loc_keyword in ["south africa", "johannesburg", "cape town", "pretoria", "durban", "uk", "london", "united states"]):
-            location = line.replace("*", "").strip()
-
-        if "linkedin" in line_lower:
-            linkedin = line.replace("*", "").strip()
-
-    return {
-        "name": name,
-        "location": location,
-        "email": email,
-        "phone": phone,
-        "linkedin": linkedin
-    }
-
 async def generate_tailored_cv(user_email: str, master_resume_text: str, job_title: str, company_name: str, job_description: str) -> str:
     """
-    Dynamically generates an ATS-optimized CV, enforcing the user's master CV contact details.
+    Generates an ATS-optimized CV using the user's master resume and verified email,
+    enforcing clean single-header formatting.
     """
-    contact = extract_contact_metadata(master_resume_text, user_email)
-
     system_prompt = f"""
     You are an elite executive career strategist and expert technical resume writer. 
     Transform the user's Master CV into a hyper-optimized, 1-page Markdown resume targeting the specified job posting.
 
-    CANDIDATE CONTACT HEADER REQUIREMENTS (CRITICAL):
-    - Name: {contact['name']}
-    - Location: {contact['location']}
-    - Email: {contact['email']}
-    - Phone: {contact['phone']}
-    - LinkedIn: {contact['linkedin']}
+    USER CONSTRAINTS:
+    - Verified User Email / Contact: {user_email} (CRITICAL: Use this exact email address in the contact block).
     - Target Role: {job_title} at {company_name}
 
-    ABSOLUTE RULES:
-    1. Always use the exact contact info above for the header.
-    2. Bridge core domain expertise directly to the employer's requirements.
-    3. Return clean professional Markdown.
+    RULES:
+    1. Contact Header: Place clean contact information exactly once at the top (Name, Location, Phone, Email, LinkedIn). Do not duplicate or repeat header lines.
+    2. Strategic Bridging: Bridge the user's core domain expertise directly to the employer's explicit requirements.
+    3. ATS Optimization: Ensure clean formatting, high keyword density matching the job posting, and clear, impact-driven bullet points under clean Markdown headings (#, ##).
+    4. Return pure professional Markdown only.
     """
 
     user_prompt = f"""
@@ -294,24 +248,18 @@ async def generate_tailored_cv(user_email: str, master_resume_text: str, job_tit
         lambda: call_groq_ai(user_prompt, system_prompt=system_prompt)
     )
     eval_data = extract_json_safely(raw_response, {})
-    tailored_cv = eval_data.get("tailored_cv") or raw_response
-
-    header_block = f"# {contact['name']}\n**{job_title} Variant**\n{contact['location']} • {contact['phone']} • {contact['email']} • {contact['linkedin']}\n---\n"
-    if not tailored_cv.startswith("#"):
-        tailored_cv = header_block + tailored_cv
-
-    return tailored_cv
+    return eval_data.get("tailored_cv") or raw_response
 
 async def generate_tailored_cover_letter(user_email: str, master_resume_text: str, job_title: str, company_name: str, job_description: str) -> str:
     """
-    Generates a tailored cover letter featuring your requested formal professional header format.
+    Generates a tailored cover letter with a single, clean professional header format 
+    suitable for any multi-tenant user.
     """
-    contact = extract_contact_metadata(master_resume_text, user_email)
     current_date = datetime.now(timezone.utc).strftime('%d %B %Y')
 
     system_prompt = f"""
     You are an expert executive career coach and technical writer. 
-    Write a formal, executive-level cover letter for {contact['name']} applying for the {job_title} role at {company_name}.
+    Write a formal, executive-level cover letter for the user ({user_email}) applying for the {job_title} role at {company_name}.
     """
 
     user_prompt = f"""
@@ -323,39 +271,24 @@ async def generate_tailored_cover_letter(user_email: str, master_resume_text: st
     Role: {job_title}
     {job_description}
 
-    Structure requirements:
-    1. Engaging opening stating enthusiasm for {company_name} and the {job_title} role.
-    2. 2-3 targeted body paragraphs mapping {contact['name']}'s specific past experience directly to the job requirements.
-    3. Professional closing.
+    STRUCTURE REQUIREMENTS:
+    1. Professional Header block at the very top containing: Name, Location, Phone, Email ({user_email}), and LinkedIn.
+    2. Date: {current_date}
+    3. Re: {job_title} at {company_name}
+    4. Formal Salutation: Dear Hiring Team at {company_name},
+    5. 2-3 targeted body paragraphs mapping the candidate's specific past experience directly to the job description.
+    6. Professional single sign-off.
+    
+    Ensure there is NO duplication of headers, salutations, or sign-offs.
     """
 
     loop = asyncio.get_running_loop()
-    body_prose = await loop.run_in_executor(
+    cover_letter_output = await loop.run_in_executor(
         None,
         lambda: call_groq_ai(user_prompt, system_prompt=system_prompt)
     )
     
-    clean_body = body_prose.strip()
-    if clean_body.startswith("Candidate Email:") or clean_body.startswith("Dear"):
-        clean_body = re.sub(r'^(Candidate Email:.*?\n|Re:.*?\n|Dear.*?\n)+', '', clean_body, flags=re.IGNORECASE).strip()
-
-    tailored_cl = f"""{contact['name']}
-{contact['location']}
-{contact['email']} | {contact['phone']}
-LinkedIn: {contact['linkedin']}
-
-Date: {current_date}
-Re: {job_title} at {company_name}
-
-Dear Hiring Team at {company_name},
-
-{clean_body}
-
-Kind regards,
-
-{contact['name']}
-"""
-    return tailored_cl
+    return cover_letter_output.strip()
 
 def build_ghostwriter_prompt(master_cv_markdown: str, target_job_description: str, target_role: str, company_name: str, user_email: str, tone: str = "executive_leader") -> str:
     cleaned_cv = master_cv_markdown if master_cv_markdown and len(master_cv_markdown.strip()) > 20 else f"Candidate Profile: Professional Technical Researcher ({user_email})."
@@ -521,7 +454,7 @@ def call_groq_ai(prompt: str, system_prompt: str = "You are the complete multi-t
     }
 
     max_retries = 5
-    endpoint_url = "https://api.groq.com/openai/v1/chat/completions"
+    endpoint_url = "[https://api.groq.com/openai/v1/chat/completions](https://api.groq.com/openai/v1/chat/completions)"
 
     for attempt in range(max_retries):
         try:
