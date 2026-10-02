@@ -249,7 +249,7 @@ def call_groq_ai(prompt: str, system_prompt: str = "You are the complete multi-t
     }
 
     max_retries = 5
-    endpoint_url = "https://api.groq.com/openai/v1/chat/completions"
+    endpoint_url = "[https://api.groq.com/openai/v1/chat/completions](https://api.groq.com/openai/v1/chat/completions)"
 
     for attempt in range(max_retries):
         try:
@@ -345,7 +345,7 @@ async def generate_tailored_cover_letter(user_email: str, master_resume_text: st
     )
     return cover_letter_output.strip()
 
-async def audit_and_correct_tailored_documents(
+async def audit_and_correct_tailored_documents_dynamic(
     user_email: str,
     master_resume_text: str,
     job_title: str,
@@ -359,23 +359,22 @@ async def audit_and_correct_tailored_documents(
     You are an elite, hyper-critical Hiring Manager and Executive ATS Auditor. 
     Your job is to audit a drafted Tailored CV and Cover Letter against the candidate's Master CV and the Target Job Description.
 
-    CRITICAL AUDIT CRITERIA TO CHECK:
-    1. GROUND TRUTH CHECK: Did the draft invent fake employment history, fake degrees, or false metrics not present in the Master CV? (Zero hallucination policy).
-    2. COMPLETENESS CHECK: Are all core skills, technical tools, and leadership competencies required by the Job Description addressed or bridged effectively?
-    3. OMISSION CHECK: Are there crucial qualifications from the Master CV that were mistakenly omitted?
-    4. CONTACT INTEGRITY: Does the contact header correctly feature the user's verified email ({user_email})?
-    5. PROFESSIONAL TONE: Is the cover letter tailored specifically to {company_name} without generic placeholders?
+    CRITICAL MULTI-TENANT AUDIT RULES:
+    1. GROUND TRUTH CHECK: Strictly cross-reference every claim against the candidate's actual Master CV provided below. Zero hallucination policy: do not invent fake degrees, unearned titles, or false metrics.
+    2. CONTACT INTEGRITY: The contact header must exclusively use the user's verified database email: {user_email}.
+    3. OMISSION & COMPLETENESS CHECK: Ensure no core qualifications, formal education entries (such as diplomas/degrees), or awards from the Master CV were mistakenly dropped in the draft.
+    4. PROFESSIONAL ALIGNMENT: Ensure the cover letter is addressed to {company_name} for the {job_title} role without generic placeholders.
 
     RETURN STRICT JSON WITH THESE EXACT KEYS:
-    - "issues_identified": ["Issue 1 discovered by hiring manager", "Issue 2..."]
+    - "issues_identified": ["Issue 1 discovered", "Issue 2..."]
     - "missing_information": ["Missing item 1", "Missing item 2..."]
-    - "hallucinations_removed": ["Any false claim removed..."]
-    - "corrected_cv": "The fully corrected, flawless, recruiter-ready 1-page Markdown CV."
-    - "corrected_cover_letter": "The fully corrected, flawless executive cover letter."
+    - "hallucinations_removed": ["Any false claim or altered email corrected..."]
+    - "corrected_cv": "The fully corrected, pristine 1-page Markdown CV preserving exact master profile facts."
+    - "corrected_cover_letter": "The fully corrected, flawless executive cover letter using email {user_email}."
     """
 
     user_prompt = f"""
-    CANDIDATE MASTER CV:
+    CANDIDATE MASTER CV (GROUND TRUTH):
     {master_resume_text}
 
     TARGET JOB DESCRIPTION:
@@ -383,13 +382,13 @@ async def audit_and_correct_tailored_documents(
     Role: {job_title}
     {job_description}
 
-    DRAFTED TAILORED CV:
+    DRAFTED TAILORED CV TO AUDIT:
     {draft_cv}
 
-    DRAFTED COVER LETTER:
+    DRAFTED COVER LETTER TO AUDIT:
     {draft_cover_letter}
 
-    Conduct your rigorous audit and return the corrected, pristine final output in raw JSON.
+    Perform your strict multi-tenant audit and return the corrected JSON response.
     """
 
     loop = asyncio.get_running_loop()
@@ -400,10 +399,9 @@ async def audit_and_correct_tailored_documents(
     
     audit_data = extract_json_safely(raw_response, {})
     
-    # Fallback if parsing fails
     if not audit_data or not audit_data.get("corrected_cv"):
         return {
-            "issues_identified": ["Formatting or parsing glitch caught; fallback applied."],
+            "issues_identified": ["Audit parsing fallback triggered; returning safe baseline."],
             "missing_information": [],
             "hallucinations_removed": [],
             "corrected_cv": draft_cv,
@@ -1415,26 +1413,61 @@ async def tailor_user_specific_cv(
     }
 
 @app.post("/api/v1/career/audit-and-correct")
-async def audit_and_correct_documents(
-    payload: AuditTailoredDocumentsRequest,
+async def audit_and_correct_tenant_documents(
+    payload: TailorRequest,
     auth: dict = Depends(verify_api_key_only)
 ):
     """
-    Expert Hiring Manager review endpoint. Audits draft CV and cover letter against
-    the Master CV and Job Description, flags gaps/hallucinations, and returns corrected outputs.
+    Multi-tenant audit endpoint. Dynamically fetches the logged-in user's master CV 
+    from the database, evaluates the draft against ground truth, fixes hallucinations/omissions,
+    and returns pristine corrected documents.
     """
-    audit_result = await audit_and_correct_tailored_documents(
-        user_email=auth["email"],
-        master_resume_text=payload.master_resume_text,
+    user_email = auth["email"]
+
+    with db_transaction_scope() as (_, cursor):
+        query = "SELECT profile_json FROM user_profiles WHERE email = %s" if DATABASE_URL else "SELECT profile_json FROM user_profiles WHERE email = ?"
+        cursor.execute(query, (user_email,))
+        row = cursor.fetchone()
+
+    if not row:
+        raise HTTPException(
+            status_code=400, 
+            detail="No master CV profile found for this tenant. Please upload your master CV via /api/v1/career/resume first."
+        )
+
+    master_resume_text = row["profile_json"] if isinstance(row, dict) else row[0]
+    if not master_resume_text or len(master_resume_text.strip()) < 10:
+        raise HTTPException(status_code=400, detail="Stored master CV profile is empty or invalid.")
+
+    draft_cv = await generate_tailored_cv(
+        user_email=user_email,
+        master_resume_text=master_resume_text,
+        job_title=payload.job_title,
+        company_name=payload.company_name,
+        job_description=payload.job_description
+    )
+
+    draft_cl = await generate_tailored_cover_letter(
+        user_email=user_email,
+        master_resume_text=master_resume_text,
+        job_title=payload.job_title,
+        company_name=payload.company_name,
+        job_description=payload.job_description
+    )
+
+    audit_result = await audit_and_correct_tailored_documents_dynamic(
+        user_email=user_email,
+        master_resume_text=master_resume_text,
         job_title=payload.job_title,
         company_name=payload.company_name,
         job_description=payload.job_description,
-        draft_cv=payload.tailored_cv_text,
-        draft_cover_letter=payload.tailored_cover_letter_text
+        draft_cv=draft_cv,
+        draft_cover_letter=draft_cl
     )
 
     return {
         "status": "success",
+        "tenant_email": user_email,
         "audit_report": {
             "issues_identified": audit_result.get("issues_identified", []),
             "missing_information": audit_result.get("missing_information", []),
