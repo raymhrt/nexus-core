@@ -835,7 +835,23 @@ def verify_api_key_only(x_api_key: str = Header(...), request: Request = None):
     client_ip = request.client.host if request and request.client else "127.0.0.1"
 
     with db_transaction_scope() as (_, cursor):
-        query = "SELECT k.email, s.tier, c.credits_remaining, c.credits_limit FROM api_keys k JOIN subscribers s ON k.email = s.email LEFT JOIN subscriber_credits c ON s.email = c.email WHERE k.key_hash = %s AND k.active = 1" if DATABASE_URL else "SELECT k.email, s.tier, c.credits_remaining, c.credits_limit FROM api_keys k JOIN subscribers s ON k.email = s.email LEFT JOIN subscriber_credits c ON s.email = c.email WHERE k.key_hash = ? AND k.active = 1"
+        if DATABASE_URL:
+            query = """
+                SELECT k.email, s.tier, c.credits_remaining, c.credits_limit 
+                FROM api_keys k 
+                JOIN subscribers s ON k.email = s.email 
+                LEFT JOIN subscriber_credits c ON s.email = c.email 
+                WHERE k.key_hash = %s AND k.active = 1
+            """
+        else:
+            query = """
+                SELECT k.email, s.tier, c.credits_remaining, c.credits_limit 
+                FROM api_keys k 
+                JOIN subscribers s ON k.email = s.email 
+                LEFT JOIN subscriber_credits c ON s.email = c.email 
+                WHERE k.key_hash = ? AND k.active = 1
+            """
+            
         cursor.execute(query, (incoming_hash,))
         row = cursor.fetchone()
         
