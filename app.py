@@ -1206,7 +1206,7 @@ async def tailor_saved_match(match_id: int, auth: dict = Depends(verify_api_key_
     job_title = m_dict.get('job_title', '')
     job_description = m_dict.get('job_description', '')
 
-    # 1. Pristine CV Tailoring Prompt (Exact prompt that gets your CV right)
+    # Pristine CV Tailoring Prompt
     eval_prompt = f"""
     You are an elite executive career strategist and ATS optimization expert.
     Tailor the candidate's master profile into an ATS-optimized, 1-page Markdown resume targeting the job description below.
@@ -1235,7 +1235,7 @@ async def tailor_saved_match(match_id: int, auth: dict = Depends(verify_api_key_
     try:
         raw_response = await loop.run_in_executor(
             None, 
-            lambda: call_groq_ai(eval_prompt, "You are an expert executive resume writer. Output valid JSON.", max_tokens=4096)
+            lambda: call_groq_ai(eval_prompt, "You are an expert executive resume writer. Output valid JSON.")
         )
         eval_data = extract_json_safely(raw_response, {})
     except Exception as e:
@@ -1244,7 +1244,7 @@ async def tailor_saved_match(match_id: int, auth: dict = Depends(verify_api_key_
 
     tailored_cv_text = eval_data.get("tailored_cv", master_resume)
 
-    # 2. Pristine, Fully Articulated Executive Cover Letter (Engineered professionally with zero truncation risks)
+    # Fully articulated executive cover letter body
     cover_letter_body = f"""I am writing to express my enthusiastic and strategic interest in the {job_title} position at {company_name}. Reviewing your technical scope and mission, I am strongly drawn to your pioneering work and operational footprint. With my extensive advanced background in molecular biology, protein biochemistry, quantitative data analysis, and rigorous technical execution, I am exceptionally well-positioned to drive high-impact outcomes for your core scientific initiatives.
 
 Throughout my career, I have maintained a proven track record of independently designing complex experiments, optimizing high-throughput laboratory workflows, and transforming raw analytical datasets into actionable insights. My experience directly mirrors the technical demands outlined in your specifications for the {job_title} role, equipping me to contribute cross-functional value, ensure uncompromising data integrity, and elevate technical operations from day one.
