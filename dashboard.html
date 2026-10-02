@@ -1263,8 +1263,8 @@
                 const data = await response.json();
                 
                 if (response.ok) {
-                    const tailoredCv = data.cv_variant || data.cv || match.cv_variant || "Generated CV variant unavailable.";
-                    const tailoredLetter = data.cover_letter || data.letter || data.content || match.cover_letter || `Dear Hiring Team at ${match.company_name},\n\n...`;
+                    const tailoredCv = data.tailored_cv || data.cv_variant || data.cv || match.cv_variant || "Generated CV variant unavailable.";
+                    const tailoredLetter = data.tailored_cover_letter || data.cover_letter || data.letter || data.content || match.cover_letter || `Dear Hiring Team at ${match.company_name},\n\nI am writing to express my strong interest in the ${match.role_title} position...`;
                     
                     activeGhostwriterData = { cv: tailoredCv, letter: tailoredLetter };
                     cvContainer.innerText = tailoredCv;
@@ -1276,7 +1276,7 @@
             } catch (err) {
                 console.error("Ghostwriter error:", err);
                 const fallbackCv = match.cv_variant || `# ${match.role_title}\n\nTailored profile based on master resume vector.`;
-                const fallbackLetter = match.cover_letter || `Dear Hiring Team at ${match.company_name},\n\nWriting regarding the ${match.role_title} position based on core competencies alignment.`;
+                const fallbackLetter = match.cover_letter || `Candidate Email: user@example.com\nDate: 02 October 2026\nRe: ${match.role_title} at ${match.company_name}\n\nDear Hiring Team at ${match.company_name},\n\nI am writing to express my enthusiastic interest in the ${match.role_title} position.`;
                 
                 activeGhostwriterData = { cv: fallbackCv, letter: fallbackLetter };
                 cvContainer.innerText = fallbackCv;
