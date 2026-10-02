@@ -897,7 +897,8 @@ def verify_api_key_only(x_api_key: str = Header(...), request: Request = None):
     client_ip = request.client.host if request and request.client else "127.0.0.1"
 
     with db_transaction_scope() as (_, cursor):
-        if DATABASE_URL:
+        # Check db_pool instead of DATABASE_URL so it correctly matches SQLite execution
+        if db_pool is not None:
             query = """
                 SELECT k.email, s.tier, c.credits_remaining, c.credits_limit 
                 FROM api_keys k 
