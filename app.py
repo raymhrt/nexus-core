@@ -1685,10 +1685,10 @@ def create_checkout_session(request: Request, payload: Optional[PortalSessionReq
         elif payload and payload.price_id and "enterprise" in payload.price_id:
             tier = "enterprise"
 
-        # Map tiers to Stripe price ID environment variables with clear validation
+        # Explicitly map tiers to your active Stripe test price IDs with fallbacks
         STRIPE_PRICE_MAP = {
-            "pro": os.getenv("STRIPE_PRO_PRICE_ID"),
-            "enterprise": os.getenv("STRIPE_ENTERPRISE_PRICE_ID")
+            "pro": os.getenv("STRIPE_PRO_PRICE_ID", "price_1UN5W1EbDDJJdq9S6NXQNFR6"),
+            "enterprise": os.getenv("STRIPE_ENTERPRISE_PRICE_ID", "price_1UN5VREbDDJJdq9SfQ8PcLhD")
         }
 
         price_id = STRIPE_PRICE_MAP.get(tier)
@@ -1719,8 +1719,8 @@ def create_checkout_session(request: Request, payload: Optional[PortalSessionReq
         success_url = f"{base_url}/?success=true&email=" + urllib.parse.quote(email)
         cancel_url = f"{base_url}/?canceled=true"
 
+        # Removed payment_method_types as required by current Stripe API specs
         checkout_session = stripe.checkout.Session.create(
-            payment_method_types=['card'],
             customer_email=email,
             line_items=[{'price': price_id, 'quantity': 1}],
             mode='subscription',
