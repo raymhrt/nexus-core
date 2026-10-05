@@ -1685,7 +1685,6 @@ def create_checkout_session(request: Request, payload: Optional[PortalSessionReq
         elif payload and payload.price_id and "enterprise" in payload.price_id:
             tier = "enterprise"
 
-        # Explicitly map tiers to your active Stripe test price IDs with fallbacks
         STRIPE_PRICE_MAP = {
             "pro": os.getenv("STRIPE_PRO_PRICE_ID", "price_1UN5W1EbDDJJdq9S6NXQNFR6"),
             "enterprise": os.getenv("STRIPE_ENTERPRISE_PRICE_ID", "price_1UN5VREbDDJJdq9SfQ8PcLhD")
@@ -1698,7 +1697,6 @@ def create_checkout_session(request: Request, payload: Optional[PortalSessionReq
                 detail=f"Stripe Price ID for tier '{tier}' is not configured in environment variables (STRIPE_PRO_PRICE_ID or STRIPE_ENTERPRISE_PRICE_ID)."
             )
         
-        # Extract email from payload or fallback header if logged in
         email = "user@example.com"
         if checkout_req and checkout_req.email:
             email = checkout_req.email
@@ -1711,7 +1709,6 @@ def create_checkout_session(request: Request, payload: Optional[PortalSessionReq
                 except Exception:
                     pass
 
-        # Dynamically construct absolute base URL from the incoming request (fixes Stripe url_invalid error)
         host = request.headers.get("host", "nexus-core-yfou.onrender.com")
         scheme = request.headers.get("x-forwarded-proto", "https")
         base_url = f"{scheme}://{host}"
@@ -1719,14 +1716,14 @@ def create_checkout_session(request: Request, payload: Optional[PortalSessionReq
         success_url = f"{base_url}/?success=true&email=" + urllib.parse.quote(email)
         cancel_url = f"{base_url}/?canceled=true"
 
-        # Removed payment_method_types as required by current Stripe API specs
         checkout_session = stripe.checkout.Session.create(
             customer_email=email,
             line_items=[{'price': price_id, 'quantity': 1}],
             mode='subscription',
             success_url=success_url,
             cancel_url=cancel_url,
-            metadata={"tier": tier}
+            metadata={"tier": tier},
+            managed_payments={"enabled": False}
         )
         return {"url": checkout_session.url, "checkout_url": checkout_session.url}
     except stripe.error.StripeError as e:
