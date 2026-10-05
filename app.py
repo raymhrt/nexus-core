@@ -1775,10 +1775,15 @@ def create_customer_portal_session(request: Request, auth: dict = Depends(verify
 async def stripe_webhook(request: Request):
     payload = await request.body()
     sig_header = request.headers.get('stripe-signature')
+    
     try:
         event = stripe.Webhook.construct_event(payload, sig_header, WEBHOOK_SIGNING_SECRET)
-    except Exception as e:
-        return JSONResponse(status_code=400, content={"error": str(e)})
+    except ValueError as e:
+        logger.error(f"Webhook signature verification failed (Invalid Payload): {e}")
+        return JSONResponse(status_code=400, content={"error": "Invalid payload"})
+    except stripe.error.SignatureVerificationError as e:
+        logger.error(f"Webhook signature verification failed (Invalid Signature for secret {WEBHOOK_SIGNING_SECRET[:6]}...): {e}")
+        return JSONResponse(status_code=400, content={"error": "Invalid signature"})
 
     if event['type'] == 'checkout.session.completed':
         session = event['data']['object']
