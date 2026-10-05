@@ -1770,6 +1770,7 @@ def create_customer_portal_session(request: Request, auth: dict = Depends(verify
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+@app.post("/webhook")
 @app.post("/api/v1/webhook/stripe")
 async def stripe_webhook(request: Request):
     payload = await request.body()
@@ -1807,6 +1808,29 @@ async def stripe_webhook(request: Request):
                 cursor.execute("INSERT INTO api_keys (email, key_hash, key_name) VALUES (%s, %s, 'Stripe Subscription Key')", (customer_email, key_hash))
             else:
                 cursor.execute("INSERT OR REPLACE INTO api_keys (email, key_hash, key_name) VALUES (?, ?, 'Stripe Subscription Key')", (customer_email, key_hash))
+
+        if RESEND_API_KEY and customer_email:
+            try:
+                email_headers = {"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"}
+                email_body = f"""Welcome to QuantCode Nexus Apex!
+
+Your subscription ({tier.upper()} tier) is active, and your account has been credited with {credits_to_add} automation credits.
+
+Your Secret API Key:
+{api_key_raw}
+
+Keep this key secure and use it in your `x-api-key` header for all API requests.
+
+Dashboard: [https://nexus-core-yfou.onrender.com/](https://nexus-core-yfou.onrender.com/)
+"""
+                requests.post("[https://api.resend.com/emails](https://api.resend.com/emails)", json={
+                    "from": f"QuantCode Billing <{SENDER_EMAIL}>",
+                    "to": [customer_email],
+                    "subject": "Your QuantCode Nexus API Key & Subscription Access",
+                    "text": email_body
+                }, headers=email_headers, timeout=5)
+            except Exception as mail_err:
+                logger.error(f"Failed to dispatch subscription API key email: {mail_err}")
 
     return {"status": "success"}
 
