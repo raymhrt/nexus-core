@@ -833,10 +833,14 @@ async def isolated_user_job_scouting_worker(user_email: str, requested_count: in
             await sse_broker.broadcast("career_swarm_update", {"user": user_email, "status": "no_jobs", "message": "Scouting completed, but zero live positions matched current aggregators."})
             return
         
-        evaluation_tasks = [evaluate_job_for_specific_user(job, profile_content, user_email, AI_EVAL_SEMAPHORE) for job in raw_jobs[:20]]
-        results = await asyncio.gather(*evaluation_tasks)
-        
-        valid_results = [m for m in results if m is not None]
+        # Paced sequential evaluation loop to completely prevent Groq 429 rate limit saturation
+        valid_results = []
+        for job in raw_jobs[:15]:
+            evaluated = await evaluate_job_for_specific_user(job, profile_content, user_email, AI_EVAL_SEMAPHORE)
+            if evaluated:
+                valid_results.append(evaluated)
+            await asyncio.sleep(4.0)  # Breath interval between Groq requests
+
         if not valid_results:
             await sse_broker.broadcast("career_swarm_update", {"user": user_email, "status": "no_matches", "message": "Scouting complete. No jobs met evaluation criteria."})
             return
