@@ -1634,11 +1634,11 @@ async def dispatch_career_outreach(match_id: int, payload: OutreachDispatchReque
     if RESEND_API_KEY:
         headers = {"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"}
         res = requests.post("https://api.resend.com/emails", json={
-            "from": f"Swarm <{SENDER_EMAIL}>", 
-            "to": [target_email], 
-            "subject": payload.subject, 
-            "text": payload.body
-        }, headers=headers)
+            "from": "onboarding@resend.dev", 
+            "to": [customer_email],
+            "subject": "Your QuantCode Nexus API Key & Subscription Access", 
+            "text": email_body
+        }, headers=email_headers, timeout=5)
         
         if res.status_code not in [200, 201]:
             raise HTTPException(status_code=502, detail=f"Email dispatch provider error: {res.text}")
