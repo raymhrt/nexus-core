@@ -1637,7 +1637,7 @@ async def dispatch_career_outreach(match_id: int, payload: OutreachDispatchReque
 
     if RESEND_API_KEY:
         headers = {"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"}
-        res = requests.post("[https://api.resend.com/emails](https://api.resend.com/emails)", json={
+        res = requests.post("https://api.resend.com/emails", json={
             "from": f"QuantCode Outreach <{SENDER_EMAIL}>", 
             "to": [target_email],
             "subject": payload.subject, 
@@ -1838,7 +1838,7 @@ Keep this key secure and use it in your `x-api-key` header for all API requests.
 
 Dashboard: [https://nexus-core-yfou.onrender.com/](https://nexus-core-yfou.onrender.com/)
 """
-                requests.post("[https://api.resend.com/emails](https://api.resend.com/emails)", json={
+                requests.post("https://api.resend.com/emails", json={
                     "from": f"QuantCode Billing <{SENDER_EMAIL}>", 
                     "to": [customer_email],
                     "subject": "Your QuantCode Nexus API Key & Subscription Access",
