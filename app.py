@@ -1833,7 +1833,7 @@ Keep this key secure and use it in your `x-api-key` header for all API requests.
 
 Dashboard: [https://nexus-core-yfou.onrender.com/](https://nexus-core-yfou.onrender.com/)
 """
-                requests.post("https://api.resend.com/emails", json={...})
+                requests.post("https://api.resend.com/emails", json={
                     "from": f"QuantCode Billing <{SENDER_EMAIL}>", 
                     "to": [customer_email],
                     "subject": "Your QuantCode Nexus API Key & Subscription Access",
