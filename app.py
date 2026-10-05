@@ -1700,8 +1700,10 @@ def create_checkout_session(request: Request, payload: Optional[PortalSessionReq
                 except Exception:
                     pass
 
-        success_url = "[https://nexus-core-yfou.onrender.com/?success=true&email=](https://nexus-core-yfou.onrender.com/?success=true&email=)" + urllib.parse.quote(email)
-        cancel_url = "[https://nexus-core-yfou.onrender.com/?canceled=true](https://nexus-core-yfou.onrender.com/?canceled=true)"
+        # Dynamically construct absolute base URL from the incoming request (fixes Stripe url_invalid error)
+        base_url = str(request.base_url).rstrip("/")
+        success_url = f"{base_url}/?success=true&email=" + urllib.parse.quote(email)
+        cancel_url = f"{base_url}/?canceled=true"
 
         checkout_session = stripe.checkout.Session.create(
             payment_method_types=['card'],
@@ -1732,7 +1734,7 @@ def retrieve_api_key_by_email(email: str):
     }
 
 @app.post("/api/v1/billing/portal")
-def create_customer_portal_session(auth: dict = Depends(verify_api_key_only)):
+def create_customer_portal_session(request: Request, auth: dict = Depends(verify_api_key_only)):
     try:
         with db_transaction_scope() as (_, cursor):
             cursor.execute("SELECT stripe_customer_id FROM subscribers WHERE email = %s" if DATABASE_URL else "SELECT stripe_customer_id FROM subscribers WHERE email = ?", (auth["email"],))
@@ -1742,7 +1744,8 @@ def create_customer_portal_session(auth: dict = Depends(verify_api_key_only)):
         if not customer_id:
             raise HTTPException(status_code=400, detail="No active Stripe customer account found.")
 
-        return_url = "[https://nexus-core-yfou.onrender.com/](https://nexus-core-yfou.onrender.com/)"
+        base_url = str(request.base_url).rstrip("/")
+        return_url = f"{base_url}/"
         portal_session = stripe.billing_portal.Session.create(
             customer=customer_id,
             return_url=return_url
