@@ -1681,11 +1681,22 @@ def create_checkout_session(request: Request, payload: Optional[PortalSessionReq
     try:
         tier = "pro"
         if checkout_req and checkout_req.tier:
-            tier = checkout_req.tier
+            tier = checkout_req.tier.lower()
         elif payload and payload.price_id and "enterprise" in payload.price_id:
             tier = "enterprise"
 
-        price_id = os.getenv("STRIPE_PRO_PRICE_ID", "price_1M...") if tier == "pro" else os.getenv("STRIPE_ENTERPRISE_PRICE_ID", "price_2M...")
+        # Map tiers to Stripe price ID environment variables with clear validation
+        STRIPE_PRICE_MAP = {
+            "pro": os.getenv("STRIPE_PRO_PRICE_ID"),
+            "enterprise": os.getenv("STRIPE_ENTERPRISE_PRICE_ID")
+        }
+
+        price_id = STRIPE_PRICE_MAP.get(tier)
+        if not price_id:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Stripe Price ID for tier '{tier}' is not configured in environment variables (STRIPE_PRO_PRICE_ID or STRIPE_ENTERPRISE_PRICE_ID)."
+            )
         
         # Extract email from payload or fallback header if logged in
         email = "user@example.com"
@@ -1701,7 +1712,10 @@ def create_checkout_session(request: Request, payload: Optional[PortalSessionReq
                     pass
 
         # Dynamically construct absolute base URL from the incoming request (fixes Stripe url_invalid error)
-        base_url = str(request.base_url).rstrip("/")
+        host = request.headers.get("host", "nexus-core-yfou.onrender.com")
+        scheme = request.headers.get("x-forwarded-proto", "https")
+        base_url = f"{scheme}://{host}"
+
         success_url = f"{base_url}/?success=true&email=" + urllib.parse.quote(email)
         cancel_url = f"{base_url}/?canceled=true"
 
@@ -1715,6 +1729,8 @@ def create_checkout_session(request: Request, payload: Optional[PortalSessionReq
             metadata={"tier": tier}
         )
         return {"url": checkout_session.url, "checkout_url": checkout_session.url}
+    except stripe.error.StripeError as e:
+        raise HTTPException(status_code=400, detail=e.user_message or str(e))
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -1744,8 +1760,11 @@ def create_customer_portal_session(request: Request, auth: dict = Depends(verify
         if not customer_id:
             raise HTTPException(status_code=400, detail="No active Stripe customer account found.")
 
-        base_url = str(request.base_url).rstrip("/")
+        host = request.headers.get("host", "nexus-core-yfou.onrender.com")
+        scheme = request.headers.get("x-forwarded-proto", "https")
+        base_url = f"{scheme}://{host}"
         return_url = f"{base_url}/"
+
         portal_session = stripe.billing_portal.Session.create(
             customer=customer_id,
             return_url=return_url

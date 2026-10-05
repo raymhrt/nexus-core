@@ -407,6 +407,29 @@
 
             <!-- ==================== TAB 3: SUBSCRIBER HUB & BILLING ==================== -->
             <div id="tab-subscription" class="hidden space-y-6 animate-fade-in">
+                
+                <!-- First-Time User Subscription Onboarding Section -->
+                <div id="subscription-onboarding" class="bg-slate-900 border border-slate-800 rounded-xl p-6 max-w-xl mx-auto my-4 shadow-2xl">
+                    <h3 class="text-xl font-bold text-white mb-2">Unlock QuantCode Apex Intelligence</h3>
+                    <p class="text-slate-400 text-sm mb-6">First-time subscriber? Choose your tier to initialize your autonomous career swarm and secure API access.</p>
+                    
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">Your Email Address</label>
+                            <input type="email" id="onboard-email" placeholder="name@example.com" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2.5 text-white text-sm focus:outline-none focus:border-cyan-500" />
+                        </div>
+                        
+                        <div class="grid grid-cols-2 gap-4 pt-2">
+                            <button onclick="startCheckout('pro')" class="bg-cyan-600 hover:bg-cyan-500 text-white font-medium py-2.5 px-4 rounded-lg text-sm transition-all shadow-lg shadow-cyan-900/40">
+                                Pro Tier ($29/mo)
+                            </button>
+                            <button onclick="startCheckout('enterprise')" class="bg-purple-600 hover:bg-purple-500 text-white font-medium py-2.5 px-4 rounded-lg text-sm transition-all shadow-lg shadow-purple-900/40">
+                                Enterprise Tier ($99/mo)
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
                     <div class="bento-card p-6 rounded-2xl flex flex-col justify-between shadow-xl">
                         <div>
@@ -585,7 +608,7 @@
         let drawerRadarChart = null;
         let pipelineFunnelChart = null;
 
-        window.addEventListener('DOMContentLoaded', () => {
+        window.addEventListener('DOMContentLoaded', async () => {
             const urlParams = new URLSearchParams(window.location.search);
             if (urlParams.get('success') === 'true') {
                 const email = urlParams.get('email');
@@ -626,6 +649,32 @@
 
             initSSETelemetry();
         });
+
+        // First-Time User Checkout Handler Function
+        async function startCheckout(tier) {
+            const emailInput = document.getElementById('onboard-email').value.trim();
+            if (!emailInput || !emailInput.includes('@')) {
+                alert('Please enter a valid email address to begin your subscription.');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/v1/billing/create-checkout-session', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email: emailInput, tier: tier })
+                });
+                
+                const data = await response.json();
+                if (data.url) {
+                    window.location.href = data.url; // Redirect to Stripe Checkout
+                } else {
+                    alert('Error initializing checkout: ' + (data.detail || 'Unknown error'));
+                }
+            } catch (err) {
+                alert('Network error connecting to billing service.');
+            }
+        }
 
         function escapeHtml(str) {
             if (!str) return '';
