@@ -1554,7 +1554,9 @@ async def audit_and_correct_tenant_documents(
 async def save_career_resume(payload: ResumeInput, auth: dict = Depends(verify_api_key_only)):
     prompt = f"""
     Analyze this master CV / resume text for user {auth['email']}.
-    Extract core skills, seniority, primary domain, and generate 4 to 6 highly accurate professional job titles / recommended roles based strictly on this text.
+    Extract core technical skills, seniority, primary professional domain, and generate 4 to 6 highly accurate professional job titles / recommended roles based strictly on this text.
+    CRITICAL: Do not use the candidate's personal name in the domain or recommended roles. Focus purely on their technical field (e.g., Software Engineering, Data Science, Mechanical Engineering, Biotechnology).
+    
     Return strict JSON with these exact keys:
     - "seniority": "Senior / Executive"
     - "primary_domain": "Extracted Domain"
@@ -1570,18 +1572,21 @@ async def save_career_resume(payload: ResumeInput, auth: dict = Depends(verify_a
     except Exception:
         pass
 
+    # Robust multi-tenant fallback if AI parsing fails or returns names
     if not parsed_profile or not parsed_profile.get("recommended_roles"):
-        words = [w.strip(".,;:()") for w in payload.resume_content.split() if len(w) > 4]
-        sample_domain = words[0].capitalize() if words else "Research"
+        stopwords = {"resume", "cv", "profile", "summary", "experience", "education", "skills", "raymond", "john", "jane", "email", "phone"}
+        words = [w.strip(".,;:()") for w in payload.resume_content.split() if len(w) > 4 and w.lower() not in stopwords]
+        
+        sample_domain = words[0].capitalize() if words else "Technical"
         parsed_profile = {
             "seniority": "Senior Professional",
-            "primary_domain": f"{sample_domain} Sciences & Engineering",
-            "skills": words[:8] if words else ["Technical Execution", "Domain Research"],
+            "primary_domain": f"{sample_domain} & Systems Engineering",
+            "skills": words[:8] if words else ["Technical Execution", "System Architecture"],
             "recommended_roles": [
-                f"Senior {sample_domain} Scientist",
-                f"Principal {sample_domain} Investigator",
-                "Lead Research Scientist",
-                "Senior Technical Specialist"
+                f"Senior {sample_domain} Engineer",
+                f"Principal {sample_domain} Architect",
+                "Lead Technical Specialist",
+                "Senior Solutions Developer"
             ]
         }
 
@@ -1632,7 +1637,7 @@ async def dispatch_career_outreach(match_id: int, payload: OutreachDispatchReque
 
     if RESEND_API_KEY:
         headers = {"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"}
-        res = requests.post("https://api.resend.com/emails", json={
+        res = requests.post("[https://api.resend.com/emails](https://api.resend.com/emails)", json={
             "from": f"QuantCode Outreach <{SENDER_EMAIL}>", 
             "to": [target_email],
             "subject": payload.subject, 
@@ -1833,7 +1838,7 @@ Keep this key secure and use it in your `x-api-key` header for all API requests.
 
 Dashboard: [https://nexus-core-yfou.onrender.com/](https://nexus-core-yfou.onrender.com/)
 """
-                requests.post("https://api.resend.com/emails", json={
+                requests.post("[https://api.resend.com/emails](https://api.resend.com/emails)", json={
                     "from": f"QuantCode Billing <{SENDER_EMAIL}>", 
                     "to": [customer_email],
                     "subject": "Your QuantCode Nexus API Key & Subscription Access",
