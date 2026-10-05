@@ -1782,14 +1782,17 @@ async def stripe_webhook(request: Request):
         logger.error(f"Webhook signature verification failed (Invalid Payload): {e}")
         return JSONResponse(status_code=400, content={"error": "Invalid payload"})
     except stripe.error.SignatureVerificationError as e:
-        logger.error(f"Webhook signature verification failed (Invalid Signature for secret {WEBHOOK_SIGNING_SECRET[:6]}...): {e}")
+        logger.error(f"Webhook signature verification failed (Invalid Signature): {e}")
         return JSONResponse(status_code=400, content={"error": "Invalid signature"})
 
     if event['type'] == 'checkout.session.completed':
-        session = event['data']['object']
+        obj = event['data']['object']
+        session = obj.to_dict() if hasattr(obj, 'to_dict') else dict(obj)
+        
         customer_email = session.get('customer_email') or session.get('customer_details', {}).get('email')
         tier = session.get('metadata', {}).get('tier', 'pro')
         credits_to_add = 500 if tier == 'pro' else 2500
+        stripe_customer = session.get('customer')
         
         with db_transaction_scope() as (_, cursor):
             if DATABASE_URL:
@@ -1797,14 +1800,14 @@ async def stripe_webhook(request: Request):
                     INSERT INTO subscribers (email, tier, stripe_customer_id, active) 
                     VALUES (%s, %s, %s, 1) 
                     ON CONFLICT (email) DO UPDATE SET tier = EXCLUDED.tier, stripe_customer_id = EXCLUDED.stripe_customer_id
-                """, (customer_email, tier, session.get('customer')))
+                """, (customer_email, tier, stripe_customer))
                 cursor.execute("""
                     INSERT INTO subscriber_credits (email, credits_remaining, credits_limit) 
                     VALUES (%s, %s, %s) 
                     ON CONFLICT (email) DO UPDATE SET credits_remaining = LEAST(subscriber_credits.credits_limit, subscriber_credits.credits_remaining + %s)
                 """, (customer_email, credits_to_add, credits_to_add, credits_to_add))
             else:
-                cursor.execute("INSERT OR REPLACE INTO subscribers (email, tier, stripe_customer_id, active) VALUES (?, ?, ?, 1)", (customer_email, tier, session.get('customer')))
+                cursor.execute("INSERT OR REPLACE INTO subscribers (email, tier, stripe_customer_id, active) VALUES (?, ?, ?, 1)", (customer_email, tier, stripe_customer))
                 cursor.execute("INSERT OR REPLACE INTO subscriber_credits (email, credits_remaining, credits_limit) VALUES (?, ?, ?)", (customer_email, credits_to_add, credits_to_add))
             
             api_key_raw = f"qcn_{secrets.token_hex(16)}"
