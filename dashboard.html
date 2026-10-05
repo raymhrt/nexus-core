@@ -585,7 +585,18 @@
         let drawerRadarChart = null;
         let pipelineFunnelChart = null;
 
-        window.onload = function() {
+        window.addEventListener('DOMContentLoaded', () => {
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.get('success') === 'true') {
+                const email = urlParams.get('email');
+                if (email) {
+                    showToast(`Payment successful for ${email}! Your subscription is active.`);
+                } else {
+                    showToast("Payment successful! Your subscription is active.");
+                }
+                alert("Payment successful! Your subscription is active. Please authenticate with your account email or generated API key to enter the command center.");
+            }
+
             initRadarCanvas();
             initPipelineFunnelChart();
             const savedKey = localStorage.getItem('nexus_api_key');
@@ -614,7 +625,7 @@
             }
 
             initSSETelemetry();
-        };
+        });
 
         function escapeHtml(str) {
             if (!str) return '';

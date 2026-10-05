@@ -897,7 +897,6 @@ def verify_api_key_only(x_api_key: str = Header(...), request: Request = None):
     client_ip = request.client.host if request and request.client else "127.0.0.1"
 
     with db_transaction_scope() as (_, cursor):
-        # Check db_pool instead of DATABASE_URL so it correctly matches SQLite execution
         if db_pool is not None:
             query = """
                 SELECT k.email, s.tier, c.credits_remaining, c.credits_limit 
@@ -1678,7 +1677,7 @@ async def salary_negotiator(payload: NegotiatorRequest, auth: dict = Depends(ver
 
 @app.post("/create-portal-session")
 @app.post("/api/v1/billing/create-checkout-session")
-def create_checkout_session(payload: Optional[PortalSessionRequest] = None, checkout_req: Optional[CheckoutRequest] = None, auth: Optional[dict] = Depends(verify_api_key_only)):
+def create_checkout_session(request: Request, payload: Optional[PortalSessionRequest] = None, checkout_req: Optional[CheckoutRequest] = None):
     try:
         tier = "pro"
         if checkout_req and checkout_req.tier:
@@ -1687,8 +1686,21 @@ def create_checkout_session(payload: Optional[PortalSessionRequest] = None, chec
             tier = "enterprise"
 
         price_id = os.getenv("STRIPE_PRO_PRICE_ID", "price_1M...") if tier == "pro" else os.getenv("STRIPE_ENTERPRISE_PRICE_ID", "price_2M...")
-        email = auth["email"] if auth else "user@example.com"
-        success_url = "[https://nexus-core-yfou.onrender.com/?success=true](https://nexus-core-yfou.onrender.com/?success=true)"
+        
+        # Extract email from payload or fallback header if logged in
+        email = "user@example.com"
+        if checkout_req and checkout_req.email:
+            email = checkout_req.email
+        else:
+            api_key_header = request.headers.get("x-api-key")
+            if api_key_header:
+                try:
+                    auth_data = verify_api_key_only(x_api_key=api_key_header, request=request)
+                    email = auth_data["email"]
+                except Exception:
+                    pass
+
+        success_url = "[https://nexus-core-yfou.onrender.com/?success=true&email=](https://nexus-core-yfou.onrender.com/?success=true&email=)" + urllib.parse.quote(email)
         cancel_url = "[https://nexus-core-yfou.onrender.com/?canceled=true](https://nexus-core-yfou.onrender.com/?canceled=true)"
 
         checkout_session = stripe.checkout.Session.create(
@@ -1703,6 +1715,21 @@ def create_checkout_session(payload: Optional[PortalSessionRequest] = None, chec
         return {"url": checkout_session.url, "checkout_url": checkout_session.url}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/api/v1/billing/retrieve-key")
+def retrieve_api_key_by_email(email: str):
+    with db_transaction_scope() as (_, cursor):
+        sql = "SELECT key_hash FROM api_keys WHERE email = %s AND active = 1 ORDER BY created_at DESC LIMIT 1" if DATABASE_URL else "SELECT key_hash FROM api_keys WHERE email = ? AND active = 1 ORDER BY created_at DESC LIMIT 1"
+        cursor.execute(sql, (email,))
+        row = cursor.fetchone()
+        
+    if not row:
+        raise HTTPException(status_code=404, detail="No active API key found for this email yet. Please wait a moment for the webhook to process.")
+        
+    return {
+        "status": "success",
+        "message": "Subscriber found. Note: For security, use your raw API key provided upon creation, or generate a fresh key in your dashboard."
+    }
 
 @app.post("/api/v1/billing/portal")
 def create_customer_portal_session(auth: dict = Depends(verify_api_key_only)):
