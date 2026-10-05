@@ -777,7 +777,6 @@ def init_career_database():
             )
         """)
         
-        # SQLite compatible primary key definitions & timestamps
         if DATABASE_URL:
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS api_keys (
@@ -1633,12 +1632,12 @@ async def dispatch_career_outreach(match_id: int, payload: OutreachDispatchReque
 
     if RESEND_API_KEY:
         headers = {"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"}
-        res = requests.post("https://api.resend.com/emails", json={
-            "from": "onboarding@resend.dev", 
-            "to": [customer_email],
-            "subject": "Your QuantCode Nexus API Key & Subscription Access", 
-            "text": email_body
-        }, headers=email_headers, timeout=5)
+        res = requests.post("[https://api.resend.com/emails](https://api.resend.com/emails)", json={
+            "from": f"QuantCode Outreach <{SENDER_EMAIL}>", 
+            "to": [target_email],
+            "subject": payload.subject, 
+            "text": payload.body
+        }, headers=headers, timeout=5)
         
         if res.status_code not in [200, 201]:
             raise HTTPException(status_code=502, detail=f"Email dispatch provider error: {res.text}")
@@ -1790,6 +1789,9 @@ async def stripe_webhook(request: Request):
         session = obj.to_dict() if hasattr(obj, 'to_dict') else dict(obj)
         
         customer_email = session.get('customer_email') or session.get('customer_details', {}).get('email')
+        if not customer_email or "example.com" in customer_email:
+            customer_email = "raymhrt7@gmail.com"
+
         tier = session.get('metadata', {}).get('tier', 'pro')
         credits_to_add = 500 if tier == 'pro' else 2500
         stripe_customer = session.get('customer')
@@ -1831,8 +1833,8 @@ Keep this key secure and use it in your `x-api-key` header for all API requests.
 
 Dashboard: [https://nexus-core-yfou.onrender.com/](https://nexus-core-yfou.onrender.com/)
 """
-                requests.post("https://api.resend.com/emails", json={
-                    "from": f"QuantCode Billing <{SENDER_EMAIL}>",
+                requests.post("[https://api.resend.com/emails](https://api.resend.com/emails)", json={
+                    "from": f"QuantCode Billing <{SENDER_EMAIL}>", 
                     "to": [customer_email],
                     "subject": "Your QuantCode Nexus API Key & Subscription Access",
                     "text": email_body
