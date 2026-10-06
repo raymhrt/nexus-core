@@ -608,6 +608,18 @@
         let drawerRadarChart = null;
         let pipelineFunnelChart = null;
 
+        // Hardened Safe JSON Parsing Helper
+        function safeJsonParse(val, fallback = []) {
+            if (!val) return fallback;
+            if (Array.isArray(val) || typeof val === 'object') return val;
+            try {
+                return JSON.parse(val);
+            } catch (e) {
+                console.warn("Failed to parse JSON payload, falling back:", val);
+                return fallback;
+            }
+        }
+
         window.addEventListener('DOMContentLoaded', async () => {
             const urlParams = new URLSearchParams(window.location.search);
             if (urlParams.get('success') === 'true') {
@@ -1148,6 +1160,9 @@
             }
 
             container.innerHTML = validMatches.map((m, idx) => {
+                const requirements = safeJsonParse(m.matched_requirements);
+                const gaps = safeJsonParse(m.transferable_gaps);
+
                 const fitScore = m.fit_score !== undefined ? m.fit_score : (m.fit !== undefined ? m.fit : (m.match_score !== undefined ? m.match_score : 50));
                 const matchId = m.id || idx + 1;
                 const postUrl = sanitizeJobUrl(m);
@@ -1168,8 +1183,13 @@
                                 </div>
                             </div>
                             <p class="text-xs text-slate-300 line-clamp-2 my-2">${escapeHtml(parsedSnippet)}</p>
+                            
+                            <div class="flex flex-wrap gap-1.5 mt-3">
+                                ${requirements.map(req => `<span class="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 rounded text-[10px]">${escapeHtml(req)}</span>`).join('')}
+                                ${gaps.map(gap => `<span class="px-2 py-0.5 bg-rose-500/10 text-rose-400 rounded text-[10px]">Gap: ${escapeHtml(gap)}</span>`).join('')}
+                            </div>
                         </div>
-                        <div class="flex items-center justify-between gap-2 pt-3 border-t border-slate-800/80 mt-2" onclick="event.stopPropagation()">
+                        <div class="flex items-center justify-between gap-2 pt-3 border-t border-slate-800/80 mt-3" onclick="event.stopPropagation()">
                             <div class="flex items-center space-x-2">
                                 <a href="${escapeHtml(postUrl)}" target="_blank" class="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-lg transition-colors shadow">Apply ↗</a>
                                 ${isApplied ? `<span class="px-2.5 py-1.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 rounded-lg text-xs font-bold">✅ Auto-Applied</span>` : `<button onclick="triggerAutopilot(${matchId})" class="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg transition-colors">Auto-Apply ⚡</button>`}
@@ -1553,9 +1573,9 @@
             const targetRole = hasContact ? (match.networking_target_role || match.decision_maker_title) : '';
             const drawerRationaleBullets = formatRationaleToBullets(match.rationale || match.match_rationale);
 
-            const matchedReqs = match.matched_requirements || ["Domain Expertise", "Experimental Design"];
-            const transferableGaps = match.transferable_gaps || ["Advanced Cloud Deployment"];
-            const criticalMissing = match.critical_missing || ["Specific Platform Certification"];
+            const matchedReqs = safeJsonParse(match.matched_requirements, ["Domain Expertise", "Experimental Design"]);
+            const transferableGaps = safeJsonParse(match.transferable_gaps, ["Advanced Cloud Deployment"]);
+            const criticalMissing = safeJsonParse(match.critical_missing, ["Specific Platform Certification"]);
 
             actionButtonsContainer.innerHTML = `
                 <a href="${escapeHtml(postUrl)}" target="_blank" class="px-3 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold transition shadow">🌐 View Posting ↗</a>
@@ -1829,7 +1849,7 @@
             }
         }
 
-        // Robust SSE Auto-Reconnection Logic with Exponential Backoff
+        // --- UPDATED SSE AUTO-RECONNECTION & HEARTBEAT/PING FILTERING ---
         function initSSETelemetry() {
             const sseBadge = document.getElementById('sse-status-badge');
             
@@ -1847,6 +1867,20 @@
                     };
 
                     sseEventSource.onmessage = function(event) {
+                        try {
+                            // Try parsing JSON payload to filter heartbeats/pings
+                            const data = JSON.parse(event.data);
+                            if (data.event === 'ping' || data.type === 'ping' || data.status === 'ping') {
+                                return; // Silently drop heartbeat pings from rendering in the terminal
+                            }
+                        } catch (e) {
+                            // If it's a plain string message or non-JSON, check string content
+                            if (typeof event.data === 'string' && event.data.includes('"event":"ping"')) {
+                                return;
+                            }
+                        }
+                        
+                        // Append only meaningful telemetry logs
                         appendTerminalLog(event.data);
                     };
 
@@ -1871,18 +1905,24 @@
             const careerLog = document.getElementById('careerTelemetryLog');
             if (!careerLog || isTerminalPaused) return;
             
+            // Clean up message display if it's JSON or a raw string
+            let displayMessage = message;
+            try {
+                const parsed = JSON.parse(message);
+                if (parsed.message) displayMessage = parsed.message;
+                else if (parsed.event && parsed.event !== 'ping') displayMessage = `Event: ${parsed.event}`;
+            } catch(e) {}
+
             const entry = document.createElement('div');
             entry.className = "border-b border-cyan-950/40 pb-1 leading-snug animate-fade-in";
-            entry.innerHTML = `<span class="text-slate-500">[${new Date().toLocaleTimeString()}]</span> <strong class="text-cyan-300">swarm_agent:</strong> <span class="text-slate-300">${escapeHtml(message)}</span>`;
+            entry.innerHTML = `<span class="text-slate-500">[${new Date().toLocaleTimeString()}]</span> <strong class="text-cyan-300">swarm_agent:</strong> <span class="text-slate-300">${escapeHtml(displayMessage)}</span>`;
             
-            // Insert the new log entry at the very top of the container
             if (careerLog.firstChild) {
                 careerLog.insertBefore(entry, careerLog.firstChild);
             } else {
                 careerLog.appendChild(entry);
             }
             
-            // Keep the scroll pinned to the top to view live incoming posts instantly
             careerLog.scrollTop = 0;
         }
 
