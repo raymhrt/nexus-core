@@ -1046,6 +1046,7 @@
             const apiKey = document.getElementById('apiKey').value.trim();
             if (!apiKey) return;
 
+            // Ensure we grab the current value of the slider properly
             const minFitSlider = document.getElementById('minMatchFitSlider');
             const minFit = minFitSlider ? minFitSlider.value : 50;
 
@@ -1058,7 +1059,7 @@
                 
                 if (data.matches) {
                     cachedCareerMatches = data.matches;
-                    applyMatchFilter();
+                    applyMatchFilter(); // This will apply the 50% (or current) filter correctly to the fetched array
                     document.getElementById('kpiTotalScanned').innerText = data.matches.length;
                     loadCredits();
                     showToast("Career matches refreshed successfully!");
@@ -1114,6 +1115,9 @@
             return text.replace(/["\[\]]+/g, '').replace(/\\u2013|\\u2010|\\u2014/g, '-').replace(/\\u2022/g, '').trim();
         }
 
+        // ==========================================
+        // ADAPTED RENDER JOB MATCHES FUNCTION
+        // ==========================================
         function renderJobMatches(matches) {
             const container = document.getElementById('jobMatchesContainer');
             if (!container) return;
@@ -1123,12 +1127,17 @@
 
             if (validMatches.length === 0) {
                 container.innerHTML = `
-                    <div class="col-span-full py-16 px-6 text-center bg-[#030712] rounded-2xl border border-slate-800 space-y-3">
+                    <div class="col-span-full py-16 px-6 text-center bg-inputbg rounded-2xl border border-sky-500/30 space-y-3 animate-fade-in">
                         <div class="w-12 h-12 bg-sky-500/10 border border-sky-500/20 text-sky-400 rounded-2xl flex items-center justify-center mx-auto text-lg">
-                            <i class="fa-solid fa-folder-open"></i>
+                            <i class="fa-solid fa-satellite-dish fa-spin"></i>
                         </div>
-                        <h4 class="text-sm font-bold text-white">No matches found meeting the ${sliderVal}% threshold</h4>
-                        <p class="text-xs text-slate-400 max-w-md mx-auto">Lower the Min Match Fit filter slider or scan additional roles via the configuration panel.</p>
+                        <h4 class="text-sm font-bold text-white">Swarm is actively scouting global multi-source feeds...</h4>
+                        <p class="text-xs text-slate-400 max-w-md mx-auto">Autonomous agents are indexing live positions. Verified high-fit matches will appear here automatically once evaluated.</p>
+                        <div class="pt-2">
+                            <button onclick="loadCareerMatches()" class="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold transition shadow-lg shadow-sky-600/20">
+                                <i class="fa-solid fa-rotate mr-1.5"></i> Check for New Matches
+                            </button>
+                        </div>
                     </div>
                 `;
                 return;
@@ -1804,7 +1813,7 @@
             const btn = document.getElementById('terminalToggleBtn');
             if (btn) {
                 btn.innerText = isTerminalPaused ? 'Resume' : 'Pause';
-                btn.className = isTerminalPaused ? "px-2.5 py-1 bg-amber-500/10 border border-amber-500/30 text-amber-300 rounded-lg text-[10px] font-mono transition" : "px-2.5 py-1 bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 rounded-lg text-[10px] font-mono transition";
+                btn.className = isTerminalPaused ? "px-2.5 py-1 bg-amber-500/10 border border-amber-500/30 text-amber-300 rounded-lg text-[10px] font-mono transition" : "px-2.5 py-1 bg-cyan-500/10 border border-cyan-500/20 text-cyan-300 rounded-lg text-[10px] font-mono transition";
             }
         }
 
