@@ -1000,14 +1000,19 @@
         }
 
         function applyMatchFilter() {
-            const sliderVal = parseInt(document.getElementById('minMatchFitSlider').value, 10) || 50;
-            const filteredMatches = (cachedCareerMatches || []).filter(m => (m.fit_score || 0) >= sliderVal);
+            const sliderVal = parseInt(document.getElementById('minMatchFitSlider').value, 10) || 0;
+            
+            const filteredMatches = (cachedCareerMatches || []).filter(m => {
+                const score = m.fit_score !== undefined ? m.fit_score : (m.fit !== undefined ? m.fit : (m.match_score !== undefined ? m.match_score : 50));
+                return score >= sliderVal;
+            });
             
             renderJobMatches(filteredMatches);
             if (currentViewMode === 'kanban') {
                 renderKanbanBoard(filteredMatches);
             }
             updatePipelineFunnelData(cachedCareerMatches);
+            
             const highFitEl = document.getElementById('kpiHighFit');
             if (highFitEl) highFitEl.innerText = filteredMatches.length;
         }
@@ -1046,7 +1051,6 @@
             const apiKey = document.getElementById('apiKey').value.trim();
             if (!apiKey) return;
 
-            // Ensure we grab the current value of the slider properly
             const minFitSlider = document.getElementById('minMatchFitSlider');
             const minFit = minFitSlider ? minFitSlider.value : 50;
 
@@ -1059,7 +1063,7 @@
                 
                 if (data.matches) {
                     cachedCareerMatches = data.matches;
-                    applyMatchFilter(); // This will apply the 50% (or current) filter correctly to the fetched array
+                    applyMatchFilter(); 
                     document.getElementById('kpiTotalScanned').innerText = data.matches.length;
                     loadCredits();
                     showToast("Career matches refreshed successfully!");
@@ -1115,15 +1119,15 @@
             return text.replace(/["\[\]]+/g, '').replace(/\\u2013|\\u2010|\\u2014/g, '-').replace(/\\u2022/g, '').trim();
         }
 
-        // ==========================================
-        // ADAPTED RENDER JOB MATCHES FUNCTION
-        // ==========================================
         function renderJobMatches(matches) {
             const container = document.getElementById('jobMatchesContainer');
             if (!container) return;
 
-            const sliderVal = parseInt(document.getElementById('minMatchFitSlider')?.value || 50, 10);
-            const validMatches = (matches || []).filter(m => (m.fit_score || 0) >= sliderVal);
+            const sliderVal = parseInt(document.getElementById('minMatchFitSlider')?.value || 0, 10);
+            const validMatches = (matches || []).filter(m => {
+                const score = m.fit_score !== undefined ? m.fit_score : (m.fit !== undefined ? m.fit : (m.match_score !== undefined ? m.match_score : 50));
+                return score >= sliderVal;
+            });
 
             if (validMatches.length === 0) {
                 container.innerHTML = `
@@ -1144,7 +1148,7 @@
             }
 
             container.innerHTML = validMatches.map((m, idx) => {
-                const fitScore = m.fit_score || 50;
+                const fitScore = m.fit_score !== undefined ? m.fit_score : (m.fit !== undefined ? m.fit : (m.match_score !== undefined ? m.match_score : 50));
                 const matchId = m.id || idx + 1;
                 const postUrl = sanitizeJobUrl(m);
                 const isApplied = m.status === 'applied_autopilot';
@@ -1200,8 +1204,12 @@
             const colOffer = document.getElementById('kanbanColOffer');
             if (!colDiscovered) return;
 
-            const sliderVal = parseInt(document.getElementById('minMatchFitSlider')?.value || 50, 10);
-            const validMatches = (matches || []).filter(m => (m.fit_score || 0) >= sliderVal);
+            const sliderVal = parseInt(document.getElementById('minMatchFitSlider')?.value || 0, 10);
+            const validMatches = (matches || []).filter(m => {
+                const score = m.fit_score !== undefined ? m.fit_score : (m.fit !== undefined ? m.fit : (m.match_score !== undefined ? m.match_score : 50));
+                return score >= sliderVal;
+            });
+
             const discovered = validMatches.filter(m => m.status === 'discovered' || !m.status);
             const autopilot = validMatches.filter(m => m.status === 'applied_autopilot');
             const outreach = validMatches.filter(m => m.status === 'outreached');
@@ -1216,11 +1224,12 @@
                 const matchId = m.id || idx + 1;
                 const safeTitle = escapeHtml(cleanRoleTitle(m.role_title));
                 const safeCompany = escapeHtml(m.company_name);
+                const score = m.fit_score !== undefined ? m.fit_score : (m.fit !== undefined ? m.fit : (m.match_score !== undefined ? m.match_score : 50));
                 return `
                     <div draggable="true" ondragstart="dragKanbanCard(event, ${matchId})" class="bento-card p-3 rounded-xl space-y-1.5 shadow cursor-grab active:cursor-grabbing hover:border-sky-500 transition" onclick="openMatchDrawerById(${matchId})">
                         <div class="flex justify-between items-start">
                             <span class="text-xs font-bold text-white truncate max-w-[140px]">${safeTitle}</span>
-                            <span class="text-[10px] text-emerald-400 font-bold">${m.fit_score}%</span>
+                            <span class="text-[10px] text-emerald-400 font-bold">${score}%</span>
                         </div>
                         <p class="text-[11px] text-slate-400 truncate">${safeCompany}</p>
                     </div>
@@ -1258,8 +1267,11 @@
         }
 
         function openMatchDrawerByIndex(index) {
-            const sliderVal = parseInt(document.getElementById('minMatchFitSlider')?.value || 50, 10);
-            const validMatches = (cachedCareerMatches || []).filter(m => (m.fit_score || 0) >= sliderVal);
+            const sliderVal = parseInt(document.getElementById('minMatchFitSlider')?.value || 0, 10);
+            const validMatches = (cachedCareerMatches || []).filter(m => {
+                const score = m.fit_score !== undefined ? m.fit_score : (m.fit !== undefined ? m.fit : (m.match_score !== undefined ? m.match_score : 50));
+                return score >= sliderVal;
+            });
             const match = validMatches[index];
             if (match) openMatchDrawer(match);
             else showToast("Could not load match details.", true);
@@ -1624,7 +1636,7 @@
             if (!canvas) return;
             if (drawerRadarChart) drawerRadarChart.destroy();
 
-            const fit = match.fit_score || 50;
+            const fit = match.fit_score !== undefined ? match.fit_score : (match.fit !== undefined ? match.fit : (match.match_score !== undefined ? match.match_score : 50));
             const techScore = Math.min(100, fit + 5);
             const cultureScore = Math.max(50, fit - 10);
             const compScore = Math.min(100, fit + 2);
