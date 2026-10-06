@@ -360,7 +360,7 @@ async def audit_and_correct_tailored_documents_dynamic(
     Your job is to audit a drafted Tailored CV and Cover Letter against the candidate's Master CV and the Target Job Description.
 
     CRITICAL MULTI-TENANT AUDIT RULES:
-    1. GROUND TRUTH CHECK: Strictly cross-reference every claim against the candidate's actual Master CV provided below. Zero hallucination policy: do not invent fake degrees, unearned titles, or false metrics.
+    1. GROUND TRUTH CHECK: Strictly cross-reference every claim against the candidate's actual Master CV provided below. Zero hallucination policy: do not invent fake degrees, unearned titles, or false metrics (such as invented budget numbers or fabricated percentage improvements).
     2. CONTACT INTEGRITY: Ensure the contact header exclusively uses the user's verified database email: {user_email}.
     3. OMISSION & COMPLETENESS CHECK: Ensure no core qualifications, formal education entries, or publications from the Master CV were mistakenly dropped in the draft.
     4. ATS FORMATTING: Ensure clean Markdown structure with zero hardcoded placeholders or broken tags.
@@ -368,7 +368,7 @@ async def audit_and_correct_tailored_documents_dynamic(
     RETURN STRICT JSON WITH THESE EXACT KEYS:
     - "issues_identified": ["Issue 1 discovered", "Issue 2..."]
     - "missing_information": ["Missing item 1", "Missing item 2..."]
-    - "hallucinations_removed": ["Any false claim or altered email corrected..."]
+    - "hallucinations_removed": ["Any false claim, fake metric, or altered email corrected..."]
     - "corrected_cv": "The fully corrected, pristine 1-page Markdown CV preserving exact master profile facts."
     - "corrected_cover_letter": "The fully corrected, flawless executive cover letter using email {user_email}."
     """
@@ -408,6 +408,10 @@ async def audit_and_correct_tailored_documents_dynamic(
             "corrected_cover_letter": draft_cover_letter
         }
         
+    # Apply post-processing guardrail to audited output as well
+    audit_data["corrected_cv"] = enforce_ground_truth_guardrails(user_email, master_resume_text, audit_data.get("corrected_cv", draft_cv))
+    audit_data["corrected_cover_letter"] = enforce_ground_truth_guardrails(user_email, master_resume_text, audit_data.get("corrected_cover_letter", draft_cover_letter))
+    
     return audit_data
 
 def build_ghostwriter_prompt(master_cv_markdown: str, target_job_description: str, target_role: str, company_name: str, user_email: str, tone: str = "executive_leader") -> str:
