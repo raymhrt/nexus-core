@@ -280,13 +280,12 @@ async def generate_tailored_cv(user_email: str, master_resume_text: str, job_tit
     Transform the candidate's Master CV into a hyper-optimized, 1-page Markdown resume targeting the specified job posting.
 
     MULTI-TENANT DYNAMIC CONSTRAINTS:
-    - Verified User Email: {user_email} (CRITICAL: Use this exact email address in the contact header).
     - Target Role: {job_title} at {company_name}
 
     RIGOROUS ATS FORMATTING & ZERO-HALLUCINATION RULES:
-    1. CONTACT HEADER: Place clean contact information exactly once at the top using email {user_email}.
-    2. STRICT GROUND TRUTH: Never invent fake metrics, financial figures, or unverified percentages that do not exist in the Master CV text. Base all impact statements strictly on the real accomplishments provided.
-    3. PRESERVE KEY CREDENTIALS: For PhD holders and senior researchers, always retain a compact 'Selected Publications' or high-tier 'Awards' subsection if present in the master CV.
+    1. CONTACT HEADER & TITLE: Place clean contact info at the top, followed immediately by the candidate's exact professional subtitle line from the Master CV (e.g., Applied Research Scientist | Molecular & Biochemical Research | Experimental Design & Data Analysis).
+    2. STRICT GROUND TRUTH: Never invent fake metrics, financial figures, or unverified percentages. Base impact statements strictly on real accomplishments and technical scope provided in the Master CV.
+    3. PRESERVE CREDENTIALS: Always retain the full 'Selected Publications' and key 'Awards & Scholarships' sections for senior or PhD profiles.
     4. CLEAN MARKDOWN: Use standard headings (#, ##) and bullet points (*). NEVER use HTML tables or multi-column blocks.
     """
 
