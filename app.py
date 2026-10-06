@@ -265,21 +265,23 @@ def call_groq_ai(prompt: str, system_prompt: str = "You are the complete multi-t
 async def generate_tailored_cv(user_email: str, master_resume_text: str, job_title: str, company_name: str, job_description: str) -> str:
     system_prompt = f"""
     You are an elite executive career strategist and expert technical resume writer.
-    Transform the user's Master CV into a hyper-optimized, 1-page Markdown resume targeting the specified job posting.
+    Transform the candidate's Master CV into a hyper-optimized, 1-page Markdown resume targeting the specified job posting.
 
-    USER CONSTRAINTS:
-    - Verified User Email: {user_email} (CRITICAL: Use this exact email address in the contact block).
+    MULTI-TENANT DYNAMIC CONSTRAINTS:
+    - Verified User Email: {user_email} (CRITICAL: Use this exact email address in the contact header. Never use placeholder emails like user@example.com).
     - Target Role: {job_title} at {company_name}
 
-    RULES:
-    1. Contact Header: Place clean contact information exactly once at the top (Name, Location, Phone, Email, LinkedIn). Do not duplicate or repeat header lines.
-    2. Strategic Bridging: Bridge the user's core domain expertise directly to the employer's explicit requirements.
-    3. ATS Optimization: Ensure clean formatting, high keyword density matching the job posting, and clear, impact-driven bullet points under clean Markdown headings (#, ##).
-    4. Return pure professional Markdown only.
+    RIGOROUS ATS FORMATTING RULES:
+    1. CONTACT HEADER: Place clean contact information exactly once at the top (Name, Location, Phone, Email: {user_email}, LinkedIn). Do not duplicate header lines.
+    2. ZERO HARDCODING & ZERO HALLUCINATION: Extract and preserve the candidate's real degrees, institutions, and career milestones from their Master CV. Do not invent unearned credentials.
+    3. STRATEGIC BRIDGING: Seamlessly map the candidate's actual core domain expertise to the employer's explicit job description requirements.
+    4. THE X-Y-Z IMPACT FORMULA: Format experience bullet points as: Action Verb + Technical Stack/Methodology + Quantifiable Metric/Impact.
+    5. CLEAN MARKDOWN: Use standard headings (#, ##) and bullet points (*). NEVER use HTML tables, multi-column blocks, or complex containers that break ATS parsing.
+    6. Return pure professional Markdown only.
     """
 
     user_prompt = f"""
-    CANDIDATE MASTER CV:
+    CANDIDATE MASTER CV (GROUND TRUTH):
     {master_resume_text}
 
     TARGET JOB DESCRIPTION:
@@ -320,10 +322,10 @@ async def generate_tailored_cover_letter(user_email: str, master_resume_text: st
     2. Date: {current_date}
     3. Re: {job_title} at {company_name}
     4. Formal Salutation: Dear Hiring Team at {company_name},
-    5. 2-3 targeted body paragraphs mapping the candidate's specific past experience directly to the job description.
-    6. Professional single sign-off.
+    5. 2-3 targeted body paragraphs mapping the candidate's specific past experience directly to the job description using quantifiable achievements.
+    6. Professional single sign-off reflecting the candidate's actual name from their Master CV.
     
-    Ensure there is NO duplication of headers, salutations, or sign-offs.
+    Ensure there is NO duplication of headers, salutations, or sign-offs. Never use placeholder emails.
     """
 
     loop = asyncio.get_running_loop()
@@ -349,9 +351,9 @@ async def audit_and_correct_tailored_documents_dynamic(
 
     CRITICAL MULTI-TENANT AUDIT RULES:
     1. GROUND TRUTH CHECK: Strictly cross-reference every claim against the candidate's actual Master CV provided below. Zero hallucination policy: do not invent fake degrees, unearned titles, or false metrics.
-    2. CONTACT INTEGRITY: The contact header must exclusively use the user's verified database email: {user_email}.
-    3. OMISSION & COMPLETENESS CHECK: Ensure no core qualifications, formal education entries (such as diplomas/degrees), or awards from the Master CV were mistakenly dropped in the draft.
-    4. PROFESSIONAL ALIGNMENT: Ensure the cover letter is addressed to {company_name} for the {job_title} role without generic placeholders.
+    2. CONTACT INTEGRITY: Ensure the contact header exclusively uses the user's verified database email: {user_email}.
+    3. OMISSION & COMPLETENESS CHECK: Ensure no core qualifications, formal education entries, or publications from the Master CV were mistakenly dropped in the draft.
+    4. ATS FORMATTING: Ensure clean Markdown structure with zero hardcoded placeholders or broken tags.
 
     RETURN STRICT JSON WITH THESE EXACT KEYS:
     - "issues_identified": ["Issue 1 discovered", "Issue 2..."]
