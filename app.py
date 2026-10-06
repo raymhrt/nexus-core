@@ -136,6 +136,18 @@ def sanitize_job_title(title: str) -> str:
         cleaned = cleaned[:57] + "..."
     return cleaned
 
+def enforce_ground_truth_guardrails(user_email: str, master_resume_text: str, generated_text: str) -> str:
+    """
+    Programmatically verifies that the generated document retains the correct user email
+    and strips out any unauthorized email variations or placeholder artifacts.
+    """
+    if not generated_text:
+        return generated_text
+    
+    # Force correct tenant email if drifted
+    cleaned_text = re.sub(r'[\w\.-]+@[\w\.-]+\.\w+', user_email, generated_text)
+    return cleaned_text
+
 def extract_json_safely(raw_text: str, default: Any = None) -> Any:
     if default is None:
         default = {}
@@ -262,43 +274,41 @@ def call_groq_ai(prompt: str, system_prompt: str = "You are the complete multi-t
     raise HTTPException(status_code=502, detail="Groq AI inference failed across all retry attempts.")
 
 # ==================== TAILORING HELPERS ====================
-async def generate_tailored_cv(user_email: str, master_resume_text: str, job_title: str, company_name: str, job_description: str) -> str:
+async def generate_tailored_cover_letter(user_email: str, master_resume_text: str, job_title: str, company_name: str, job_description: str) -> str:
+    current_date = datetime.now(timezone.utc).strftime('%d %B %Y')
+
     system_prompt = f"""
-    You are an elite executive career strategist and expert technical resume writer.
-    Transform the candidate's Master CV into a hyper-optimized, 1-page Markdown resume targeting the specified job posting.
-
-    MULTI-TENANT DYNAMIC CONSTRAINTS:
-    - Verified User Email: {user_email} (CRITICAL: Use this exact email address in the contact header. Never use placeholder emails like user@example.com).
-    - Target Role: {job_title} at {company_name}
-
-    RIGOROUS ATS FORMATTING RULES:
-    1. CONTACT HEADER: Place clean contact information exactly once at the top (Name, Location, Phone, Email: {user_email}, LinkedIn). Do not duplicate header lines.
-    2. ZERO HARDCODING & ZERO HALLUCINATION: Extract and preserve the candidate's real degrees, institutions, and career milestones from their Master CV. Do not invent unearned credentials.
-    3. STRATEGIC BRIDGING: Seamlessly map the candidate's actual core domain expertise to the employer's explicit job description requirements.
-    4. THE X-Y-Z IMPACT FORMULA: Format experience bullet points as: Action Verb + Technical Stack/Methodology + Quantifiable Metric/Impact.
-    5. CLEAN MARKDOWN: Use standard headings (#, ##) and bullet points (*). NEVER use HTML tables, multi-column blocks, or complex containers that break ATS parsing.
-    6. Return pure professional Markdown only.
+    You are an expert executive career coach and technical writer. 
+    Write a formal, executive-level cover letter for the user ({user_email}) applying for the {job_title} role at {company_name}.
     """
 
     user_prompt = f"""
-    CANDIDATE MASTER CV (GROUND TRUTH):
+    CANDIDATE MASTER CV:
     {master_resume_text}
 
-    TARGET JOB DESCRIPTION:
+    JOB DESCRIPTION:
     Company: {company_name}
     Role: {job_title}
     {job_description}
 
-    Generate the complete, recruiter-ready tailored CV variant now.
+    STRUCTURE REQUIREMENTS:
+    1. Professional Header block at the very top containing: Name, Location, Phone, Email ({user_email}), and LinkedIn.
+    2. Date: {current_date}
+    3. Re: {job_title} at {company_name}
+    4. Formal Salutation: Dear Hiring Team at {company_name},
+    5. 2-3 targeted body paragraphs mapping the candidate's actual past experience directly to the job description without inventing fictional statistics or budgets.
+    6. Professional single sign-off reflecting the candidate's actual name from their Master CV.
+    
+    Ensure there is NO duplication of headers, salutations, or sign-offs. Never use placeholder emails.
     """
 
     loop = asyncio.get_running_loop()
-    raw_response = await loop.run_in_executor(
-        None, 
+    cover_letter_output = await loop.run_in_executor(
+        None,
         lambda: call_groq_ai(user_prompt, system_prompt=system_prompt)
     )
-    eval_data = extract_json_safely(raw_response, {})
-    return eval_data.get("tailored_cv") or raw_response
+    
+    return enforce_ground_truth_guardrails(user_email, master_resume_text, cover_letter_output.strip())
 
 async def generate_tailored_cover_letter(user_email: str, master_resume_text: str, job_title: str, company_name: str, job_description: str) -> str:
     current_date = datetime.now(timezone.utc).strftime('%d %B %Y')
