@@ -1870,11 +1870,20 @@
         function appendTerminalLog(message) {
             const careerLog = document.getElementById('careerTelemetryLog');
             if (!careerLog || isTerminalPaused) return;
+            
             const entry = document.createElement('div');
             entry.className = "border-b border-cyan-950/40 pb-1 leading-snug animate-fade-in";
             entry.innerHTML = `<span class="text-slate-500">[${new Date().toLocaleTimeString()}]</span> <strong class="text-cyan-300">swarm_agent:</strong> <span class="text-slate-300">${escapeHtml(message)}</span>`;
-            careerLog.appendChild(entry);
-            careerLog.scrollTop = careerLog.scrollHeight;
+            
+            // Insert the new log entry at the very top of the container
+            if (careerLog.firstChild) {
+                careerLog.insertBefore(entry, careerLog.firstChild);
+            } else {
+                careerLog.appendChild(entry);
+            }
+            
+            // Keep the scroll pinned to the top to view live incoming posts instantly
+            careerLog.scrollTop = 0;
         }
 
         function runFallbackTelemetrySimulation() {
