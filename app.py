@@ -461,7 +461,7 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         parent=body_style,
         leftIndent=12,
         firstLineIndent=-8,
-        spaceAfter=1.5  # Uniform tight spacing to eliminate double-space gaps
+        spaceAfter=1.5
     )
 
     story = []
@@ -506,8 +506,8 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
             raw_title = re.sub(r'^#+\s*', '', raw_line).replace('**', '')
             story.append(Paragraph(raw_title, title_style))
             
-        # 2. Contact Information Line (Second line or contains email/phone)
-        elif line_idx == 1 or ('@' in raw_line and any(char.isdigit() for char in raw_line)):
+        # 2. Contact Information Line
+        elif line_idx == 1 or ('@' in raw_line and any(char.isdigit() for char in raw_line)) or ('Johannesburg' in raw_line and 'raymhrt' in raw_line):
             formatted_contact = clean_contact_line(raw_line)
             story.append(Paragraph(markdown_to_reportlab_html(formatted_contact), subtitle_style))
             story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#0284c7'), spaceBefore=2, spaceAfter=6))
@@ -522,26 +522,31 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
             current_section = "professional experience"
             story.append(Paragraph(cleaned_line, job_title_style))
             
-        # 5. Publications section (Plain text, clean academic italics, no quotes/bullets)
+        # 5. Publications section (Plain text, clean academic italics, strip quotes)
         elif any(p in current_section for p in ["publication", "selected publications"]):
             pub_text = re.sub(r'^[\-\*\•]\s*', '', cleaned_line)
             pub_text = re.sub(r'"([^"]+)"', r'*\1*', pub_text)
             pub_text = pub_text.replace(' ,', ',').replace(' .', '.')
             story.append(Paragraph(pub_text, body_style))
             
-        # 6. List Sections (Core Competencies, Technical Skills, Education, Awards, Certifications) - Uniform bullets
-        elif any(sec in current_section for sec in ["competencies", "skills", "education", "awards", "certifications"]):
+        # 6. Education Section (Strictly plain text paragraphs, NO bullet points)
+        elif any(sec in current_section for sec in ["education"]):
+            edu_text = re.sub(r'^[\-\*\•]\s*', '', cleaned_line).strip()
+            story.append(Paragraph(edu_text, body_style))
+            
+        # 7. List Sections with Bullets (Core Competencies, Technical Skills, Awards, Certifications)
+        elif any(sec in current_section for sec in ["competencies", "skills", "awards", "certifications"]):
             bullet_cleaned = re.sub(r'^[\-\*\•]\s*', '', cleaned_line).strip()
             if bullet_cleaned:
                 story.append(Paragraph(f"• {bullet_cleaned}", bullet_style))
                 
-        # 7. Standard Bullet Points (Experience bullets)
+        # 8. Standard Bullet Points (Experience bullets)
         elif raw_line.startswith('- ') or raw_line.startswith('* ') or raw_line.startswith('• ') or raw_line.startswith('•'):
             bullet_cleaned = re.sub(r'^[\-\*\•]\s*', '', cleaned_line).strip()
             if bullet_cleaned:
                 story.append(Paragraph(f"• {bullet_cleaned}", bullet_style))
                 
-        # 8. Standard Body Text (Professional Summary)
+        # 9. Standard Body Text (Professional Summary)
         else:
             story.append(Paragraph(cleaned_line, body_style))
             
