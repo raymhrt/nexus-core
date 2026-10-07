@@ -264,7 +264,7 @@ def call_groq_ai(prompt: str, system_prompt: str = "You are the complete multi-t
     }
 
     max_retries = 5
-    endpoint_url = "[https://api.groq.com/openai/v1/chat/completions](https://api.groq.com/openai/v1/chat/completions)"
+    endpoint_url = "https://api.groq.com/openai/v1/chat/completions"
 
     for attempt in range(max_retries):
         try:
