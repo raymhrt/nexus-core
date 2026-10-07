@@ -303,13 +303,10 @@ def enforce_ground_truth_guardrails(user_email: str, master_resume_text: str, ge
 async def generate_tailored_cv(user_email: str, master_resume_text: str, job_title: str, company_name: str, job_description: str) -> str:
     system_prompt = f"""
     You are an elite executive career strategist and expert technical resume writer.
-    Transform the candidate's Master CV into a hyper-optimized, 1-page Markdown resume targeting the specified job posting.
+    Transform the candidate's Master CV into a hyper-optimized, 1-page Markdown resume targeting the specified job posting ({job_title} at {company_name}).
 
-    MULTI-TENANT DYNAMIC CONSTRAINTS:
-    - Target Role: {job_title} at {company_name}
-
-    RIGOROUS ATS FORMATTING & ZERO-HALLUCINATION RULES:
-    1. CONTACT HEADER & TITLE: Place clean contact info at the top (extracting and using the exact email address located in the candidate's Master CV text header rather than substituting it with a login email), followed immediately by the candidate's exact professional subtitle line from the Master CV (e.g., Applied Research Scientist | Molecular & Biochemical Research | Experimental Design & Data Analysis).
+    MULTI-TENANT DYNAMIC CONSTRAINTS & SUBTITLE BRIDGING:
+    1. TARGETED SUBTITLE & CONTACT HEADER: Place clean contact info at the top (extracting and using the exact email address located in the candidate's Master CV text header rather than substituting it with a login email). Directly below, keep the candidate's primary title ('Applied Research Scientist') fixed, but dynamically adapt the trailing modular pillars using the top required keywords from the job description (Format: Applied Research Scientist | [Pillar 1] & [Pillar 2] | Experimental Design & Data Analysis).
     2. MANDATORY EDUCATION SECTION: Always retain a clean, bulleted Education section listing all degrees (PhD, BSc Hons, BSc, National Diploma) exactly as they appear in the master CV.
     3. ATS-SAFE FORMATTING & SKILLS: Use standard Markdown bullet lists for Technical Skills instead of Markdown tables to ensure 100% reliable parsing across all applicant tracking systems. Use standard headings (#, ##) and bullet points (*). NEVER use HTML tables or multi-column blocks.
     4. STRICT GROUND TRUTH: Never invent fake metrics, financial figures, or unverified percentages. Base impact statements strictly on real accomplishments and technical scope provided in the Master CV.
