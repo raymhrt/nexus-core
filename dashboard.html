@@ -1428,15 +1428,38 @@
             showToast("Copied active asset to clipboard!");
         }
 
-        function downloadGhostwriterAsset() {
-            const isCvActive = !document.getElementById('ghostContentCv').classList.contains('hidden');
-            const text = isCvActive ? activeGhostwriterData.cv : activeGhostwriterData.letter;
-            const blob = new Blob([text], { type: 'text/markdown' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url; a.download = isCvActive ? 'tailored_resume_variant.md' : 'cover_letter.md';
-            document.body.appendChild(a); a.click(); document.body.removeChild(a);
-            showToast("Downloaded asset successfully!");
+        async function downloadGhostwriterAsset() {
+            const apiKey = document.getElementById('apiKey').value.trim();
+            const matchId = window.activeGhostwriterMatchId || 1; 
+
+            showToast("Compiling executive PDF layout...");
+            try {
+                const response = await fetch(`/api/v1/career/matches/${matchId}/download-pdf`, {
+                    method: 'POST',
+                    headers: { 'x-api-key': apiKey }
+                });
+                
+                if (!response.ok) throw new Error("Failed to generate PDF.");
+                
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `Raymond_Hartman_Tailored_CV.pdf`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                showToast("PDF downloaded successfully!");
+            } catch (err) {
+                showToast("Error downloading PDF. Falling back to markdown export.", true);
+                // Fallback markdown download logic if backend endpoint isn't wired yet
+                const text = activeGhostwriterData.cv;
+                const blob = new Blob([text], { type: 'text/markdown' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url; a.download = 'tailored_resume_variant.md';
+                document.body.appendChild(a); a.click(); document.body.removeChild(a);
+            }
         }
 
         async function runTrialInterview() {

@@ -30,6 +30,13 @@ from pydantic import BaseModel, Field, EmailStr, ValidationError
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from dotenv import load_dotenv
 
+from reportlab.lib.pagesizes import A4
+from reportlab.lib import colors
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, HRFlowable
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+import io
+
 from jobspy import scrape_jobs
 
 load_dotenv()
@@ -191,7 +198,7 @@ def validate_real_world_job(job: dict) -> bool:
 def sanitize_ats_url(url: str, role_title: str, company_name: str) -> str:
     if url and "example" not in url and ("http://" in url or "https://" in url):
         return url
-    return "https://www.linkedin.com/jobs/search/?keywords=" + urllib.parse.quote(role_title + ' ' + company_name)
+    return "[https://www.linkedin.com/jobs/search/?keywords=](https://www.linkedin.com/jobs/search/?keywords=)" + urllib.parse.quote(role_title + ' ' + company_name)
 
 def get_cached_ai_response(cache_key: str) -> Optional[str]:
     try:
@@ -270,13 +277,11 @@ def extract_master_cv_email(master_cv_text: str, default_email: str) -> str:
     if not master_cv_text:
         return default_email
     
-    # Scan the top header snippet (first 600 chars) for an email pattern
     header_snippet = master_cv_text[:600]
     match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', header_snippet)
     if match:
         return match.group(0)
     
-    # Fallback to searching anywhere in the master text
     match_any = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', master_cv_text)
     return match_any.group(0) if match_any else default_email
 
@@ -289,10 +294,8 @@ def enforce_ground_truth_guardrails(user_email: str, master_resume_text: str, ge
     if not generated_text:
         return generated_text
     
-    # Get the locked master CV email dynamically for this tenant
     master_email = extract_master_cv_email(master_resume_text, user_email)
     
-    # Replace any drifted email in the generated text with the locked master email
     generated_emails = re.findall(r'[\w\.-]+@[\w\.-]+\.\w+', generated_text)
     for gen_email in generated_emails:
         if '@' in gen_email and not any(ext in gen_email for ext in ['linkedin', 'example']):
@@ -315,7 +318,6 @@ def calculate_ats_keyword_match_score(job_description: str, tailored_cv_text: st
         "will", "my", "one", "has", "our", "work", "their", "can", "role", "team"
     }
     
-    # Tokenize and clean job description words (ignoring short words and stopwords)
     jd_words = set(re.findall(r'\b[a-zA-Z]{3,}\b', job_description.lower()))
     filtered_jd_keywords = {w for w in jd_words if w not in stopwords}
     
@@ -324,13 +326,100 @@ def calculate_ats_keyword_match_score(job_description: str, tailored_cv_text: st
         
     cv_text_lower = tailored_cv_text.lower()
     
-    # Count how many key job terms appear in the generated tailored CV
     matched_count = sum(1 for kw in filtered_jd_keywords if kw in cv_text_lower)
     
-    # Calculate percentage overlap and scale to a realistic executive/tailored range (85% - 98%)
     raw_ratio = matched_count / len(filtered_jd_keywords)
     scaled_score = int(82 + (raw_ratio * 16))
     return max(85, min(98, scaled_score))
+
+def generate_pdf_cv(markdown_text: str) -> bytes:
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        rightMargin=40, leftMargin=40,
+        topMargin=40, bottomMargin=40
+    )
+    
+    styles = getSampleStyleSheet()
+    
+    title_style = ParagraphStyle(
+        'DocTitle',
+        parent=styles['Normal'],
+        fontName='Helvetica-Bold',
+        fontSize=18,
+        leading=22,
+        textColor=colors.HexColor('#0f172a'),
+        spaceAfter=4
+    )
+    
+    subtitle_style = ParagraphStyle(
+        'DocSubTitle',
+        parent=styles['Normal'],
+        fontName='Helvetica',
+        fontSize=10,
+        leading=14,
+        textColor=colors.HexColor('#475569'),
+        spaceAfter=8
+    )
+    
+    heading_style = ParagraphStyle(
+        'SectionHeading',
+        parent=styles['Normal'],
+        fontName='Helvetica-Bold',
+        fontSize=12,
+        leading=16,
+        textColor=colors.HexColor('#0284c7'),
+        spaceBefore=12,
+        spaceAfter=4
+    )
+    
+    body_style = ParagraphStyle(
+        'BodyTextCustom',
+        parent=styles['Normal'],
+        fontName='Helvetica',
+        fontSize=9.5,
+        leading=13.5,
+        textColor=colors.HexColor('#1e293b'),
+        spaceAfter=4
+    )
+    
+    bullet_style = ParagraphStyle(
+        'BulletCustom',
+        parent=body_style,
+        leftIndent=15,
+        firstLineIndent=-10,
+        spaceAfter=3
+    )
+
+    story = []
+    lines = markdown_text.split('\n')
+    
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+            
+        if line.startswith('# '):
+            text = line.replace('# ', '').replace('**', '')
+            story.append(Paragraph(text, title_style))
+        elif '•' in line and not line.startswith('-'):
+            story.append(Paragraph(line.replace('**', ''), subtitle_style))
+            story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#cbd5e1'), spaceBefore=2, spaceAfter=8))
+        elif line.startswith('## '):
+            text = line.replace('## ', '').replace('**', '')
+            story.append(Spacer(1, 6))
+            story.append(Paragraph(text.upper(), heading_style))
+            story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor('#e2e8f0'), spaceBefore=1, spaceAfter=4))
+        elif line.startswith('- '):
+            text = line.replace('- ', '• ')
+            story.append(Paragraph(text, bullet_style))
+        else:
+            story.append(Paragraph(line, body_style))
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer.getvalue()
 
 async def generate_tailored_cv(user_email: str, master_resume_text: str, job_title: str, company_name: str, job_description: str) -> str:
     system_prompt = f"""
@@ -466,7 +555,6 @@ async def audit_and_correct_tailored_documents_dynamic(
             "corrected_cover_letter": draft_cover_letter
         }
         
-    # Apply post-processing guardrail to audited output as well
     audit_data["corrected_cv"] = enforce_ground_truth_guardrails(user_email, master_resume_text, audit_data.get("corrected_cv", draft_cv))
     audit_data["corrected_cover_letter"] = enforce_ground_truth_guardrails(user_email, master_resume_text, audit_data.get("corrected_cover_letter", draft_cover_letter))
     
@@ -519,7 +607,7 @@ def build_ghostwriter_prompt(master_cv_markdown: str, target_job_description: st
 def fetch_real_time_company_intelligence(company_name: str) -> str:
     try:
         clean_name = company_name.strip()
-        search_url = "https://html.duckduckgo.com/html/?q=" + urllib.parse.quote(clean_name + ' news company milestones')
+        search_url = "[https://html.duckduckgo.com/html/?q=](https://html.duckduckgo.com/html/?q=)" + urllib.parse.quote(clean_name + ' news company milestones')
         headers = {"User-Agent": "Mozilla/5.0"}
         res = requests.get(search_url, headers=headers, timeout=4)
         if res.status_code == 200:
@@ -564,7 +652,7 @@ def recursive_org_chart_decision_maker_discovery(company_name: str, job_title: s
 
     if HUNTER_API_KEY and c_clean:
         try:
-            url = "https://api.hunter.io/v2/domain-search?domain=" + clean_domain + f"&department=executive&api_key={HUNTER_API_KEY}"
+            url = "[https://api.hunter.io/v2/domain-search?domain=](https://api.hunter.io/v2/domain-search?domain=)" + clean_domain + f"&department=executive&api_key={HUNTER_API_KEY}"
             res = requests.get(url, timeout=5)
             if res.status_code == 200:
                 data = res.json().get("data", {})
@@ -702,7 +790,7 @@ async def multi_tenant_job_infiltration(target_roles: str, location: str, count:
         for country in countries_to_try:
             if ADZUNA_APP_ID and ADZUNA_APP_KEY:
                 try:
-                    adzuna_url = "https://api.adzuna.com/v1/api/jobs/" + country + f"/search/1?app_id={ADZUNA_APP_ID}&app_key={ADZUNA_APP_KEY}&what={urllib.parse.quote(primary_term)}&content-type=application/json"
+                    adzuna_url = "[https://api.adzuna.com/v1/api/jobs/](https://api.adzuna.com/v1/api/jobs/)" + country + f"/search/1?app_id={ADZUNA_APP_ID}&app_key={ADZUNA_APP_KEY}&what={urllib.parse.quote(primary_term)}&content-type=application/json"
                     res = requests.get(adzuna_url, timeout=6)
                     if res.status_code == 200:
                         for item in res.json().get("results", []):
@@ -1397,6 +1485,31 @@ async def refresh_career_match(match_id: int, auth: dict = Depends(verify_api_ke
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"ERROR: {str(e)}")
 
+@app.post("/api/v1/career/matches/{match_id}/download-pdf")
+async def download_match_pdf(match_id: int, request: Request, auth: dict = Depends(verify_api_key_only)):
+    with db_transaction_scope() as (_, cursor):
+        if DATABASE_URL:
+            cursor.execute("SELECT cv_variant, job_title, company_name FROM job_matches WHERE id = %s AND user_email = %s", (match_id, auth["email"]))
+        else:
+            cursor.execute("SELECT cv_variant, job_title, company_name FROM job_matches WHERE id = ? AND user_email = ?", (match_id, auth["email"]))
+        row = cursor.fetchone()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Job match not found.")
+
+    m_data = dict(row) if not isinstance(row, dict) else row
+    cv_markdown = m_data.get("cv_variant")
+    if not cv_markdown:
+        raise HTTPException(status_code=400, detail="No tailored CV variant found for this match. Please generate the tailored CV first.")
+
+    pdf_bytes = generate_pdf_cv(cv_markdown)
+    
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename=Raymond_Hartman_CV_{match_id}.pdf"}
+    )
+
 @app.post("/api/v1/career/matches/{match_id}/tailor")
 async def tailor_saved_match(match_id: int, auth: dict = Depends(verify_api_key_only)):
     with db_transaction_scope() as (_, cursor):
@@ -1448,7 +1561,6 @@ async def tailor_saved_match(match_id: int, auth: dict = Depends(verify_api_key_
         else:
             cursor.execute("UPDATE job_matches SET cv_variant = ?, cover_letter_variant = ? WHERE id = ? AND user_email = ?", (tailored_cv_text, tailored_cl, match_id, auth["email"]))
 
-    # Calculate ATS keyword match score before returning response
     ats_score = calculate_ats_keyword_match_score(job_description, tailored_cv_text)
 
     return {
@@ -1491,7 +1603,6 @@ async def tailor_user_specific_cv(
         job_description=payload.job_description
     )
 
-    # Calculate ATS keyword match score dynamically
     ats_score = calculate_ats_keyword_match_score(payload.job_description, tailored_cv_markdown)
 
     return {
@@ -1663,7 +1774,7 @@ async def dispatch_career_outreach(match_id: int, payload: OutreachDispatchReque
 
     if RESEND_API_KEY:
         headers = {"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"}
-        res = requests.post("https://api.resend.com/emails", json={
+        res = requests.post("[https://api.resend.com/emails](https://api.resend.com/emails)", json={
             "from": f"QuantCode Outreach <{SENDER_EMAIL}>", 
             "to": [target_email],
             "subject": payload.subject, 
@@ -1865,7 +1976,7 @@ Keep this key secure and use it in your `x-api-key` header for all API requests.
 
 Dashboard: [https://nexus-core-yfou.onrender.com/](https://nexus-core-yfou.onrender.com/)
 """
-                requests.post("https://api.resend.com/emails", json={
+                requests.post("[https://api.resend.com/emails](https://api.resend.com/emails)", json={
                     "from": f"QuantCode Billing <{SENDER_EMAIL}>", 
                     "to": [customer_email],
                     "subject": "Your QuantCode Nexus API Key & Subscription Access",
