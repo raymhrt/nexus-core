@@ -391,8 +391,8 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         'DocTitle',
         parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=15,
-        leading=18,
+        fontSize=16,
+        leading=20,
         textColor=colors.HexColor('#0f172a'),
         spaceAfter=2
     )
@@ -401,21 +401,22 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         'DocSubTitle',
         parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=9.5,
-        leading=13,
+        fontSize=10,
+        leading=14,
         textColor=colors.HexColor('#0284c7'),
-        spaceAfter=6
+        spaceAfter=8
     )
     
     heading_style = ParagraphStyle(
         'SectionHeading',
         parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=11.5,
+        fontSize=11,
         leading=15,
         textColor=colors.HexColor('#0284c7'),
-        spaceBefore=10,
-        spaceAfter=3
+        spaceBefore=12,
+        spaceAfter=4,
+        keepWithNext=True
     )
     
     job_title_style = ParagraphStyle(
@@ -426,7 +427,8 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         leading=13,
         textColor=colors.HexColor('#1e293b'),
         spaceBefore=6,
-        spaceAfter=2
+        spaceAfter=3,
+        keepWithNext=True
     )
     
     body_style = ParagraphStyle(
@@ -436,14 +438,14 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         fontSize=9,
         leading=12.5,
         textColor=colors.HexColor('#334155'),
-        spaceAfter=3
+        spaceAfter=4
     )
     
     bullet_style = ParagraphStyle(
         'BulletCustom',
         parent=body_style,
-        leftIndent=12,
-        firstLineIndent=-8,
+        leftIndent=14,
+        firstLineIndent=-10,
         spaceAfter=2
     )
 
@@ -458,26 +460,37 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
             
         cleaned_line = markdown_to_reportlab_html(line)
         
+        # 1. Document Title (# )
         if line.startswith('# '):
             raw_title = re.sub(r'^#+\s*', '', line).replace('**', '')
             story.append(Paragraph(raw_title, title_style))
-        elif '•' in line and not line.startswith('-') and not line.startswith('*'):
+            
+        # 2. Subtitle / Contact bar (Contains • and not a bullet point line)
+        elif '•' in line and not line.startswith('-') and not line.startswith('*') and not line.startswith('•'):
             story.append(Paragraph(cleaned_line.replace('•', '').strip(), subtitle_style))
-            story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#0284c7'), spaceBefore=2, spaceAfter=6))
+            story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#0284c7'), spaceBefore=2, spaceAfter=8))
+            
+        # 3. Major Section Headings (## ) - ONLY place dividers here between major sections
         elif line.startswith('## '):
             section_name = re.sub(r'^##\s*', '', line).replace('**', '')
             
             if not is_first_section:
-                story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor('#cbd5e1'), spaceBefore=6, spaceAfter=4))
+                story.append(HRFlowable(width="100%", thickness=0.75, color=colors.HexColor('#cbd5e1'), spaceBefore=8, spaceAfter=6))
             else:
                 is_first_section = False
                 
             story.append(Paragraph(section_name.upper(), heading_style))
+            
+        # 4. Job Titles / Experience Sub-headings
         elif any(marker in line for marker in ['– Present', '– 20', '- 20']) and ('University' in line or 'Manager' in line or 'Company' in line or 'Lab' in line):
             story.append(Paragraph(cleaned_line, job_title_style))
-        elif line.startswith('- ') or line.startswith('* '):
-            text = re.sub(r'^[\-\*]\s*', '• ', cleaned_line)
+            
+        # 5. Bullet Points (Handles -, *, or • dynamically)
+        elif line.startswith('- ') or line.startswith('* ') or line.startswith('• '):
+            text = re.sub(r'^([\-\*\•])\s*', '• ', cleaned_line)
             story.append(Paragraph(text, bullet_style))
+            
+        # 6. Standard Body Text
         else:
             story.append(Paragraph(cleaned_line, body_style))
 
