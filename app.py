@@ -407,16 +407,16 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         spaceAfter=6
     )
     
-    # Enlarge section headings so they are visibly distinct and larger than body text
+    # Larger, distinct bold heading style with brand blue color
     heading_style = ParagraphStyle(
         'SectionHeading',
         parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=12,
-        leading=16,
+        fontSize=11.5,
+        leading=15,
         textColor=colors.HexColor('#0284c7'),
         spaceBefore=10,
-        spaceAfter=3,
+        spaceAfter=2,
         keepWithNext=True
     )
     
@@ -459,6 +459,10 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         if not line:
             continue
             
+        # Strip any rogue markdown bullets from section headings if the LLM hallucinated them
+        if line.startswith('##') or line.startswith('• ##') or line.startswith('- ##'):
+            line = re.sub(r'^[\•\-\*\s#]+', '## ', line)
+            
         if line.startswith('## '):
             if "Selected Publications" in line or "Publications" in line:
                 in_publications_section = True
@@ -477,10 +481,10 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
             story.append(Paragraph(cleaned_line.replace('•', '').strip(), subtitle_style))
             story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#0284c7'), spaceBefore=2, spaceAfter=6))
             
-        # 3. Major Section Headings (## ) - Always add a crisp horizontal border divider line beneath
+        # 3. Major Section Headings (## ) - Guaranteed larger font + horizontal border line divider beneath
         elif line.startswith('## '):
             section_name = re.sub(r'^##\s*', '', line).replace('**', '')
-            story.append(Spacer(1, 4))
+            story.append(Spacer(1, 6))
             story.append(Paragraph(section_name.upper(), heading_style))
             story.append(HRFlowable(width="100%", thickness=0.75, color=colors.HexColor('#0284c7'), spaceBefore=2, spaceAfter=4))
             
@@ -488,18 +492,15 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         elif any(marker in line for marker in ['– Present', '– 20', '- 20']) and ('University' in line or 'Manager' in line or 'Company' in line or 'Lab' in line):
             story.append(Paragraph(cleaned_line, job_title_style))
             
-        # 5. Publications section
+        # 5. Publications section (Strictly no bullets)
         elif in_publications_section:
             pub_text = re.sub(r'^[\-\*\•]\s*', '', cleaned_line)
-            pub_text = pub_text.replace('"International', '*International').replace('International Journal of Biological Macromolecules*,', 'International Journal of Biological Macromolecules,*')
             story.append(Paragraph(pub_text, body_style))
             
         # 6. Bullet Points
         elif line.startswith('- ') or line.startswith('* ') or line.startswith('• '):
             text = re.sub(r'^([\-\*\•])\s*', '• ', cleaned_line)
             story.append(Paragraph(text, bullet_style))
-        elif not line.startswith('#') and len(line) < 65 and not any(m in line for m in ['– Present', '- 20', '– 20']) and not in_publications_section:
-            story.append(Paragraph(f"• {cleaned_line}", bullet_style))
             
         # 7. Standard Body Text
         else:
@@ -514,12 +515,14 @@ async def generate_tailored_cv(user_email: str, master_resume_text: str, job_tit
     You are an elite executive career strategist and expert technical resume writer.
     Your task is to completely rewrite and dynamically tailor the candidate's Master CV specifically for the target role: {job_title} at {company_name}.
 
-    CRITICAL TAILORING RULES:
-    1. TARGETED SUBTITLE & CONTACT HEADER: Use the exact email address located in the candidate's Master CV text header. Directly below, format the subtitle as: Applied Research Scientist | [Top Keyword from Job Description] & [Second Top Keyword] | Experimental Design & Data Analysis.
+    CRITICAL TAILORING & STRUCTURAL RULES:
+    1. HEADER & SUBTITLE: First line must be '# Raymond Hartman, PhD'. Second line must be contact info with '|' separators using the exact email from the master CV. Directly below, format the subtitle strictly as: Applied Research Scientist | [Top Keyword from Job Description] & [Second Top Keyword] | Experimental Design & Data Analysis. NO bullet points in the header.
     2. EXPERIENCE RE-WEIGHTING: Do not just copy and paste the master CV bullets. Actively rephrase and prioritize the bullet points under each role (e.g., University of the Witwatersrand, Transvaal Electric Motors) to highlight the exact methodologies, software (Python, GraphPad Prism), and technical domains explicitly requested in the target Job Description.
-    3. MANDATORY SECTIONS: Retain the clean Education section listing all degrees (PhD, BSc Hons, BSc, National Diploma), Selected Publications, and Awards & Scholarships exactly as they appear in the master CV.
-    4. ATS-SAFE FORMATTING: Use standard Markdown (# headings, ## subheadings, and • bullet lists). Never use HTML tables or multi-column blocks.
-    5. STRICT GROUND TRUTH: Never invent fake metrics or unverified figures. Reframe real experience to match the employer's terminology.
+    3. SECTION HEADINGS: Use standard Markdown headers starting with '## ' for every major section (e.g., '## Professional Summary', '## Core Competencies', '## Technical Skills', '## Professional Experience', '## Education', '## Awards & Scholarships', '## Certifications', '## Selected Publications'). NEVER put bullet points (•, -, *) on lines starting with '##'.
+    4. BULLET POINTS: Use standard bullet points ('- ' or '* ') ONLY for items inside Professional Summary, Core Competencies, Professional Experience, and Awards. NEVER put bullet points on Section Headings or Publication citations.
+    5. PUBLICATIONS: List publications as plain text paragraphs without any bullet symbols.
+    6. MANDATORY SECTIONS: Retain the clean Education section listing all degrees (PhD, BSc Hons, BSc, National Diploma), Selected Publications, and Awards & Scholarships exactly as they appear in the master CV.
+    7. STRICT GROUND TRUTH: Never invent fake metrics or unverified figures. Reframe real experience to match the employer's terminology.
     """
 
     user_prompt = f"""
@@ -544,7 +547,6 @@ async def generate_tailored_cv(user_email: str, master_resume_text: str, job_tit
     
     guarded_cv = enforce_ground_truth_guardrails(user_email, master_resume_text, raw_cv)
     return sanitize_cv_text(guarded_cv)
-
 async def generate_tailored_cover_letter(user_email: str, master_resume_text: str, job_title: str, company_name: str, job_description: str) -> str:
     current_date = datetime.now(timezone.utc).strftime('%d %B %Y')
 
