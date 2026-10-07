@@ -435,8 +435,8 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         'DocSubTitle',
         parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=9.5,
-        leading=13,
+        fontSize=11,
+        leading=15,
         textColor=colors.HexColor('#0284c7'),
         spaceAfter=6
     )
@@ -531,8 +531,8 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
             story.append(Paragraph(markdown_to_reportlab_html(formatted_contact), subtitle_style))
             story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#0284c7'), spaceBefore=2, spaceAfter=6))
             
-        # 3. Subtitle / Field bar
-        elif '•' in raw_line and not raw_line.startswith('-') and not raw_line.startswith('*') and not raw_line.startswith('•'):
+        # 3. Subtitle / Field bar (Applied Research Scientist | ...) - Now larger and bold
+        elif 'Applied Research Scientist' in raw_line or ('|' in raw_line and 'Experimental Design' in raw_line):
             story.append(Paragraph(cleaned_line.replace('•', '').strip(), subtitle_style))
             story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#0284c7'), spaceBefore=2, spaceAfter=6))
             
