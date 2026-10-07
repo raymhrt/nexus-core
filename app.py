@@ -10,6 +10,7 @@ import uuid
 import re
 import urllib.parse
 import time
+import unicodedata
 from typing import List, Dict, Optional, Any
 from datetime import datetime, timedelta, timezone
 from contextlib import asynccontextmanager, contextmanager
@@ -143,6 +144,29 @@ def sanitize_job_title(title: str) -> str:
         cleaned = cleaned[:57] + "..."
     return cleaned
 
+# ==================== MULTI-TENANT DYNAMIC CV SANITIZER ====================
+def sanitize_cv_text(text: str) -> str:
+    if not text:
+        return ""
+    
+    # 1. Normalize unicode characters to prevent hidden encoding artifacts
+    text = unicodedata.normalize('NFKC', text)
+    
+    # 2. Standardize all dash types (em-dashes, en-dashes, soft hyphens) into clean formatting
+    text = re.sub(r'[\u2010\u2011\u2012\u2013\u2014\u2015]', '–', text)
+    
+    # 3. Dynamically fix common LLM/Markdown list formatting glitches (e.g., triple/double asterisks clashing)
+    text = re.sub(r'\*\*\*+', '**', text)
+    
+    # 4. Fix formatting glitches where punctuation is incorrectly spaced (e.g., "word ." -> "word.")
+    text = re.sub(r'\s+([.,;:!?])', r'\1', text)
+    
+    # 5. Clean up duplicate consecutive spaces or malformed line breaks
+    text = re.sub(r'[ \t]+', ' ', text)
+    text = re.sub(r'\n\s*\n\s*\n+', '\n\n', text)
+    
+    return text.strip()
+
 def extract_json_safely(raw_text: str, default: Any = None) -> Any:
     if default is None:
         default = {}
@@ -240,7 +264,7 @@ def call_groq_ai(prompt: str, system_prompt: str = "You are the complete multi-t
     }
 
     max_retries = 5
-    endpoint_url = "https://api.groq.com/openai/v1/chat/completions"
+    endpoint_url = "[https://api.groq.com/openai/v1/chat/completions](https://api.groq.com/openai/v1/chat/completions)"
 
     for attempt in range(max_retries):
         try:
@@ -454,7 +478,8 @@ async def generate_tailored_cv(user_email: str, master_resume_text: str, job_tit
     eval_data = extract_json_safely(raw_response, {})
     raw_cv = eval_data.get("tailored_cv") or raw_response
     
-    return enforce_ground_truth_guardrails(user_email, master_resume_text, raw_cv)
+    guarded_cv = enforce_ground_truth_guardrails(user_email, master_resume_text, raw_cv)
+    return sanitize_cv_text(guarded_cv)
 
 async def generate_tailored_cover_letter(user_email: str, master_resume_text: str, job_title: str, company_name: str, job_description: str) -> str:
     current_date = datetime.now(timezone.utc).strftime('%d %B %Y')
@@ -490,7 +515,8 @@ async def generate_tailored_cover_letter(user_email: str, master_resume_text: st
         lambda: call_groq_ai(user_prompt, system_prompt=system_prompt)
     )
     
-    return enforce_ground_truth_guardrails(user_email, master_resume_text, cover_letter_output.strip())
+    guarded_cl = enforce_ground_truth_guardrails(user_email, master_resume_text, cover_letter_output.strip())
+    return sanitize_cv_text(guarded_cl)
 
 async def audit_and_correct_tailored_documents_dynamic(
     user_email: str,
@@ -551,17 +577,20 @@ async def audit_and_correct_tailored_documents_dynamic(
             "issues_identified": ["Audit parsing fallback triggered; returning safe baseline."],
             "missing_information": [],
             "hallucinations_removed": [],
-            "corrected_cv": draft_cv,
-            "corrected_cover_letter": draft_cover_letter
+            "corrected_cv": sanitize_cv_text(draft_cv),
+            "corrected_cover_letter": sanitize_cv_text(draft_cover_letter)
         }
         
-    audit_data["corrected_cv"] = enforce_ground_truth_guardrails(user_email, master_resume_text, audit_data.get("corrected_cv", draft_cv))
-    audit_data["corrected_cover_letter"] = enforce_ground_truth_guardrails(user_email, master_resume_text, audit_data.get("corrected_cover_letter", draft_cover_letter))
+    corrected_cv = enforce_ground_truth_guardrails(user_email, master_resume_text, audit_data.get("corrected_cv", draft_cv))
+    corrected_cl = enforce_ground_truth_guardrails(user_email, master_resume_text, audit_data.get("corrected_cover_letter", draft_cover_letter))
+    
+    audit_data["corrected_cv"] = sanitize_cv_text(corrected_cv)
+    audit_data["corrected_cover_letter"] = sanitize_cv_text(corrected_cl)
     
     return audit_data
 
 def build_ghostwriter_prompt(master_cv_markdown: str, target_job_description: str, target_role: str, company_name: str, user_email: str, tone: str = "executive_leader") -> str:
-    cleaned_cv = master_cv_markdown if master_cv_markdown and len(master_cv_markdown.strip()) > 20 else f"Candidate Profile: Professional Technical Researcher ({user_email})."
+    cleaned_cv = sanitize_cv_text(master_cv_markdown) if master_cv_markdown and len(master_cv_markdown.strip()) > 20 else f"Candidate Profile: Professional Technical Researcher ({user_email})."
     return f"""
     You are an elite executive career strategist and ATS optimization expert.
     Your task is to tailor the candidate's actual Master CV into an ATS-optimized, 1-page Markdown resume targeting the job description below.
@@ -858,8 +887,8 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
             rationale_val = eval_data.get('match_rationale', ["Verified domain competency and analytical methodology alignment."])
             rationale_str = json.dumps(rationale_val) if isinstance(rationale_val, (list, dict)) else str(rationale_val)
 
-            tailored_cv_text = eval_data.get('tailored_cv') or eval_data.get('cv_variant') or profile_content
-            tailored_cl_text = eval_data.get('tailored_cover_letter') or eval_data.get('cover_letter_variant') or f"Dear Hiring Team,\n\nI am writing to express my strong interest..."
+            tailored_cv_text = sanitize_cv_text(eval_data.get('tailored_cv') or eval_data.get('cv_variant') or profile_content)
+            tailored_cl_text = sanitize_cv_text(eval_data.get('tailored_cover_letter') or eval_data.get('cover_letter_variant') or f"Dear Hiring Team,\n\nI am writing to express my strong interest...")
 
             return {
                 "company_name": company,
@@ -1367,8 +1396,8 @@ def get_career_matches(min_fit: int = Query(50, ge=0, le=100), user=Depends(veri
             "salary_benchmark": m.get("salary_benchmark", ""),
             "recruiter_verified": m.get("recruiter_verified", 1),
             "negotiation_strategy": m.get("negotiation_strategy", ""),
-            "cv_variant": m.get("cv_variant", ""),
-            "cover_letter_variant": m.get("cover_letter_variant", ""),
+            "cv_variant": sanitize_cv_text(m.get("cv_variant", "")),
+            "cover_letter_variant": sanitize_cv_text(m.get("cover_letter_variant", "")),
             "interview_playbook": m.get("interview_playbook", ""),
             "ats_portal_url": m.get("ats_portal_url", ""),
             "status": m.get("status", "discovered")
@@ -1472,8 +1501,8 @@ async def refresh_career_match(match_id: int, auth: dict = Depends(verify_api_ke
                 safe_str(evaluated.get('outreach_draft')),
                 safe_str(evaluated.get('salary_benchmark')),
                 safe_str(evaluated.get('negotiation_strategy')),
-                safe_str(evaluated.get('cv_variant')),
-                safe_str(evaluated.get('cover_letter_variant')),
+                sanitize_cv_text(safe_str(evaluated.get('cv_variant'))),
+                sanitize_cv_text(safe_str(evaluated.get('cover_letter_variant'))),
                 safe_str(evaluated.get('interview_playbook')),
                 match_id,
                 auth["email"]
@@ -1498,7 +1527,7 @@ async def download_match_pdf(match_id: int, request: Request, auth: dict = Depen
         raise HTTPException(status_code=404, detail="Job match not found.")
 
     m_data = dict(row) if not isinstance(row, dict) else row
-    cv_markdown = m_data.get("cv_variant")
+    cv_markdown = sanitize_cv_text(m_data.get("cv_variant"))
     if not cv_markdown:
         raise HTTPException(status_code=400, detail="No tailored CV variant found for this match. Please generate the tailored CV first.")
 
@@ -1507,7 +1536,7 @@ async def download_match_pdf(match_id: int, request: Request, auth: dict = Depen
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": f"attachment; filename=Raymond_Hartman_CV_{match_id}.pdf"}
+        headers={"Content-Disposition": f"attachment; filename=Tailored_CV_{match_id}.pdf"}
     )
 
 @app.post("/api/v1/career/matches/{match_id}/tailor")
@@ -1539,21 +1568,21 @@ async def tailor_saved_match(match_id: int, auth: dict = Depends(verify_api_key_
     job_title = m_dict.get('job_title', '')
     job_description = m_dict.get('job_description', '')
 
-    tailored_cv_text = await generate_tailored_cv(
+    tailored_cv_text = sanitize_cv_text(await generate_tailored_cv(
         user_email=auth["email"],
         master_resume_text=master_resume,
         job_title=job_title,
         company_name=company_name,
         job_description=job_description
-    )
+    ))
 
-    tailored_cl = await generate_tailored_cover_letter(
+    tailored_cl = sanitize_cv_text(await generate_tailored_cover_letter(
         user_email=auth["email"],
         master_resume_text=master_resume,
         job_title=job_title,
         company_name=company_name,
         job_description=job_description
-    )
+    ))
 
     with db_transaction_scope() as (_, cursor):
         if DATABASE_URL:
@@ -1587,21 +1616,21 @@ async def tailor_user_specific_cv(
     if not master_resume:
         master_resume = f"Candidate profile for user {auth['email']}"
 
-    tailored_cv_markdown = await generate_tailored_cv(
+    tailored_cv_markdown = sanitize_cv_text(await generate_tailored_cv(
         user_email=auth["email"],
         master_resume_text=master_resume,
         job_title=payload.job_title,
         company_name=payload.company_name,
         job_description=payload.job_description
-    )
+    ))
 
-    tailored_cl = await generate_tailored_cover_letter(
+    tailored_cl = sanitize_cv_text(await generate_tailored_cover_letter(
         user_email=auth["email"],
         master_resume_text=master_resume,
         job_title=payload.job_title,
         company_name=payload.company_name,
         job_description=payload.job_description
-    )
+    ))
 
     ats_score = calculate_ats_keyword_match_score(payload.job_description, tailored_cv_markdown)
 
@@ -1648,21 +1677,21 @@ async def audit_and_correct_tenant_documents(
     if not master_resume_text or len(master_resume_text.strip()) < 10:
         raise HTTPException(status_code=400, detail="Stored master CV profile is empty or invalid.")
 
-    draft_cv = await generate_tailored_cv(
+    draft_cv = sanitize_cv_text(await generate_tailored_cv(
         user_email=user_email,
         master_resume_text=master_resume_text,
         job_title=payload.job_title,
         company_name=payload.company_name,
         job_description=payload.job_description
-    )
+    ))
 
-    draft_cl = await generate_tailored_cover_letter(
+    draft_cl = sanitize_cv_text(await generate_tailored_cover_letter(
         user_email=user_email,
         master_resume_text=master_resume_text,
         job_title=payload.job_title,
         company_name=payload.company_name,
         job_description=payload.job_description
-    )
+    ))
 
     audit_result = await audit_and_correct_tailored_documents_dynamic(
         user_email=user_email,
@@ -1682,8 +1711,8 @@ async def audit_and_correct_tenant_documents(
             "missing_information": audit_result.get("missing_information", []),
             "hallucinations_removed": audit_result.get("hallucinations_removed", [])
         },
-        "corrected_cv": audit_result.get("corrected_cv"),
-        "corrected_cover_letter": audit_result.get("corrected_cover_letter")
+        "corrected_cv": sanitize_cv_text(audit_result.get("corrected_cv")),
+        "corrected_cover_letter": sanitize_cv_text(audit_result.get("corrected_cover_letter"))
     }
 
 @app.post("/api/v1/career/resume")
