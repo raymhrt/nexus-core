@@ -9,6 +9,7 @@ import random
 import uuid
 import re
 import urllib.parse
+import html
 import time
 import unicodedata
 from typing import List, Dict, Optional, Any
@@ -170,6 +171,21 @@ def sanitize_cv_text(text: str) -> str:
     text = re.sub(r'\n\s*\n\s*\n+', '\n\n', text)
     
     return text.strip()
+
+def markdown_to_reportlab_html(text: str) -> str:
+    """
+    Safely converts Markdown bold/italic markup into ReportLab XML-compatible 
+    tags (<b>, <i>) and escapes special XML characters.
+    """
+    if not text:
+        return ""
+    
+    safe_text = html.escape(text)
+    safe_text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', safe_text)
+    safe_text = re.sub(r'(?<!\S)\*(?!\s)(.*?)(?<!\s)\*(?!\S)', r'<i>\1</i>', safe_text)
+    safe_text = safe_text.replace('**', '').replace('***', '')
+    
+    return safe_text
 
 def extract_json_safely(raw_text: str, default: Any = None) -> Any:
     if default is None:
@@ -375,8 +391,8 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         'DocTitle',
         parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=16,
-        leading=20,
+        fontSize=15,
+        leading=18,
         textColor=colors.HexColor('#0f172a'),
         spaceAfter=2
     )
@@ -384,10 +400,10 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
     subtitle_style = ParagraphStyle(
         'DocSubTitle',
         parent=styles['Normal'],
-        fontName='Helvetica',
+        fontName='Helvetica-Bold',
         fontSize=9.5,
         leading=13,
-        textColor=colors.HexColor('#475569'),
+        textColor=colors.HexColor('#0284c7'),
         spaceAfter=6
     )
     
@@ -395,10 +411,21 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         'SectionHeading',
         parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=11,
-        leading=14,
+        fontSize=11.5,
+        leading=15,
         textColor=colors.HexColor('#0284c7'),
-        spaceBefore=8,
+        spaceBefore=10,
+        spaceAfter=3
+    )
+    
+    job_title_style = ParagraphStyle(
+        'JobTitleStyle',
+        parent=styles['Normal'],
+        fontName='Helvetica-Bold',
+        fontSize=9.5,
+        leading=13,
+        textColor=colors.HexColor('#1e293b'),
+        spaceBefore=6,
         spaceAfter=2
     )
     
@@ -408,7 +435,7 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         fontName='Helvetica',
         fontSize=9,
         leading=12.5,
-        textColor=colors.HexColor('#1e293b'),
+        textColor=colors.HexColor('#334155'),
         spaceAfter=3
     )
     
@@ -422,29 +449,37 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
 
     story = []
     lines = markdown_text.split('\n')
+    is_first_section = True
     
     for line in lines:
         line = line.strip()
         if not line:
             continue
             
-        # Strip markdown hashes completely from PDF rendering
-        clean_line = re.sub(r'^#+\s*', '', line)
+        cleaned_line = markdown_to_reportlab_html(line)
         
         if line.startswith('# '):
-            story.append(Paragraph(clean_line.replace('**', ''), title_style))
-        elif '•' in line and not line.startswith('-'):
-            story.append(Paragraph(clean_line.replace('**', ''), subtitle_style))
-            story.append(HRFlowable(width="100%", thickness=0.75, color=colors.HexColor('#cbd5e1'), spaceBefore=1, spaceAfter=4))
+            raw_title = re.sub(r'^#+\s*', '', line).replace('**', '')
+            story.append(Paragraph(raw_title, title_style))
+        elif '•' in line and not line.startswith('-') and not line.startswith('*'):
+            story.append(Paragraph(cleaned_line.replace('•', '').strip(), subtitle_style))
+            story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#0284c7'), spaceBefore=2, spaceAfter=6))
         elif line.startswith('## '):
-            story.append(Spacer(1, 4))
-            story.append(Paragraph(clean_line.upper().replace('**', ''), heading_style))
-            story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor('#e2e8f0'), spaceBefore=1, spaceAfter=3))
+            section_name = re.sub(r'^##\s*', '', line).replace('**', '')
+            
+            if not is_first_section:
+                story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor('#cbd5e1'), spaceBefore=6, spaceAfter=4))
+            else:
+                is_first_section = False
+                
+            story.append(Paragraph(section_name.upper(), heading_style))
+        elif any(marker in line for marker in ['– Present', '– 20', '- 20']) and ('University' in line or 'Manager' in line or 'Company' in line or 'Lab' in line):
+            story.append(Paragraph(cleaned_line, job_title_style))
         elif line.startswith('- ') or line.startswith('* '):
-            text = re.sub(r'^[\-\*]\s*', '• ', line)
+            text = re.sub(r'^[\-\*]\s*', '• ', cleaned_line)
             story.append(Paragraph(text, bullet_style))
         else:
-            story.append(Paragraph(line, body_style))
+            story.append(Paragraph(cleaned_line, body_style))
 
     doc.build(story)
     buffer.seek(0)
