@@ -415,12 +415,12 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
     subtitle_style = ParagraphStyle(
         'DocSubTitle',
         parent=styles['Normal'],
-        fontName='Helvetica-Bold',
-        fontSize=8.5,
-        leading=10,
-        textColor=colors.HexColor('#000000'),
+        fontName='Helvetica-Bold',              # Bold weight
+        fontSize=9,                             # Slightly bigger font size
+        leading=12,                             # Adjusted leading
+        textColor=colors.HexColor('#000000'),   # Pure black text
         spaceAfter=4,
-        spaceBefore=4
+        spaceBefore=2
     )
     
     heading_style = ParagraphStyle(
@@ -479,7 +479,7 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
     name_para = Paragraph("RAYMOND HARTMAN, PhD", title_style)
     contact_para = Paragraph("Johannesburg, South Africa<br/>[LinkedIn](https://www.linkedin.com/in/raymond-hartman)<br/>+27 72 215 8693 | raymhrt@yahoo.com", contact_style)
     
-    header_table = Table([[name_para, contact_para]], colWidths=[270, 254])
+    header_table = Table([[name_para, contact_para]], colWidths=[240, 284])
     header_table.setStyle(TableStyle([
         ('VALIGN', (0,0), (-1,-1), 'TOP'),
         ('LEFTPADDING', (0,0), (-1,-1), 0),
@@ -489,6 +489,7 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
     ]))
     story.append(header_table)
     story.append(Spacer(1, 4))
+    # Subtitle is parsed directly from the markdown content without duplication or border lines.
 
     for line in lines:
         raw_line = line
