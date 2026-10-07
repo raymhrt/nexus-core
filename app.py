@@ -262,17 +262,43 @@ def call_groq_ai(prompt: str, system_prompt: str = "You are the complete multi-t
     raise HTTPException(status_code=502, detail="Groq AI inference failed across all retry attempts.")
 
 # ==================== TAILORING HELPERS ====================
+def extract_master_cv_email(master_cv_text: str, default_email: str) -> str:
+    """
+    Programmatically extracts the preferred contact email directly from the user's 
+    master CV text (scanning the header area first), falling back to the tenant email if none is found.
+    """
+    if not master_cv_text:
+        return default_email
+    
+    # Scan the top header snippet (first 600 chars) for an email pattern
+    header_snippet = master_cv_text[:600]
+    match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', header_snippet)
+    if match:
+        return match.group(0)
+    
+    # Fallback to searching anywhere in the master text
+    match_any = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', master_cv_text)
+    return match_any.group(0) if match_any else default_email
+
+
 def enforce_ground_truth_guardrails(user_email: str, master_resume_text: str, generated_text: str) -> str:
     """
-    Programmatically verifies that the generated document retains the correct user email
-    and strips out any unauthorized email variations or placeholder artifacts.
+    Locks the contact email in the generated document to strictly match the email 
+    found in the user's master CV text while ensuring multi-tenant isolation.
     """
     if not generated_text:
         return generated_text
     
-    # Force correct tenant email if drifted
-    cleaned_text = re.sub(r'[\w\.-]+@[\w\.-]+\.\w+', user_email, generated_text)
-    return cleaned_text
+    # Get the locked master CV email dynamically for this tenant
+    master_email = extract_master_cv_email(master_resume_text, user_email)
+    
+    # Replace any drifted email in the generated text with the locked master email
+    generated_emails = re.findall(r'[\w\.-]+@[\w\.-]+\.\w+', generated_text)
+    for gen_email in generated_emails:
+        if '@' in gen_email and not any(ext in gen_email for ext in ['linkedin', 'example']):
+            generated_text = generated_text.replace(gen_email, master_email)
+            
+    return generated_text
 
 async def generate_tailored_cv(user_email: str, master_resume_text: str, job_title: str, company_name: str, job_description: str) -> str:
     system_prompt = f"""
@@ -283,10 +309,11 @@ async def generate_tailored_cv(user_email: str, master_resume_text: str, job_tit
     - Target Role: {job_title} at {company_name}
 
     RIGOROUS ATS FORMATTING & ZERO-HALLUCINATION RULES:
-    1. CONTACT HEADER & TITLE: Place clean contact info at the top, followed immediately by the candidate's exact professional subtitle line from the Master CV (e.g., Applied Research Scientist | Molecular & Biochemical Research | Experimental Design & Data Analysis).
-    2. STRICT GROUND TRUTH: Never invent fake metrics, financial figures, or unverified percentages. Base impact statements strictly on real accomplishments and technical scope provided in the Master CV.
-    3. PRESERVE CREDENTIALS: Always retain the full 'Selected Publications' and key 'Awards & Scholarships' sections for senior or PhD profiles.
-    4. CLEAN MARKDOWN: Use standard headings (#, ##) and bullet points (*). NEVER use HTML tables or multi-column blocks.
+    1. CONTACT HEADER & TITLE: Place clean contact info at the top (extracting and using the exact email address located in the candidate's Master CV text header rather than substituting it with a login email), followed immediately by the candidate's exact professional subtitle line from the Master CV (e.g., Applied Research Scientist | Molecular & Biochemical Research | Experimental Design & Data Analysis).
+    2. MANDATORY EDUCATION SECTION: Always retain a clean, bulleted Education section listing all degrees (PhD, BSc Hons, BSc, National Diploma) exactly as they appear in the master CV.
+    3. ATS-SAFE FORMATTING & SKILLS: Use standard Markdown bullet lists for Technical Skills instead of Markdown tables to ensure 100% reliable parsing across all applicant tracking systems. Use standard headings (#, ##) and bullet points (*). NEVER use HTML tables or multi-column blocks.
+    4. STRICT GROUND TRUTH: Never invent fake metrics, financial figures, or unverified percentages. Base impact statements strictly on real accomplishments and technical scope provided in the Master CV.
+    5. PRESERVE CREDENTIALS: Always retain the full 'Selected Publications' and key 'Awards & Scholarships' sections for senior or PhD profiles.
     """
 
     user_prompt = f"""
