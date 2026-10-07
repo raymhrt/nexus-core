@@ -1632,9 +1632,11 @@ async def download_match_pdf(match_id: int, request: Request, auth: dict = Depen
 
     m_data = dict(row) if not isinstance(row, dict) else row
     cv_markdown = sanitize_cv_text(m_data.get("cv_variant"))
-    if not cv_markdown:
-        raise HTTPException(status_code=400, detail="No tailored CV variant found for this match. Please generate the tailored CV first.")
+    
+    if not cv_markdown or len(cv_markdown.strip()) < 50:
+        raise HTTPException(status_code=400, detail="No tailored CV variant found for this match. Please tailor or refresh the CV first.")
 
+    # Pass the exact database cv_variant string to your PDF generator
     pdf_bytes = generate_pdf_cv(cv_markdown)
     
     return Response(
