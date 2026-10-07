@@ -376,6 +376,21 @@ def calculate_ats_keyword_match_score(job_description: str, tailored_cv_text: st
     scaled_score = int(82 + (raw_ratio * 16))
     return max(85, min(98, scaled_score))
 
+def clean_contact_line(line: str) -> str:
+    """Programmatically ensures clear '|' separators between location, phone, and email."""
+    if '@' in line and any(char.isdigit() for char in line) and '|' not in line:
+        email_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', line)
+        phone_match = re.search(r'\+?[\d\s\-\(\)]{8,15}', line)
+        if email_match and phone_match:
+            email = email_match.group(0)
+            phone = phone_match.group(0).strip()
+            loc = line.replace(email, '').replace(phone, '')
+            loc = re.sub(r'[\s\|\,\-]+$', '', loc).strip()
+            loc = re.sub(r'^[\s\|\,\-]+', '', loc).strip()
+            parts = [p for p in [loc, phone, email] if p]
+            return " | ".join(parts)
+    return line
+
 def generate_pdf_cv(markdown_text: str) -> bytes:
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -407,16 +422,15 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         spaceAfter=6
     )
     
-    # Distinct larger font size and brand blue color for section headings
     heading_style = ParagraphStyle(
         'SectionHeading',
         parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=11.5,
-        leading=15,
+        fontSize=12,
+        leading=16,
         textColor=colors.HexColor('#0284c7'),
         spaceBefore=10,
-        spaceAfter=2,
+        spaceAfter=3,
         keepWithNext=True
     )
     
@@ -447,12 +461,13 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         parent=body_style,
         leftIndent=12,
         firstLineIndent=-8,
-        spaceAfter=2
+        spaceAfter=1.5  # Uniform tight spacing to eliminate double-space gaps
     )
 
     story = []
     lines = markdown_text.split('\n')
-    in_publications_section = False
+    current_section = ""
+    line_idx = 0
     
     known_section_headers = [
         "professional summary", "summary", "core competencies", "competencies",
@@ -467,10 +482,8 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         if not line:
             continue
             
-        # Clean markdown wrappers for check
         clean_check = re.sub(r'[\#\*\_\`\-\•\s]+', ' ', line).strip().lower()
         
-        # Determine if this line is a major section header
         is_section_header = False
         section_title_text = ""
         
@@ -479,15 +492,11 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
             section_title_text = re.sub(r'^[\#\*\_\`\-\•\s]+', '', raw_line).replace('*', '').strip()
         
         if is_section_header:
-            if any(p in section_title_text.lower() for p in ["publication", "selected publications"]):
-                in_publications_section = True
-            else:
-                in_publications_section = False
-                
-            story.append(Spacer(1, 6))
+            current_section = section_title_text.lower()
+            story.append(Spacer(1, 4))
             story.append(Paragraph(section_title_text.upper(), heading_style))
-            # Guaranteed horizontal border line divider beneath every single section heading
             story.append(HRFlowable(width="100%", thickness=0.75, color=colors.HexColor('#0284c7'), spaceBefore=2, spaceAfter=4))
+            line_idx += 1
             continue
             
         cleaned_line = markdown_to_reportlab_html(raw_line)
@@ -497,30 +506,46 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
             raw_title = re.sub(r'^#+\s*', '', raw_line).replace('**', '')
             story.append(Paragraph(raw_title, title_style))
             
-        # 2. Subtitle / Contact bar
+        # 2. Contact Information Line (Second line or contains email/phone)
+        elif line_idx == 1 or ('@' in raw_line and any(char.isdigit() for char in raw_line)):
+            formatted_contact = clean_contact_line(raw_line)
+            story.append(Paragraph(markdown_to_reportlab_html(formatted_contact), subtitle_style))
+            story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#0284c7'), spaceBefore=2, spaceAfter=6))
+            
+        # 3. Subtitle / Field bar
         elif '•' in raw_line and not raw_line.startswith('-') and not raw_line.startswith('*') and not raw_line.startswith('•'):
             story.append(Paragraph(cleaned_line.replace('•', '').strip(), subtitle_style))
             story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#0284c7'), spaceBefore=2, spaceAfter=6))
             
-        # 3. Job Titles / Experience Sub-headings
+        # 4. Job Titles / Experience Sub-headings
         elif any(marker in raw_line for marker in ['– Present', '– 20', '- 20']) and ('University' in raw_line or 'Manager' in raw_line or 'Company' in raw_line or 'Lab' in raw_line):
+            current_section = "professional experience"
             story.append(Paragraph(cleaned_line, job_title_style))
             
-        # 4. Publications section (Strictly plain text paragraphs, no bullets)
-        elif in_publications_section:
+        # 5. Publications section (Plain text, clean academic italics, no quotes/bullets)
+        elif any(p in current_section for p in ["publication", "selected publications"]):
             pub_text = re.sub(r'^[\-\*\•]\s*', '', cleaned_line)
+            pub_text = re.sub(r'"([^"]+)"', r'*\1*', pub_text)
+            pub_text = pub_text.replace(' ,', ',').replace(' .', '.')
             story.append(Paragraph(pub_text, body_style))
             
-        # 5. Bullet Points (Handles -, *, or • robustly)
+        # 6. List Sections (Core Competencies, Technical Skills, Education, Awards, Certifications) - Uniform bullets
+        elif any(sec in current_section for sec in ["competencies", "skills", "education", "awards", "certifications"]):
+            bullet_cleaned = re.sub(r'^[\-\*\•]\s*', '', cleaned_line).strip()
+            if bullet_cleaned:
+                story.append(Paragraph(f"• {bullet_cleaned}", bullet_style))
+                
+        # 7. Standard Bullet Points (Experience bullets)
         elif raw_line.startswith('- ') or raw_line.startswith('* ') or raw_line.startswith('• ') or raw_line.startswith('•'):
-            text = re.sub(r'^([\-\*\•])\s*', '• ', cleaned_line)
-            if not text.startswith('•'):
-                text = '• ' + text
-            story.append(Paragraph(text, bullet_style))
-            
-        # 6. Standard Body Text
+            bullet_cleaned = re.sub(r'^[\-\*\•]\s*', '', cleaned_line).strip()
+            if bullet_cleaned:
+                story.append(Paragraph(f"• {bullet_cleaned}", bullet_style))
+                
+        # 8. Standard Body Text (Professional Summary)
         else:
             story.append(Paragraph(cleaned_line, body_style))
+            
+        line_idx += 1
 
     doc.build(story)
     buffer.seek(0)
