@@ -557,13 +557,14 @@ async def generate_tailored_cv(user_email: str, master_resume_text: str, job_tit
     Your task is to completely rewrite and dynamically tailor the candidate's Master CV specifically for the target role: {job_title} at {company_name}.
 
     CRITICAL TAILORING & STRUCTURAL RULES:
-    1. HEADER & SUBTITLE: First line must be '# Raymond Hartman, PhD'. Second line must be contact info with '|' separators. Third line must be strictly: 'Applied Research Scientist | Laboratory Operations & Stakeholder Engagement | Experimental Design & Data Analysis'. NO bullet points in the header.
-    2. EXPERIENCE RE-WEIGHTING: Do not just copy and paste the master CV bullets. Actively rephrase and prioritize the bullet points under each role (e.g., University of the Witwatersrand, Transvaal Electric Motors) to highlight the exact methodologies, software (Python, GraphPad Prism), and technical domains explicitly requested in the target Job Description.
-    3. SECTION HEADINGS: Use standard Markdown headers starting with '## ' for every major section (e.g., '## Professional Summary', '## Core Competencies', '## Technical Skills', '## Professional Experience', '## Education', '## Awards & Scholarships', '## Certifications', '## Selected Publications'). NEVER put bullet points (•, -, *) on lines starting with '##'.
-    4. BULLET POINTS: Use standard bullet points ('- ' or '* ') ONLY for items inside Professional Summary, Core Competencies, Professional Experience, and Awards. NEVER put bullet points on Section Headings or Publication citations.
-    5. PUBLICATIONS: List publications as plain text paragraphs without any bullet symbols.
-    6. MANDATORY SECTIONS: Retain the clean Education section listing all degrees (PhD, BSc Hons, BSc, National Diploma), Selected Publications, and Awards & Scholarships exactly as they appear in the master CV.
-    7. STRICT GROUND TRUTH: Never invent fake metrics or unverified figures. Reframe real experience to match the employer's terminology.
+    1. HEADER & SUBTITLE: First line must be '# Raymond Hartman, PhD'. Second line must be contact info with '|' separators using the exact email from the master CV. Third line must be strictly: 'Applied Research Scientist | Laboratory Operations & Stakeholder Engagement | Experimental Design & Data Analysis'. NO bullet points in the header.
+    2. PROFESSIONAL SUMMARY: Write the summary as a cohesive 6 to 7 sentence executive narrative paragraph. NEVER use bullet points under '## Professional Summary'.
+    3. EXPERIENCE RE-WEIGHTING: Do not just copy and paste the master CV bullets. Actively rephrase and prioritize the bullet points under each role (e.g., University of the Witwatersrand, Transvaal Electric Motors) to highlight the exact methodologies, software (Python, GraphPad Prism), and technical domains explicitly requested in the target Job Description.
+    4. SECTION HEADINGS: Use standard Markdown headers starting with '## ' for every major section (e.g., '## Professional Summary', '## Core Competencies', '## Technical Skills', '## Professional Experience', '## Education', '## Awards & Scholarships', '## Certifications', '## Selected Publications'). NEVER put bullet points (•, -, *) on lines starting with '##'.
+    5. BULLET POINTS: Use standard bullet points ('- ' or '* ') ONLY for items inside Core Competencies, Professional Experience, and Awards. NEVER put bullet points on Section Headings, Publications, or the Professional Summary.
+    6. PUBLICATIONS: List publications as plain text paragraphs without any bullet symbols.
+    7. MANDATORY SECTIONS: Retain the clean Education section listing all degrees (PhD, BSc Hons, BSc, National Diploma), Selected Publications, and Awards & Scholarships exactly as they appear in the master CV.
+    8. STRICT GROUND TRUTH: Never invent fake metrics or unverified figures. Reframe real experience to match the employer's terminology.
     """
 
     user_prompt = f"""
