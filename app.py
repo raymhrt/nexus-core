@@ -34,7 +34,7 @@ from dotenv import load_dotenv
 
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, HRFlowable
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, HRFlowable, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
 import io
@@ -150,22 +150,13 @@ def sanitize_cv_text(text: str) -> str:
     if not text:
         return ""
     
-    # 1. Normalize unicode characters
     text = unicodedata.normalize('NFKC', text)
-    
-    # 2. Strip rogue markdown artifacts and triple/double asterisk rendering errors at line starts
     text = re.sub(r'^\s*[\*\-\#]{2,}\s*', '', text, flags=re.MULTILINE)
     text = re.sub(r'\*\*\*+', '**', text)
-    
-    # 3. Clean up weird bullet bleeding where single items got rogue asterisks
     text = re.sub(r'^\s*\*\s*([A-Z])', r'• \1', text, flags=re.MULTILINE)
-    
-    # 4. Standardize dash types and remove trailing metadata notes like references or preparation strings
     text = re.sub(r'[\u2010\u2011\u2012\u2013\u2014\u2015]', '-', text)
     text = re.sub(r'(?i)\*?Prepared for the.*?position.*?\*?', '', text)
     text = re.sub(r'(?i)\*?References available upon request\.?\*?', '', text)
-    
-    # 5. Fix spacing around punctuation and line breaks
     text = re.sub(r'\s+([.,;:!?])', r'\1', text)
     text = re.sub(r'[ \t]+', ' ', text)
     text = re.sub(r'\n\s*\n\s*\n+', '\n\n', text)
@@ -173,10 +164,6 @@ def sanitize_cv_text(text: str) -> str:
     return text.strip()
 
 def markdown_to_reportlab_html(text: str) -> str:
-    """
-    Safely converts Markdown bold/italic markup into ReportLab XML-compatible 
-    tags (<b>, <i>) and escapes special XML characters.
-    """
     if not text:
         return ""
     
@@ -314,10 +301,6 @@ def call_groq_ai(prompt: str, system_prompt: str = "You are the complete multi-t
 
 # ==================== TAILORING HELPERS ====================
 def extract_master_cv_email(master_cv_text: str, default_email: str) -> str:
-    """
-    Programmatically extracts the preferred contact email directly from the user's 
-    master CV text (scanning the header area first), falling back to the tenant email if none is found.
-    """
     if not master_cv_text:
         return default_email
     
@@ -331,10 +314,6 @@ def extract_master_cv_email(master_cv_text: str, default_email: str) -> str:
 
 
 def enforce_ground_truth_guardrails(user_email: str, master_resume_text: str, generated_text: str) -> str:
-    """
-    Locks the contact email in the generated document to strictly match the email 
-    found in the user's master CV text while ensuring multi-tenant isolation.
-    """
     if not generated_text:
         return generated_text
     
@@ -348,10 +327,6 @@ def enforce_ground_truth_guardrails(user_email: str, master_resume_text: str, ge
     return generated_text
 
 def calculate_ats_keyword_match_score(job_description: str, tailored_cv_text: str) -> int:
-    """
-    Computes a lightweight, robust ATS keyword match percentage score 
-    by comparing unique technical tokens in the job description against the tailored CV.
-    """
     if not job_description or not tailored_cv_text:
         return 88
         
@@ -377,25 +352,21 @@ def calculate_ats_keyword_match_score(job_description: str, tailored_cv_text: st
     return max(85, min(98, scaled_score))
 
 def clean_contact_line(line: str) -> str:
-    """Programmatically strips rogue bullets/artifacts and ensures clean '|' separators."""
     if not line:
         return "Johannesburg, South Africa | [LinkedIn](https://www.linkedin.com/in/raymond-hartman) | +27 72 215 8693 | raymhrt@yahoo.com"
         
-    # Extract clean email and phone using regex
     email_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', line)
     phone_match = re.search(r'\+?[\d\s\-\(\)]{8,15}', line)
     
     email = email_match.group(0) if email_match else "raymhrt@yahoo.com"
     phone = phone_match.group(0).strip() if phone_match else "+27 72 215 8693"
     
-    # Strip email, phone, and rogue bullet artifacts (•) from the text to isolate location
     loc = line
     if email_match:
         loc = loc.replace(email, '')
     if phone_match:
         loc = loc.replace(phone, '')
         
-    # Remove rogue markdown or literal bullet artifacts (•)
     loc = re.sub(r'[\•\*\_\`]+', ' ', loc)
     loc = re.sub(r'\[LinkedIn\]\([^\)]+\)', '', loc, flags=re.IGNORECASE)
     loc = re.sub(r'https?://[^\s]+', '', loc, flags=re.IGNORECASE)
@@ -425,31 +396,42 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         'DocTitle',
         parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=15,
-        leading=19,
+        fontSize=16,
+        leading=20,
         textColor=colors.HexColor('#0f172a'),
-        spaceAfter=2
+        spaceAfter=1
+    )
+    
+    contact_style = ParagraphStyle(
+        'ContactStyle',
+        parent=styles['Normal'],
+        fontName='Helvetica',
+        fontSize=8.5,
+        leading=11,
+        alignment=2,
+        textColor=colors.HexColor('#475569')
     )
     
     subtitle_style = ParagraphStyle(
         'DocSubTitle',
         parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=11,
-        leading=15,
+        fontSize=10,
+        leading=14,
         textColor=colors.HexColor('#0284c7'),
-        spaceAfter=6
+        spaceAfter=4,
+        spaceBefore=4
     )
     
     heading_style = ParagraphStyle(
         'SectionHeading',
         parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=12,
-        leading=16,
+        fontSize=11.5,
+        leading=15,
         textColor=colors.HexColor('#0284c7'),
         spaceBefore=10,
-        spaceAfter=3,
+        spaceAfter=2,
         keepWithNext=True
     )
     
@@ -472,7 +454,7 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         fontSize=9,
         leading=12,
         textColor=colors.HexColor('#334155'),
-        spaceAfter=3
+        spaceAfter=2.5
     )
     
     bullet_style = ParagraphStyle(
@@ -486,7 +468,6 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
     story = []
     lines = markdown_text.split('\n')
     current_section = ""
-    line_idx = 0
     
     known_section_headers = [
         "professional summary", "summary", "core competencies", "competencies",
@@ -495,10 +476,28 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         "selected publications", "publications"
     ]
     
+    name_para = Paragraph("RAYMOND HARTMAN, PhD", title_style)
+    contact_para = Paragraph("Johannesburg, South Africa<br/>[LinkedIn](https://www.linkedin.com/in/raymond-hartman)<br/>+27 72 215 8693 | raymhrt@yahoo.com", contact_style)
+    
+    header_table = Table([[name_para, contact_para]], colWidths=[270, 254])
+    header_table.setStyle(TableStyle([
+        ('VALIGN', (0,0), (-1,-1), 'TOP'),
+        ('LEFTPADDING', (0,0), (-1,-1), 0),
+        ('RIGHTPADDING', (0,0), (-1,-1), 0),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 0),
+        ('TOPPADDING', (0,0), (-1,-1), 0),
+    ]))
+    story.append(header_table)
+    story.append(Spacer(1, 4))
+    
+    subtitle_text = "Applied Research Scientist | Laboratory Operations & Stakeholder Engagement | Experimental Design & Data Analysis"
+    story.append(Paragraph(subtitle_text, subtitle_style))
+    story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#0284c7'), spaceBefore=2, spaceAfter=6))
+
     for line in lines:
         raw_line = line
         line = line.strip()
-        if not line:
+        if not line or raw_line.startswith('# ') or ('Johannesburg' in raw_line and 'raymhrt' in raw_line):
             continue
             
         clean_check = re.sub(r'[\#\*\_\`\-\•\s]+', ' ', line).strip().lower()
@@ -515,61 +514,36 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
             story.append(Spacer(1, 4))
             story.append(Paragraph(section_title_text.upper(), heading_style))
             story.append(HRFlowable(width="100%", thickness=0.75, color=colors.HexColor('#0284c7'), spaceBefore=2, spaceAfter=4))
-            line_idx += 1
             continue
             
         cleaned_line = markdown_to_reportlab_html(raw_line)
         
-        # 1. Document Title (# )
-        if raw_line.startswith('# '):
-            raw_title = re.sub(r'^#+\s*', '', raw_line).replace('**', '')
-            story.append(Paragraph(raw_title, title_style))
-            
-        # 2. Contact Information Line
-        elif line_idx == 1 or ('@' in raw_line and any(char.isdigit() for char in raw_line)) or ('Johannesburg' in raw_line and 'raymhrt' in raw_line):
-            formatted_contact = clean_contact_line(raw_line)
-            story.append(Paragraph(markdown_to_reportlab_html(formatted_contact), subtitle_style))
-            story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#0284c7'), spaceBefore=2, spaceAfter=6))
-            
-        # 3. Subtitle / Field bar (Applied Research Scientist | ...) - Now larger and bold
-        elif 'Applied Research Scientist' in raw_line or ('|' in raw_line and 'Experimental Design' in raw_line):
-            story.append(Paragraph(cleaned_line.replace('•', '').strip(), subtitle_style))
-            story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#0284c7'), spaceBefore=2, spaceAfter=6))
-            
-        # 4. Job Titles / Experience Sub-headings (Flexible matching for year ranges & Present)
-        elif ('University' in raw_line or 'Manager' in raw_line or 'Company' in raw_line or 'Lab' in raw_line) and re.search(r'(20\d{2}|19\d{2})\s*[\–\-\—]\s*(Present|20\d{2}|19\d{2})', raw_line, re.IGNORECASE):
+        if ('University' in raw_line or 'Manager' in raw_line or 'Company' in raw_line or 'Lab' in raw_line) and re.search(r'(20\d{2}|19\d{2})\s*[\–\-\—]\s*(Present|20\d{2}|19\d{2})', raw_line, re.IGNORECASE):
             current_section = "professional experience"
             story.append(Paragraph(cleaned_line, job_title_style))
             
-        # 5. Publications section (Plain text, clean academic italics, strip quotes)
         elif any(p in current_section for p in ["publication", "selected publications"]):
             pub_text = re.sub(r'^[\-\*\•]\s*', '', cleaned_line)
             pub_text = re.sub(r'"([^"]+)"', r'*\1*', pub_text)
             pub_text = pub_text.replace(' ,', ',').replace(' .', '.')
             story.append(Paragraph(pub_text, body_style))
             
-        # 6. Education Section (Strictly plain text paragraphs, NO bullet points)
         elif any(sec in current_section for sec in ["education"]):
             edu_text = re.sub(r'^[\-\*\•]\s*', '', cleaned_line).strip()
             story.append(Paragraph(edu_text, body_style))
             
-        # 7. List Sections with Bullets (Core Competencies, Technical Skills, Awards, Certifications)
         elif any(sec in current_section for sec in ["competencies", "skills", "awards", "certifications"]):
             bullet_cleaned = re.sub(r'^[\-\*\•]\s*', '', cleaned_line).strip()
             if bullet_cleaned:
                 story.append(Paragraph(f"• {bullet_cleaned}", bullet_style))
                 
-        # 8. Standard Bullet Points (Experience bullets)
         elif raw_line.startswith('- ') or raw_line.startswith('* ') or raw_line.startswith('• ') or raw_line.startswith('•'):
             bullet_cleaned = re.sub(r'^[\-\*\•]\s*', '', cleaned_line).strip()
             if bullet_cleaned:
                 story.append(Paragraph(f"• {bullet_cleaned}", bullet_style))
                 
-        # 9. Standard Body Text (Professional Summary)
         else:
             story.append(Paragraph(cleaned_line, body_style))
-            
-        line_idx += 1
 
     doc.build(story)
     buffer.seek(0)
@@ -612,6 +586,7 @@ async def generate_tailored_cv(user_email: str, master_resume_text: str, job_tit
     
     guarded_cv = enforce_ground_truth_guardrails(user_email, master_resume_text, raw_cv)
     return sanitize_cv_text(guarded_cv)
+
 async def generate_tailored_cover_letter(user_email: str, master_resume_text: str, job_title: str, company_name: str, job_description: str) -> str:
     current_date = datetime.now(timezone.utc).strftime('%d %B %Y')
 
