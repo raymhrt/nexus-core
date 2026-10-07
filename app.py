@@ -377,19 +377,38 @@ def calculate_ats_keyword_match_score(job_description: str, tailored_cv_text: st
     return max(85, min(98, scaled_score))
 
 def clean_contact_line(line: str) -> str:
-    """Programmatically ensures clear '|' separators between location, phone, and email."""
-    if '@' in line and any(char.isdigit() for char in line) and '|' not in line:
-        email_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', line)
-        phone_match = re.search(r'\+?[\d\s\-\(\)]{8,15}', line)
-        if email_match and phone_match:
-            email = email_match.group(0)
-            phone = phone_match.group(0).strip()
-            loc = line.replace(email, '').replace(phone, '')
-            loc = re.sub(r'[\s\|\,\-]+$', '', loc).strip()
-            loc = re.sub(r'^[\s\|\,\-]+', '', loc).strip()
-            parts = [p for p in [loc, phone, email] if p]
-            return " | ".join(parts)
-    return line
+    """Programmatically strips rogue bullets/artifacts and ensures clean '|' separators."""
+    if not line:
+        return "Johannesburg, South Africa | [LinkedIn](https://www.linkedin.com/in/raymond-hartman) | +27 72 215 8693 | raymhrt@yahoo.com"
+        
+    # Extract clean email and phone using regex
+    email_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', line)
+    phone_match = re.search(r'\+?[\d\s\-\(\)]{8,15}', line)
+    
+    email = email_match.group(0) if email_match else "raymhrt@yahoo.com"
+    phone = phone_match.group(0).strip() if phone_match else "+27 72 215 8693"
+    
+    # Strip email, phone, and rogue bullet artifacts (•) from the text to isolate location
+    loc = line
+    if email_match:
+        loc = loc.replace(email, '')
+    if phone_match:
+        loc = loc.replace(phone, '')
+        
+    # Remove rogue markdown or literal bullet artifacts (•)
+    loc = re.sub(r'[\•\*\_\`]+', ' ', loc)
+    loc = re.sub(r'\[LinkedIn\]\([^\)]+\)', '', loc, flags=re.IGNORECASE)
+    loc = re.sub(r'https?://[^\s]+', '', loc, flags=re.IGNORECASE)
+    
+    loc = re.sub(r'[\s\|\,\•\-]+$', '', loc).strip()
+    loc = re.sub(r'^[\s\|\,\•\-]+', '', loc).strip()
+    
+    if not loc or len(loc) < 3:
+        loc = "Johannesburg, South Africa"
+        
+    linkedin_markdown = "[LinkedIn](https://www.linkedin.com/in/raymond-hartman)"
+    parts = [loc, linkedin_markdown, phone, email]
+    return " | ".join(parts)
 
 def generate_pdf_cv(markdown_text: str) -> bytes:
     buffer = io.BytesIO()
@@ -517,8 +536,8 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
             story.append(Paragraph(cleaned_line.replace('•', '').strip(), subtitle_style))
             story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#0284c7'), spaceBefore=2, spaceAfter=6))
             
-        # 4. Job Titles / Experience Sub-headings
-        elif any(marker in raw_line for marker in ['– Present', '– 20', '- 20']) and ('University' in raw_line or 'Manager' in raw_line or 'Company' in raw_line or 'Lab' in raw_line):
+        # 4. Job Titles / Experience Sub-headings (Flexible matching for year ranges & Present)
+        elif ('University' in raw_line or 'Manager' in raw_line or 'Company' in raw_line or 'Lab' in raw_line) and re.search(r'(20\d{2}|19\d{2})\s*[\–\-\—]\s*(Present|20\d{2}|19\d{2})', raw_line, re.IGNORECASE):
             current_section = "professional experience"
             story.append(Paragraph(cleaned_line, job_title_style))
             
