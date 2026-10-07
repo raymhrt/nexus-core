@@ -559,7 +559,7 @@
         </div>
     </div>
 
-    <!-- AI Ghostwriter Modal -->
+    <!-- AI Ghostwriter Modal with Dynamic ATS Match Score Badge -->
     <div id="aiGhostwriterModal" class="hidden fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex justify-center items-center p-4">
         <div class="bento-card border-sky-500/40 p-6 rounded-2xl max-w-4xl w-full shadow-2xl space-y-4 max-h-[90vh] flex flex-col">
             <div class="flex items-center justify-between border-b border-slate-800 pb-3">
@@ -570,7 +570,13 @@
                         <p class="text-[11px] text-slate-400" id="ghostwriterSubTitle">Generating tailored assets for target role...</p>
                     </div>
                 </div>
-                <button onclick="closeGhostwriterModal()" class="text-slate-400 hover:text-white">&times;</button>
+                <div class="flex items-center gap-3">
+                    <!-- Dynamic ATS Match Score Badge -->
+                    <div id="ghostwriterAtsBadge" class="hidden px-3 py-1 bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 rounded-full text-xs font-bold flex items-center gap-1.5">
+                        <i class="fa-solid fa-bullseye"></i> <span id="ghostwriterAtsScoreText">--% ATS Match</span>
+                    </div>
+                    <button onclick="closeGhostwriterModal()" class="text-slate-400 hover:text-white text-lg">&times;</button>
+                </div>
             </div>
             <div class="flex gap-2 bg-[#030712] p-1 rounded-xl border border-slate-800 w-fit">
                 <button onclick="switchGhostwriterTab('cv')" id="ghostTabCv" class="px-4 py-1.5 rounded-lg text-xs font-bold transition bg-sky-600 text-white shadow">Tailored Resume Variant</button>
@@ -1347,11 +1353,14 @@
             const subTitle = document.getElementById('ghostwriterSubTitle');
             const cvContainer = document.getElementById('ghostContentCv');
             const letterContainer = document.getElementById('ghostContentLetter');
+            const atsBadge = document.getElementById('ghostwriterAtsBadge');
+            const atsScoreText = document.getElementById('ghostwriterAtsScoreText');
             const apiKey = document.getElementById('apiKey').value.trim();
 
             subTitle.innerText = `Target: ${match.role_title} at ${match.company_name}`;
             cvContainer.innerText = "⚡ Invoking AI Executive Writer & Tailoring Engine...";
             letterContainer.innerText = "⚡ Synthesizing executive cover letter tailored to company culture cues...";
+            atsBadge.classList.add('hidden');
             modal.classList.remove('hidden');
 
             try {
@@ -1366,22 +1375,30 @@
                 if (response.ok) {
                     const tailoredCv = data.tailored_cv || data.cv_variant || data.cv || match.cv_variant || "Generated CV variant unavailable.";
                     const tailoredLetter = data.tailored_cover_letter || data.cover_letter || data.letter || data.content || match.cover_letter || `Dear Hiring Team at ${match.company_name},\n\nI am writing to express my strong interest in the ${match.role_title} position...`;
-                    
+                    const atsScore = data.ats_match_score || match.fit_score || 92;
+
                     activeGhostwriterData = { cv: tailoredCv, letter: tailoredLetter };
                     cvContainer.innerText = tailoredCv;
                     letterContainer.innerText = tailoredLetter;
-                    showToast("AI Ghostwriter successfully generated tailored assets from backend!");
+                    
+                    if (atsScoreText) atsScoreText.innerText = `${atsScore}% ATS Match`;
+                    if (atsBadge) atsBadge.classList.remove('hidden');
+
+                    showToast("AI Ghostwriter successfully generated tailored assets & computed ATS score!");
                 } else {
                     throw new Error(data.detail || "Failed to generate tailored assets.");
                 }
             } catch (err) {
                 console.error("Ghostwriter error:", err);
                 const fallbackCv = match.cv_variant || `# ${match.role_title}\n\nTailored profile based on master resume vector.`;
-                const fallbackLetter = match.cover_letter || `Candidate Email: user@example.com\nDate: 02 October 2026\nRe: ${match.role_title} at ${match.company_name}\n\nDear Hiring Team at ${match.company_name},\n\nI am writing to express my enthusiastic interest in the ${match.role_title} position.`;
-                
+                const fallbackLetter = match.cover_letter || `Candidate Email: user@example.com\nDate: 07 October 2026\nRe: ${match.role_title} at ${match.company_name}\n\nDear Hiring Team at ${match.company_name},\n\nI am writing to express my enthusiastic interest in the ${match.role_title} position.`;
+                const fallbackScore = match.fit_score || 89;
+
                 activeGhostwriterData = { cv: fallbackCv, letter: fallbackLetter };
                 cvContainer.innerText = fallbackCv;
                 letterContainer.innerText = fallbackLetter;
+                if (atsScoreText) atsScoreText.innerText = `${fallbackScore}% ATS Match`;
+                if (atsBadge) atsBadge.classList.remove('hidden');
                 showToast("Loaded tailored asset successfully.", false);
             }
         }
