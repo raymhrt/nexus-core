@@ -407,7 +407,7 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         spaceAfter=6
     )
     
-    # Larger, distinct bold heading style with brand blue color
+    # Distinct larger font size and brand blue color for section headings
     heading_style = ParagraphStyle(
         'SectionHeading',
         parent=styles['Normal'],
@@ -454,55 +454,71 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
     lines = markdown_text.split('\n')
     in_publications_section = False
     
+    known_section_headers = [
+        "professional summary", "summary", "core competencies", "competencies",
+        "technical skills", "skills", "professional experience", "experience",
+        "education", "awards & scholarships", "awards", "certifications",
+        "selected publications", "publications"
+    ]
+    
     for line in lines:
+        raw_line = line
         line = line.strip()
         if not line:
             continue
             
-        # Strip any rogue markdown bullets from section headings if the LLM hallucinated them
-        if line.startswith('##') or line.startswith('• ##') or line.startswith('- ##'):
-            line = re.sub(r'^[\•\-\*\s#]+', '## ', line)
-            
-        if line.startswith('## '):
-            if "Selected Publications" in line or "Publications" in line:
+        # Clean markdown wrappers for check
+        clean_check = re.sub(r'[\#\*\_\`\-\•\s]+', ' ', line).strip().lower()
+        
+        # Determine if this line is a major section header
+        is_section_header = False
+        section_title_text = ""
+        
+        if raw_line.startswith('##') or clean_check in known_section_headers:
+            is_section_header = True
+            section_title_text = re.sub(r'^[\#\*\_\`\-\•\s]+', '', raw_line).replace('*', '').strip()
+        
+        if is_section_header:
+            if any(p in section_title_text.lower() for p in ["publication", "selected publications"]):
                 in_publications_section = True
             else:
                 in_publications_section = False
                 
-        cleaned_line = markdown_to_reportlab_html(line)
+            story.append(Spacer(1, 6))
+            story.append(Paragraph(section_title_text.upper(), heading_style))
+            # Guaranteed horizontal border line divider beneath every single section heading
+            story.append(HRFlowable(width="100%", thickness=0.75, color=colors.HexColor('#0284c7'), spaceBefore=2, spaceAfter=4))
+            continue
+            
+        cleaned_line = markdown_to_reportlab_html(raw_line)
         
         # 1. Document Title (# )
-        if line.startswith('# '):
-            raw_title = re.sub(r'^#+\s*', '', line).replace('**', '')
+        if raw_line.startswith('# '):
+            raw_title = re.sub(r'^#+\s*', '', raw_line).replace('**', '')
             story.append(Paragraph(raw_title, title_style))
             
         # 2. Subtitle / Contact bar
-        elif '•' in line and not line.startswith('-') and not line.startswith('*') and not line.startswith('•'):
+        elif '•' in raw_line and not raw_line.startswith('-') and not raw_line.startswith('*') and not raw_line.startswith('•'):
             story.append(Paragraph(cleaned_line.replace('•', '').strip(), subtitle_style))
             story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#0284c7'), spaceBefore=2, spaceAfter=6))
             
-        # 3. Major Section Headings (## ) - Guaranteed larger font + horizontal border line divider beneath
-        elif line.startswith('## '):
-            section_name = re.sub(r'^##\s*', '', line).replace('**', '')
-            story.append(Spacer(1, 6))
-            story.append(Paragraph(section_name.upper(), heading_style))
-            story.append(HRFlowable(width="100%", thickness=0.75, color=colors.HexColor('#0284c7'), spaceBefore=2, spaceAfter=4))
-            
-        # 4. Job Titles / Experience Sub-headings
-        elif any(marker in line for marker in ['– Present', '– 20', '- 20']) and ('University' in line or 'Manager' in line or 'Company' in line or 'Lab' in line):
+        # 3. Job Titles / Experience Sub-headings
+        elif any(marker in raw_line for marker in ['– Present', '– 20', '- 20']) and ('University' in raw_line or 'Manager' in raw_line or 'Company' in raw_line or 'Lab' in raw_line):
             story.append(Paragraph(cleaned_line, job_title_style))
             
-        # 5. Publications section (Strictly no bullets)
+        # 4. Publications section (Strictly plain text paragraphs, no bullets)
         elif in_publications_section:
             pub_text = re.sub(r'^[\-\*\•]\s*', '', cleaned_line)
             story.append(Paragraph(pub_text, body_style))
             
-        # 6. Bullet Points
-        elif line.startswith('- ') or line.startswith('* ') or line.startswith('• '):
+        # 5. Bullet Points (Handles -, *, or • robustly)
+        elif raw_line.startswith('- ') or raw_line.startswith('* ') or raw_line.startswith('• ') or raw_line.startswith('•'):
             text = re.sub(r'^([\-\*\•])\s*', '• ', cleaned_line)
+            if not text.startswith('•'):
+                text = '• ' + text
             story.append(Paragraph(text, bullet_style))
             
-        # 7. Standard Body Text
+        # 6. Standard Body Text
         else:
             story.append(Paragraph(cleaned_line, body_style))
 
