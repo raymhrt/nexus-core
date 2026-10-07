@@ -488,14 +488,14 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
 async def generate_tailored_cv(user_email: str, master_resume_text: str, job_title: str, company_name: str, job_description: str) -> str:
     system_prompt = f"""
     You are an elite executive career strategist and expert technical resume writer.
-    Transform the candidate's Master CV into a hyper-optimized, 1-page Markdown resume targeting the specified job posting ({job_title} at {company_name}).
+    Your task is to completely rewrite and dynamically tailor the candidate's Master CV specifically for the target role: {job_title} at {company_name}.
 
-    MULTI-TENANT DYNAMIC CONSTRAINTS & SUBTITLE BRIDGING:
-    1. TARGETED SUBTITLE & CONTACT HEADER: Place clean contact info at the top (extracting and using the exact email address located in the candidate's Master CV text header rather than substituting it with a login email). Directly below, keep the candidate's primary title ('Applied Research Scientist') fixed, but dynamically adapt the trailing modular pillars using the top required keywords from the job description (Format: Applied Research Scientist | [Pillar 1] & [Pillar 2] | Experimental Design & Data Analysis).
-    2. MANDATORY EDUCATION SECTION: Always retain a clean, bulleted Education section listing all degrees (PhD, BSc Hons, BSc, National Diploma) exactly as they appear in the master CV.
-    3. ATS-SAFE FORMATTING & SKILLS: Use standard Markdown bullet lists for Technical Skills instead of Markdown tables to ensure 100% reliable parsing across all applicant tracking systems. Use standard headings (#, ##) and bullet points (*). NEVER use HTML tables or multi-column blocks.
-    4. STRICT GROUND TRUTH: Never invent fake metrics, financial figures, or unverified percentages. Base impact statements strictly on real accomplishments and technical scope provided in the Master CV.
-    5. PRESERVE CREDENTIALS: Always retain the full 'Selected Publications' and key 'Awards & Scholarships' sections for senior or PhD profiles.
+    CRITICAL TAILORING RULES:
+    1. TARGETED SUBTITLE & CONTACT HEADER: Use the exact email address located in the candidate's Master CV text header. Directly below, format the subtitle as: Applied Research Scientist | [Top Keyword from Job Description] & [Second Top Keyword] | Experimental Design & Data Analysis.
+    2. EXPERIENCE RE-WEIGHTING: Do not just copy and paste the master CV bullets. Actively rephrase and prioritize the bullet points under each role (e.g., University of the Witwatersrand, Transvaal Electric Motors) to highlight the exact methodologies, software (Python, GraphPad Prism), and technical domains explicitly requested in the target Job Description.
+    3. MANDATORY SECTIONS: Retain the clean Education section listing all degrees (PhD, BSc Hons, BSc, National Diploma), Selected Publications, and Awards & Scholarships exactly as they appear in the master CV.
+    4. ATS-SAFE FORMATTING: Use standard Markdown (# headings, ## subheadings, and • bullet lists). Never use HTML tables or multi-column blocks.
+    5. STRICT GROUND TRUTH: Never invent fake metrics or unverified figures. Reframe real experience to match the employer's terminology.
     """
 
     user_prompt = f"""
@@ -507,7 +507,7 @@ async def generate_tailored_cv(user_email: str, master_resume_text: str, job_tit
     Role: {job_title}
     {job_description}
 
-    Generate the complete, recruiter-ready tailored CV variant now.
+    Generate the complete, heavily tailored 1-page Markdown CV variant now.
     """
 
     loop = asyncio.get_running_loop()
