@@ -391,8 +391,8 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         'DocTitle',
         parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=16,
-        leading=20,
+        fontSize=15,
+        leading=19,
         textColor=colors.HexColor('#0f172a'),
         spaceAfter=2
     )
@@ -401,21 +401,22 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         'DocSubTitle',
         parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=10,
-        leading=14,
+        fontSize=9.5,
+        leading=13,
         textColor=colors.HexColor('#0284c7'),
-        spaceAfter=8
+        spaceAfter=6
     )
     
+    # Enlarge section headings so they are visibly distinct and larger than body text
     heading_style = ParagraphStyle(
         'SectionHeading',
         parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=11,
-        leading=15,
+        fontSize=12,
+        leading=16,
         textColor=colors.HexColor('#0284c7'),
-        spaceBefore=12,
-        spaceAfter=4,
+        spaceBefore=10,
+        spaceAfter=3,
         keepWithNext=True
     )
     
@@ -426,8 +427,8 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         fontSize=9.5,
         leading=13,
         textColor=colors.HexColor('#1e293b'),
-        spaceBefore=6,
-        spaceAfter=3,
+        spaceBefore=5,
+        spaceAfter=2,
         keepWithNext=True
     )
     
@@ -436,28 +437,34 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         parent=styles['Normal'],
         fontName='Helvetica',
         fontSize=9,
-        leading=12.5,
+        leading=12,
         textColor=colors.HexColor('#334155'),
-        spaceAfter=4
+        spaceAfter=3
     )
     
     bullet_style = ParagraphStyle(
         'BulletCustom',
         parent=body_style,
-        leftIndent=14,
-        firstLineIndent=-10,
+        leftIndent=12,
+        firstLineIndent=-8,
         spaceAfter=2
     )
 
     story = []
     lines = markdown_text.split('\n')
-    is_first_section = True
+    in_publications_section = False
     
     for line in lines:
         line = line.strip()
         if not line:
             continue
             
+        if line.startswith('## '):
+            if "Selected Publications" in line or "Publications" in line:
+                in_publications_section = True
+            else:
+                in_publications_section = False
+                
         cleaned_line = markdown_to_reportlab_html(line)
         
         # 1. Document Title (# )
@@ -465,32 +472,36 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
             raw_title = re.sub(r'^#+\s*', '', line).replace('**', '')
             story.append(Paragraph(raw_title, title_style))
             
-        # 2. Subtitle / Contact bar (Contains • and not a bullet point line)
+        # 2. Subtitle / Contact bar
         elif '•' in line and not line.startswith('-') and not line.startswith('*') and not line.startswith('•'):
             story.append(Paragraph(cleaned_line.replace('•', '').strip(), subtitle_style))
-            story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#0284c7'), spaceBefore=2, spaceAfter=8))
+            story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#0284c7'), spaceBefore=2, spaceAfter=6))
             
-        # 3. Major Section Headings (## ) - ONLY place dividers here between major sections
+        # 3. Major Section Headings (## ) - Always add a crisp horizontal border divider line beneath
         elif line.startswith('## '):
             section_name = re.sub(r'^##\s*', '', line).replace('**', '')
-            
-            if not is_first_section:
-                story.append(HRFlowable(width="100%", thickness=0.75, color=colors.HexColor('#cbd5e1'), spaceBefore=8, spaceAfter=6))
-            else:
-                is_first_section = False
-                
+            story.append(Spacer(1, 4))
             story.append(Paragraph(section_name.upper(), heading_style))
+            story.append(HRFlowable(width="100%", thickness=0.75, color=colors.HexColor('#0284c7'), spaceBefore=2, spaceAfter=4))
             
         # 4. Job Titles / Experience Sub-headings
         elif any(marker in line for marker in ['– Present', '– 20', '- 20']) and ('University' in line or 'Manager' in line or 'Company' in line or 'Lab' in line):
             story.append(Paragraph(cleaned_line, job_title_style))
             
-        # 5. Bullet Points (Handles -, *, or • dynamically)
+        # 5. Publications section
+        elif in_publications_section:
+            pub_text = re.sub(r'^[\-\*\•]\s*', '', cleaned_line)
+            pub_text = pub_text.replace('"International', '*International').replace('International Journal of Biological Macromolecules*,', 'International Journal of Biological Macromolecules,*')
+            story.append(Paragraph(pub_text, body_style))
+            
+        # 6. Bullet Points
         elif line.startswith('- ') or line.startswith('* ') or line.startswith('• '):
             text = re.sub(r'^([\-\*\•])\s*', '• ', cleaned_line)
             story.append(Paragraph(text, bullet_style))
+        elif not line.startswith('#') and len(line) < 65 and not any(m in line for m in ['– Present', '- 20', '– 20']) and not in_publications_section:
+            story.append(Paragraph(f"• {cleaned_line}", bullet_style))
             
-        # 6. Standard Body Text
+        # 7. Standard Body Text
         else:
             story.append(Paragraph(cleaned_line, body_style))
 
