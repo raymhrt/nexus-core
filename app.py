@@ -144,24 +144,28 @@ def sanitize_job_title(title: str) -> str:
         cleaned = cleaned[:57] + "..."
     return cleaned
 
-# ==================== MULTI-TENANT DYNAMIC CV SANITIZER ====================
+# ==================== ENHANCED MULTI-TENANT DYNAMIC CV SANITIZER ====================
 def sanitize_cv_text(text: str) -> str:
     if not text:
         return ""
     
-    # 1. Normalize unicode characters to prevent hidden encoding artifacts
+    # 1. Normalize unicode characters
     text = unicodedata.normalize('NFKC', text)
     
-    # 2. Standardize all dash types (em-dashes, en-dashes, soft hyphens) into clean formatting
-    text = re.sub(r'[\u2010\u2011\u2012\u2013\u2014\u2015]', '–', text)
-    
-    # 3. Dynamically fix common LLM/Markdown list formatting glitches (e.g., triple/double asterisks clashing)
+    # 2. Strip rogue markdown artifacts and triple/double asterisk rendering errors at line starts
+    text = re.sub(r'^\s*[\*\-\#]{2,}\s*', '', text, flags=re.MULTILINE)
     text = re.sub(r'\*\*\*+', '**', text)
     
-    # 4. Fix formatting glitches where punctuation is incorrectly spaced (e.g., "word ." -> "word.")
-    text = re.sub(r'\s+([.,;:!?])', r'\1', text)
+    # 3. Clean up weird bullet bleeding where single items got rogue asterisks
+    text = re.sub(r'^\s*\*\s*([A-Z])', r'• \1', text, flags=re.MULTILINE)
     
-    # 5. Clean up duplicate consecutive spaces or malformed line breaks
+    # 4. Standardize dash types and remove trailing metadata notes like references or preparation strings
+    text = re.sub(r'[\u2010\u2011\u2012\u2013\u2014\u2015]', '-', text)
+    text = re.sub(r'(?i)\*?Prepared for the.*?position.*?\*?', '', text)
+    text = re.sub(r'(?i)\*?References available upon request\.?\*?', '', text)
+    
+    # 5. Fix spacing around punctuation and line breaks
+    text = re.sub(r'\s+([.,;:!?])', r'\1', text)
     text = re.sub(r'[ \t]+', ' ', text)
     text = re.sub(r'\n\s*\n\s*\n+', '\n\n', text)
     
@@ -361,8 +365,8 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
     doc = SimpleDocTemplate(
         buffer,
         pagesize=A4,
-        rightMargin=40, leftMargin=40,
-        topMargin=40, bottomMargin=40
+        rightMargin=36, leftMargin=36,
+        topMargin=36, bottomMargin=36
     )
     
     styles = getSampleStyleSheet()
@@ -371,49 +375,49 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         'DocTitle',
         parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=18,
-        leading=22,
+        fontSize=16,
+        leading=20,
         textColor=colors.HexColor('#0f172a'),
-        spaceAfter=4
+        spaceAfter=2
     )
     
     subtitle_style = ParagraphStyle(
         'DocSubTitle',
         parent=styles['Normal'],
         fontName='Helvetica',
-        fontSize=10,
-        leading=14,
+        fontSize=9.5,
+        leading=13,
         textColor=colors.HexColor('#475569'),
-        spaceAfter=8
+        spaceAfter=6
     )
     
     heading_style = ParagraphStyle(
         'SectionHeading',
         parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=12,
-        leading=16,
+        fontSize=11,
+        leading=14,
         textColor=colors.HexColor('#0284c7'),
-        spaceBefore=12,
-        spaceAfter=4
+        spaceBefore=8,
+        spaceAfter=2
     )
     
     body_style = ParagraphStyle(
         'BodyTextCustom',
         parent=styles['Normal'],
         fontName='Helvetica',
-        fontSize=9.5,
-        leading=13.5,
+        fontSize=9,
+        leading=12.5,
         textColor=colors.HexColor('#1e293b'),
-        spaceAfter=4
+        spaceAfter=3
     )
     
     bullet_style = ParagraphStyle(
         'BulletCustom',
         parent=body_style,
-        leftIndent=15,
-        firstLineIndent=-10,
-        spaceAfter=3
+        leftIndent=12,
+        firstLineIndent=-8,
+        spaceAfter=2
     )
 
     story = []
@@ -424,19 +428,20 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         if not line:
             continue
             
+        # Strip markdown hashes completely from PDF rendering
+        clean_line = re.sub(r'^#+\s*', '', line)
+        
         if line.startswith('# '):
-            text = line.replace('# ', '').replace('**', '')
-            story.append(Paragraph(text, title_style))
+            story.append(Paragraph(clean_line.replace('**', ''), title_style))
         elif '•' in line and not line.startswith('-'):
-            story.append(Paragraph(line.replace('**', ''), subtitle_style))
-            story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#cbd5e1'), spaceBefore=2, spaceAfter=8))
+            story.append(Paragraph(clean_line.replace('**', ''), subtitle_style))
+            story.append(HRFlowable(width="100%", thickness=0.75, color=colors.HexColor('#cbd5e1'), spaceBefore=1, spaceAfter=4))
         elif line.startswith('## '):
-            text = line.replace('## ', '').replace('**', '')
-            story.append(Spacer(1, 6))
-            story.append(Paragraph(text.upper(), heading_style))
-            story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor('#e2e8f0'), spaceBefore=1, spaceAfter=4))
-        elif line.startswith('- '):
-            text = line.replace('- ', '• ')
+            story.append(Spacer(1, 4))
+            story.append(Paragraph(clean_line.upper().replace('**', ''), heading_style))
+            story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor('#e2e8f0'), spaceBefore=1, spaceAfter=3))
+        elif line.startswith('- ') or line.startswith('* '):
+            text = re.sub(r'^[\-\*]\s*', '• ', line)
             story.append(Paragraph(text, bullet_style))
         else:
             story.append(Paragraph(line, body_style))
