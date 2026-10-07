@@ -253,11 +253,12 @@ def set_cached_ai_response(cache_key: str, response_text: str):
     except Exception:
         pass
 
-def call_groq_ai(prompt: str, system_prompt: str = "You are the complete multi-tenant intelligence core returning precise JSON.") -> str:
+def call_groq_ai(prompt: str, system_prompt: str = "You are the complete multi-tenant intelligence core returning precise JSON.", cache_salt: str = "") -> str:
     if not GROQ_API_KEY:
         raise HTTPException(status_code=500, detail="GROQ_API_KEY not configured.")
     
-    cache_key = hashlib.sha256((prompt + system_prompt).encode("utf-8")).hexdigest()
+    # Include cache_salt (like company + role) so different jobs never share cache entries
+    cache_key = hashlib.sha256((prompt + system_prompt + cache_salt).encode("utf-8")).hexdigest()
     cached = get_cached_ai_response(cache_key)
     if cached:
         return cached
@@ -580,10 +581,12 @@ async def generate_tailored_cv(user_email: str, master_resume_text: str, job_tit
     """
 
     loop = asyncio.get_running_loop()
+    # === PUT THE CODE HERE ===
     raw_response = await loop.run_in_executor(
         None, 
-        lambda: call_groq_ai(user_prompt, system_prompt=system_prompt)
+        lambda: call_groq_ai(user_prompt, system_prompt=system_prompt, cache_salt=f"{company_name}_{job_title}")
     )
+    
     eval_data = extract_json_safely(raw_response, {})
     raw_cv = eval_data.get("tailored_cv") or raw_response
     
