@@ -416,9 +416,9 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         'DocSubTitle',
         parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=10,
-        leading=14,
-        textColor=colors.HexColor('#0284c7'),
+        fontSize=8.5,
+        leading=10,
+        textColor=colors.HexColor('#000000'),
         spaceAfter=4,
         spaceBefore=4
     )
@@ -492,7 +492,6 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
     
     subtitle_text = "Applied Research Scientist | Laboratory Operations & Stakeholder Engagement | Experimental Design & Data Analysis"
     story.append(Paragraph(subtitle_text, subtitle_style))
-    story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#0284c7'), spaceBefore=2, spaceAfter=6))
 
     for line in lines:
         raw_line = line
