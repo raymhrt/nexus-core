@@ -515,6 +515,11 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
             
         cleaned_line = markdown_to_reportlab_html(raw_line)
         
+        # Subtitle check that applies your bold, slightly bigger, black style without a border:
+        if "Applied Research Scientist" in raw_line and "Experimental Design" in raw_line:
+            story.append(Paragraph(cleaned_line, subtitle_style))
+            continue
+            
         if ('University' in raw_line or 'Manager' in raw_line or 'Company' in raw_line or 'Lab' in raw_line) and re.search(r'(20\d{2}|19\d{2})\s*[\–\-\—]\s*(Present|20\d{2}|19\d{2})', raw_line, re.IGNORECASE):
             current_section = "professional experience"
             story.append(Paragraph(cleaned_line, job_title_style))
@@ -552,7 +557,7 @@ async def generate_tailored_cv(user_email: str, master_resume_text: str, job_tit
     Your task is to completely rewrite and dynamically tailor the candidate's Master CV specifically for the target role: {job_title} at {company_name}.
 
     CRITICAL TAILORING & STRUCTURAL RULES:
-    1. HEADER & SUBTITLE: First line must be '# Raymond Hartman, PhD'. Second line must be contact info with '|' separators using the exact email from the master CV. Directly below, format the subtitle strictly as: Applied Research Scientist | [Top Keyword from Job Description] & [Second Top Keyword] | Experimental Design & Data Analysis. NO bullet points in the header.
+    1. HEADER & SUBTITLE: First line must be '# Raymond Hartman, PhD'. Second line must be contact info with '|' separators. Third line must be strictly: 'Applied Research Scientist | Laboratory Operations & Stakeholder Engagement | Experimental Design & Data Analysis'. NO bullet points in the header.
     2. EXPERIENCE RE-WEIGHTING: Do not just copy and paste the master CV bullets. Actively rephrase and prioritize the bullet points under each role (e.g., University of the Witwatersrand, Transvaal Electric Motors) to highlight the exact methodologies, software (Python, GraphPad Prism), and technical domains explicitly requested in the target Job Description.
     3. SECTION HEADINGS: Use standard Markdown headers starting with '## ' for every major section (e.g., '## Professional Summary', '## Core Competencies', '## Technical Skills', '## Professional Experience', '## Education', '## Awards & Scholarships', '## Certifications', '## Selected Publications'). NEVER put bullet points (•, -, *) on lines starting with '##'.
     4. BULLET POINTS: Use standard bullet points ('- ' or '* ') ONLY for items inside Professional Summary, Core Competencies, Professional Experience, and Awards. NEVER put bullet points on Section Headings or Publication citations.
