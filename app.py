@@ -1688,13 +1688,21 @@ async def tailor_saved_match(match_id: int, auth: dict = Depends(verify_api_key_
         job_description=job_description
     ))
 
+    ats_score = calculate_ats_keyword_match_score(job_description, tailored_cv_text)
+
     with db_transaction_scope() as (_, cursor):
         if DATABASE_URL:
-            cursor.execute("UPDATE job_matches SET cv_variant = %s, cover_letter_variant = %s WHERE id = %s AND user_email = %s", (tailored_cv_text, tailored_cl, match_id, auth["email"]))
+            cursor.execute("""
+                UPDATE job_matches 
+                SET fit_score = %s, cv_variant = %s, cover_letter_variant = %s, timestamp = NOW() 
+                WHERE id = %s AND user_email = %s
+            """, (ats_score, tailored_cv_text, tailored_cl, match_id, auth["email"]))
         else:
-            cursor.execute("UPDATE job_matches SET cv_variant = ?, cover_letter_variant = ? WHERE id = ? AND user_email = ?", (tailored_cv_text, tailored_cl, match_id, auth["email"]))
-
-    ats_score = calculate_ats_keyword_match_score(job_description, tailored_cv_text)
+            cursor.execute("""
+                UPDATE job_matches 
+                SET fit_score = ?, cv_variant = ?, cover_letter_variant = ?, timestamp = datetime('now') 
+                WHERE id = ? AND user_email = ?
+            """, (ats_score, tailored_cv_text, tailored_cl, match_id, auth["email"]))
 
     return {
         "status": "success",
