@@ -489,9 +489,6 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
     ]))
     story.append(header_table)
     story.append(Spacer(1, 4))
-    
-    subtitle_text = "Applied Research Scientist | Laboratory Operations & Stakeholder Engagement | Experimental Design & Data Analysis"
-    story.append(Paragraph(subtitle_text, subtitle_style))
 
     for line in lines:
         raw_line = line
