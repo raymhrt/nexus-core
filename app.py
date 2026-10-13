@@ -1713,6 +1713,25 @@ async def tailor_saved_match(match_id: int, auth: dict = Depends(verify_api_key_
         "tailored_cover_letter": tailored_cl
     }
 
+class DirectPDFExportRequest(BaseModel):
+    cv_markdown: str
+    job_title: Optional[str] = "Tailored_CV"
+
+@app.post("/api/v1/career/export-pdf-direct")
+async def export_pdf_direct(payload: DirectPDFExportRequest, auth: dict = Depends(verify_api_key_only)):
+    cv_text = sanitize_cv_text(payload.cv_markdown)
+    if not cv_text or len(cv_text.strip()) < 50:
+        raise HTTPException(status_code=400, detail="Provided CV markdown is empty or invalid.")
+    
+    pdf_bytes = generate_pdf_cv(cv_text)
+    safe_filename = re.sub(r'[^a-zA-Z0-9]', '_', payload.job_title)
+    
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename={safe_filename}_Tailored.pdf"}
+    )
+
 @app.post("/api/v1/career/tailor-cv")
 async def tailor_user_specific_cv(
     payload: TailorRequest,

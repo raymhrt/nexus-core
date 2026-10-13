@@ -1349,6 +1349,9 @@
             const match = cachedCareerMatches.find(m => (m.id || 1) === matchId);
             if (!match) return;
 
+            window.activeGhostwriterMatchId = matchId;
+            window.activeGhostwriterJobTitle = match.role_title || "Tailored_CV";
+
             const modal = document.getElementById('aiGhostwriterModal');
             const subTitle = document.getElementById('ghostwriterSubTitle');
             const cvContainer = document.getElementById('ghostContentCv');
@@ -1429,36 +1432,47 @@
         }
 
         async function downloadGhostwriterAsset() {
-            const apiKey = document.getElementById('apiKey').value.trim();
-            const matchId = window.activeGhostwriterMatchId || 1; 
+            const currentCvMarkdown = activeGhostwriterData.cv;
+            const jobTitle = window.activeGhostwriterJobTitle || "Tailored_CV";
 
-            showToast("Compiling executive PDF layout...");
+            showToast("Compiling direct PDF export...");
             try {
-                const response = await fetch(`/api/v1/career/matches/${matchId}/download-pdf`, {
+                const response = await fetch('/api/v1/career/export-pdf-direct', {
                     method: 'POST',
-                    headers: { 'x-api-key': apiKey }
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'x-api-key': localStorage.getItem('nexus_api_key') || localStorage.getItem('qcn_api_key') || ''
+                    },
+                    body: JSON.stringify({
+                        cv_markdown: currentCvMarkdown,
+                        job_title: jobTitle
+                    })
                 });
-                
-                if (!response.ok) throw new Error("Failed to generate PDF.");
-                
+
+                if (!response.ok) {
+                    throw new Error('Failed to generate PDF from direct export endpoint.');
+                }
+
                 const blob = await response.blob();
                 const url = window.URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = `Raymond_Hartman_Tailored_CV.pdf`;
+                a.download = `${jobTitle.replace(/[^a-zA-Z0-9]/g, '_')}_Tailored.pdf`;
                 document.body.appendChild(a);
                 a.click();
-                document.body.removeChild(a);
+                a.remove();
                 showToast("PDF downloaded successfully!");
             } catch (err) {
+                console.error("Direct PDF export error, falling back to markdown download:", err);
                 showToast("Error downloading PDF. Falling back to markdown export.", true);
-                // Fallback markdown download logic if backend endpoint isn't wired yet
-                const text = activeGhostwriterData.cv;
-                const blob = new Blob([text], { type: 'text/markdown' });
+                const blob = new Blob([currentCvMarkdown], { type: 'text/markdown' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
-                a.href = url; a.download = 'tailored_resume_variant.md';
-                document.body.appendChild(a); a.click(); document.body.removeChild(a);
+                a.href = url;
+                a.download = `${jobTitle.replace(/[^a-zA-Z0-9]/g, '_')}_Tailored.md`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
             }
         }
 
