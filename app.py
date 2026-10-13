@@ -1759,7 +1759,7 @@ async def export_pdf_direct(payload: dict, api_key: str = Header(None, alias="x-
             heading_text = line_stripped.lstrip("#").strip()
             story.append(Paragraph(f"<b>{heading_text}</b>", title_style))
         else:
-            story.append(Paragraph(escape(line_stripped), body_style))
+            story.append(Paragraph(html.escape(line_stripped), body_style))
 
     doc.build(story)
     buffer.seek(0)
