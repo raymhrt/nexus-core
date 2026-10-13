@@ -351,15 +351,15 @@ def calculate_ats_keyword_match_score(job_description: str, tailored_cv_text: st
     scaled_score = int(82 + (raw_ratio * 16))
     return max(85, min(98, scaled_score))
 
-def clean_contact_line(line: str) -> str:
+def clean_contact_line(line: str, user_email: str) -> str:
     if not line:
-        return "Johannesburg, South Africa | [LinkedIn](https://www.linkedin.com/in/raymond-hartman) | +27 72 215 8693 | raymhrt@yahoo.com"
-        
+        return f"{user_email}"
+    
     email_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', line)
     phone_match = re.search(r'\+?[\d\s\-\(\)]{8,15}', line)
     
-    email = email_match.group(0) if email_match else "raymhrt@yahoo.com"
-    phone = phone_match.group(0).strip() if phone_match else "+27 72 215 8693"
+    email = email_match.group(0) if email_match else user_email
+    phone = phone_match.group(0).strip() if phone_match else ""
     
     loc = line
     if email_match:
@@ -368,17 +368,11 @@ def clean_contact_line(line: str) -> str:
         loc = loc.replace(phone, '')
         
     loc = re.sub(r'[\•\*\_\`]+', ' ', loc)
-    loc = re.sub(r'\[LinkedIn\]\([^\)]+\)', '', loc, flags=re.IGNORECASE)
     loc = re.sub(r'https?://[^\s]+', '', loc, flags=re.IGNORECASE)
-    
     loc = re.sub(r'[\s\|\,\•\-]+$', '', loc).strip()
     loc = re.sub(r'^[\s\|\,\•\-]+', '', loc).strip()
     
-    if not loc or len(loc) < 3:
-        loc = "Johannesburg, South Africa"
-        
-    linkedin_markdown = "[LinkedIn](https://www.linkedin.com/in/raymond-hartman)"
-    parts = [loc, linkedin_markdown, phone, email]
+    parts = [p for p in [loc, phone, email] if p]
     return " | ".join(parts)
 
 def generate_pdf_cv(markdown_text: str) -> bytes:
@@ -530,7 +524,7 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
             edu_text = re.sub(r'^[\-\*\•]\s*', '', cleaned_line).strip()
             story.append(Paragraph(edu_text, body_style))
             
-        elif any(sec in current_section for sec in ["professional experience", "experience", "competencies", "skills", "awards", "certifications"]):
+        elif any(sec in current_section for sec in ["professional experience", "experience", "competencies", "core competencies", "skills", "awards", "awards & scholarships", "certifications"]):
             bullet_cleaned = re.sub(r'^[\-\*\•]\s*', '', cleaned_line).strip()
             if bullet_cleaned:
                 story.append(Paragraph(f"• {bullet_cleaned}", bullet_style))
@@ -552,14 +546,13 @@ async def generate_tailored_cv(user_email: str, master_resume_text: str, job_tit
     Your task is to completely rewrite and dynamically tailor the candidate's Master CV specifically for the target role: {job_title} at {company_name}.
 
     CRITICAL TAILORING & STRUCTURAL RULES:
-    1. HEADER & SUBTITLE: Line 1 must be '# RAYMOND HARTMAN, PhD'. Line 2 must be contact info with '|' separators (e.g. 'Johannesburg, South Africa | [LinkedIn](https://www.linkedin.com/in/raymond-hartman) | +27 72 215 8693 | raymhrt@yahoo.com'). Line 3 must be strictly: 'Applied Research Scientist | Laboratory Operations & Stakeholder Engagement | Experimental Design & Data Analysis'. NEVER prepend a job title or extra heading like 'Assistant Data Bioanalyst - CV' above your name.
+    1. HEADER & SUBTITLE: Line 1 must be the candidate's exact name from their Master CV in uppercase. Line 2 must be their location. Line 3 must be their LinkedIn profile link. Line 4 must be their phone number and verified email ({user_email}) separated by ' | '. Line 5 must be a precise 3-part professional subtitle reflecting their core domain expertise. NEVER prepend rogue placeholder titles above the name.
     2. PROFESSIONAL SUMMARY: Write the summary as a cohesive 6 to 7 sentence executive narrative paragraph. NEVER use bullet points under '## Professional Summary'.
     3. EXPERIENCE RE-WEIGHTING: Actively rephrase and prioritize bullet points under each role to highlight methodologies and tools explicitly requested in the target Job Description.
     4. SECTION HEADINGS: Use standard Markdown headers starting with '## ' for every major section. NEVER put bullet points on lines starting with '##'.
-    5. BULLET POINTS: Use standard bullet points ('- ' or '* ') ONLY for items inside Core Competencies, Professional Experience, and Awards.
-    6. PUBLICATIONS: List publications as plain text paragraphs without any bullet symbols.
-    7. MANDATORY SECTIONS: Retain the clean Education section, Selected Publications, and Awards & Scholarships.
-    8. STRICT GROUND TRUTH: Never invent fake metrics or unverified figures. Reframe real experience to match the employer's terminology.
+    5. BULLET POINTS: Use standard bullet points ('- ' or '* ') for every single item inside Core Competencies, Professional Experience, Awards, and Certifications so they format cleanly.
+    6. PUBLICATIONS & EDUCATION: List publications and education entries as clean text paragraphs without bullet symbols.
+    7. STRICT GROUND TRUTH: Never invent fake metrics or unverified figures. Reframe real experience to match the employer's terminology.
     """
 
     user_prompt = f"""
