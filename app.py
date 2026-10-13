@@ -465,23 +465,28 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         "selected publications", "publications"
     ]
     
-    # --- STACKED HEADER PARSING (Matches Desired PDF Layout) ---
+    # --- ROBUST STACKED HEADER PARSING ---
     header_lines_processed = 0
-    for line in lines[:8]:
+    for idx, line in enumerate(lines[:10]):
         clean_line = line.strip()
         if not clean_line:
-            header_lines_processed += 1
+            header_lines_processed = idx + 1
             continue
-        if clean_line.startswith('# '):
-            story.append(Paragraph(clean_line.replace('# ', '').strip().upper(), title_style))
-            header_lines_processed += 1
-        elif any(k in clean_line.lower() for k in ['@', 'linkedin', '+27', 'phone', 'south africa', 'united states', 'london', 'johannesburg']):
+        
+        lower_line = clean_line.lower()
+        if any(h in lower_line for h in known_section_headers):
+            break
+            
+        if idx == 0 or clean_line.startswith('# '):
+            name_text = clean_line.replace('# ', '').strip().upper()
+            story.append(Paragraph(name_text, title_style))
+            header_lines_processed = idx + 1
+        elif any(k in lower_line for k in ['@', 'linkedin', '+27', 'phone', 'south africa', 'united states', 'london', 'johannesburg']):
             story.append(Paragraph(markdown_to_reportlab_html(clean_line), contact_style))
-            header_lines_processed += 1
-        elif header_lines_processed > 0 and not any(h in clean_line.lower() for h in known_section_headers):
-            # Subtitle / Professional tags line
+            header_lines_processed = idx + 1
+        elif header_lines_processed > 0:
             story.append(Paragraph(markdown_to_reportlab_html(clean_line), job_title_style))
-            header_lines_processed += 1
+            header_lines_processed = idx + 1
         else:
             break
 
@@ -546,13 +551,13 @@ async def generate_tailored_cv(user_email: str, master_resume_text: str, job_tit
     Your task is to completely rewrite and dynamically tailor the candidate's Master CV specifically for the target role: {job_title} at {company_name}.
 
     CRITICAL TAILORING & STRUCTURAL RULES:
-    1. HEADER & SUBTITLE: First line must be '# Raymond Hartman, PhD'. Second line must be contact info with '|' separators using the exact email from the master CV. Third line must be strictly: 'Applied Research Scientist | Laboratory Operations & Stakeholder Engagement | Experimental Design & Data Analysis'. NO bullet points in the header.
+    1. HEADER & SUBTITLE: Line 1 must be '# RAYMOND HARTMAN, PhD'. Line 2 must be contact info with '|' separators (e.g. 'Johannesburg, South Africa | [LinkedIn](https://www.linkedin.com/in/raymond-hartman) | +27 72 215 8693 | raymhrt@yahoo.com'). Line 3 must be strictly: 'Applied Research Scientist | Laboratory Operations & Stakeholder Engagement | Experimental Design & Data Analysis'. NEVER prepend a job title or extra heading like 'Assistant Data Bioanalyst - CV' above your name.
     2. PROFESSIONAL SUMMARY: Write the summary as a cohesive 6 to 7 sentence executive narrative paragraph. NEVER use bullet points under '## Professional Summary'.
-    3. EXPERIENCE RE-WEIGHTING: Do not just copy and paste the master CV bullets. Actively rephrase and prioritize the bullet points under each role (e.g., University of the Witwatersrand, Transvaal Electric Motors) to highlight the exact methodologies, software (Python, GraphPad Prism), and technical domains explicitly requested in the target Job Description.
-    4. SECTION HEADINGS: Use standard Markdown headers starting with '## ' for every major section (e.g., '## Professional Summary', '## Core Competencies', '## Technical Skills', '## Professional Experience', '## Education', '## Awards & Scholarships', '## Certifications', '## Selected Publications'). NEVER put bullet points (•, -, *) on lines starting with '##'.
-    5. BULLET POINTS: Use standard bullet points ('- ' or '* ') ONLY for items inside Core Competencies, Professional Experience, and Awards. NEVER put bullet points on Section Headings, Publications, or the Professional Summary.
+    3. EXPERIENCE RE-WEIGHTING: Actively rephrase and prioritize bullet points under each role to highlight methodologies and tools explicitly requested in the target Job Description.
+    4. SECTION HEADINGS: Use standard Markdown headers starting with '## ' for every major section. NEVER put bullet points on lines starting with '##'.
+    5. BULLET POINTS: Use standard bullet points ('- ' or '* ') ONLY for items inside Core Competencies, Professional Experience, and Awards.
     6. PUBLICATIONS: List publications as plain text paragraphs without any bullet symbols.
-    7. MANDATORY SECTIONS: Retain the clean Education section listing all degrees (PhD, BSc Hons, BSc, National Diploma), Selected Publications, and Awards & Scholarships exactly as they appear in the master CV.
+    7. MANDATORY SECTIONS: Retain the clean Education section, Selected Publications, and Awards & Scholarships.
     8. STRICT GROUND TRUTH: Never invent fake metrics or unverified figures. Reframe real experience to match the employer's terminology.
     """
 
