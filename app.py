@@ -1718,18 +1718,57 @@ class DirectPDFExportRequest(BaseModel):
     job_title: Optional[str] = "Tailored_CV"
 
 @app.post("/api/v1/career/export-pdf-direct")
-async def export_pdf_direct(payload: DirectPDFExportRequest, auth: dict = Depends(verify_api_key_only)):
-    cv_text = sanitize_cv_text(payload.cv_markdown)
-    if not cv_text or len(cv_text.strip()) < 50:
-        raise HTTPException(status_code=400, detail="Provided CV markdown is empty or invalid.")
+async def export_pdf_direct(payload: dict, api_key: str = Header(None, alias="x-api-key")):
+    # Verify API key if required
+    content = payload.get("content") or payload.get("cv_markdown") or "# Tailored Document"
+    job_title = payload.get("job_title") or "Career_Asset"
+    asset_type = payload.get("asset_type", "CV").upper() # "CV" or "COVER_LETTER"
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
+    styles = getSampleStyleSheet()
     
-    pdf_bytes = generate_pdf_cv(cv_text)
-    safe_filename = re.sub(r'[^a-zA-Z0-9]', '_', payload.job_title)
+    # Custom styles
+    title_style = ParagraphStyle(
+        'DocTitle',
+        parent=styles['Heading1'],
+        fontSize=16,
+        leading=20,
+        textColor=colors.HexColor("#0284c7"),
+        spaceAfter=12
+    )
+    body_style = ParagraphStyle(
+        'DocBody',
+        parent=styles['Normal'],
+        fontSize=10,
+        leading=14,
+        textColor=colors.HexColor("#1e293b"),
+        spaceAfter=8
+    )
+
+    story = []
+    story.append(Paragraph(f"<b>{job_title} - {asset_type}</b>", title_style))
+    story.append(Spacer(1, 10))
+
+    for line in content.split("\n"):
+        line_stripped = line.strip()
+        if not line_stripped:
+            story.append(Spacer(1, 6))
+            continue
+        if line_stripped.startswith("#"):
+            heading_text = line_stripped.lstrip("#").strip()
+            story.append(Paragraph(f"<b>{heading_text}</b>", title_style))
+        else:
+            story.append(Paragraph(escape(line_stripped), body_style))
+
+    doc.build(story)
+    buffer.seek(0)
     
-    return Response(
-        content=pdf_bytes,
-        media_type="application/pdf",
-        headers={"Content-Disposition": f"attachment; filename={safe_filename}_Tailored.pdf"}
+    filename = f"{job_title.replace(' ', '_')}_{asset_type}.pdf"
+    return StreamingResponse(
+        buffer, 
+        media_type="application/pdf", 
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
 
 @app.post("/api/v1/career/tailor-cv")

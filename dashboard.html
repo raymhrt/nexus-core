@@ -559,7 +559,7 @@
         </div>
     </div>
 
-    <!-- AI Ghostwriter Modal with Dynamic ATS Match Score Badge -->
+    <!-- AI Ghostwriter Modal with Dynamic ATS Match Score Badge & Dual PDF Download Buttons -->
     <div id="aiGhostwriterModal" class="hidden fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex justify-center items-center p-4">
         <div class="bento-card border-sky-500/40 p-6 rounded-2xl max-w-4xl w-full shadow-2xl space-y-4 max-h-[90vh] flex flex-col">
             <div class="flex items-center justify-between border-b border-slate-800 pb-3">
@@ -588,9 +588,10 @@
             </div>
             <div class="flex items-center justify-between pt-2 border-t border-slate-800">
                 <span class="text-[10px] text-slate-400"><i class="fa-solid fa-circle-check text-emerald-400 mr-1"></i> ATS Keyword Vector Match Verified</span>
-                <div class="flex gap-3">
-                    <button onclick="copyGhostwriterOutput()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-bold transition"><i class="fa-solid fa-copy mr-1.5"></i> Copy to Clipboard</button>
-                    <button onclick="downloadGhostwriterAsset()" class="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold transition shadow-lg shadow-sky-600/20"><i class="fa-solid fa-download mr-1.5"></i> Export Markdown / PDF</button>
+                <div class="flex gap-2.5">
+                    <button onclick="copyGhostwriterOutput()" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-bold transition"><i class="fa-solid fa-copy mr-1"></i> Copy</button>
+                    <button onclick="downloadAssetAsPdf('cv')" class="px-3 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold transition shadow"><i class="fa-solid fa-download mr-1"></i> Download CV PDF</button>
+                    <button onclick="downloadAssetAsPdf('letter')" class="px-3 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-bold transition shadow"><i class="fa-solid fa-download mr-1"></i> Download Letter PDF</button>
                 </div>
             </div>
         </div>
@@ -1431,48 +1432,45 @@
             showToast("Copied active asset to clipboard!");
         }
 
-        async function downloadGhostwriterAsset() {
-            const currentCvMarkdown = activeGhostwriterData.cv;
-            const jobTitle = window.activeGhostwriterJobTitle || "Tailored_CV";
+        async function downloadAssetAsPdf(assetType) {
+            const isCv = assetType === 'cv';
+            const content = isCv ? activeGhostwriterData.cv : activeGhostwriterData.letter;
+            const jobTitle = window.activeGhostwriterJobTitle || "Target_Role";
+            const typeLabel = isCv ? "CV" : "Cover_Letter";
 
-            showToast("Compiling direct PDF export...");
+            if (!content || content.startsWith("Generating")) {
+                showToast("Please wait for the asset to finish generating.", true);
+                return;
+            }
+
+            showToast(`Compiling ${typeLabel} PDF export...`);
             try {
                 const response = await fetch('/api/v1/career/export-pdf-direct', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'x-api-key': localStorage.getItem('nexus_api_key') || localStorage.getItem('qcn_api_key') || ''
+                        'x-api-key': localStorage.getItem('nexus_api_key') || ''
                     },
                     body: JSON.stringify({
-                        cv_markdown: currentCvMarkdown,
-                        job_title: jobTitle
+                        content: content,
+                        job_title: jobTitle,
+                        asset_type: typeLabel
                     })
                 });
 
-                if (!response.ok) {
-                    throw new Error('Failed to generate PDF from direct export endpoint.');
-                }
+                if (!response.ok) throw new Error('PDF export failed.');
 
                 const blob = await response.blob();
                 const url = window.URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = `${jobTitle.replace(/[^a-zA-Z0-9]/g, '_')}_Tailored.pdf`;
+                a.download = `${jobTitle.replace(/[^a-zA-Z0-9]/g, '_')}_${typeLabel}.pdf`;
                 document.body.appendChild(a);
                 a.click();
                 a.remove();
-                showToast("PDF downloaded successfully!");
+                showToast(`${typeLabel} PDF downloaded successfully!`);
             } catch (err) {
-                console.error("Direct PDF export error, falling back to markdown download:", err);
-                showToast("Error downloading PDF. Falling back to markdown export.", true);
-                const blob = new Blob([currentCvMarkdown], { type: 'text/markdown' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `${jobTitle.replace(/[^a-zA-Z0-9]/g, '_')}_Tailored.md`;
-                document.body.appendChild(a);
-                a.click();
-                a.remove();
+                showToast(`Error downloading ${typeLabel} PDF.`, true);
             }
         }
 
