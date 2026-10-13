@@ -416,10 +416,10 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
     subtitle_style = ParagraphStyle(
         'DocSubTitle',
         parent=styles['Normal'],
-        fontName='Helvetica-Bold',              # Bold weight
-        fontSize=9,                             # Slightly bigger font size
-        leading=12,                             # Adjusted leading
-        textColor=colors.HexColor('#000000'),   # Pure black text
+        fontName='Helvetica-Bold',
+        fontSize=9,
+        leading=12,
+        textColor=colors.HexColor('#000000'),
         spaceAfter=4,
         spaceBefore=2
     )
@@ -477,8 +477,20 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         "selected publications", "publications"
     ]
     
-    name_para = Paragraph("RAYMOND HARTMAN, PhD", title_style)
-    contact_para = Paragraph("Johannesburg, South Africa<br/>[LinkedIn](https://www.linkedin.com/in/raymond-hartman)<br/>+27 72 215 8693 | raymhrt@yahoo.com", contact_style)
+    # --- DYNAMIC HEADER EXTRACTION ---
+    extracted_name = "PROFESSIONAL CANDIDATE"
+    extracted_contact_lines = []
+    
+    for line in lines[:5]:
+        clean_line = line.strip()
+        if clean_line.startswith('# '):
+            extracted_name = clean_line.replace('# ', '').strip().upper()
+        elif any(k in clean_line.lower() for k in ['@', 'linkedin', '+27', 'phone', 'south africa', 'united states', 'london', 'johannesburg']):
+            extracted_contact_lines.append(markdown_to_reportlab_html(clean_line))
+
+    name_para = Paragraph(extracted_name, title_style)
+    contact_text = "<br/>".join(extracted_contact_lines) if extracted_contact_lines else "Global Professional | Verified Profile"
+    contact_para = Paragraph(contact_text, contact_style)
     
     header_table = Table([[name_para, contact_para]], colWidths=[240, 284])
     header_table.setStyle(TableStyle([
@@ -490,16 +502,15 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
     ]))
     story.append(header_table)
     story.append(Spacer(1, 4))
-    # Subtitle is parsed directly from the markdown content without duplication or border lines.
 
     for line in lines:
         raw_line = line
         line = line.strip()
-        if not line or raw_line.startswith('# ') or ('Johannesburg' in raw_line and 'raymhrt' in raw_line):
+        # Skip header lines from body processing so they don't duplicate
+        if not line or raw_line.startswith('# ') or raw_line in extracted_contact_lines or any(k in raw_line.lower() for k in ['@', 'linkedin']):
             continue
             
         clean_check = re.sub(r'[\#\*\_\`\-\•\s]+', ' ', line).strip().lower()
-        
         is_section_header = False
         section_title_text = ""
         
@@ -516,19 +527,14 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
             
         cleaned_line = markdown_to_reportlab_html(raw_line)
         
-        # Subtitle check that applies your bold, slightly bigger, black style without a border:
-        if "Applied Research Scientist" in raw_line and "Experimental Design" in raw_line:
-            story.append(Paragraph(cleaned_line, subtitle_style))
-            continue
-            
-        if ('University' in raw_line or 'Manager' in raw_line or 'Company' in raw_line or 'Lab' in raw_line) and re.search(r'(20\d{2}|19\d{2})\s*[\–\-\—]\s*(Present|20\d{2}|19\d{2})', raw_line, re.IGNORECASE):
+        # Detect role subtitles or job positions dynamically based on dates/formatting rather than hardcoded text
+        if ('University' in raw_line or 'Manager' in raw_line or 'Company' in raw_line or 'Lab' in raw_line or 'Engineer' in raw_line or 'Scientist' in raw_line) and re.search(r'(20\d{2}|19\d{2})\s*[\–\-\—]\s*(Present|20\d{2}|19\d{2})', raw_line, re.IGNORECASE):
             current_section = "professional experience"
             story.append(Paragraph(cleaned_line, job_title_style))
             
         elif any(p in current_section for p in ["publication", "selected publications"]):
             pub_text = re.sub(r'^[\-\*\•]\s*', '', cleaned_line)
             pub_text = re.sub(r'"([^"]+)"', r'*\1*', pub_text)
-            pub_text = pub_text.replace(' ,', ',').replace(' .', '.')
             story.append(Paragraph(pub_text, body_style))
             
         elif any(sec in current_section for sec in ["education"]):
