@@ -257,7 +257,6 @@ def call_groq_ai(prompt: str, system_prompt: str = "You are the complete multi-t
     if not GROQ_API_KEY:
         raise HTTPException(status_code=500, detail="GROQ_API_KEY not configured.")
     
-    # Include cache_salt (like company + role) so different jobs never share cache entries
     cache_key = hashlib.sha256((prompt + system_prompt + cache_salt).encode("utf-8")).hexdigest()
     cached = get_cached_ai_response(cache_key)
     if cached:
@@ -272,7 +271,7 @@ def call_groq_ai(prompt: str, system_prompt: str = "You are the complete multi-t
     }
 
     max_retries = 5
-    endpoint_url = "https://api.groq.com/openai/v1/chat/completions"
+    endpoint_url = "[https://api.groq.com/openai/v1/chat/completions](https://api.groq.com/openai/v1/chat/completions)"
 
     for attempt in range(max_retries):
         try:
@@ -416,10 +415,10 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
     subtitle_style = ParagraphStyle(
         'DocSubTitle',
         parent=styles['Normal'],
-        fontName='Helvetica-Bold',              # Bold weight
-        fontSize=9,                             # Slightly bigger font size
-        leading=12,                             # Adjusted leading
-        textColor=colors.HexColor('#000000'),   # Pure black text
+        fontName='Helvetica-Bold',
+        fontSize=9,
+        leading=12,
+        textColor=colors.HexColor('#000000'),
         spaceAfter=4,
         spaceBefore=2
     )
@@ -490,7 +489,6 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
     ]))
     story.append(header_table)
     story.append(Spacer(1, 4))
-    # Subtitle is parsed directly from the markdown content without duplication or border lines.
 
     for line in lines:
         raw_line = line
@@ -516,7 +514,6 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
             
         cleaned_line = markdown_to_reportlab_html(raw_line)
         
-        # Subtitle check that applies your bold, slightly bigger, black style without a border:
         if "Applied Research Scientist" in raw_line and "Experimental Design" in raw_line:
             story.append(Paragraph(cleaned_line, subtitle_style))
             continue
@@ -554,18 +551,34 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
 
 async def generate_tailored_cv(user_email: str, master_resume_text: str, job_title: str, company_name: str, job_description: str) -> str:
     system_prompt = f"""
-    You are an elite executive career strategist and expert technical resume writer.
-    Your task is to completely rewrite and dynamically tailor the candidate's Master CV specifically for the target role: {job_title} at {company_name}.
+You are an elite AI Career Swarm, ATS Optimization, and Resume Architect Agent. 
+Your goal is to tailor the candidate's Master CV for the target role ({job_title} at {company_name}) while strictly enforcing honesty and exact constraints.
 
-    CRITICAL TAILORING & STRUCTURAL RULES:
-    1. HEADER & SUBTITLE: First line must be '# Raymond Hartman, PhD'. Second line must be contact info with '|' separators using the exact email from the master CV. Third line must be strictly: 'Applied Research Scientist | Laboratory Operations & Stakeholder Engagement | Experimental Design & Data Analysis'. NO bullet points in the header.
-    2. PROFESSIONAL SUMMARY: Write the summary as a cohesive 6 to 7 sentence executive narrative paragraph. NEVER use bullet points under '## Professional Summary'.
-    3. EXPERIENCE RE-WEIGHTING: Do not just copy and paste the master CV bullets. Actively rephrase and prioritize the bullet points under each role (e.g., University of the Witwatersrand, Transvaal Electric Motors) to highlight the exact methodologies, software (Python, GraphPad Prism), and technical domains explicitly requested in the target Job Description.
-    4. SECTION HEADINGS: Use standard Markdown headers starting with '## ' for every major section (e.g., '## Professional Summary', '## Core Competencies', '## Technical Skills', '## Professional Experience', '## Education', '## Awards & Scholarships', '## Certifications', '## Selected Publications'). NEVER put bullet points (•, -, *) on lines starting with '##'.
-    5. BULLET POINTS: Use standard bullet points ('- ' or '* ') ONLY for items inside Core Competencies, Professional Experience, and Awards. NEVER put bullet points on Section Headings, Publications, or the Professional Summary.
-    6. PUBLICATIONS: List publications as plain text paragraphs without any bullet symbols.
-    7. MANDATORY SECTIONS: Retain the clean Education section listing all degrees (PhD, BSc Hons, BSc, National Diploma), Selected Publications, and Awards & Scholarships exactly as they appear in the master CV.
-    8. STRICT GROUND TRUTH: Never invent fake metrics or unverified figures. Reframe real experience to match the employer's terminology.
+---
+### RULE 1: STRICT TRUTH & TRANSFERABLE SKILLS (NO FABRICATION)
+- **Zero Fabrication:** Never invent fake degrees, fake employers, fake job titles, or technical certifications the user does not possess.
+- **Transferable Skill Mapping:** If the job description requires a tool, methodology, or compliance framework the user hasn't explicitly used by name, you may intelligently bridge their verified experience. For example, if the user has managed laboratory safety, quality control, or electrical maintenance, map those as transferable foundations for SCM, equipment troubleshooting, or regulatory compliance (e.g., PFMA, ISO, SANAS, FDA, GMP). Always frame them honestly as transferable competencies.
+
+---
+### RULE 2: DYNAMIC COMPLIANCE EXTRACTION
+- Scan the target job description for any regulatory, legal, financial, or accreditation keywords (e.g., PFMA, National Treasury, SANAS, ISO 17025, GMP, FDA, OSHA, Agile, SOC2).
+- Dynamically extract and weave the candidate's closest operational, administrative, or quality-assurance experience into the CV summary and bullet points to match the employer's specific regulatory environment.
+
+---
+### RULE 3: INTELLIGENT TITLE ADAPTATION
+- Analyze the target job title (e.g., "{job_title}").
+- If the candidate is overqualified (e.g., holds a PhD or senior management background), adapt the professional subtitle and summary to position them as a **"High-Impact, Hands-On Technical Specialist / Research Scientist"**—emphasizing deep experimental execution, operational rigor, and eagerness for hands-on delivery rather than purely academic oversight.
+
+---
+### RULE 4: STRICT PAGE-BUDGET & DENSITY ENFORCEMENT (~1.9 PAGES)
+- **Target Length:** The tailored CV must be substantial enough to fill approximately 1.8 to 1.9 pages (roughly 500 to 650 words when rendered in PDF/Markdown), ensuring it never spills over onto a messy partial 3rd page, but is never sparse.
+- **Structural Blueprint:**
+  1. **Header & Contact Info:** Concise, clean.
+  2. **Professional Summary (3-4 impactful sentences):** High-lighting core alignment, compliance experience, and hands-on laboratory dedication.
+  3. **Core Competencies (6-8 targeted keyword pills/bullets):** Direct mirror of ATS requirements from the job description.
+  4. **Professional Experience (2 robust roles):** Prioritize the most relevant role with 5-6 dense, metric-driven bullet points starting with strong action verbs. Frame secondary roles tightly.
+  5. **Education & Certifications:** Formatted cleanly.
+  6. **Selected Publications / Key Projects:** Include 2-3 standout peer-reviewed publications or technical projects to prove subject matter mastery.
     """
 
     user_prompt = f"""
@@ -577,11 +590,10 @@ async def generate_tailored_cv(user_email: str, master_resume_text: str, job_tit
     Role: {job_title}
     {job_description}
 
-    Generate the complete, heavily tailored 1-page Markdown CV variant now.
+    Generate the complete, heavily tailored Markdown CV variant now.
     """
 
     loop = asyncio.get_running_loop()
-    # === PUT THE CODE HERE ===
     raw_response = await loop.run_in_executor(
         None, 
         lambda: call_groq_ai(user_prompt, system_prompt=system_prompt, cache_salt=f"{company_name}_{job_title}")
@@ -645,7 +657,7 @@ async def audit_and_correct_tailored_documents_dynamic(
     Your job is to audit a drafted Tailored CV and Cover Letter against the candidate's Master CV and the Target Job Description.
 
     CRITICAL MULTI-TENANT AUDIT RULES:
-    1. GROUND TRUTH CHECK: Strictly cross-reference every claim against the candidate's actual Master CV provided below. Zero hallucination policy: do not invent fake degrees, unearned titles, or false metrics (such as invented budget numbers or fabricated percentage improvements).
+    1. GROUND TRUTH CHECK: Strictly cross-reference every claim against the candidate's actual Master CV provided below. Zero hallucination policy: do not invent fake degrees, unearned titles, or false metrics.
     2. CONTACT INTEGRITY: Ensure the contact header exclusively uses the user's verified database email: {user_email}.
     3. OMISSION & COMPLETENESS CHECK: Ensure no core qualifications, formal education entries, or publications from the Master CV were mistakenly dropped in the draft.
     4. ATS FORMATTING: Ensure clean Markdown structure with zero hardcoded placeholders or broken tags.
@@ -654,7 +666,7 @@ async def audit_and_correct_tailored_documents_dynamic(
     - "issues_identified": ["Issue 1 discovered", "Issue 2..."]
     - "missing_information": ["Missing item 1", "Missing item 2..."]
     - "hallucinations_removed": ["Any false claim, fake metric, or altered email corrected..."]
-    - "corrected_cv": "The fully corrected, pristine 1-page Markdown CV preserving exact master profile facts."
+    - "corrected_cv": "The fully corrected, pristine Markdown CV preserving exact master profile facts."
     - "corrected_cover_letter": "The fully corrected, flawless executive cover letter using email {user_email}."
     """
 
@@ -705,7 +717,7 @@ def build_ghostwriter_prompt(master_cv_markdown: str, target_job_description: st
     cleaned_cv = sanitize_cv_text(master_cv_markdown) if master_cv_markdown and len(master_cv_markdown.strip()) > 20 else f"Candidate Profile: Professional Technical Researcher ({user_email})."
     return f"""
     You are an elite executive career strategist and ATS optimization expert.
-    Your task is to tailor the candidate's actual Master CV into an ATS-optimized, 1-page Markdown resume targeting the job description below.
+    Your task is to tailor the candidate's actual Master CV into an ATS-optimized Markdown resume targeting the job description below.
 
     TONE CALIBRATION: {tone}
     CANDIDATE EMAIL: {user_email}
@@ -714,7 +726,7 @@ def build_ghostwriter_prompt(master_cv_markdown: str, target_job_description: st
     1. ZERO INVENTED PERSONAS: You are strictly forbidden from inventing fake names or altering the candidate's core identity. Always retain email: {user_email}.
     2. STRICT GROUND TRUTH: Use the actual degrees, institutions, and employment history present in the Master CV text below.
     3. THE X-Y-Z FORMULA: Reframe the candidate's real experience using impact metrics.
-    4. 1-PAGE COMPRESSION: Keep bullets punchy, scannable, and formatted in clean Markdown.
+    4. COMPRESSION: Keep bullets punchy, scannable, and formatted in clean Markdown.
 
     ---
     CANDIDATE MASTER CV:
@@ -738,8 +750,8 @@ def build_ghostwriter_prompt(master_cv_markdown: str, target_job_description: st
     - "critical_missing": ["Missing 1"]
     - "top_rejection_risks": ["Risk 1", "Risk 2"]
     - "match_rationale": ["Rationale 1", "Rationale 2"]
-    - "tailored_cv": "A complete, ATS-optimized 1-page Markdown CV using the candidate's actual background and degrees."
-    - "tailored_cover_letter": "A compelling 3-paragraph executive cover letter addressed to {company_name}."
+    - "tailored_cv": "A complete, ATS-optimized Markdown CV using the candidate's actual background and degrees."
+    - "tailored_cover_letter": "A compelling executive cover letter addressed to {company_name}."
     - "salary_benchmark": "Estimated compensation range"
     - "negotiation_strategy": "Strategy details"
     - "interview_playbook": [{{"stage": "Screening", "focus": "Focus areas"}}, {{"stage": "Technical", "focus": "Focus areas"}}]
@@ -1572,7 +1584,6 @@ async def refresh_career_match(match_id: int, auth: dict = Depends(verify_api_ke
         job_title = m_dict.get('job_title', '')
         job_description = m_dict.get('job_description', '')
 
-        # Directly call your updated tailoring functions
         tailored_cv_text = sanitize_cv_text(await generate_tailored_cv(
             user_email=auth["email"],
             master_resume_text=master_resume,
@@ -1636,7 +1647,6 @@ async def download_match_pdf(match_id: int, request: Request, auth: dict = Depen
     if not cv_markdown or len(cv_markdown.strip()) < 50:
         raise HTTPException(status_code=400, detail="No tailored CV variant found for this match. Please tailor or refresh the CV first.")
 
-    # Pass the exact database cv_variant string to your PDF generator
     pdf_bytes = generate_pdf_cv(cv_markdown)
     
     return Response(
@@ -1719,16 +1729,14 @@ class DirectPDFExportRequest(BaseModel):
 
 @app.post("/api/v1/career/export-pdf-direct")
 async def export_pdf_direct(payload: dict, api_key: str = Header(None, alias="x-api-key")):
-    # Verify API key if required
     content = payload.get("content") or payload.get("cv_markdown") or "# Tailored Document"
     job_title = payload.get("job_title") or "Career_Asset"
-    asset_type = payload.get("asset_type", "CV").upper() # "CV" or "COVER_LETTER"
+    asset_type = payload.get("asset_type", "CV").upper()
 
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
     styles = getSampleStyleSheet()
     
-    # Custom styles
     title_style = ParagraphStyle(
         'DocTitle',
         parent=styles['Heading1'],
@@ -1892,7 +1900,7 @@ async def save_career_resume(payload: ResumeInput, auth: dict = Depends(verify_a
     prompt = f"""
     Analyze this master CV / resume text for user {auth['email']}.
     Extract core technical skills, seniority, primary professional domain, and generate 4 to 6 highly accurate professional job titles / recommended roles based strictly on this text.
-    CRITICAL: Do not use the candidate's personal name in the domain or recommended roles. Focus purely on their technical field (e.g., Software Engineering, Data Science, Mechanical Engineering, Biotechnology).
+    CRITICAL: Do not use the candidate's personal name in the domain or recommended roles. Focus purely on their technical field.
     
     Return strict JSON with these exact keys:
     - "seniority": "Senior / Executive"
@@ -2040,7 +2048,7 @@ def create_checkout_session(request: Request, payload: Optional[PortalSessionReq
         if not price_id:
             raise HTTPException(
                 status_code=400, 
-                detail=f"Stripe Price ID for tier '{tier}' is not configured in environment variables (STRIPE_PRO_PRICE_ID or STRIPE_ENTERPRISE_PRICE_ID)."
+                detail=f"Stripe Price ID for tier '{tier}' is not configured in environment variables."
             )
         
         email = "user@example.com"
@@ -2087,11 +2095,11 @@ def retrieve_api_key_by_email(email: str):
         row = cursor.fetchone()
         
     if not row:
-        raise HTTPException(status_code=404, detail="No active API key found for this email yet. Please wait a moment for the webhook to process.")
+        raise HTTPException(status_code=404, detail="No active API key found for this email yet.")
         
     return {
         "status": "success",
-        "message": "Subscriber found. Note: For security, use your raw API key provided upon creation, or generate a fresh key in your dashboard."
+        "message": "Subscriber found."
     }
 
 @app.post("/api/v1/billing/portal")
@@ -2162,29 +2170,6 @@ async def stripe_webhook(request: Request):
                 cursor.execute("INSERT INTO api_keys (email, key_hash, key_name) VALUES (%s, %s, 'Stripe Subscription Key') ON CONFLICT (key_hash) DO NOTHING", (customer_email, key_hash))
             else:
                 cursor.execute("INSERT OR REPLACE INTO api_keys (email, key_hash, key_name) VALUES (?, ?, 'Stripe Subscription Key')", (customer_email, key_hash))
-
-        if RESEND_API_KEY and customer_email:
-            try:
-                email_headers = {"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"}
-                email_body = f"""Welcome to QuantCode Nexus Apex!
-
-Your subscription ({tier.upper()} tier) is active, and your account has been credited with {credits_to_add} automation credits.
-
-Your Secret API Key:
-{api_key_raw}
-
-Keep this key secure and use it in your `x-api-key` header for all API requests.
-
-Dashboard: [https://nexus-core-yfou.onrender.com/](https://nexus-core-yfou.onrender.com/)
-"""
-                requests.post("[https://api.resend.com/emails](https://api.resend.com/emails)", json={
-                    "from": f"QuantCode Billing <{SENDER_EMAIL}>", 
-                    "to": [customer_email],
-                    "subject": "Your QuantCode Nexus API Key & Subscription Access",
-                    "text": email_body
-                }, headers=email_headers, timeout=5)
-            except Exception as mail_err:
-                logger.error(f"Failed to dispatch subscription API key email: {mail_err}")
 
     return {"status": "success"}
 
