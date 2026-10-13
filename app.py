@@ -32,7 +32,7 @@ from pydantic import BaseModel, Field, EmailStr, ValidationError
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from dotenv import load_dotenv
 
-from reportlab.lib.pagesizes import letter, A4
+from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, HRFlowable, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -1632,11 +1632,9 @@ async def download_match_pdf(match_id: int, request: Request, auth: dict = Depen
 
     m_data = dict(row) if not isinstance(row, dict) else row
     cv_markdown = sanitize_cv_text(m_data.get("cv_variant"))
-    
-    if not cv_markdown or len(cv_markdown.strip()) < 50:
-        raise HTTPException(status_code=400, detail="No tailored CV variant found for this match. Please tailor or refresh the CV first.")
+    if not cv_markdown:
+        raise HTTPException(status_code=400, detail="No tailored CV variant found for this match. Please generate the tailored CV first.")
 
-    # Pass the exact database cv_variant string to your PDF generator
     pdf_bytes = generate_pdf_cv(cv_markdown)
     
     return Response(
@@ -1712,64 +1710,6 @@ async def tailor_saved_match(match_id: int, auth: dict = Depends(verify_api_key_
         "tailored_cv": tailored_cv_text,
         "tailored_cover_letter": tailored_cl
     }
-
-class DirectPDFExportRequest(BaseModel):
-    cv_markdown: str
-    job_title: Optional[str] = "Tailored_CV"
-
-@app.post("/api/v1/career/export-pdf-direct")
-async def export_pdf_direct(payload: dict, api_key: str = Header(None, alias="x-api-key")):
-    # Verify API key if required
-    content = payload.get("content") or payload.get("cv_markdown") or "# Tailored Document"
-    job_title = payload.get("job_title") or "Career_Asset"
-    asset_type = payload.get("asset_type", "CV").upper() # "CV" or "COVER_LETTER"
-
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
-    styles = getSampleStyleSheet()
-    
-    # Custom styles
-    title_style = ParagraphStyle(
-        'DocTitle',
-        parent=styles['Heading1'],
-        fontSize=16,
-        leading=20,
-        textColor=colors.HexColor("#0284c7"),
-        spaceAfter=12
-    )
-    body_style = ParagraphStyle(
-        'DocBody',
-        parent=styles['Normal'],
-        fontSize=10,
-        leading=14,
-        textColor=colors.HexColor("#1e293b"),
-        spaceAfter=8
-    )
-
-    story = []
-    story.append(Paragraph(f"<b>{job_title} - {asset_type}</b>", title_style))
-    story.append(Spacer(1, 10))
-
-    for line in content.split("\n"):
-        line_stripped = line.strip()
-        if not line_stripped:
-            story.append(Spacer(1, 6))
-            continue
-        if line_stripped.startswith("#"):
-            heading_text = line_stripped.lstrip("#").strip()
-            story.append(Paragraph(f"<b>{heading_text}</b>", title_style))
-        else:
-            story.append(Paragraph(html.escape(line_stripped), body_style))
-
-    doc.build(story)
-    buffer.seek(0)
-    
-    filename = f"{job_title.replace(' ', '_')}_{asset_type}.pdf"
-    return StreamingResponse(
-        buffer, 
-        media_type="application/pdf", 
-        headers={"Content-Disposition": f"attachment; filename={filename}"}
-    )
 
 @app.post("/api/v1/career/tailor-cv")
 async def tailor_user_specific_cv(
