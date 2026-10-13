@@ -396,30 +396,30 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         'DocTitle',
         parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=15,
-        leading=18,
+        fontSize=14,
+        leading=16,
         textColor=colors.HexColor('#0f172a'),
-        spaceAfter=2
+        spaceAfter=1
     )
     
     contact_style = ParagraphStyle(
         'ContactStyle',
         parent=styles['Normal'],
         fontName='Helvetica',
-        fontSize=8.5,
-        leading=11,
+        fontSize=8,
+        leading=10,
         textColor=colors.HexColor('#334155'),
-        spaceAfter=2
+        spaceAfter=1
     )
     
     heading_style = ParagraphStyle(
         'SectionHeading',
         parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=10.5,
-        leading=14,
+        fontSize=10,
+        leading=13,
         textColor=colors.HexColor('#0f172a'),
-        spaceBefore=8,
+        spaceBefore=6,
         spaceAfter=2,
         keepWithNext=True
     )
@@ -428,11 +428,11 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         'JobTitleStyle',
         parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=9,
-        leading=12,
+        fontSize=8.5,
+        leading=11,
         textColor=colors.HexColor('#1e293b'),
-        spaceBefore=4,
-        spaceAfter=1.5,
+        spaceBefore=3,
+        spaceAfter=1,
         keepWithNext=True
     )
     
@@ -441,9 +441,9 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         parent=styles['Normal'],
         fontName='Helvetica',
         fontSize=8.5,
-        leading=11.5,
+        leading=11,
         textColor=colors.HexColor('#334155'),
-        spaceAfter=2
+        spaceAfter=1.5
     )
     
     bullet_style = ParagraphStyle(
@@ -451,13 +451,17 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         parent=body_style,
         leftIndent=10,
         firstLineIndent=-8,
-        spaceAfter=1.5
+        spaceAfter=1
     )
 
     story = []
-    lines = markdown_text.split('\n')
-    current_section = ""
     
+    # Clean raw markdown to remove stray unclosed markdown bold tags and unwanted prefix titles
+    cleaned_text = re.sub(r'(?i)^.*?(cv|resume).*?\n', '', markdown_text) # Strip top title line if present
+    cleaned_text = cleaned_text.replace('**', '') # Strip raw markdown bold asterisks that break reportlab
+    lines = cleaned_text.split('\n')
+    
+    current_section = ""
     known_section_headers = [
         "professional summary", "summary", "core competencies", "competencies",
         "technical skills", "skills", "professional experience", "experience",
@@ -465,14 +469,13 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         "selected publications", "publications"
     ]
     
-    # --- ROBUST STACKED HEADER PARSING ---
     header_lines_processed = 0
-    for idx, line in enumerate(lines[:10]):
+    for idx, line in enumerate(lines[:8]):
         clean_line = line.strip()
         if not clean_line:
             header_lines_processed = idx + 1
             continue
-        
+            
         lower_line = clean_line.lower()
         if any(h in lower_line for h in known_section_headers):
             break
@@ -485,12 +488,12 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
             story.append(Paragraph(markdown_to_reportlab_html(clean_line), contact_style))
             header_lines_processed = idx + 1
         elif header_lines_processed > 0:
-            story.append(Paragraph(markdown_to_reportlab_html(clean_line), job_title_style))
+            story.append(Paragraph(markdown_to_reportlab_html(clean_line), contact_style))
             header_lines_processed = idx + 1
         else:
             break
 
-    story.append(Spacer(1, 4))
+    story.append(Spacer(1, 2))
 
     for line in lines[header_lines_processed:]:
         raw_line = line
@@ -508,9 +511,9 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         
         if is_section_header:
             current_section = section_title_text.lower()
-            story.append(Spacer(1, 4))
+            story.append(Spacer(1, 3))
             story.append(Paragraph(section_title_text.upper(), heading_style))
-            story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor('#0f172a'), spaceBefore=1, spaceAfter=3))
+            story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor('#0f172a'), spaceBefore=1, spaceAfter=2))
             continue
             
         cleaned_line = markdown_to_reportlab_html(raw_line)
@@ -521,7 +524,6 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
             
         elif any(p in current_section for p in ["publication", "selected publications"]):
             pub_text = re.sub(r'^[\-\*\•]\s*', '', cleaned_line)
-            pub_text = re.sub(r'"([^"]+)"', r'*\1*', pub_text)
             story.append(Paragraph(pub_text, body_style))
             
         elif any(sec in current_section for sec in ["education"]):
@@ -544,7 +546,6 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
     doc.build(story)
     buffer.seek(0)
     return buffer.getvalue()
-
 async def generate_tailored_cv(user_email: str, master_resume_text: str, job_title: str, company_name: str, job_description: str) -> str:
     system_prompt = f"""
     You are an elite executive career strategist and expert technical resume writer.
