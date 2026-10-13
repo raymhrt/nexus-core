@@ -257,7 +257,6 @@ def call_groq_ai(prompt: str, system_prompt: str = "You are the complete multi-t
     if not GROQ_API_KEY:
         raise HTTPException(status_code=500, detail="GROQ_API_KEY not configured.")
     
-    # Include cache_salt (like company + role) so different jobs never share cache entries
     cache_key = hashlib.sha256((prompt + system_prompt + cache_salt).encode("utf-8")).hexdigest()
     cached = get_cached_ai_response(cache_key)
     if cached:
@@ -272,7 +271,7 @@ def call_groq_ai(prompt: str, system_prompt: str = "You are the complete multi-t
     }
 
     max_retries = 5
-    endpoint_url = "https://api.groq.com/openai/v1/chat/completions"
+    endpoint_url = "[https://api.groq.com/openai/v1/chat/completions](https://api.groq.com/openai/v1/chat/completions)"
 
     for attempt in range(max_retries):
         try:
@@ -477,7 +476,6 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         "selected publications", "publications"
     ]
     
-    # --- DYNAMIC HEADER EXTRACTION ---
     extracted_name = "PROFESSIONAL CANDIDATE"
     extracted_contact_lines = []
     
@@ -506,7 +504,6 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
     for line in lines:
         raw_line = line
         line = line.strip()
-        # Skip header lines from body processing so they don't duplicate
         if not line or raw_line.startswith('# ') or raw_line in extracted_contact_lines or any(k in raw_line.lower() for k in ['@', 'linkedin']):
             continue
             
@@ -527,7 +524,6 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
             
         cleaned_line = markdown_to_reportlab_html(raw_line)
         
-        # Detect role subtitles or job positions dynamically based on dates/formatting rather than hardcoded text
         if ('University' in raw_line or 'Manager' in raw_line or 'Company' in raw_line or 'Lab' in raw_line or 'Engineer' in raw_line or 'Scientist' in raw_line) and re.search(r'(20\d{2}|19\d{2})\s*[\–\-\—]\s*(Present|20\d{2}|19\d{2})', raw_line, re.IGNORECASE):
             current_section = "professional experience"
             story.append(Paragraph(cleaned_line, job_title_style))
@@ -587,7 +583,6 @@ async def generate_tailored_cv(user_email: str, master_resume_text: str, job_tit
     """
 
     loop = asyncio.get_running_loop()
-    # === PUT THE CODE HERE ===
     raw_response = await loop.run_in_executor(
         None, 
         lambda: call_groq_ai(user_prompt, system_prompt=system_prompt, cache_salt=f"{company_name}_{job_title}")
@@ -1316,7 +1311,7 @@ async def isolated_user_job_scouting_worker(user_email: str, requested_count: in
                             ic.execute("UPDATE subscriber_credits SET credits_remaining = credits_remaining - 1 WHERE email = %s", (user_email,))
                         else:
                             ic.execute("UPDATE subscriber_credits SET credits_remaining = credits_remaining - 1 WHERE email = ?", (user_email,))
-                    saved_count += 1
+                        saved_count += 1
 
         await sse_broker.broadcast("career_swarm_update", {"user": user_email, "status": "scouted", "message": f"Swarm completed. Indexed {saved_count} verified matches."})
     except Exception as e:
@@ -1578,7 +1573,6 @@ async def refresh_career_match(match_id: int, auth: dict = Depends(verify_api_ke
         job_title = m_dict.get('job_title', '')
         job_description = m_dict.get('job_description', '')
 
-        # Directly call your updated tailoring functions
         tailored_cv_text = sanitize_cv_text(await generate_tailored_cv(
             user_email=auth["email"],
             master_resume_text=master_resume,
@@ -1642,7 +1636,6 @@ async def download_match_pdf(match_id: int, request: Request, auth: dict = Depen
     if not cv_markdown or len(cv_markdown.strip()) < 50:
         raise HTTPException(status_code=400, detail="No tailored CV variant found for this match. Please tailor or refresh the CV first.")
 
-    # Pass the exact database cv_variant string to your PDF generator
     pdf_bytes = generate_pdf_cv(cv_markdown)
     
     return Response(
@@ -1725,16 +1718,14 @@ class DirectPDFExportRequest(BaseModel):
 
 @app.post("/api/v1/career/export-pdf-direct")
 async def export_pdf_direct(payload: dict, api_key: str = Header(None, alias="x-api-key")):
-    # Verify API key if required
     content = payload.get("content") or payload.get("cv_markdown") or "# Tailored Document"
     job_title = payload.get("job_title") or "Career_Asset"
-    asset_type = payload.get("asset_type", "CV").upper() # "CV" or "COVER_LETTER"
+    asset_type = payload.get("asset_type", "CV").upper()
 
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
     styles = getSampleStyleSheet()
     
-    # Custom styles
     title_style = ParagraphStyle(
         'DocTitle',
         parent=styles['Heading1'],
