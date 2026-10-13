@@ -396,10 +396,10 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         'DocTitle',
         parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=16,
-        leading=20,
+        fontSize=15,
+        leading=18,
         textColor=colors.HexColor('#0f172a'),
-        spaceAfter=1
+        spaceAfter=2
     )
     
     contact_style = ParagraphStyle(
@@ -408,29 +408,18 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         fontName='Helvetica',
         fontSize=8.5,
         leading=11,
-        alignment=2,
-        textColor=colors.HexColor('#475569')
-    )
-    
-    subtitle_style = ParagraphStyle(
-        'DocSubTitle',
-        parent=styles['Normal'],
-        fontName='Helvetica-Bold',
-        fontSize=9,
-        leading=12,
-        textColor=colors.HexColor('#000000'),
-        spaceAfter=4,
-        spaceBefore=2
+        textColor=colors.HexColor('#334155'),
+        spaceAfter=2
     )
     
     heading_style = ParagraphStyle(
         'SectionHeading',
         parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=11.5,
-        leading=15,
-        textColor=colors.HexColor('#0284c7'),
-        spaceBefore=10,
+        fontSize=10.5,
+        leading=14,
+        textColor=colors.HexColor('#0f172a'),
+        spaceBefore=8,
         spaceAfter=2,
         keepWithNext=True
     )
@@ -439,11 +428,11 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         'JobTitleStyle',
         parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=9.5,
-        leading=13,
+        fontSize=9,
+        leading=12,
         textColor=colors.HexColor('#1e293b'),
-        spaceBefore=5,
-        spaceAfter=2,
+        spaceBefore=4,
+        spaceAfter=1.5,
         keepWithNext=True
     )
     
@@ -451,16 +440,16 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         'BodyTextCustom',
         parent=styles['Normal'],
         fontName='Helvetica',
-        fontSize=9,
-        leading=12,
+        fontSize=8.5,
+        leading=11.5,
         textColor=colors.HexColor('#334155'),
-        spaceAfter=2.5
+        spaceAfter=2
     )
     
     bullet_style = ParagraphStyle(
         'BulletCustom',
         parent=body_style,
-        leftIndent=12,
+        leftIndent=10,
         firstLineIndent=-8,
         spaceAfter=1.5
     )
@@ -476,35 +465,32 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         "selected publications", "publications"
     ]
     
-    extracted_name = "PROFESSIONAL CANDIDATE"
-    extracted_contact_lines = []
-    
-    for line in lines[:5]:
+    # --- STACKED HEADER PARSING (Matches Desired PDF Layout) ---
+    header_lines_processed = 0
+    for line in lines[:8]:
         clean_line = line.strip()
+        if not clean_line:
+            header_lines_processed += 1
+            continue
         if clean_line.startswith('# '):
-            extracted_name = clean_line.replace('# ', '').strip().upper()
+            story.append(Paragraph(clean_line.replace('# ', '').strip().upper(), title_style))
+            header_lines_processed += 1
         elif any(k in clean_line.lower() for k in ['@', 'linkedin', '+27', 'phone', 'south africa', 'united states', 'london', 'johannesburg']):
-            extracted_contact_lines.append(markdown_to_reportlab_html(clean_line))
+            story.append(Paragraph(markdown_to_reportlab_html(clean_line), contact_style))
+            header_lines_processed += 1
+        elif header_lines_processed > 0 and not any(h in clean_line.lower() for h in known_section_headers):
+            # Subtitle / Professional tags line
+            story.append(Paragraph(markdown_to_reportlab_html(clean_line), job_title_style))
+            header_lines_processed += 1
+        else:
+            break
 
-    name_para = Paragraph(extracted_name, title_style)
-    contact_text = "<br/>".join(extracted_contact_lines) if extracted_contact_lines else "Global Professional | Verified Profile"
-    contact_para = Paragraph(contact_text, contact_style)
-    
-    header_table = Table([[name_para, contact_para]], colWidths=[240, 284])
-    header_table.setStyle(TableStyle([
-        ('VALIGN', (0,0), (-1,-1), 'TOP'),
-        ('LEFTPADDING', (0,0), (-1,-1), 0),
-        ('RIGHTPADDING', (0,0), (-1,-1), 0),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 0),
-        ('TOPPADDING', (0,0), (-1,-1), 0),
-    ]))
-    story.append(header_table)
     story.append(Spacer(1, 4))
 
-    for line in lines:
+    for line in lines[header_lines_processed:]:
         raw_line = line
         line = line.strip()
-        if not line or raw_line.startswith('# ') or raw_line in extracted_contact_lines or any(k in raw_line.lower() for k in ['@', 'linkedin']):
+        if not line or raw_line.startswith('# '):
             continue
             
         clean_check = re.sub(r'[\#\*\_\`\-\•\s]+', ' ', line).strip().lower()
@@ -519,7 +505,7 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
             current_section = section_title_text.lower()
             story.append(Spacer(1, 4))
             story.append(Paragraph(section_title_text.upper(), heading_style))
-            story.append(HRFlowable(width="100%", thickness=0.75, color=colors.HexColor('#0284c7'), spaceBefore=2, spaceAfter=4))
+            story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor('#0f172a'), spaceBefore=1, spaceAfter=3))
             continue
             
         cleaned_line = markdown_to_reportlab_html(raw_line)
@@ -537,7 +523,7 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
             edu_text = re.sub(r'^[\-\*\•]\s*', '', cleaned_line).strip()
             story.append(Paragraph(edu_text, body_style))
             
-        elif any(sec in current_section for sec in ["competencies", "skills", "awards", "certifications"]):
+        elif any(sec in current_section for sec in ["professional experience", "experience", "competencies", "skills", "awards", "certifications"]):
             bullet_cleaned = re.sub(r'^[\-\*\•]\s*', '', cleaned_line).strip()
             if bullet_cleaned:
                 story.append(Paragraph(f"• {bullet_cleaned}", bullet_style))
