@@ -413,56 +413,54 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         'DocTitle',
         parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=15,
-        leading=18,
+        fontSize=16,
+        leading=20,
         textColor=colors.HexColor('#0f172a'),
-        spaceAfter=2
+        spaceAfter=3
     )
     
     contact_style = ParagraphStyle(
         'ContactStyle',
         parent=styles['Normal'],
         fontName='Helvetica',
-        fontSize=8.5,
-        leading=11,
+        fontSize=9,
+        leading=12,
         textColor=colors.HexColor('#334155'),
-        spaceAfter=1
+        spaceAfter=1.5
     )
     
     subtitle_style = ParagraphStyle(
         'SubtitleStyle',
         parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=9,
-        leading=12,
+        fontSize=9.5,
+        leading=13,
         textColor=colors.HexColor('#0284c7'),
-        spaceBefore=2,
-        spaceAfter=6
+        spaceBefore=3,
+        spaceAfter=8
     )
     
-    # Larger blue section headings
     heading_style = ParagraphStyle(
         'SectionHeading',
         parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=11,
-        leading=14,
+        fontSize=11.5,
+        leading=15,
         textColor=colors.HexColor('#0284c7'),
-        spaceBefore=8,
-        spaceAfter=3,
+        spaceBefore=12,
+        spaceAfter=4,
         keepWithNext=True
     )
     
-    # Bold job title style ensuring positions like Production Manager render in bold
     job_title_style = ParagraphStyle(
         'JobTitleStyle',
         parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=9,
-        leading=12,
+        fontSize=9.5,
+        leading=13,
         textColor=colors.HexColor('#1e293b'),
-        spaceBefore=5,
-        spaceAfter=1.5,
+        spaceBefore=8,
+        spaceAfter=2,
         keepWithNext=True
     )
     
@@ -470,18 +468,18 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         'BodyTextCustom',
         parent=styles['Normal'],
         fontName='Helvetica',
-        fontSize=8.5,
-        leading=11.5,
+        fontSize=9,
+        leading=13,
         textColor=colors.HexColor('#334155'),
-        spaceAfter=2.5
+        spaceAfter=4
     )
     
     bullet_style = ParagraphStyle(
         'BulletCustom',
         parent=body_style,
-        leftIndent=12,
+        leftIndent=14,
         firstLineIndent=-10,
-        spaceAfter=2
+        spaceAfter=3
     )
 
     story = []
@@ -538,13 +536,12 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
             current_section = section_title_text.lower()
             story.append(Spacer(1, 4))
             story.append(Paragraph(section_title_text.upper(), heading_style))
-            # Clean border line underneath the heading matching your blue heading accent
             story.append(HRFlowable(
                 width="100%", 
                 thickness=0.75, 
                 color=colors.HexColor('#0284c7'), 
                 spaceBefore=1, 
-                spaceAfter=3
+                spaceAfter=4
             ))
             continue
             
@@ -584,14 +581,14 @@ async def generate_tailored_cv(user_email: str, master_resume_text: str, job_tit
     You are an elite executive career strategist and expert technical resume writer.
     Your task is to completely rewrite and dynamically tailor the candidate's Master CV specifically for the target role: {job_title} at {company_name}.
 
-    CRITICAL TAILORING & STRUCTURAL RULES:
-    1. HEADER & SUBTITLE: Line 1 must be the candidate's exact name from their Master CV in uppercase. Line 2 must be their location. Line 3 must be their LinkedIn profile link. Line 4 must be their phone number and verified email ({user_email}) separated by ' | '. Line 5 must be a precise 3-part professional subtitle reflecting their core domain expertise. NEVER prepend rogue placeholder titles above the name.
-    2. PROFESSIONAL SUMMARY: Write the summary as a cohesive 6 to 7 sentence executive narrative paragraph. NEVER use bullet points under '## Professional Summary'.
-    3. EXPERIENCE RE-WEIGHTING: Actively rephrase and prioritize bullet points under each role to highlight methodologies and tools explicitly requested in the target Job Description.
-    4. SECTION HEADINGS: Use standard Markdown headers starting with '## ' for every major section. NEVER put bullet points on lines starting with '##'.
-    5. BULLET POINTS: Use standard bullet points ('- ' or '* ') for every single item inside Core Competencies, Professional Experience, Awards, and Certifications so they format cleanly.
-    6. PUBLICATIONS & EDUCATION: List publications and education entries as clean text paragraphs without bullet symbols.
-    7. STRICT GROUND TRUTH: Never invent fake metrics or unverified figures. Reframe real experience to match the employer's terminology.
+    CRITICAL TAILORING & STRUCTURAL RULES FOR A FULL 2-PAGE EXECUTIVE CV:
+    1. HEADER & SUBTITLE: Line 1 must be the candidate's exact name from their Master CV in uppercase. Line 2 must be their location. Line 3 must be their LinkedIn profile link. Line 4 must be their phone number and verified email ({user_email}) separated by ' | '. Line 5 must be a precise 3-part professional subtitle reflecting their core domain expertise. NEVER prepend rogue titles above the name.
+    2. PROFESSIONAL SUMMARY: Write a comprehensive, rich 6 to 8 sentence executive narrative paragraph detailing core philosophy, leadership approach, and technical depth.
+    3. CORE COMPETENCIES: Provide 8 to 10 distinct, highly relevant bullet points mapping directly to the target role requirements.
+    4. TECHNICAL SKILLS: Group systematically into categories (e.g., Molecular Biology, Biophysical Techniques, Data Analytics & Software, Laboratory Operations) with clean bullet formatting.
+    5. PROFESSIONAL EXPERIENCE: Provide a 2-sentence overarching scope overview for each role, followed by 6 to 8 rigorous, metrics-driven impact bullet points using the X-Y-Z formula.
+    6. SECTION HEADINGS: Use standard Markdown headers starting with '## ' for every major section.
+    7. PUBLICATIONS & EDUCATION: List full citations for publications and complete academic credentials without truncation.
     """
 
     user_prompt = f"""
