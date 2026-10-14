@@ -414,7 +414,7 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         buffer,
         pagesize=A4,
         rightMargin=36, leftMargin=36,
-        topMargin=36, bottomMargin=36
+        topMargin=32, bottomMargin=32
     )
     
     styles = getSampleStyleSheet()
@@ -423,42 +423,42 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         'DocTitle',
         parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=16,
-        leading=20,
+        fontSize=15,
+        leading=18,
         textColor=colors.HexColor('#0f172a'),
-        spaceAfter=3
+        spaceAfter=2
     )
     
     contact_style = ParagraphStyle(
         'ContactStyle',
         parent=styles['Normal'],
         fontName='Helvetica',
-        fontSize=9,
-        leading=12,
+        fontSize=8.5,
+        leading=11,
         textColor=colors.HexColor('#334155'),
-        spaceAfter=1.5
+        spaceAfter=1
     )
     
     subtitle_style = ParagraphStyle(
         'SubtitleStyle',
         parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=9.5,
-        leading=13,
+        fontSize=9,
+        leading=12,
         textColor=colors.HexColor('#0284c7'),
-        spaceBefore=3,
-        spaceAfter=8
+        spaceBefore=2,
+        spaceAfter=6
     )
     
     heading_style = ParagraphStyle(
         'SectionHeading',
         parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=11.5,
-        leading=15,
+        fontSize=11,
+        leading=14,
         textColor=colors.HexColor('#0284c7'),
-        spaceBefore=12,
-        spaceAfter=4,
+        spaceBefore=9,
+        spaceAfter=3,
         keepWithNext=True
     )
     
@@ -466,11 +466,11 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         'JobTitleStyle',
         parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=9.5,
-        leading=13,
+        fontSize=9,
+        leading=12,
         textColor=colors.HexColor('#1e293b'),
-        spaceBefore=8,
-        spaceAfter=2,
+        spaceBefore=6,
+        spaceAfter=1.5,
         keepWithNext=True
     )
     
@@ -478,18 +478,18 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         'BodyTextCustom',
         parent=styles['Normal'],
         fontName='Helvetica',
-        fontSize=9,
-        leading=13,
+        fontSize=8.5,
+        leading=11.5,
         textColor=colors.HexColor('#334155'),
-        spaceAfter=4
+        spaceAfter=3
     )
     
     bullet_style = ParagraphStyle(
         'BulletCustom',
         parent=body_style,
-        leftIndent=14,
+        leftIndent=12,
         firstLineIndent=-10,
-        spaceAfter=3
+        spaceAfter=2.5
     )
 
     story = []
@@ -526,7 +526,7 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
             story.append(Paragraph(markdown_to_reportlab_html(clean_line), contact_style))
             header_lines_processed = idx + 1
 
-    story.append(Spacer(1, 4))
+    story.append(Spacer(1, 3))
 
     for line in lines[header_lines_processed:]:
         raw_line = line
@@ -544,14 +544,14 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         
         if is_section_header:
             current_section = section_title_text.lower()
-            story.append(Spacer(1, 4))
+            story.append(Spacer(1, 3))
             story.append(Paragraph(section_title_text.upper(), heading_style))
             story.append(HRFlowable(
                 width="100%", 
                 thickness=0.75, 
                 color=colors.HexColor('#0284c7'), 
                 spaceBefore=1, 
-                spaceAfter=4
+                spaceAfter=3
             ))
             continue
             
@@ -579,6 +579,11 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
             if bullet_cleaned:
                 story.append(Paragraph(f"• {bullet_cleaned}", bullet_style))
                 
+        elif current_section in ["core competencies", "technical skills", "professional experience", "experience", "awards & scholarships", "awards", "certifications"]:
+            # Guarantee bullet formatting even if LLM omitted the dash/asterisk symbol
+            bullet_cleaned = re.sub(r'^[\-\*\•]\s*', '', cleaned_line).strip()
+            if bullet_cleaned:
+                story.append(Paragraph(f"• {bullet_cleaned}", bullet_style))
         else:
             story.append(Paragraph(cleaned_line, body_style))
 
@@ -591,14 +596,14 @@ async def generate_tailored_cv(user_email: str, master_resume_text: str, job_tit
     You are an elite executive career strategist and expert technical resume writer.
     Your task is to completely rewrite and dynamically tailor the candidate's Master CV specifically for the target role: {job_title} at {company_name}.
 
-    CRITICAL TAILORING & STRUCTURAL RULES (ZERO HALLUCINATION & FULLY ADAPTABLE):
-    1. HEADER & SUBTITLE: Line 1 must be the candidate's exact name from their Master CV in uppercase. Line 2 must be their location. Line 3 must be their clean LinkedIn profile URL text (e.g. https://www.linkedin.com/in/raymond-hartman) without markdown duplicate link syntax. Line 4 must be their phone number and verified email ({user_email}) separated by ' | '. Line 5 must be a precise 3-part professional subtitle reflecting their core domain expertise. NEVER prepend rogue placeholder titles above the name.
-    2. PROFESSIONAL SUMMARY (STRICT 8-SENTENCE RULE): Write a comprehensive, rich, and cohesive executive narrative summary consisting of exactly 8 sentences. Seamlessly weave the candidate's actual Master CV background, technical strengths, quantitative data proficiency, and alignment with {company_name} into these 8 sentences. Never use bullet points under '## Professional Summary'.
-    3. EXPERIENCE RE-WEIGHTING: Rephrase and order bullet points under each role to highlight methodologies and tools explicitly requested in the target Job Description, strictly using factual duties from the user's Master CV without inventing metrics, percentages, or unverified scale figures.
+    CRITICAL TAILORING & STRUCTURAL RULES (ZERO HALLUCINATION & PRECISE FORMATTING):
+    1. HEADER & SUBTITLE: Line 1 must be the candidate's exact name from their Master CV in uppercase. Line 2 must be their location. Line 3 must be their clean LinkedIn profile URL text (e.g. https://www.linkedin.com/in/raymond-hartman) without markdown duplicate link syntax. Line 4 must be their phone number and verified email ({user_email}) separated by ' | '. Line 5 must be a precise 3-part professional subtitle separated strictly by pipe delimiters (e.g., Domain Expert | Technical Skill | Core Focus). NEVER prepend rogue placeholder titles above the name.
+    2. PROFESSIONAL SUMMARY: Write a cohesive, rich executive narrative summary consisting of exactly 7 to 8 sentences. Never use bullet points under '## Professional Summary'.
+    3. EXPERIENCE RE-WEIGHTING: Rephrase and order bullet points under each role to highlight methodologies and tools explicitly requested in the target Job Description, strictly using factual duties from the user's Master CV without inventing metrics, percentages, or unverified scale figures. Every single bullet point must start with a dash (-) or asterisk (*).
     4. SECTION HEADINGS: Use standard Markdown headers starting with '## ' for every major section (e.g., ## PROFESSIONAL SUMMARY, ## CORE COMPETENCIES, ## TECHNICAL SKILLS, ## PROFESSIONAL EXPERIENCE, ## EDUCATION, ## CERTIFICATIONS, ## AWARDS & SCHOLARSHIPS, ## PUBLICATIONS). NEVER put bullet points on lines starting with '##'.
-    5. BULLET POINTS: Use standard bullet points ('- ' or '* ') for items inside Core Competencies, Professional Experience, Awards, and Certifications.
+    5. BULLET POINTS: Use standard bullet points ('- ' or '* ') for every single item inside Core Competencies, Professional Experience, Awards, and Certifications.
     6. PUBLICATIONS & EDUCATION: List publications and education entries as clean text paragraphs without bullet symbols.
-    7. NO WRAPPER ARTIFACTS: Do not include any trailing notes or introductory phrases. Return strictly the clean, tailored Markdown CV variant.
+    7. LENGTH CONTROL: Keep descriptions concise and punchy to fit perfectly within a clean 2-page layout. Do not generate overly verbose paragraphs that push content onto a third page.
     """
 
     user_prompt = f"""
