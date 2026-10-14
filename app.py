@@ -597,10 +597,11 @@ async def generate_tailored_cv(user_email: str, master_resume_text: str, job_tit
 
     CRITICAL TAILORING & STRICT GROUND-TRUTH RULES:
     1. ZERO HALLUCINATION POLICY: Strictly use only the facts, degrees, institutions, and responsibilities present in the Master CV. NEVER invent numeric metrics, data volumes (e.g., 'TB of data'), specific financial budgets (e.g., 'R 500k', 'ZAR 1.2 million'), or percentage improvements that are not explicitly stated in the Master CV.
-    2. HEADER & SUBTITLE: Line 1 must be the candidate's exact name in uppercase. Line 2 must be their location. Line 3 must be their clean LinkedIn profile URL text without markdown duplicate link syntax. Line 4 must be their phone number and verified email ({user_email}) separated by ' | '. Line 5 must be a precise 3-part professional subtitle separated strictly by pipe delimiters (e.g., Domain Expert | Technical Skill | Core Focus).
-    3. PROFESSIONAL SUMMARY: Write a rich executive narrative summary consisting of exactly 7 to 8 sentences. Never use bullet points under '## Professional Summary'.
-    4. EXPERIENCE DENSITY (1.8 - 1.9 PAGE TARGET): Provide exactly 9 rigorous, detailed bullet points under both the PhD Researcher and Production Manager roles, drawing strictly from the factual duties in the Master CV. Ensure descriptions are thorough and comprehensive to achieve a pristine 1.8 to 1.9 page fill ratio. Every bullet must start with a dash (-) or asterisk (*).
-    5. SECTION ORDER & HEADINGS: You must structure the CV with these exact section headers in this exact chronological order using '## ':
+    2. THIRD-PERSON VOICE: Write the Professional Summary strictly in an authoritative third-person executive narrative (e.g., use "PhD-trained molecular biologist...", never use first-person pronouns like "I", "my", or "me").
+    3. HEADER & SUBTITLE: Line 1 must be the candidate's exact name in uppercase. Line 2 must be their location. Line 3 must be their clean LinkedIn profile URL text without markdown duplicate link syntax. Line 4 must be their phone number and verified email ({user_email}) separated by ' | '. Line 5 must be a precise 3-part professional subtitle separated strictly by pipe delimiters (e.g., Domain Expert | Technical Skill | Core Focus).
+    4. PROFESSIONAL SUMMARY: Write a rich executive narrative summary consisting of exactly 7 to 8 sentences. Never use bullet points under '## Professional Summary'.
+    5. EXPERIENCE DENSITY (1.8 - 1.9 PAGE TARGET): Provide exactly 9 rigorous, detailed bullet points under both the PhD Researcher and Production Manager roles, drawing strictly from the factual duties in the Master CV. Ensure descriptions are thorough and comprehensive to achieve a pristine 1.8 to 1.9 page fill ratio. Every bullet must start with a dash (-) or asterisk (*).
+    6. SECTION ORDER & HEADINGS: You must structure the CV with these exact section headers in this exact chronological order using '## ':
        ## PROFESSIONAL SUMMARY
        ## CORE COMPETENCIES
        ## TECHNICAL SKILLS
@@ -610,8 +611,8 @@ async def generate_tailored_cv(user_email: str, master_resume_text: str, job_tit
        ## AWARDS & SCHOLARSHIPS
        ## PUBLICATIONS
        NEVER scramble this order, combine sections, or create ad-hoc subheadings.
-    6. BULLET POINTS: Use standard bullet points ('- ' or '* ') for every single item inside Core Competencies, Professional Experience, Awards, and Certifications.
-    7. PUBLICATIONS & EDUCATION: List publications and education entries as clean text paragraphs with proper formatting.
+    7. BULLET POINTS: Use standard bullet points ('- ' or '* ') for every single item inside Core Competencies, Professional Experience, Awards, and Certifications.
+    8. PUBLICATIONS & EDUCATION: List publications and education entries as clean text paragraphs with proper formatting.
     """
 
     user_prompt = f"""
