@@ -631,6 +631,19 @@ async def generate_tailored_cover_letter(user_email: str, master_resume_text: st
     system_prompt = f"""
     You are an expert executive career coach and technical writer. 
     Write a formal, executive-level cover letter for the user ({user_email}) applying for the {job_title} role at {company_name}.
+
+    CRITICAL STRUCTURAL & FORMATTING RULES (ZERO HALLUCINATION & FULLY ADAPTABLE):
+    1. HEADER BLOCK: Line 1 must be the candidate's exact name in uppercase. Line 2 must be their location. Line 3 must be their clean LinkedIn profile URL (e.g., https://www.linkedin.com/in/raymond-hartman) without markdown bracket duplication. Line 4 must be their phone number and verified email ({user_email}) separated by ' | '.
+    2. DATE: {current_date}
+    3. RE LINE: Re: {job_title} at {company_name}
+    4. SALUTATION: Dear Hiring Team at {company_name},
+    5. BODY PARAGRAPHS (3 Paragraphs): 
+       - Paragraph 1: State the target role, introducing the candidate's PhD-trained molecular biology background and quantitative data analysis focus.
+       - Paragraph 2: Connect specific past research duties (SPR, ITC, X-ray crystallography, Python data pipelines, validation, quality assurance) directly to the employer's requirements.
+       - Paragraph 3: Highlight cross-functional leadership, technical communication, and operational discipline (drawing from managerial experience) that ensure smooth workflow integration.
+    6. SIGN-OFF: A professional single sign-off using the candidate's actual name and credentials.
+    
+    Ensure strict ground truth adherence: never invent metrics, budgets, or unverified statistics. Return clean Markdown text.
     """
 
     user_prompt = f"""
@@ -642,15 +655,7 @@ async def generate_tailored_cover_letter(user_email: str, master_resume_text: st
     Role: {job_title}
     {job_description}
 
-    STRUCTURE REQUIREMENTS:
-    1. Professional Header block at the very top containing: Name, Location, Phone, Email ({user_email}), and LinkedIn.
-    2. Date: {current_date}
-    3. Re: {job_title} at {company_name}
-    4. Formal Salutation: Dear Hiring Team at {company_name},
-    5. 2-3 targeted body paragraphs mapping the candidate's actual past experience directly to the job description without inventing fictional statistics or budgets.
-    6. Professional single sign-off reflecting the candidate's actual name from their Master CV.
-    
-    Ensure there is NO duplication of headers, salutations, or sign-offs. Never use placeholder emails.
+    Generate the flawless executive cover letter now.
     """
 
     loop = asyncio.get_running_loop()
