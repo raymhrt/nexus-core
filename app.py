@@ -596,14 +596,13 @@ async def generate_tailored_cv(user_email: str, master_resume_text: str, job_tit
     You are an elite executive career strategist and expert technical resume writer.
     Your task is to completely rewrite and dynamically tailor the candidate's Master CV specifically for the target role: {job_title} at {company_name}.
 
-    CRITICAL TAILORING & STRUCTURAL RULES (ZERO HALLUCINATION & PRECISE FORMATTING):
+    CRITICAL TAILORING & STRUCTURAL RULES (DENSITY TARGET: FULL 1.8 TO 1.9 PAGES):
     1. HEADER & SUBTITLE: Line 1 must be the candidate's exact name from their Master CV in uppercase. Line 2 must be their location. Line 3 must be their clean LinkedIn profile URL text (e.g. https://www.linkedin.com/in/raymond-hartman) without markdown duplicate link syntax. Line 4 must be their phone number and verified email ({user_email}) separated by ' | '. Line 5 must be a precise 3-part professional subtitle separated strictly by pipe delimiters (e.g., Domain Expert | Technical Skill | Core Focus). NEVER prepend rogue placeholder titles above the name.
-    2. PROFESSIONAL SUMMARY: Write a cohesive, rich executive narrative summary consisting of exactly 7 to 8 sentences. Never use bullet points under '## Professional Summary'.
-    3. EXPERIENCE RE-WEIGHTING: Rephrase and order bullet points under each role to highlight methodologies and tools explicitly requested in the target Job Description, strictly using factual duties from the user's Master CV without inventing metrics, percentages, or unverified scale figures. Every single bullet point must start with a dash (-) or asterisk (*).
+    2. PROFESSIONAL SUMMARY: Write a comprehensive, rich executive narrative summary consisting of exactly 7 to 8 sentences. Never use bullet points under '## Professional Summary'.
+    3. EXPERIENCE DENSITY: Provide 8 to 9 robust, highly detailed bullet points under both the PhD Researcher and Production Manager roles. Ensure every bullet point starts with a dash (-) or asterisk (*) and elaborates thoroughly on methodologies, toolchains, and operational leadership to fill out a professional 2-page spread nicely.
     4. SECTION HEADINGS: Use standard Markdown headers starting with '## ' for every major section (e.g., ## PROFESSIONAL SUMMARY, ## CORE COMPETENCIES, ## TECHNICAL SKILLS, ## PROFESSIONAL EXPERIENCE, ## EDUCATION, ## CERTIFICATIONS, ## AWARDS & SCHOLARSHIPS, ## PUBLICATIONS). NEVER put bullet points on lines starting with '##'.
     5. BULLET POINTS: Use standard bullet points ('- ' or '* ') for every single item inside Core Competencies, Professional Experience, Awards, and Certifications.
-    6. PUBLICATIONS & EDUCATION: List publications and education entries as clean text paragraphs without bullet symbols.
-    7. LENGTH CONTROL: Keep descriptions concise and punchy to fit perfectly within a clean 2-page layout. Do not generate overly verbose paragraphs that push content onto a third page.
+    6. PUBLICATIONS & EDUCATION: List publications and education entries as clean text paragraphs with proper hyphens separating degrees and institutions.
     """
 
     user_prompt = f"""
