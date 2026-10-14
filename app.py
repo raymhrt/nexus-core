@@ -457,8 +457,8 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         fontSize=11,
         leading=14,
         textColor=colors.HexColor('#0284c7'),
-        spaceBefore=9,
-        spaceAfter=3,
+        spaceBefore=11,  # Slightly increased to expand vertical flow
+        spaceAfter=3.5,
         keepWithNext=True
     )
     
@@ -479,9 +479,9 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         parent=styles['Normal'],
         fontName='Helvetica',
         fontSize=8.5,
-        leading=11.5,
+        leading=12,  # Expanded leading slightly for better readability and vertical span
         textColor=colors.HexColor('#334155'),
-        spaceAfter=3
+        spaceAfter=3.5
     )
     
     bullet_style = ParagraphStyle(
@@ -580,8 +580,7 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
                 story.append(Paragraph(f"• {bullet_cleaned}", bullet_style))
                 
         elif current_section in ["core competencies", "technical skills", "professional experience", "experience", "awards & scholarships", "awards", "certifications"]:
-            # Guarantee bullet formatting even if LLM omitted the dash/asterisk symbol
-            bullet_cleaned = re.sub(r'^[\-\*\•]\s*', '', cleaned_line).strip()
+            bullet_cleaned = re.sub(r'^[\-\*\•\d\.\s]+\s*', '', cleaned_line).strip()
             if bullet_cleaned:
                 story.append(Paragraph(f"• {bullet_cleaned}", bullet_style))
         else:
@@ -600,8 +599,17 @@ async def generate_tailored_cv(user_email: str, master_resume_text: str, job_tit
     1. ZERO HALLUCINATION POLICY: Strictly use only the facts, degrees, institutions, and responsibilities present in the Master CV. NEVER invent numeric metrics, data volumes (e.g., 'TB of data'), specific financial budgets (e.g., 'R 500k', 'ZAR 1.2 million'), or percentage improvements that are not explicitly stated in the Master CV.
     2. HEADER & SUBTITLE: Line 1 must be the candidate's exact name in uppercase. Line 2 must be their location. Line 3 must be their clean LinkedIn profile URL text without markdown duplicate link syntax. Line 4 must be their phone number and verified email ({user_email}) separated by ' | '. Line 5 must be a precise 3-part professional subtitle separated strictly by pipe delimiters (e.g., Domain Expert | Technical Skill | Core Focus).
     3. PROFESSIONAL SUMMARY: Write a rich executive narrative summary consisting of exactly 7 to 8 sentences. Never use bullet points under '## Professional Summary'.
-    4. EXPERIENCE DENSITY (1.8 - 1.9 PAGE TARGET): Provide exactly 7 rigorous, detailed bullet points under both the PhD Researcher and Production Manager roles, drawing strictly from the factual duties in the Master CV. Every bullet must start with a dash (-) or asterisk (*).
-    5. SECTION HEADINGS: Use standard Markdown headers starting with '## ' for every major section. NEVER put bullet points on lines starting with '##'.
+    4. EXPERIENCE DENSITY (1.8 - 1.9 PAGE TARGET): Provide exactly 9 rigorous, detailed bullet points under both the PhD Researcher and Production Manager roles, drawing strictly from the factual duties in the Master CV. Ensure descriptions are thorough and comprehensive to achieve a pristine 1.8 to 1.9 page fill ratio. Every bullet must start with a dash (-) or asterisk (*).
+    5. SECTION ORDER & HEADINGS: You must structure the CV with these exact section headers in this exact chronological order using '## ':
+       ## PROFESSIONAL SUMMARY
+       ## CORE COMPETENCIES
+       ## TECHNICAL SKILLS
+       ## PROFESSIONAL EXPERIENCE
+       ## EDUCATION
+       ## CERTIFICATIONS
+       ## AWARDS & SCHOLARSHIPS
+       ## PUBLICATIONS
+       NEVER scramble this order, combine sections, or create ad-hoc subheadings.
     6. BULLET POINTS: Use standard bullet points ('- ' or '* ') for every single item inside Core Competencies, Professional Experience, Awards, and Certifications.
     7. PUBLICATIONS & EDUCATION: List publications and education entries as clean text paragraphs with proper formatting.
     """
