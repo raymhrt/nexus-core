@@ -557,7 +557,7 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
             
         cleaned_line = markdown_to_reportlab_html(raw_line)
         
-        if re.search(r'(20\d{2}|19\d{2})\s*[\–\-\—]\s*(Present|20\d{2}|19\d{2})', raw_line, re.IGNORECASE):
+        if (" - " in raw_line or " – " in raw_line) and re.search(r'(20\d{2}|19\d{2})\s*[\–\-\—]\s*(Present|20\d{2}|19\d{2})', raw_line, re.IGNORECASE):
             current_section = "professional experience"
             story.append(Paragraph(cleaned_line, job_title_style))
             
@@ -596,11 +596,12 @@ async def generate_tailored_cv(user_email: str, master_resume_text: str, job_tit
     Your task is to completely rewrite and dynamically tailor the candidate's Master CV specifically for the target role: {job_title} at {company_name}.
 
     CRITICAL TAILORING & STRICT GROUND-TRUTH RULES:
-    1. ZERO HALLUCINATION POLICY: Strictly use only the facts, degrees, institutions, and responsibilities present in the Master CV. NEVER invent numeric metrics, data volumes (e.g., 'TB of data'), specific financial budgets (e.g., 'R 500k', 'ZAR 1.2 million'), or percentage improvements that are not explicitly stated in the Master CV.
+    1. ZERO HALLUCINATION POLICY: Strictly use only the facts, degrees, institutions, and responsibilities present in the Master CV. NEVER invent numeric metrics, data volumes, or financial budgets.
     2. THIRD-PERSON VOICE: Write the Professional Summary strictly in an authoritative third-person executive narrative (e.g., use "PhD-trained molecular biologist...", never use first-person pronouns like "I", "my", or "me").
     3. HEADER & SUBTITLE: Line 1 must be the candidate's exact name in uppercase. Line 2 must be their location. Line 3 must be their clean LinkedIn profile URL text without markdown duplicate link syntax. Line 4 must be their phone number and verified email ({user_email}) separated by ' | '. Line 5 must be a precise 3-part professional subtitle separated strictly by pipe delimiters (e.g., Domain Expert | Technical Skill | Core Focus).
-    4. PROFESSIONAL SUMMARY: Write a rich executive narrative summary consisting of exactly 7 to 8 sentences. Never use bullet points under '## Professional Summary'.
-    5. EXPERIENCE DENSITY (1.8 - 1.9 PAGE TARGET): Provide exactly 9 rigorous, detailed bullet points under both the PhD Researcher and Production Manager roles, drawing strictly from the factual duties in the Master CV. Ensure descriptions are thorough and comprehensive to achieve a pristine 1.8 to 1.9 page fill ratio. Every bullet must start with a dash (-) or asterisk (*).
+    4. PROFESSIONAL SUMMARY: Write a rich executive narrative summary consisting of exactly 8 comprehensive sentences to expand depth. Never use bullet points under '## Professional Summary'.
+    5. EXPERIENCE DENSITY & FORMATTING (1.8 - 1.9 PAGE TARGET): Provide exactly 9 rigorous, highly detailed bullet points under both the PhD Researcher and Production Manager roles. 
+       - CRITICAL JOB HEADER FORMAT: Each professional experience header must be formatted strictly on a single line as: Role - Company | Dates (e.g., PhD Researcher - University of the Witwatersrand | 2023-Present). Never split the date onto a separate line.
     6. SECTION ORDER & HEADINGS: You must structure the CV with these exact section headers in this exact chronological order using '## ':
        ## PROFESSIONAL SUMMARY
        ## CORE COMPETENCIES
