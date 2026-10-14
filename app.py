@@ -195,9 +195,15 @@ def markdown_to_reportlab_html(text: str) -> str:
         return ""
     
     safe_text = html.escape(text)
+    
+    # Convert bold markdown **text** to ReportLab <b> tags
     safe_text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', safe_text)
+    
+    # Convert italic markdown *text* to ReportLab <i> tags (Fixes publication journal names)
     safe_text = re.sub(r'(?<!\S)\*(?!\s)(.*?)(?<!\s)\*(?!\S)', r'<i>\1</i>', safe_text)
-    safe_text = safe_text.replace('**', '').replace('***', '')
+    
+    # Clean up any remaining unclosed or stray asterisks that break parsing
+    safe_text = safe_text.replace('**', '').replace('***', '').replace('*', '')
     
     return safe_text
 
@@ -585,14 +591,14 @@ async def generate_tailored_cv(user_email: str, master_resume_text: str, job_tit
     You are an elite executive career strategist and expert technical resume writer.
     Your task is to completely rewrite and dynamically tailor the candidate's Master CV specifically for the target role: {job_title} at {company_name}.
 
-    CRITICAL TAILORING & STRUCTURAL RULES (ZERO HALLUCINATION POLICY):
+    CRITICAL TAILORING & STRUCTURAL RULES (ZERO HALLUCINATION & FULLY ADAPTABLE):
     1. HEADER & SUBTITLE: Line 1 must be the candidate's exact name from their Master CV in uppercase. Line 2 must be their location. Line 3 must be their clean LinkedIn profile URL text (e.g. https://www.linkedin.com/in/raymond-hartman) without markdown duplicate link syntax. Line 4 must be their phone number and verified email ({user_email}) separated by ' | '. Line 5 must be a precise 3-part professional subtitle reflecting their core domain expertise. NEVER prepend rogue placeholder titles above the name.
-    2. PROFESSIONAL SUMMARY: Write a cohesive executive narrative summary drawn strictly from the candidate's actual Master CV competencies. Never use bullet points under '## Professional Summary'.
-    3. EXPERIENCE RE-WEIGHTING: Rephrase and order bullet points under each role to highlight methodologies and tools explicitly requested in the target Job Description, but STRICTLY using the factual actions and duties from the Master CV. DO NOT invent fake metrics, percentages, multipliers, hours saved, or unverified scale figures (e.g., no invented "45% increase" or "3-fold sensitivity").
+    2. PROFESSIONAL SUMMARY (STRICT 8-SENTENCE RULE): Write a comprehensive, rich, and cohesive executive narrative summary consisting of exactly 8 sentences. Seamlessly weave the candidate's actual Master CV background, technical strengths, quantitative data proficiency, and alignment with {company_name} into these 8 sentences. Never use bullet points under '## Professional Summary'.
+    3. EXPERIENCE RE-WEIGHTING: Rephrase and order bullet points under each role to highlight methodologies and tools explicitly requested in the target Job Description, strictly using factual duties from the user's Master CV without inventing metrics, percentages, or unverified scale figures.
     4. SECTION HEADINGS: Use standard Markdown headers starting with '## ' for every major section (e.g., ## PROFESSIONAL SUMMARY, ## CORE COMPETENCIES, ## TECHNICAL SKILLS, ## PROFESSIONAL EXPERIENCE, ## EDUCATION, ## CERTIFICATIONS, ## AWARDS & SCHOLARSHIPS, ## PUBLICATIONS). NEVER put bullet points on lines starting with '##'.
     5. BULLET POINTS: Use standard bullet points ('- ' or '* ') for items inside Core Competencies, Professional Experience, Awards, and Certifications.
     6. PUBLICATIONS & EDUCATION: List publications and education entries as clean text paragraphs without bullet symbols.
-    7. NO WRAPPER ARTIFACTS: Do not include any trailing notes, cover letter text, or phrases like "Prepared for the position at...". Return strictly the clean 2-page CV markdown.
+    7. NO WRAPPER ARTIFACTS: Do not include any trailing notes or introductory phrases. Return strictly the clean, tailored Markdown CV variant.
     """
 
     user_prompt = f"""
