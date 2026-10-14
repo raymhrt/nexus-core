@@ -152,7 +152,12 @@ def sanitize_cv_text(text: str) -> str:
     
     text = unicodedata.normalize('NFKC', text)
     
-    # Strip leading wrapper lines like "Assistant Data Bioanalyst - CV" or "Tailored Resume"
+    # Fix duplicated markdown URLs like [url](url) -> url
+    text = re.sub(r'\[(https?://[^\s\]]+)\]\(\1\)', r'\1', text)
+    
+    # Strip trailing wrapper phrases like "Prepared for the... position"
+    text = re.sub(r'(?i)Prepared for the.*?position.*$', '', text)
+    
     lines = text.split('\n')
     cleaned_lines = []
     skipped_first = False
@@ -166,14 +171,13 @@ def sanitize_cv_text(text: str) -> str:
             "target role" in lower_line or
             "tailored cv" in lower_line
         ):
-            skipped_first = tengas = True
+            skipped_first = True
             continue
         cleaned_lines.append(line)
         skipped_first = True
         
     text = '\n'.join(cleaned_lines)
     
-    # Completely remove all markdown bold markers that break ReportLab parsing
     text = text.replace('**', '')
     text = text.replace('***', '')
     
@@ -581,14 +585,14 @@ async def generate_tailored_cv(user_email: str, master_resume_text: str, job_tit
     You are an elite executive career strategist and expert technical resume writer.
     Your task is to completely rewrite and dynamically tailor the candidate's Master CV specifically for the target role: {job_title} at {company_name}.
 
-    CRITICAL TAILORING & STRUCTURAL RULES FOR A FULL 2-PAGE EXECUTIVE CV:
-    1. HEADER & SUBTITLE: Line 1 must be the candidate's exact name from their Master CV in uppercase. Line 2 must be their location. Line 3 must be their LinkedIn profile link. Line 4 must be their phone number and verified email ({user_email}) separated by ' | '. Line 5 must be a precise 3-part professional subtitle reflecting their core domain expertise. NEVER prepend rogue titles above the name.
-    2. PROFESSIONAL SUMMARY: Write a comprehensive, rich 6 to 8 sentence executive narrative paragraph detailing core philosophy, leadership approach, and technical depth.
-    3. CORE COMPETENCIES: Provide 8 to 10 distinct, highly relevant bullet points mapping directly to the target role requirements.
-    4. TECHNICAL SKILLS: Group systematically into categories (e.g., Molecular Biology, Biophysical Techniques, Data Analytics & Software, Laboratory Operations) with clean bullet formatting.
-    5. PROFESSIONAL EXPERIENCE: Provide a 2-sentence overarching scope overview for each role, followed by 6 to 8 rigorous, metrics-driven impact bullet points using the X-Y-Z formula.
-    6. SECTION HEADINGS: Use standard Markdown headers starting with '## ' for every major section.
-    7. PUBLICATIONS & EDUCATION: List full citations for publications and complete academic credentials without truncation.
+    CRITICAL TAILORING & STRUCTURAL RULES (ZERO HALLUCINATION POLICY):
+    1. HEADER & SUBTITLE: Line 1 must be the candidate's exact name from their Master CV in uppercase. Line 2 must be their location. Line 3 must be their clean LinkedIn profile URL text (e.g. https://www.linkedin.com/in/raymond-hartman) without markdown duplicate link syntax. Line 4 must be their phone number and verified email ({user_email}) separated by ' | '. Line 5 must be a precise 3-part professional subtitle reflecting their core domain expertise. NEVER prepend rogue placeholder titles above the name.
+    2. PROFESSIONAL SUMMARY: Write a cohesive executive narrative summary drawn strictly from the candidate's actual Master CV competencies. Never use bullet points under '## Professional Summary'.
+    3. EXPERIENCE RE-WEIGHTING: Rephrase and order bullet points under each role to highlight methodologies and tools explicitly requested in the target Job Description, but STRICTLY using the factual actions and duties from the Master CV. DO NOT invent fake metrics, percentages, multipliers, hours saved, or unverified scale figures (e.g., no invented "45% increase" or "3-fold sensitivity").
+    4. SECTION HEADINGS: Use standard Markdown headers starting with '## ' for every major section (e.g., ## PROFESSIONAL SUMMARY, ## CORE COMPETENCIES, ## TECHNICAL SKILLS, ## PROFESSIONAL EXPERIENCE, ## EDUCATION, ## CERTIFICATIONS, ## AWARDS & SCHOLARSHIPS, ## PUBLICATIONS). NEVER put bullet points on lines starting with '##'.
+    5. BULLET POINTS: Use standard bullet points ('- ' or '* ') for items inside Core Competencies, Professional Experience, Awards, and Certifications.
+    6. PUBLICATIONS & EDUCATION: List publications and education entries as clean text paragraphs without bullet symbols.
+    7. NO WRAPPER ARTIFACTS: Do not include any trailing notes, cover letter text, or phrases like "Prepared for the position at...". Return strictly the clean 2-page CV markdown.
     """
 
     user_prompt = f"""
@@ -600,7 +604,7 @@ async def generate_tailored_cv(user_email: str, master_resume_text: str, job_tit
     Role: {job_title}
     {job_description}
 
-    Generate the complete, heavily tailored 1-page Markdown CV variant now.
+    Generate the complete, strictly grounded, tailored Markdown CV variant now.
     """
 
     loop = asyncio.get_running_loop()
