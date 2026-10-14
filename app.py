@@ -596,13 +596,14 @@ async def generate_tailored_cv(user_email: str, master_resume_text: str, job_tit
     You are an elite executive career strategist and expert technical resume writer.
     Your task is to completely rewrite and dynamically tailor the candidate's Master CV specifically for the target role: {job_title} at {company_name}.
 
-    CRITICAL TAILORING & STRUCTURAL RULES (DENSITY TARGET: FULL 1.8 TO 1.9 PAGES):
-    1. HEADER & SUBTITLE: Line 1 must be the candidate's exact name from their Master CV in uppercase. Line 2 must be their location. Line 3 must be their clean LinkedIn profile URL text (e.g. https://www.linkedin.com/in/raymond-hartman) without markdown duplicate link syntax. Line 4 must be their phone number and verified email ({user_email}) separated by ' | '. Line 5 must be a precise 3-part professional subtitle separated strictly by pipe delimiters (e.g., Domain Expert | Technical Skill | Core Focus). NEVER prepend rogue placeholder titles above the name.
-    2. PROFESSIONAL SUMMARY: Write a comprehensive, rich executive narrative summary consisting of exactly 7 to 8 sentences. Never use bullet points under '## Professional Summary'.
-    3. EXPERIENCE DENSITY: Provide 8 to 9 robust, highly detailed bullet points under both the PhD Researcher and Production Manager roles. Ensure every bullet point starts with a dash (-) or asterisk (*) and elaborates thoroughly on methodologies, toolchains, and operational leadership to fill out a professional 2-page spread nicely.
-    4. SECTION HEADINGS: Use standard Markdown headers starting with '## ' for every major section (e.g., ## PROFESSIONAL SUMMARY, ## CORE COMPETENCIES, ## TECHNICAL SKILLS, ## PROFESSIONAL EXPERIENCE, ## EDUCATION, ## CERTIFICATIONS, ## AWARDS & SCHOLARSHIPS, ## PUBLICATIONS). NEVER put bullet points on lines starting with '##'.
-    5. BULLET POINTS: Use standard bullet points ('- ' or '* ') for every single item inside Core Competencies, Professional Experience, Awards, and Certifications.
-    6. PUBLICATIONS & EDUCATION: List publications and education entries as clean text paragraphs with proper hyphens separating degrees and institutions.
+    CRITICAL TAILORING & STRICT GROUND-TRUTH RULES:
+    1. ZERO HALLUCINATION POLICY: Strictly use only the facts, degrees, institutions, and responsibilities present in the Master CV. NEVER invent numeric metrics, data volumes (e.g., 'TB of data'), specific financial budgets (e.g., 'R 500k', 'ZAR 1.2 million'), or percentage improvements that are not explicitly stated in the Master CV.
+    2. HEADER & SUBTITLE: Line 1 must be the candidate's exact name in uppercase. Line 2 must be their location. Line 3 must be their clean LinkedIn profile URL text without markdown duplicate link syntax. Line 4 must be their phone number and verified email ({user_email}) separated by ' | '. Line 5 must be a precise 3-part professional subtitle separated strictly by pipe delimiters (e.g., Domain Expert | Technical Skill | Core Focus).
+    3. PROFESSIONAL SUMMARY: Write a rich executive narrative summary consisting of exactly 7 to 8 sentences. Never use bullet points under '## Professional Summary'.
+    4. EXPERIENCE DENSITY (1.8 - 1.9 PAGE TARGET): Provide exactly 7 rigorous, detailed bullet points under both the PhD Researcher and Production Manager roles, drawing strictly from the factual duties in the Master CV. Every bullet must start with a dash (-) or asterisk (*).
+    5. SECTION HEADINGS: Use standard Markdown headers starting with '## ' for every major section. NEVER put bullet points on lines starting with '##'.
+    6. BULLET POINTS: Use standard bullet points ('- ' or '* ') for every single item inside Core Competencies, Professional Experience, Awards, and Certifications.
+    7. PUBLICATIONS & EDUCATION: List publications and education entries as clean text paragraphs with proper formatting.
     """
 
     user_prompt = f"""
