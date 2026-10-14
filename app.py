@@ -151,12 +151,35 @@ def sanitize_cv_text(text: str) -> str:
         return ""
     
     text = unicodedata.normalize('NFKC', text)
+    
+    # Strip leading wrapper lines like "Assistant Data Bioanalyst - CV" or "Tailored Resume"
+    lines = text.split('\n')
+    cleaned_lines = []
+    skipped_first = False
+    for line in lines:
+        lower_line = line.strip().lower()
+        if not skipped_first and (
+            " - cv" in lower_line or 
+            " - resume" in lower_line or 
+            lower_line.endswith("cv") or 
+            lower_line.endswith("resume") or
+            "target role" in lower_line or
+            "tailored cv" in lower_line
+        ):
+            skipped_first = tengas = True
+            continue
+        cleaned_lines.append(line)
+        skipped_first = True
+        
+    text = '\n'.join(cleaned_lines)
+    
+    # Completely remove all markdown bold markers that break ReportLab parsing
+    text = text.replace('**', '')
+    text = text.replace('***', '')
+    
     text = re.sub(r'^\s*[\*\-\#]{2,}\s*', '', text, flags=re.MULTILINE)
-    text = re.sub(r'\*\*\*+', '**', text)
     text = re.sub(r'^\s*\*\s*([A-Z])', r'• \1', text, flags=re.MULTILINE)
     text = re.sub(r'[\u2010\u2011\u2012\u2013\u2014\u2015]', '-', text)
-    text = re.sub(r'(?i)\*?Prepared for the.*?position.*?\*?', '', text)
-    text = re.sub(r'(?i)\*?References available upon request\.?\*?', '', text)
     text = re.sub(r'\s+([.,;:!?])', r'\1', text)
     text = re.sub(r'[ \t]+', ' ', text)
     text = re.sub(r'\n\s*\n\s*\n+', '\n\n', text)
@@ -412,23 +435,25 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         fontName='Helvetica-Bold',
         fontSize=9,
         leading=12,
-        textColor=colors.HexColor('#0284c7'),  # Accent color matching desired layout
+        textColor=colors.HexColor('#0284c7'),
         spaceBefore=2,
         spaceAfter=6
     )
     
+    # Larger blue section headings
     heading_style = ParagraphStyle(
         'SectionHeading',
         parent=styles['Normal'],
         fontName='Helvetica-Bold',
         fontSize=11,
         leading=14,
-        textColor=colors.HexColor('#0284c7'),  # Distinct colored section titles
+        textColor=colors.HexColor('#0284c7'),
         spaceBefore=8,
         spaceAfter=3,
         keepWithNext=True
     )
     
+    # Bold job title style ensuring positions like Production Manager render in bold
     job_title_style = ParagraphStyle(
         'JobTitleStyle',
         parent=styles['Normal'],
@@ -461,8 +486,7 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
 
     story = []
     
-    cleaned_text = re.sub(r'(?i)^.*?(assistant|analyst|engineer|developer|cv|resume|target).*?\n', '', markdown_text)
-    cleaned_text = cleaned_text.replace('**', '')
+    cleaned_text = sanitize_cv_text(markdown_text)
     lines = cleaned_text.split('\n')
     
     current_section = ""
@@ -484,15 +508,12 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         if any(h in lower_line for h in known_section_headers):
             break
             
-        # Line 0: Name
         if idx == 0 or header_lines_processed == 0:
             story.append(Paragraph(clean_line.replace('# ', '').strip().upper(), title_style))
             header_lines_processed = idx + 1
-        # Subtitle detection (contains domain terms or pipes without email/phone)
         elif '|' not in clean_line and '@' not in clean_line and len(clean_line.split()) > 3 and header_lines_processed >= 3:
             story.append(Paragraph(markdown_to_reportlab_html(clean_line), subtitle_style))
             header_lines_processed = idx + 1
-        # Contact lines
         else:
             story.append(Paragraph(markdown_to_reportlab_html(clean_line), contact_style))
             header_lines_processed = idx + 1
@@ -517,7 +538,14 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
             current_section = section_title_text.lower()
             story.append(Spacer(1, 4))
             story.append(Paragraph(section_title_text.upper(), heading_style))
-            # No HRFlowable line added here to keep headings clean without underlining borders
+            # Clean border line underneath the heading matching your blue heading accent
+            story.append(HRFlowable(
+                width="100%", 
+                thickness=0.75, 
+                color=colors.HexColor('#0284c7'), 
+                spaceBefore=1, 
+                spaceAfter=3
+            ))
             continue
             
         cleaned_line = markdown_to_reportlab_html(raw_line)
