@@ -561,7 +561,13 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
             current_section = "professional experience"
             story.append(Paragraph(cleaned_line, job_title_style))
             
-        elif any(p in current_section for p in ["publication", "selected publications"]):
+        elif any(sec in current_section for sec in ["core competencies"]):
+            bullet_cleaned = re.sub(r'^[\-\*\•\d\.\s]+\s*', '', cleaned_line).strip()
+            if bullet_cleaned:
+                # Renders core competencies as clean, rich inline bullet lines
+                story.append(Paragraph(f"• {bullet_cleaned}", bullet_style))
+            
+        elif any(p in current_section for sp in ["publication", "selected publications"]):
             pub_text = re.sub(r'^[\-\*\•]\s*', '', cleaned_line)
             story.append(Paragraph(pub_text, body_style))
             
@@ -600,8 +606,8 @@ async def generate_tailored_cv(user_email: str, master_resume_text: str, job_tit
     2. THIRD-PERSON VOICE: Write the Professional Summary strictly in an authoritative executive narrative style. NEVER use the candidate's name or third-person pronouns like "He", "His", "Him", "I", "my", or "me". Start directly with the professional credential or domain expertise.
     3. HEADER & SUBTITLE: Line 1 must be the candidate's exact name in uppercase. Line 2 must be their location. Line 3 must be their clean LinkedIn profile URL text. Line 4 must be their phone number and verified email ({user_email}) separated by ' | '. Line 5 must be a precise 3-part professional subtitle dynamically synthesized from the candidate's uploaded Master CV content and tailored specifically to match the core domain, technical competencies, and exact action keywords of the target job description ({job_description}), separated strictly by pipe delimiters (' | ').
     4. PROFESSIONAL SUMMARY (FLUID EXECUTIVE PARAGRAPH): Write the Professional Summary strictly as ONE single, continuous, uninterrupted block of text forming a cohesive, narrative-driven paragraph. Do NOT format it as a list of independent sentences or line breaks. It must flow seamlessly from foundational credentials through specialized technical capabilities to strategic organizational impact.
-    5. CORE COMPETENCIES & AWARDS FORMATTING:
-       - CORE COMPETENCIES: Present every single competency item cleanly as a standard bulleted list (`• `) with uniform formatting, avoiding run-on or unbulleted text.
+    5. CORE COMPETENCIES & AWARDS FORMATTING (INLINE FLOW):
+       - CORE COMPETENCIES: Present competencies strictly as 4 to 5 rich, inline-flowing thematic bullet lines where related skills follow consecutively separated by commas or pipes (e.g., `• Research Planning, Hypothesis Development, Assay Optimization & Method Design`). Never generate isolated single-word bullet lines.
        - AWARDS & SCHOLARSHIPS: Format every award consistently as: Award Name - Institution | Year (e.g., PhD Merit Award - University of the Witwatersrand | 2025).
     6. PROFESSIONAL EXPERIENCE ACTION VERBS & DEPTH:
        - RICH, MULTI-CLAUSE SUBSTANCE: Each experience bullet must be highly comprehensive, robust, and deep. Provide rich operational context, specific technical actions taken, tools/frameworks applied, and the resulting analytical or structural outcomes. Avoid brief or superficial statements.
