@@ -458,7 +458,6 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
     lines = cleaned_text.split('\n')
     total_content_lines = len([l for l in lines if l.strip()])
     
-    # TWO-WAY DYNAMIC SPATIAL STRETCH:
     is_sparse = total_content_lines < 80
     spacing_multiplier = 1.25 if is_sparse else 1.0
     
@@ -502,7 +501,7 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         fontSize=10.5,
         leading=13,
         textColor=colors.HexColor('#0284c7'),
-        spaceBefore=int(7 * spacing_multiplier),  # Clean, controlled space before headings (no extra spacer needed)
+        spaceBefore=int(7 * spacing_multiplier),
         spaceAfter=2,
         keepWithNext=True
     )
@@ -586,7 +585,6 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         
         if is_section_header:
             current_section = section_title_text.lower()
-            # Redundant explicit Spacer removed here to eliminate the massive gap
             story.append(Paragraph(section_title_text.upper(), heading_style))
             story.append(HRFlowable(
                 width="100%", 
@@ -658,7 +656,7 @@ async def generate_tailored_cv(user_email: str, master_resume_text: str, job_tit
     6. PROFESSIONAL EXPERIENCE ACTION VERBS & DEPTH:
         - RICH, MULTI-CLAUSE SUBSTANCE: Each experience bullet must be highly comprehensive, robust, and deep. Provide rich operational context, specific technical actions taken, tools/frameworks applied, and the resulting analytical or structural outcomes. Avoid brief or superficial statements.
         - FRONT-LOADED ACTION VERBS: Every single bullet point under professional experience must open with a powerful, active executive verb (e.g., Spearheaded, Engineered, Architected, Orchestrated, Directed, Synthesized).
-        - SELF-REGULATING SPATIAL BUDGETING & WHITE-SPACE FILLING (STRICT 2-PAGE CEILING - TARGET 1.9 PAGES): Autonomously analyze the user's Master CV role count and content volume. If a profile is lighter or risks leaving bottom whitespace (falling short of 1.9 pages), intelligently expand the multi-clause depth of experience bullets and enrich the summary narrative using verified ground-truth facts to fully fill the canvas. For denser profiles, restrict to a balanced, compact subset. Ensure the document naturally fills page two to the 1.9 mark without ever spilling onto a 3rd page.
+        - SELF-REGULATING CONTENT DENSITY (STRICT 2-PAGE CEILING - TARGET 1.85-1.95 PAGES): Autonomously analyze the user's Master CV role count and relevance to the target job description. Ensure comprehensive inclusion of true, verifiable career achievements and multi-clause technical context from the master profile so the document naturally leverages the full 2-page canvas without running short or spilling onto page 3.
         - CRITICAL JOB HEADER FORMAT: Each professional experience header must be formatted strictly on a single line as: Role - Company | Dates (e.g., PhD Researcher - University of the Witwatersrand | 2023-Present). Never split the date onto a separate line.
     7. SECTION ORDER & HEADINGS: Structure the CV with these exact section headers in this exact chronological order using '## ':
         ## PROFESSIONAL SUMMARY
@@ -682,7 +680,7 @@ async def generate_tailored_cv(user_email: str, master_resume_text: str, job_tit
     Role: {job_title}
     {job_description}
 
-    Generate the complete, strictly grounded, tailored Markdown CV variant now, autonomously calculating experience bullet budgets and content depth to maximize the 2-page canvas without trailing whitespace.
+    Generate the complete, strictly grounded, tailored Markdown CV variant now, maintaining full descriptive depth across all verified experience items to maximize the 2-page canvas.
     """
 
     loop = asyncio.get_running_loop()
