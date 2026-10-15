@@ -1449,7 +1449,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="QuantCode Nexus Enterprise Apex API",
-    version="16.30.0",
+    version="16.30.1",
     description="Live Multi-Tenant Career Infiltration Engine with Advanced AI Ghostwriter & Cover Letter Engine.",
     lifespan=lifespan
 )
