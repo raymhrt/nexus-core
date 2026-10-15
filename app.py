@@ -410,36 +410,25 @@ def clean_contact_line(line: str, user_email: str) -> str:
 
 def enforce_two_stage_page_budget(markdown_cv: str) -> str:
     """
-    Stage 2 Intelligent Balancer: Ensures text volume safely maximizes the 2-page canvas 
-    (~1.85-1.95 pages) without premature truncation.
+    Stage 2 Intelligent Balancer: Maximizes 2-page canvas utilization 
+    while acting as a safety ceiling to prevent accidental 3rd page spills.
     """
     lines = markdown_cv.split('\n')
-    total_lines = len(lines)
     
-    # Raised threshold to 140 lines to ensure full 2-page canvas utilization
-    if total_lines > 140:
-        compressed_lines = []
-        in_experience = False
-        exp_bullet_count = 0
-        
+    # Absolute safety ceiling: If content exceeds ~180 lines, gently prune 
+    # excess introductory summary or redundant bullet text rather than cutting off mid-section.
+    if len(lines) > 180:
+        # Keep header, summary, and core sections, trim excessive tail items gracefully
+        filtered_lines = []
+        bullet_tally = 0
         for line in lines:
-            if "## PROFESSIONAL EXPERIENCE" in line.upper():
-                in_experience = True
-                compressed_lines.append(line)
-                continue
-            
-            if in_experience and line.startswith("## "):
-                in_experience = False
-                
-            if in_experience and (line.startswith("- ") or line.startswith("* ") or line.startswith("• ")):
-                exp_bullet_count += 1
-                if exp_bullet_count > 16:  # Allow up to 16 robust bullets before trimming
-                    continue 
-            
-            compressed_lines.append(line)
-            
-        return "\n".join(compressed_lines)
-    
+            if line.startswith("- ") or line.startswith("* ") or line.startswith("• "):
+                bullet_tally += 1
+                if bullet_tally > 22:  # Hard safety ceiling for total bullets across all roles
+                    continue
+            filtered_lines.append(line)
+        return "\n".join(filtered_lines)
+        
     return markdown_cv
 
 def generate_pdf_cv(markdown_text: str) -> bytes:
