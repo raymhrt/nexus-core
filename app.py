@@ -734,10 +734,10 @@ async def audit_and_correct_tailored_documents_dynamic(
     Your job is to audit a drafted Tailored CV and Cover Letter against the candidate's Master CV and the Target Job Description.
 
     CRITICAL MULTI-TENANT AUDIT RULES:
-    1. GROUND TRUTH CHECK: Strictly cross-reference every claim against the candidate's actual Master CV provided below. Zero hallucination policy: do not invent fake degrees, unearned titles, or false metrics (such as invented budget numbers or fabricated percentage improvements).
+    1. GROUND TRUTH CHECK: Strictly cross-reference every claim against the candidate's actual Master CV provided below. Zero hallucination policy: do not invent fake degrees, unearned titles, or false metrics.
     2. CONTACT INTEGRITY: Ensure the contact header exclusively uses the user's verified database email: {user_email}.
     3. OMISSION & COMPLETENESS CHECK: Ensure no core qualifications, formal education entries, awards, or publications from the Master CV were mistakenly dropped in the draft. All publication entries must be fully preserved.
-    4. MAXIMUM CANVAS UTILIZATION & DENSITY MANDATE: Verify that the draft CV completely occupies the 2-page PDF canvas (~1.85-1.95 pages, targeting 140 to 160 total lines of text) with zero trailing whitespace at the bottom of page 2 and zero spillover onto page 3. If too sparse, expand experience bullets to be granular and multi-clause.
+    4. MAXIMUM CANVAS UTILIZATION & DENSITY MANDATE: Verify that the draft CV completely occupies the 2-page PDF canvas (~1.85-1.95 pages, targeting 140 to 160 total lines of text) with zero trailing whitespace at the bottom of page 2 and zero spillover onto page 3.
     5. ATS FORMATTING: Ensure clean Markdown structure with zero hardcoded placeholders or broken tags.
 
     RETURN STRICT JSON WITH THESE EXACT KEYS:
