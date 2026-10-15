@@ -653,10 +653,9 @@ async def generate_tailored_cv(user_email: str, master_resume_text: str, job_tit
     5. CORE COMPETENCIES & AWARDS FORMATTING (INLINE FLOW):
         - CORE COMPETENCIES: Present competencies strictly as 4 to 5 rich, inline-flowing thematic bullet lines where related skills follow consecutively separated by commas or pipes (e.g., `• Research Planning, Hypothesis Development, Assay Optimization & Method Design`). Never generate isolated single-word bullet lines.
         - AWARDS & SCHOLARSHIPS: Format every award consistently as: Award Name - Institution | Year (e.g., PhD Merit Award - University of the Witwatersrand | 2025).
-    6. PROFESSIONAL EXPERIENCE ACTION VERBS & DEPTH:
-        - RICH, MULTI-CLAUSE SUBSTANCE: Each experience bullet must be highly comprehensive, robust, and deep. Provide rich operational context, specific technical actions taken, tools/frameworks applied, and the resulting analytical or structural outcomes. Avoid brief or superficial statements.
-        - FRONT-LOADED ACTION VERBS: Every single bullet point under professional experience must open with a powerful, active executive verb (e.g., Spearheaded, Engineered, Architected, Orchestrated, Directed, Synthesized).
-        - SELF-REGULATING CONTENT DENSITY (STRICT 2-PAGE CEILING - TARGET 1.85-1.95 PAGES): Autonomously analyze the user's Master CV role count and relevance to the target job description. Ensure comprehensive inclusion of true, verifiable career achievements and multi-clause technical context from the master profile so the document naturally leverages the full 2-page canvas without running short or spilling onto page 3.
+    6. PROFESSIONAL EXPERIENCE ACTION VERBS & DEPTH (AVOIDING REPETITION & FILLING WHITESPACE):
+        - COMPREHENSIVE DEPTH & ZERO REPETITION: Ensure every single role and bullet point provides distinct, high-value technical context (tools used, specific assays or frameworks, and analytical outcomes). Strictly avoid redundant phrasing or repeating the same action verbs across consecutive bullets.
+        - SELF-REGULATING DENSITY TARGET (STRICT 2-PAGE CEILING - TARGET 95-110 LINES OF MARKDOWN): Act as an intelligent layout-aware writer. If the source profile tends to generate sparse outputs (~1.5 pages), you must fully articulate all verifiable responsibilities and technical workflows from the Master CV into deep, multi-clause bullets and a robust 5-6 clause summary. This guarantees the document organically fills the 2-page canvas to the 1.9 mark without whitespace or page 3 spillage.
         - CRITICAL JOB HEADER FORMAT: Each professional experience header must be formatted strictly on a single line as: Role - Company | Dates (e.g., PhD Researcher - University of the Witwatersrand | 2023-Present). Never split the date onto a separate line.
     7. SECTION ORDER & HEADINGS: Structure the CV with these exact section headers in this exact chronological order using '## ':
         ## PROFESSIONAL SUMMARY
@@ -680,7 +679,7 @@ async def generate_tailored_cv(user_email: str, master_resume_text: str, job_tit
     Role: {job_title}
     {job_description}
 
-    Generate the complete, strictly grounded, tailored Markdown CV variant now, maintaining full descriptive depth across all verified experience items to maximize the 2-page canvas.
+    Generate the complete, strictly grounded, tailored Markdown CV variant now. Ensure zero repetition, rich multi-clause depth across all verified roles, and a robust markdown volume (95-110 lines) to fully occupy the 2-page canvas.
     """
 
     loop = asyncio.get_running_loop()
