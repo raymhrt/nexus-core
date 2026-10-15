@@ -649,13 +649,14 @@ async def generate_tailored_cv(user_email: str, master_resume_text: str, job_tit
     1. ZERO HALLUCINATION POLICY: Strictly use only the facts, degrees, institutions, and responsibilities present in the Master CV. NEVER invent numeric metrics, data volumes, or financial budgets.
     2. THIRD-PERSON VOICE: Write the Professional Summary strictly in an authoritative executive narrative style. NEVER use the candidate's name or third-person pronouns like "He", "His", "Him", "I", "my", or "me". Start directly with the professional credential or domain expertise.
     3. HEADER & SUBTITLE: Line 1 must be the candidate's exact name in uppercase. Line 2 must be their location. Line 3 must be their clean LinkedIn profile URL text. Line 4 must be their phone number and verified email ({user_email}) separated by ' | '. Line 5 must be a precise 3-part professional subtitle dynamically synthesized from the candidate's uploaded Master CV content and tailored specifically to match the core domain, technical competencies, and exact action keywords of the target job description ({job_description}), separated strictly by pipe delimiters (' | ').
-    4. PROFESSIONAL SUMMARY (FLUID EXECUTIVE PARAGRAPH): Write the Professional Summary strictly as ONE single, continuous, uninterrupted block of text forming a cohesive, narrative-driven paragraph. Do NOT format it as a list of independent sentences or line breaks. It must flow seamlessly from foundational credentials through specialized technical capabilities to strategic organizational impact.
+    4. PROFESSIONAL SUMMARY (FLUID EXECUTIVE PARAGRAPH): Write the Professional Summary strictly as ONE single, continuous, uninterrupted block of text forming a cohesive, comprehensive narrative paragraph (5-6 clauses) connecting foundational credentials to strategic enterprise objectives. Do NOT format it as a list of independent sentences or line breaks.
     5. CORE COMPETENCIES & AWARDS FORMATTING (INLINE FLOW):
         - CORE COMPETENCIES: Present competencies strictly as 4 to 5 rich, inline-flowing thematic bullet lines where related skills follow consecutively separated by commas or pipes (e.g., `• Research Planning, Hypothesis Development, Assay Optimization & Method Design`). Never generate isolated single-word bullet lines.
         - AWARDS & SCHOLARSHIPS: Format every award consistently as: Award Name - Institution | Year (e.g., PhD Merit Award - University of the Witwatersrand | 2025).
-    6. PROFESSIONAL EXPERIENCE ACTION VERBS & DEPTH (AVOIDING REPETITION & FILLING WHITESPACE):
-        - COMPREHENSIVE DEPTH & ZERO REPETITION: Ensure every single role and bullet point provides distinct, high-value technical context (tools used, specific assays or frameworks, and analytical outcomes). Strictly avoid redundant phrasing or repeating the same action verbs across consecutive bullets.
-        - SELF-REGULATING DENSITY TARGET (STRICT 2-PAGE CEILING - TARGET 95-110 LINES OF MARKDOWN): Act as an intelligent layout-aware writer. If the source profile tends to generate sparse outputs (~1.5 pages), you must fully articulate all verifiable responsibilities and technical workflows from the Master CV into deep, multi-clause bullets and a robust 5-6 clause summary. This guarantees the document organically fills the 2-page canvas to the 1.9 mark without whitespace or page 3 spillage.
+    6. PROFESSIONAL EXPERIENCE COMPREHENSIVE DEPTH & ZERO REPETITION:
+        - EXHAUSTIVE VERIFIABLE DETAIL: Fully articulate every legitimate responsibility, assay workflow, technical tool, and operational outcome from the Master CV. Provide deep, multi-clause substance without summarizing or cutting short.
+        - ABSOLUTE ZERO REDUNDANCY: Ensure every single bullet point introduces unique operational or technical context. Never repeat identical verbs or phrasing across consecutive items.
+        - FULL CANVAS UTILIZATION (STRICT 2-PAGE CEILING - TARGET 1.85-1.95 PAGES): Maximize text volume through rich, grounded description of true historical facts so that the document naturally occupies the entire two-page canvas without trailing whitespace or spilling onto a 3rd page.
         - CRITICAL JOB HEADER FORMAT: Each professional experience header must be formatted strictly on a single line as: Role - Company | Dates (e.g., PhD Researcher - University of the Witwatersrand | 2023-Present). Never split the date onto a separate line.
     7. SECTION ORDER & HEADINGS: Structure the CV with these exact section headers in this exact chronological order using '## ':
         ## PROFESSIONAL SUMMARY
@@ -679,7 +680,7 @@ async def generate_tailored_cv(user_email: str, master_resume_text: str, job_tit
     Role: {job_title}
     {job_description}
 
-    Generate the complete, strictly grounded, tailored Markdown CV variant now. Ensure zero repetition, rich multi-clause depth across all verified roles, and a robust markdown volume (95-110 lines) to fully occupy the 2-page canvas.
+    Generate the complete, strictly grounded, tailored Markdown CV variant now, maximizing factual depth and multi-clause detail across all verified experience items to completely eliminate bottom whitespace while strictly respecting the 2-page ceiling.
     """
 
     loop = asyncio.get_running_loop()
