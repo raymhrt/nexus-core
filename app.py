@@ -595,17 +595,19 @@ async def generate_tailored_cv(user_email: str, master_resume_text: str, job_tit
     You are an elite executive career strategist, expert technical resume writer, and adaptive document layout architect.
     Your task is to completely rewrite and dynamically tailor the candidate's Master CV specifically for the target role: {job_title} at {company_name}.
 
-    CRITICAL SPATIAL INTELLIGENCE & GROUND-TRUTH RULES:
+    CRITICAL REFINEMENT & SPATIAL INTELLIGENCE RULES:
     1. ZERO HALLUCINATION POLICY: Strictly use only the facts, degrees, institutions, and responsibilities present in the Master CV. NEVER invent numeric metrics, data volumes, or financial budgets.
     2. THIRD-PERSON VOICE: Write the Professional Summary strictly in an authoritative executive narrative style. NEVER use the candidate's name or third-person pronouns like "He", "His", "Him", "I", "my", or "me". Start directly with the professional credential or domain expertise.
-    3. HEADER & SUBTITLE: Line 1 must be the candidate's exact name in uppercase. Line 2 must be their location. Line 3 must be their clean LinkedIn profile URL text. Line 4 must be their phone number and verified email ({user_email}) separated by ' | '. Line 5 must be a precise 3-part professional subtitle dynamically synthesized from the candidate's uploaded Master CV content and tailored specifically to match the core domain, technical competencies, and themes of the target job description ({job_description}), separated strictly by pipe delimiters (' | ').
-    4. PROFESSIONAL SUMMARY: Write a rich executive narrative summary consisting of a sentence-count dynamically budgeted to occupy precisely 12 to 14 lines of visual text space. Never use bullet points under '## Professional Summary'.
-    5. SELF-REGULATING SPATIAL BUDGETING (STRICT 2-PAGE CEILING - TARGET 1.85-1.9 PAGES):
-       - STRUCTURAL ANALYSIS: Autonomously analyze the user's Master CV to inventory all sections, role counts, and historical depth.
-       - DYNAMIC DENSITY BALANCING: Compute an internal layout budget. Give primary, highly relevant roles deep, clause-rich multi-clause bullet points. For secondary or historical roles, automatically scale down the bullet count and depth proportionally based on how many total roles exist, ensuring the document naturally terminates right before the 2-page mark.
-       - SPILLOVER PREVENTION: Self-monitor total textual volume to guarantee absolute zero spillover onto a 3rd page under any circumstance.
+    3. HEADER & SUBTITLE: Line 1 must be the candidate's exact name in uppercase. Line 2 must be their location. Line 3 must be their clean LinkedIn profile URL text. Line 4 must be their phone number and verified email ({user_email}) separated by ' | '. Line 5 must be a precise 3-part professional subtitle dynamically synthesized from the candidate's uploaded Master CV content and tailored specifically to match the core domain, technical competencies, and exact action keywords of the target job description ({job_description}), separated strictly by pipe delimiters (' | ').
+    4. PROFESSIONAL SUMMARY (FLUID PARAGRAPH): Write the Professional Summary strictly as a single, cohesive, uninterrupted executive narrative paragraph consisting of 5 to 6 flowing, highly polished sentences that transition smoothly from core credentials to impact and strategic alignment. NEVER use broken, standalone single sentences or bullet points under '## Professional Summary'.
+    5. CORE COMPETENCIES & AWARDS FORMATTING:
+       - CORE COMPETENCIES: Present every single competency item cleanly as a standard bulleted list (`• `) with uniform formatting, avoiding run-on or unbulleted text.
+       - AWARDS & SCHOLARSHIPS: Format every award consistently as: Award Name - Institution | Year (e.g., PhD Merit Award - University of the Witwatersrand | 2025).
+    6. PROFESSIONAL EXPERIENCE ACTION VERBS & DENSITY:
+       - FRONT-LOADED ACTION VERBS: Every single bullet point under professional experience must open with a powerful, active executive verb (e.g., Spearheaded, Engineered, Architected, Orchestrated, Directed) rather than passive or neutral phrasing.
+       - SELF-REGULATING SPATIAL BUDGETING (STRICT 2-PAGE CEILING - TARGET 1.9-1.95 PAGES): Autonomously analyze the user's Master CV role count and relevance to the target job description. Give primary aligned roles deep, clause-rich multi-clause bullet points, and automatically scale secondary roles to a balanced, compact subset. Ensure the document naturally fills page two to the 1.9 mark without spilling onto a 3rd page.
        - CRITICAL JOB HEADER FORMAT: Each professional experience header must be formatted strictly on a single line as: Role - Company | Dates (e.g., PhD Researcher - University of the Witwatersrand | 2023-Present). Never split the date onto a separate line.
-    6. SECTION ORDER & HEADINGS: You must structure the CV with these exact section headers in this exact chronological order using '## ':
+    7. SECTION ORDER & HEADINGS: Structure the CV with these exact section headers in this exact chronological order using '## ':
        ## PROFESSIONAL SUMMARY
        ## CORE COMPETENCIES
        ## TECHNICAL SKILLS
@@ -615,8 +617,7 @@ async def generate_tailored_cv(user_email: str, master_resume_text: str, job_tit
        ## AWARDS & SCHOLARSHIPS
        ## PUBLICATIONS
        NEVER scramble this order, combine sections, or create ad-hoc subheadings.
-    7. BULLET POINTS: Use standard bullet points ('- ' or '* ') for every single item inside Core Competencies, Professional Experience, Awards, and Certifications.
-    8. PUBLICATIONS & EDUCATION: List publications and education entries as clean text paragraphs with proper formatting.
+    8. BULLET POINTS & PARAGRAPHS: Use standard bullet points ('- ' or '* ') for every single item inside Core Competencies, Professional Experience, Awards, and Certifications. List publications and education entries as clean text paragraphs with proper formatting.
     """
 
     user_prompt = f"""
