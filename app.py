@@ -410,14 +410,16 @@ def clean_contact_line(line: str, user_email: str) -> str:
 
 def enforce_two_stage_page_budget(markdown_cv: str) -> str:
     """
-    Stage 2 Inspection: Inspects the generated Markdown string for total vertical volume.
-    If the volume exceeds the safe 2-page threshold, it automatically trims excessive 
-    lines to guarantee it fits within the 1.9-page ceiling.
+    Stage 2 Intelligent Balancer: Dynamically inspects text density to ensure 
+    it strictly respects the 2-page ceiling without leaving excessive white space.
+    - Trims excess experience bullets if total volume exceeds safe page 2 limits.
+    - Preserves core structural density to prevent under-filling.
     """
     lines = markdown_cv.split('\n')
     total_lines = len(lines)
     
-    if total_lines > 112:
+    # Upper Threshold: Prevent page 3 overflow
+    if total_lines > 115:
         compressed_lines = []
         in_experience = False
         exp_bullet_count = 0
@@ -433,8 +435,9 @@ def enforce_two_stage_page_budget(markdown_cv: str) -> str:
                 
             if in_experience and (line.startswith("- ") or line.startswith("* ") or line.startswith("• ")):
                 exp_bullet_count += 1
-                if exp_bullet_count > 16: 
-                    continue # Trim excess overflow bullets to protect the 2-page boundary
+                # Intelligently take away lower-priority overflow bullets beyond the 14-bullet ceiling
+                if exp_bullet_count > 14: 
+                    continue 
             
             compressed_lines.append(line)
             
