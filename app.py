@@ -635,10 +635,10 @@ async def generate_tailored_cv(user_email: str, master_resume_text: str, job_tit
     5. CORE COMPETENCIES & AWARDS FORMATTING (INLINE FLOW):
         - CORE COMPETENCIES: Present competencies strictly as 4 to 5 rich, inline-flowing thematic bullet lines where related skills follow consecutively separated by commas or pipes (e.g., `• Research Planning, Hypothesis Development, Assay Optimization & Method Design`). Never generate isolated single-word bullet lines.
         - AWARDS & SCHOLARSHIPS: Format every award consistently as: Award Name - Institution | Year (e.g., PhD Merit Award - University of the Witwatersrand | 2025).
-    6. MAXIMUM CANVAS UTILIZATION & DENSITY MANDATE:
-        - EXPANSIVE TECHNICAL ELABORATION: To ensure the document fully occupies the 2-page canvas (~1.85-1.95 pages) without trailing whitespace, every professional experience role must include rich, granular, multi-clause explanations detailing the methodology, tools, operational parameters, and qualitative/analytical outcomes. 
-        - ZERO REDUNDANCY: Ensure every single bullet introduces unique technical actions with zero repeated phrasing across consecutive items.
-        - STRICT 2-PAGE CEILING: Maximize text volume organically using true master profile facts so that the document extends cleanly to the bottom of page 2 without spilling onto page 3.
+    6. MAXIMUM CANVAS UTILIZATION & DENSITY MANDATE (CRITICAL):
+        - 2-PAGE CANVAS TARGET: You must generate a robust, comprehensive CV length that contains between 140 to 160 total lines of text. This ensures it completely fills the 2-page PDF canvas (~1.85 to 1.95 pages) with zero awkward white space at the bottom of page 2 and zero spillover onto page 3.
+        - GRANULAR ROLE ELABORATION: For every job listed in Professional Experience (such as your PhD Researcher role), write 10 to 12 substantial, multi-clause bullet points. Every bullet must detail specific methodologies, instrument parameters (e.g., SPR, ITC, crystallography), analytical Python scripts, and quantifiable experimental outcomes.
+        - SECTION COMPLETENESS: Ensure all sections—including Professional Summary, Core Competencies, Technical Skills, Professional Experience, Education, Certifications, Awards & Scholarships, and Publications—are fully written out with zero omissions. Include full citation strings for all publications.
     7. SECTION ORDER & HEADINGS: Structure the CV with these exact section headers in this exact chronological order using '## ':
         ## PROFESSIONAL SUMMARY
         ## CORE COMPETENCIES
@@ -735,19 +735,20 @@ async def audit_and_correct_tailored_documents_dynamic(
     CRITICAL MULTI-TENANT AUDIT RULES:
     1. GROUND TRUTH CHECK: Strictly cross-reference every claim against the candidate's actual Master CV provided below. Zero hallucination policy: do not invent fake degrees, unearned titles, or false metrics (such as invented budget numbers or fabricated percentage improvements).
     2. CONTACT INTEGRITY: Ensure the contact header exclusively uses the user's verified database email: {user_email}.
-    3. OMISSION & COMPLETENESS CHECK: Ensure no core qualifications, formal education entries, or publications from the Master CV were mistakenly dropped in the draft.
-    4. ATS FORMATTING: Ensure clean Markdown structure with zero hardcoded placeholders or broken tags.
+    3. OMISSION & COMPLETENESS CHECK: Ensure no core qualifications, formal education entries, awards, or publications from the Master CV were mistakenly dropped in the draft. All publication entries must be fully preserved.
+    4. MAXIMUM CANVAS UTILIZATION & DENSITY MANDATE: Verify that the draft CV completely occupies the 2-page PDF canvas (~1.85-1.95 pages, targeting 140 to 160 total lines of text) with zero trailing whitespace at the bottom of page 2 and zero spillover onto page 3. If too sparse, expand experience bullets to be granular and multi-clause.
+    5. ATS FORMATTING: Ensure clean Markdown structure with zero hardcoded placeholders or broken tags.
 
     RETURN STRICT JSON WITH THESE EXACT KEYS:
     - "issues_identified": ["Issue 1 discovered", "Issue 2..."]
     - "missing_information": ["Missing item 1", "Missing item 2..."]
     - "hallucinations_removed": ["Any false claim, fake metric, or altered email corrected..."]
-    - "corrected_cv": "The fully corrected, pristine 1-page Markdown CV preserving exact master profile facts."
+    - "corrected_cv": "The fully corrected, pristine 2-page-optimized Markdown CV preserving exact master profile facts and all publications."
     - "corrected_cover_letter": "The fully corrected, flawless executive cover letter using email {user_email}."
     """
 
     user_prompt = f"""
-    CANDIDATE MASTER CV (GROUND TRUTH):
+    CANDIDATE MASTER CV (GROUND TRUTH - RETAIN ALL PUBLICATIONS AND AWARDS):
     {master_resume_text}
 
     TARGET JOB DESCRIPTION:
@@ -761,7 +762,7 @@ async def audit_and_correct_tailored_documents_dynamic(
     DRAFTED COVER LETTER TO AUDIT:
     {draft_cover_letter}
 
-    Perform your strict multi-tenant audit and return the corrected JSON response.
+    Perform your strict multi-tenant audit, ensure full 2-page density without omission of publications, and return the corrected JSON response.
     """
 
     loop = asyncio.get_running_loop()
