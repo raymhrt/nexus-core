@@ -451,7 +451,7 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         buffer,
         pagesize=A4,
         rightMargin=36, leftMargin=36,
-        topMargin=32, bottomMargin=32
+        topMargin=24, bottomMargin=24  # Optimized margins to securely capture vertical flow
     )
     
     cleaned_text = sanitize_cv_text(markdown_text)
@@ -526,7 +526,7 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         parent=styles['Normal'],
         fontName='Helvetica',
         fontSize=8.5,
-        leading=13 if is_sparse else 12,
+        leading=13 if is_sparse else 11.5,
         textColor=colors.HexColor('#334155'),
         spaceAfter=int(3.5 * spacing_multiplier)
     )
@@ -655,23 +655,23 @@ async def generate_tailored_cv(user_email: str, master_resume_text: str, job_tit
     3. HEADER & SUBTITLE: Line 1 must be the candidate's exact name in uppercase. Line 2 must be their location. Line 3 must be their clean LinkedIn profile URL text. Line 4 must be their phone number and verified email ({user_email}) separated by ' | '. Line 5 must be a precise 3-part professional subtitle dynamically synthesized from the candidate's uploaded Master CV content and tailored specifically to match the core domain, technical competencies, and exact action keywords of the target job description ({job_description}), separated strictly by pipe delimiters (' | ').
     4. PROFESSIONAL SUMMARY (FLUID EXECUTIVE PARAGRAPH): Write the Professional Summary strictly as ONE single, continuous, uninterrupted block of text forming a cohesive, narrative-driven paragraph. Do NOT format it as a list of independent sentences or line breaks. It must flow seamlessly from foundational credentials through specialized technical capabilities to strategic organizational impact.
     5. CORE COMPETENCIES & AWARDS FORMATTING (INLINE FLOW):
-       - CORE COMPETENCIES: Present competencies strictly as 4 to 5 rich, inline-flowing thematic bullet lines where related skills follow consecutively separated by commas or pipes (e.g., `• Research Planning, Hypothesis Development, Assay Optimization & Method Design`). Never generate isolated single-word bullet lines.
-       - AWARDS & SCHOLARSHIPS: Format every award consistently as: Award Name - Institution | Year (e.g., PhD Merit Award - University of the Witwatersrand | 2025).
+        - CORE COMPETENCIES: Present competencies strictly as 4 to 5 rich, inline-flowing thematic bullet lines where related skills follow consecutively separated by commas or pipes (e.g., `• Research Planning, Hypothesis Development, Assay Optimization & Method Design`). Never generate isolated single-word bullet lines.
+        - AWARDS & SCHOLARSHIPS: Format every award consistently as: Award Name - Institution | Year (e.g., PhD Merit Award - University of the Witwatersrand | 2025).
     6. PROFESSIONAL EXPERIENCE ACTION VERBS & DEPTH:
-       - RICH, MULTI-CLAUSE SUBSTANCE: Each experience bullet must be highly comprehensive, robust, and deep. Provide rich operational context, specific technical actions taken, tools/frameworks applied, and the resulting analytical or structural outcomes. Avoid brief or superficial statements.
-       - FRONT-LOADED ACTION VERBS: Every single bullet point under professional experience must open with a powerful, active executive verb (e.g., Spearheaded, Engineered, Architected, Orchestrated, Directed, Synthesized).
-       - SELF-REGULATING SPATIAL BUDGETING (STRICT 2-PAGE CEILING - TARGET 1.9-1.95 PAGES): Autonomously analyze the user's Master CV role count and relevance to the target job description. Give primary aligned roles deep, clause-rich multi-clause bullet points, and automatically scale secondary roles to a balanced, compact subset. Ensure the document naturally fills page two to the 1.9 mark without spilling onto a 3rd page.
-       - CRITICAL JOB HEADER FORMAT: Each professional experience header must be formatted strictly on a single line as: Role - Company | Dates (e.g., PhD Researcher - University of the Witwatersrand | 2023-Present). Never split the date onto a separate line.
+        - RICH, MULTI-CLAUSE SUBSTANCE: Each experience bullet must be highly comprehensive, robust, and deep. Provide rich operational context, specific technical actions taken, tools/frameworks applied, and the resulting analytical or structural outcomes. Avoid brief or superficial statements.
+        - FRONT-LOADED ACTION VERBS: Every single bullet point under professional experience must open with a powerful, active executive verb (e.g., Spearheaded, Engineered, Architected, Orchestrated, Directed, Synthesized).
+        - SELF-REGULATING SPATIAL BUDGETING (STRICT 2-PAGE CEILING - TARGET 1.9-1.95 PAGES): Autonomously analyze the user's Master CV role count and relevance to the target job description. Give primary aligned roles deep, clause-rich multi-clause bullet points, and automatically scale secondary roles to a balanced, compact subset. Ensure the document naturally fills page two to the 1.9 mark without spilling onto a 3rd page.
+        - CRITICAL JOB HEADER FORMAT: Each professional experience header must be formatted strictly on a single line as: Role - Company | Dates (e.g., PhD Researcher - University of the Witwatersrand | 2023-Present). Never split the date onto a separate line.
     7. SECTION ORDER & HEADINGS: Structure the CV with these exact section headers in this exact chronological order using '## ':
-       ## PROFESSIONAL SUMMARY
-       ## CORE COMPETENCIES
-       ## TECHNICAL SKILLS
-       ## PROFESSIONAL EXPERIENCE
-       ## EDUCATION
-       ## CERTIFICATIONS
-       ## AWARDS & SCHOLARSHIPS
-       ## PUBLICATIONS
-       NEVER scramble this order, combine sections, or create ad-hoc subheadings.
+        ## PROFESSIONAL SUMMARY
+        ## CORE COMPETENCIES
+        ## TECHNICAL SKILLS
+        ## PROFESSIONAL EXPERIENCE
+        ## EDUCATION
+        ## CERTIFICATIONS
+        ## AWARDS & SCHOLARSHIPS
+        ## PUBLICATIONS
+        NEVER scramble this order, combine sections, or create ad-hoc subheadings.
     8. BULLET POINTS & PARAGRAPHS: Use standard bullet points ('- ' or '* ') for every single item inside Core Competencies, Professional Experience, Awards, and Certifications. List publications and education entries as clean text paragraphs with proper formatting.
     """
 
