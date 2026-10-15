@@ -652,6 +652,7 @@ async def generate_tailored_cv(user_email: str, master_resume_text: str, job_tit
         ## PUBLICATIONS
         NEVER scramble this order, combine sections, or create ad-hoc subheadings.
     8. BULLET POINTS & PARAGRAPHS: Use standard bullet points ('- ' or '* ') for every single item inside Core Competencies, Technical Skills, Professional Experience, Awards, and Certifications. List publications and education entries as clean text paragraphs with proper formatting.
+    """
 
     user_prompt = f"""
     CANDIDATE MASTER CV (GROUND TRUTH):
