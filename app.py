@@ -300,7 +300,7 @@ def call_groq_ai(prompt: str, system_prompt: str = "You are the complete multi-t
         "model": "openai/gpt-oss-120b",
         "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}],
         "temperature": 0.2,
-        "max_tokens": 4096
+        "max_tokens": 8192  # Increased from 4096 to prevent truncation of tail sections
     }
 
     max_retries = 5
@@ -592,15 +592,16 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
             if bullet_cleaned:
                 story.append(Paragraph(f"• {bullet_cleaned}", bullet_style))
             
-        elif any(p in current_section for p in ["publication", "selected publications"]):
+        elif any(p in current_section for p in ["publication", "selected publications", "publications"]):
             pub_text = re.sub(r'^[\-\*\•]\s*', '', cleaned_line)
             story.append(Paragraph(pub_text, body_style))
+            story.append(Spacer(1, 2))  # Micro-spacing to fill canvas naturally
             
         elif any(sec in current_section for sec in ["education"]):
             edu_text = re.sub(r'^[\-\*\•]\s*', '', cleaned_line).strip()
             story.append(Paragraph(edu_text, body_style))
 
-        elif any(sec in current_section for sec in ["awards & scholarships", "awards", "certifications"]):
+        elif any(sec in current_section for sec in ["awards & scholarships", "awards"]):
             bullet_cleaned = re.sub(r'^[\-\*\•\d\.\s]+\s*', '', cleaned_line).strip()
             if bullet_cleaned:
                 story.append(Paragraph(f"• {bullet_cleaned}", bullet_style))
