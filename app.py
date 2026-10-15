@@ -451,7 +451,7 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         buffer,
         pagesize=A4,
         rightMargin=36, leftMargin=36,
-        topMargin=24, bottomMargin=24  # Optimized margins to securely capture vertical flow
+        topMargin=24, bottomMargin=24
     )
     
     cleaned_text = sanitize_cv_text(markdown_text)
@@ -459,10 +459,8 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
     total_content_lines = len([l for l in lines if l.strip()])
     
     # TWO-WAY DYNAMIC SPATIAL STRETCH:
-    # Expands spacing and leading slightly only if the document is sparse (< 80 lines),
-    # locking in the 1.9-page target and eliminating bottom white space.
     is_sparse = total_content_lines < 80
-    spacing_multiplier = 1.35 if is_sparse else 1.0
+    spacing_multiplier = 1.25 if is_sparse else 1.0
     
     styles = getSampleStyleSheet()
     
@@ -494,18 +492,18 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         leading=12,
         textColor=colors.HexColor('#0284c7'),
         spaceBefore=2,
-        spaceAfter=6
+        spaceAfter=4
     )
     
     heading_style = ParagraphStyle(
         'SectionHeading',
         parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=11,
-        leading=14,
+        fontSize=10.5,
+        leading=13,
         textColor=colors.HexColor('#0284c7'),
-        spaceBefore=int(11 * spacing_multiplier),
-        spaceAfter=int(3.5 * spacing_multiplier),
+        spaceBefore=int(7 * spacing_multiplier),  # Clean, controlled space before headings (no extra spacer needed)
+        spaceAfter=2,
         keepWithNext=True
     )
     
@@ -516,8 +514,8 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         fontSize=9,
         leading=12,
         textColor=colors.HexColor('#1e293b'),
-        spaceBefore=int(6 * spacing_multiplier),
-        spaceAfter=1.5,
+        spaceBefore=int(4 * spacing_multiplier),
+        spaceAfter=1,
         keepWithNext=True
     )
     
@@ -526,9 +524,9 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         parent=styles['Normal'],
         fontName='Helvetica',
         fontSize=8.5,
-        leading=13 if is_sparse else 11.5,
+        leading=11.5 if is_sparse else 11,
         textColor=colors.HexColor('#334155'),
-        spaceAfter=int(3.5 * spacing_multiplier)
+        spaceAfter=2.5
     )
     
     bullet_style = ParagraphStyle(
@@ -536,7 +534,7 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         parent=body_style,
         leftIndent=12,
         firstLineIndent=-10,
-        spaceAfter=int(2.5 * spacing_multiplier)
+        spaceAfter=2.0
     )
 
     story = []
@@ -570,7 +568,7 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
             story.append(Paragraph(markdown_to_reportlab_html(clean_line), contact_style))
             header_lines_processed = idx + 1
 
-    story.append(Spacer(1, int(3 * spacing_multiplier)))
+    story.append(Spacer(1, 2))
 
     for line in lines[header_lines_processed:]:
         raw_line = line
@@ -588,14 +586,14 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         
         if is_section_header:
             current_section = section_title_text.lower()
-            story.append(Spacer(1, int(3 * spacing_multiplier)))
+            # Redundant explicit Spacer removed here to eliminate the massive gap
             story.append(Paragraph(section_title_text.upper(), heading_style))
             story.append(HRFlowable(
                 width="100%", 
                 thickness=0.75, 
                 color=colors.HexColor('#0284c7'), 
                 spaceBefore=1, 
-                spaceAfter=int(3 * spacing_multiplier)
+                spaceAfter=2.5
             ))
             continue
             
