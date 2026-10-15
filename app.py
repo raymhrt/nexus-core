@@ -418,8 +418,8 @@ def enforce_two_stage_page_budget(markdown_cv: str) -> str:
     lines = markdown_cv.split('\n')
     total_lines = len(lines)
     
-    # Upper Threshold: Prevent page 3 overflow
-    if total_lines > 115:
+    # Lowered Threshold (108 lines) to catch and prevent Page 3 spillage early
+    if total_lines > 108:
         compressed_lines = []
         in_experience = False
         exp_bullet_count = 0
@@ -435,8 +435,8 @@ def enforce_two_stage_page_budget(markdown_cv: str) -> str:
                 
             if in_experience and (line.startswith("- ") or line.startswith("* ") or line.startswith("• ")):
                 exp_bullet_count += 1
-                # Intelligently take away lower-priority overflow bullets beyond the 14-bullet ceiling
-                if exp_bullet_count > 14: 
+                # Tighter ceiling (12 bullets max) to lock in the 2-page boundary for dense roles
+                if exp_bullet_count > 12: 
                     continue 
             
             compressed_lines.append(line)
@@ -453,6 +453,16 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         rightMargin=36, leftMargin=36,
         topMargin=32, bottomMargin=32
     )
+    
+    cleaned_text = sanitize_cv_text(markdown_text)
+    lines = cleaned_text.split('\n')
+    total_content_lines = len([l for l in lines if l.strip()])
+    
+    # TWO-WAY DYNAMIC SPATIAL STRETCH:
+    # Expands spacing and leading slightly only if the document is sparse (< 80 lines),
+    # locking in the 1.9-page target and eliminating bottom white space.
+    is_sparse = total_content_lines < 80
+    spacing_multiplier = 1.35 if is_sparse else 1.0
     
     styles = getSampleStyleSheet()
     
@@ -494,8 +504,8 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         fontSize=11,
         leading=14,
         textColor=colors.HexColor('#0284c7'),
-        spaceBefore=11,
-        spaceAfter=3.5,
+        spaceBefore=int(11 * spacing_multiplier),
+        spaceAfter=int(3.5 * spacing_multiplier),
         keepWithNext=True
     )
     
@@ -506,7 +516,7 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         fontSize=9,
         leading=12,
         textColor=colors.HexColor('#1e293b'),
-        spaceBefore=6,
+        spaceBefore=int(6 * spacing_multiplier),
         spaceAfter=1.5,
         keepWithNext=True
     )
@@ -516,9 +526,9 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         parent=styles['Normal'],
         fontName='Helvetica',
         fontSize=8.5,
-        leading=12,
+        leading=13 if is_sparse else 12,
         textColor=colors.HexColor('#334155'),
-        spaceAfter=3.5
+        spaceAfter=int(3.5 * spacing_multiplier)
     )
     
     bullet_style = ParagraphStyle(
@@ -526,13 +536,10 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         parent=body_style,
         leftIndent=12,
         firstLineIndent=-10,
-        spaceAfter=2.5
+        spaceAfter=int(2.5 * spacing_multiplier)
     )
 
     story = []
-    
-    cleaned_text = sanitize_cv_text(markdown_text)
-    lines = cleaned_text.split('\n')
     
     current_section = ""
     known_section_headers = [
@@ -563,7 +570,7 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
             story.append(Paragraph(markdown_to_reportlab_html(clean_line), contact_style))
             header_lines_processed = idx + 1
 
-    story.append(Spacer(1, 3))
+    story.append(Spacer(1, int(3 * spacing_multiplier)))
 
     for line in lines[header_lines_processed:]:
         raw_line = line
@@ -581,14 +588,14 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         
         if is_section_header:
             current_section = section_title_text.lower()
-            story.append(Spacer(1, 3))
+            story.append(Spacer(1, int(3 * spacing_multiplier)))
             story.append(Paragraph(section_title_text.upper(), heading_style))
             story.append(HRFlowable(
                 width="100%", 
                 thickness=0.75, 
                 color=colors.HexColor('#0284c7'), 
                 spaceBefore=1, 
-                spaceAfter=3
+                spaceAfter=int(3 * spacing_multiplier)
             ))
             continue
             
@@ -610,6 +617,11 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         elif any(sec in current_section for sec in ["education"]):
             edu_text = re.sub(r'^[\-\*\•]\s*', '', cleaned_line).strip()
             story.append(Paragraph(edu_text, body_style))
+
+        elif any(sec in current_section for sec in ["awards & scholarships", "awards", "certifications"]):
+            bullet_cleaned = re.sub(r'^[\-\*\•\d\.\s]+\s*', '', cleaned_line).strip()
+            if bullet_cleaned:
+                story.append(Paragraph(f"• {bullet_cleaned}", bullet_style))
             
         elif any(sec in current_section for sec in ["professional experience", "experience", "competencies", "skills", "awards", "certifications"]):
             bullet_cleaned = re.sub(r'^[\-\*\•]\s*', '', cleaned_line).strip()
