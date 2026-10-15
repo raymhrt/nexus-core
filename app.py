@@ -633,8 +633,9 @@ async def generate_tailored_cv(user_email: str, master_resume_text: str, job_tit
     2. THIRD-PERSON VOICE: Write the Professional Summary strictly in an authoritative executive narrative style. NEVER use the candidate's name or third-person pronouns like "He", "His", "Him", "I", "my", or "me". Start directly with the professional credential or domain expertise.
     3. HEADER & SUBTITLE: Line 1 must be the candidate's exact name in uppercase. Line 2 must be their location. Line 3 must be their clean LinkedIn profile URL text. Line 4 must be their phone number and verified email ({user_email}) separated by ' | '. Line 5 must be a precise 3-part professional subtitle dynamically synthesized from the candidate's uploaded Master CV content and tailored specifically to match the core domain, technical competencies, and exact action keywords of the target job description ({job_description}), separated strictly by pipe delimiters (' | ').
     4. PROFESSIONAL SUMMARY (FLUID EXECUTIVE PARAGRAPH): Write the Professional Summary strictly as ONE single, continuous, uninterrupted block of text forming a cohesive narrative paragraph. Do NOT format it as a list of sentences or line breaks. It must flow seamlessly from foundational credentials through specialized technical capabilities to strategic organizational impact.
-    5. CORE COMPETENCIES & AWARDS FORMATTING (INLINE FLOW):
+    5. CORE COMPETENCIES, TECHNICAL SKILLS & AWARDS FORMATTING (INLINE FLOW):
         - CORE COMPETENCIES: Present competencies strictly as 4 to 5 rich, inline-flowing thematic bullet lines where related skills follow consecutively separated by commas or pipes (e.g., `• Research Planning, Hypothesis Development, Assay Optimization & Method Design`). Never generate isolated single-word bullet lines.
+        - TECHNICAL SKILLS: Present technical skills grouped logically by category (e.g., Molecular Biology, Protein Biochemistry, Biophysics, Software) as clean inline-flowing bullet lines separated by commas or pipes (e.g., `- Molecular Biology: PCR, DNA/RNA Extraction, Molecular Cloning, Gel Electrophoresis`). Never generate single-item vertical lists.
         - AWARDS & SCHOLARSHIPS: Format every award consistently as: Award Name - Institution | Year (e.g., PhD Merit Award - University of the Witwatersrand | 2025).
     6. MAXIMUM CANVAS UTILIZATION & DENSITY MANDATE (CRITICAL):
         - 2-PAGE CANVAS TARGET: You must generate a robust, comprehensive CV length that contains between 140 to 160 total lines of text. This ensures it completely fills the 2-page PDF canvas (~1.85 to 1.95 pages) with zero awkward white space at the bottom of page 2 and zero spillover onto page 3.
@@ -650,8 +651,7 @@ async def generate_tailored_cv(user_email: str, master_resume_text: str, job_tit
         ## AWARDS & SCHOLARSHIPS
         ## PUBLICATIONS
         NEVER scramble this order, combine sections, or create ad-hoc subheadings.
-    8. BULLET POINTS & PARAGRAPHS: Use standard bullet points ('- ' or '* ') for every single item inside Core Competencies, Professional Experience, Awards, and Certifications. List publications and education entries as clean text paragraphs with proper formatting.
-    """
+    8. BULLET POINTS & PARAGRAPHS: Use standard bullet points ('- ' or '* ') for every single item inside Core Competencies, Technical Skills, Professional Experience, Awards, and Certifications. List publications and education entries as clean text paragraphs with proper formatting.
 
     user_prompt = f"""
     CANDIDATE MASTER CV (GROUND TRUTH):
