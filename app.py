@@ -410,16 +410,14 @@ def clean_contact_line(line: str, user_email: str) -> str:
 
 def enforce_two_stage_page_budget(markdown_cv: str) -> str:
     """
-    Stage 2 Intelligent Balancer: Dynamically inspects text density to ensure 
-    it strictly respects the 2-page ceiling without leaving excessive white space.
-    - Trims excess experience bullets if total volume exceeds safe page 2 limits.
-    - Preserves core structural density to prevent under-filling.
+    Stage 2 Intelligent Balancer: Ensures text volume safely maximizes the 2-page canvas 
+    (~1.85-1.95 pages) without premature truncation.
     """
     lines = markdown_cv.split('\n')
     total_lines = len(lines)
     
-    # Lowered Threshold (108 lines) to catch and prevent Page 3 spillage early
-    if total_lines > 108:
+    # Raised threshold to 140 lines to ensure full 2-page canvas utilization
+    if total_lines > 140:
         compressed_lines = []
         in_experience = False
         exp_bullet_count = 0
@@ -435,8 +433,7 @@ def enforce_two_stage_page_budget(markdown_cv: str) -> str:
                 
             if in_experience and (line.startswith("- ") or line.startswith("* ") or line.startswith("• ")):
                 exp_bullet_count += 1
-                # Tighter ceiling (12 bullets max) to lock in the 2-page boundary for dense roles
-                if exp_bullet_count > 12: 
+                if exp_bullet_count > 16:  # Allow up to 16 robust bullets before trimming
                     continue 
             
             compressed_lines.append(line)
@@ -450,16 +447,17 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
     doc = SimpleDocTemplate(
         buffer,
         pagesize=A4,
-        rightMargin=36, leftMargin=36,
-        topMargin=24, bottomMargin=24
+        rightMargin=32, leftMargin=32,
+        topMargin=20, bottomMargin=20  # Tighter margins to maximize vertical canvas
     )
     
     cleaned_text = sanitize_cv_text(markdown_text)
     lines = cleaned_text.split('\n')
     total_content_lines = len([l for l in lines if l.strip()])
     
-    is_sparse = total_content_lines < 80
-    spacing_multiplier = 1.25 if is_sparse else 1.0
+    # Adjusted threshold to ensure full vertical occupancy
+    is_sparse = total_content_lines < 110
+    spacing_multiplier = 1.15 if is_sparse else 1.0
     
     styles = getSampleStyleSheet()
     
@@ -467,18 +465,18 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         'DocTitle',
         parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=15,
-        leading=18,
+        fontSize=14,
+        leading=16,
         textColor=colors.HexColor('#0f172a'),
-        spaceAfter=2
+        spaceAfter=1.5
     )
     
     contact_style = ParagraphStyle(
         'ContactStyle',
         parent=styles['Normal'],
         fontName='Helvetica',
-        fontSize=8.5,
-        leading=11,
+        fontSize=8,
+        leading=10,
         textColor=colors.HexColor('#334155'),
         spaceAfter=1
     )
@@ -487,22 +485,22 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         'SubtitleStyle',
         parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=9,
-        leading=12,
+        fontSize=8.5,
+        leading=11,
         textColor=colors.HexColor('#0284c7'),
-        spaceBefore=2,
-        spaceAfter=4
+        spaceBefore=1,
+        spaceAfter=3
     )
     
     heading_style = ParagraphStyle(
         'SectionHeading',
         parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=10.5,
-        leading=13,
+        fontSize=10,
+        leading=12,
         textColor=colors.HexColor('#0284c7'),
-        spaceBefore=int(7 * spacing_multiplier),
-        spaceAfter=2,
+        spaceBefore=int(6 * spacing_multiplier),
+        spaceAfter=1.5,
         keepWithNext=True
     )
     
@@ -510,10 +508,10 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         'JobTitleStyle',
         parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=9,
-        leading=12,
+        fontSize=8.5,
+        leading=11,
         textColor=colors.HexColor('#1e293b'),
-        spaceBefore=int(4 * spacing_multiplier),
+        spaceBefore=int(3.5 * spacing_multiplier),
         spaceAfter=1,
         keepWithNext=True
     )
@@ -522,22 +520,21 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         'BodyTextCustom',
         parent=styles['Normal'],
         fontName='Helvetica',
-        fontSize=8.5,
-        leading=11.5 if is_sparse else 11,
+        fontSize=8,
+        leading=10.5,
         textColor=colors.HexColor('#334155'),
-        spaceAfter=2.5
+        spaceAfter=2
     )
     
     bullet_style = ParagraphStyle(
         'BulletCustom',
         parent=body_style,
-        leftIndent=12,
-        firstLineIndent=-10,
-        spaceAfter=2.0
+        leftIndent=10,
+        firstLineIndent=-8,
+        spaceAfter=1.8
     )
 
     story = []
-    
     current_section = ""
     known_section_headers = [
         "professional summary", "summary", "core competencies", "competencies",
@@ -567,7 +564,7 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
             story.append(Paragraph(markdown_to_reportlab_html(clean_line), contact_style))
             header_lines_processed = idx + 1
 
-    story.append(Spacer(1, 2))
+    story.append(Spacer(1, 1))
 
     for line in lines[header_lines_processed:]:
         raw_line = line
@@ -588,10 +585,10 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
             story.append(Paragraph(section_title_text.upper(), heading_style))
             story.append(HRFlowable(
                 width="100%", 
-                thickness=0.75, 
+                thickness=0.5, 
                 color=colors.HexColor('#0284c7'), 
-                spaceBefore=1, 
-                spaceAfter=2.5
+                spaceBefore=0.5, 
+                spaceAfter=2
             ))
             continue
             
@@ -629,10 +626,6 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
             if bullet_cleaned:
                 story.append(Paragraph(f"• {bullet_cleaned}", bullet_style))
                 
-        elif current_section in ["core competencies", "technical skills", "professional experience", "experience", "awards & scholarships", "awards", "certifications"]:
-            bullet_cleaned = re.sub(r'^[\-\*\•\d\.\s]+\s*', '', cleaned_line).strip()
-            if bullet_cleaned:
-                story.append(Paragraph(f"• {bullet_cleaned}", bullet_style))
         else:
             story.append(Paragraph(cleaned_line, body_style))
 
@@ -653,10 +646,10 @@ async def generate_tailored_cv(user_email: str, master_resume_text: str, job_tit
     5. CORE COMPETENCIES & AWARDS FORMATTING (INLINE FLOW):
         - CORE COMPETENCIES: Present competencies strictly as 4 to 5 rich, inline-flowing thematic bullet lines where related skills follow consecutively separated by commas or pipes (e.g., `• Research Planning, Hypothesis Development, Assay Optimization & Method Design`). Never generate isolated single-word bullet lines.
         - AWARDS & SCHOLARSHIPS: Format every award consistently as: Award Name - Institution | Year (e.g., PhD Merit Award - University of the Witwatersrand | 2025).
-    6. ADAPTIVE MULTI-TENANT SPATIAL BUDGETING (STRICT 2-PAGE CEILING - TARGET ~1.9 PAGES):
-        - PROPORTIONAL DENSITY ADAPTATION: Autonomously analyze the total volume and structure of the candidate's uploaded Master CV. Tailor your descriptive granularity dynamically to the user: for sparser profiles, fully unpack and articulate every verifiable technical action, toolchain, and workflow into comprehensive multi-clause bullets to naturally occupy the 2-page canvas without trailing whitespace; for denser profiles, maintain a balanced, concise subset. 
-        - ABSOLUTE ZERO REDUNDANCY: Ensure every single bullet introduces unique operational or technical context with zero repeated verbs or phrasing across consecutive items.
-        - CRITICAL JOB HEADER FORMAT: Each professional experience header must be formatted strictly on a single line as: Role - Company | Dates (e.g., PhD Researcher - University of the Witwatersrand | 2023-Present). Never split the date onto a separate line.
+    6. MAXIMUM CANVAS UTILIZATION & DENSITY MANDATE:
+        - EXPANSIVE TECHNICAL ELABORATION: To ensure the document fully occupies the 2-page canvas (~1.85-1.95 pages) without trailing whitespace, every professional experience role must include rich, granular, multi-clause explanations detailing the methodology, tools, operational parameters, and qualitative/analytical outcomes. 
+        - ZERO REDUNDANCY: Ensure every single bullet introduces unique technical actions with zero repeated phrasing across consecutive items.
+        - STRICT 2-PAGE CEILING: Maximize text volume organically using true master profile facts so that the document extends cleanly to the bottom of page 2 without spilling onto page 3.
     7. SECTION ORDER & HEADINGS: Structure the CV with these exact section headers in this exact chronological order using '## ':
         ## PROFESSIONAL SUMMARY
         ## CORE COMPETENCIES
