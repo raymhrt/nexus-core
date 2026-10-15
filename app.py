@@ -591,16 +591,35 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
     return buffer.getvalue()
 
 async def generate_tailored_cv(user_email: str, master_resume_text: str, job_title: str, company_name: str, job_description: str) -> str:
+    # ADAPTIVE INTELLIGENCE: Analyze job description tone to determine relevance weighting dynamically
+    job_lower = job_description.lower() + " " + job_title.lower()
+    is_research_or_academic = any(kw in job_lower for kw in ["postdoc", "research", "scientist", "academic", "university", "fellow", "lab"])
+    is_industry_or_ops = any(kw in job_lower for kw in ["production", "manager", "operations", "engineering", "industrial", "supply chain"])
+
+    # DYNAMIC BULLET BUDGETING BASED ON JOB RELEVANCE (Prevents 3rd page spillover while keeping history intact)
+    if is_research_or_academic:
+        primary_role_bullets = 9   # Deep focus for aligned primary role
+        secondary_role_bullets = 4 # Compressed transferable skills for secondary/historical role
+    elif is_industry_or_ops:
+        primary_role_bullets = 4   # Compressed for non-aligned role
+        secondary_role_bullets = 9 # Deep focus for operations primary role
+    else:
+        primary_role_bullets = 7   # Balanced default
+        secondary_role_bullets = 6
+
     system_prompt = f"""
     You are an elite executive career strategist and expert technical resume writer.
     Your task is to completely rewrite and dynamically tailor the candidate's Master CV specifically for the target role: {job_title} at {company_name}.
 
     CRITICAL TAILORING & STRICT GROUND-TRUTH RULES:
     1. ZERO HALLUCINATION POLICY: Strictly use only the facts, degrees, institutions, and responsibilities present in the Master CV. NEVER invent numeric metrics, data volumes, or financial budgets.
-    2. THIRD-PERSON VOICE: Write the Professional Summary strictly in an authoritative third-person executive narrative (e.g., use "PhD-trained molecular biologist...", never use first-person pronouns like "I", "my", or "me").
-    3. HEADER & SUBTITLE: Line 1 must be the candidate's exact name in uppercase. Line 2 must be their location. Line 3 must be their clean LinkedIn profile URL text without markdown duplicate link syntax. Line 4 must be their phone number and verified email ({user_email}) separated by ' | '. Line 5 must be a precise 3-part professional subtitle dynamically synthesized from the candidate's uploaded Master CV content and tailored specifically to match the core domain, technical competencies, and themes of the target job description. Separate them strictly with pipe delimiters (' | ').
+    2. THIRD-PERSON VOICE: Write the Professional Summary strictly in an authoritative third-person executive narrative (e.g., use the candidate's professional domain/title, never use first-person pronouns like "I", "my", or "me").
+    3. HEADER & SUBTITLE: Line 1 must be the candidate's exact name in uppercase. Line 2 must be their location. Line 3 must be their clean LinkedIn profile URL text without markdown duplicate link syntax. Line 4 must be their phone number and verified email ({user_email}) separated by ' | '. Line 5 must be a precise 3-part professional subtitle dynamically synthesized from the candidate's uploaded Master CV content and tailored specifically to match the core domain, technical competencies, and themes of the target job description ({job_description}). Separate them strictly with pipe delimiters (' | ').
     4. PROFESSIONAL SUMMARY: Write a rich executive narrative summary consisting of exactly 8 comprehensive sentences to expand depth. Never use bullet points under '## Professional Summary'.
-    5. EXPERIENCE DENSITY & FORMATTING (1.85 - 1.9 PAGE TARGET): Provide exactly 11 rigorous, highly detailed and comprehensive bullet points under both primary professional experience roles, drawing strictly from the factual duties in the Master CV. Ensure each bullet contains multiple descriptive clauses to achieve a pristine 1.85 to 1.9 page fill ratio without spilling onto a third page.
+    5. ADAPTIVE EXPERIENCE DENSITY & FORMATTING (STRICT 2-PAGE CEILING):
+       - TARGET CONTEXT: The target role is classified as {'Research/Academic' if is_research_or_academic else 'Industry/Operations' if is_industry_or_ops else 'General'}. Adjust emphasis accordingly.
+       - PRIMARY ROLE BUDGET: Provide exactly {primary_role_bullets} rigorous, highly detailed bullet points for the role most relevant to the target posting, drawing strictly from factual Master CV duties.
+       - SECONDARY ROLE BUDGET: Provide exactly {secondary_role_bullets} concise, transferable bullet points for the secondary/historical role to maintain complete employment history without causing document bloat or 3rd-page spillover.
        - CRITICAL JOB HEADER FORMAT: Each professional experience header must be formatted strictly on a single line as: Role - Company | Dates (e.g., PhD Researcher - University of the Witwatersrand | 2023-Present). Never split the date onto a separate line.
     6. SECTION ORDER & HEADINGS: You must structure the CV with these exact section headers in this exact chronological order using '## ':
        ## PROFESSIONAL SUMMARY
