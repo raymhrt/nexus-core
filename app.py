@@ -457,7 +457,7 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         fontSize=11,
         leading=14,
         textColor=colors.HexColor('#0284c7'),
-        spaceBefore=11,  # Slightly increased to expand vertical flow
+        spaceBefore=11,
         spaceAfter=3.5,
         keepWithNext=True
     )
@@ -479,7 +479,7 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         parent=styles['Normal'],
         fontName='Helvetica',
         fontSize=8.5,
-        leading=12,  # Expanded leading slightly for better readability and vertical span
+        leading=12,
         textColor=colors.HexColor('#334155'),
         spaceAfter=3.5
     )
@@ -564,10 +564,9 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         elif any(sec in current_section for sec in ["core competencies"]):
             bullet_cleaned = re.sub(r'^[\-\*\•\d\.\s]+\s*', '', cleaned_line).strip()
             if bullet_cleaned:
-                # Renders core competencies as clean, rich inline bullet lines
                 story.append(Paragraph(f"• {bullet_cleaned}", bullet_style))
             
-        elif any(p in current_section for sp in ["publication", "selected publications"]):
+        elif any(p in current_section for p in ["publication", "selected publications"]):
             pub_text = re.sub(r'^[\-\*\•]\s*', '', cleaned_line)
             story.append(Paragraph(pub_text, body_style))
             
