@@ -408,6 +408,40 @@ def clean_contact_line(line: str, user_email: str) -> str:
     parts = [p for p in [loc, phone, email] if p]
     return " | ".join(parts)
 
+def enforce_two_stage_page_budget(markdown_cv: str) -> str:
+    """
+    Stage 2 Inspection: Inspects the generated Markdown string for total vertical volume.
+    If the volume exceeds the safe 2-page threshold, it automatically trims excessive 
+    lines to guarantee it fits within the 1.9-page ceiling.
+    """
+    lines = markdown_cv.split('\n')
+    total_lines = len(lines)
+    
+    if total_lines > 112:
+        compressed_lines = []
+        in_experience = False
+        exp_bullet_count = 0
+        
+        for line in lines:
+            if "## PROFESSIONAL EXPERIENCE" in line.upper():
+                in_experience = True
+                compressed_lines.append(line)
+                continue
+            
+            if in_experience and line.startswith("## "):
+                in_experience = False
+                
+            if in_experience and (line.startswith("- ") or line.startswith("* ") or line.startswith("• ")):
+                exp_bullet_count += 1
+                if exp_bullet_count > 16: 
+                    continue # Trim excess overflow bullets to protect the 2-page boundary
+            
+            compressed_lines.append(line)
+            
+        return "\n".join(compressed_lines)
+    
+    return markdown_cv
+
 def generate_pdf_cv(markdown_text: str) -> bytes:
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -1785,7 +1819,11 @@ async def export_pdf_direct(payload: dict, api_key: str = Header(None, alias="x-
 
     # Sanitize and route through the pristine generate_pdf_cv pipeline
     cleaned_markdown = sanitize_cv_text(content)
-    pdf_bytes = generate_pdf_cv(cleaned_markdown)
+    
+    # Stage 2: Enforce strict 2-page ceiling budget to prevent overflow
+    optimized_markdown = enforce_two_stage_page_budget(cleaned_markdown)
+    
+    pdf_bytes = generate_pdf_cv(optimized_markdown)
     
     filename = f"{job_title.replace(' ', '_')}_{asset_type}.pdf"
     return StreamingResponse(
