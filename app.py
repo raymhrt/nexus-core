@@ -690,16 +690,14 @@ def generate_pdf_cover_letter(markdown_text: str) -> bytes:
             closing_part = parts[1].split("\n+27")[0] 
             cleaned_text = parts[0] + "Sincerely," + closing_part
 
-    # Split raw text strictly by double newlines first to preserve true paragraph blocks
-    raw_blocks = [block.strip() for block in cleaned_text.split('\n\n') if block.strip()]
+    # Use regex to split cleanly by one or more blank lines, capturing true paragraphs
+    raw_blocks = [b.strip() for b in re.split(r'\n\s*\n', cleaned_text) if b.strip()]
     
     in_header = True
     for block in raw_blocks:
         if in_header:
-            # Process header lines individually
             sub_lines = [l.strip() for l in block.split('\n') if l.strip()]
             for line in sub_lines:
-                # Filter out isolated duplicate contact tails
                 if "+27" in line and len(story) > 5 and ("+27" in str(story[-1])):
                     continue
                     
@@ -711,13 +709,13 @@ def generate_pdf_cover_letter(markdown_text: str) -> bytes:
                 elif line.startswith("Re:") or "2026" in line or line.startswith("Dear "):
                     story.append(Paragraph(markdown_to_reportlab_html(line), meta_style))
                     if line.startswith("Dear "):
-                        in_header = False  # Switch to body mode after the salutation
+                        in_header = False  # Switch to body mode after salutation
                         story.append(Spacer(1, 6))
                 else:
                     story.append(Paragraph(markdown_to_reportlab_html(line), contact_style))
         else:
-            # Body and signature blocks (replace internal single newlines with spaces so text wraps naturally)
-            block_clean = block.replace('\n', ' ')
+            # Normalize internal single newlines inside paragraph blocks to spaces
+            block_clean = re.sub(r'\s+', ' ', block).strip()
             
             if block_clean.lower().startswith("sincerely") or block_clean.lower().startswith("respectfully"):
                 story.append(Spacer(1, 8))
@@ -727,7 +725,7 @@ def generate_pdf_cover_letter(markdown_text: str) -> bytes:
                 story.append(Paragraph(markdown_to_reportlab_html(clean_signature), signature_style))
             else:
                 story.append(Paragraph(markdown_to_reportlab_html(block_clean), body_style))
-                story.append(Spacer(1, 10)) # Guaranteed clean vertical gap between every body paragraph!
+                story.append(Spacer(1, 10)) # GUARANTEED vertical gap between Paragraph 1, 2, 3, and 4
 
     doc.build(story)
     buffer.seek(0)
