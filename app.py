@@ -626,7 +626,6 @@ def generate_pdf_cover_letter(markdown_text: str) -> bytes:
     )
     
     cleaned_text = sanitize_cv_text(markdown_text)
-    lines = cleaned_text.split('\n')
     
     styles = getSampleStyleSheet()
     
@@ -653,25 +652,22 @@ def generate_pdf_cover_letter(markdown_text: str) -> bytes:
     )
 
     story = []
-    is_header = True
-    for idx, line in enumerate(lines):
-        clean_line = line.strip()
-        if not clean_line:
+    
+    # Split text into distinct paragraphs using double newlines
+    paragraphs = cleaned_text.split('\n\n')
+    for idx, para in enumerate(paragraphs):
+        clean_para = para.strip().replace('\n', ' ')
+        if not clean_para:
             continue
-        
-        if idx == 0:
-            story.append(Paragraph(clean_line.upper(), title_style))
-        elif idx < 4 and ('|' in clean_line or '@' in clean_line or 'http' in clean_line or idx < 3):
-            story.append(Paragraph(markdown_to_reportlab_html(clean_line), contact_style))
-        else:
-            if is_header:
-                story.append(Spacer(1, 8))
-                is_header = False
             
-            if clean_line.startswith("Re:") or "2026" in clean_line or "Dear " in clean_line:
-                story.append(Paragraph(markdown_to_reportlab_html(clean_line), meta_style))
-            else:
-                story.append(Paragraph(markdown_to_reportlab_html(clean_line), body_style))
+        if idx == 0:
+            story.append(Paragraph(clean_para.upper(), title_style))
+        elif idx < 3 and ('|' in clean_para or '@' in clean_para or 'http' in clean_para):
+            story.append(Paragraph(markdown_to_reportlab_html(clean_para), contact_style))
+        elif clean_para.startswith("Re:") or "2026" in clean_para or clean_para.startswith("Dear "):
+            story.append(Paragraph(markdown_to_reportlab_html(clean_para), meta_style))
+        else:
+            story.append(Paragraph(markdown_to_reportlab_html(clean_para), body_style))
 
     doc.build(story)
     buffer.seek(0)
