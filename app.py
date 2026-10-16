@@ -477,11 +477,11 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         'SectionHeading',
         parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=10,
-        leading=12,
+        fontSize=10.5,
+        leading=13,
         textColor=colors.HexColor('#0284c7'),
-        spaceBefore=int(6 * spacing_multiplier),
-        spaceAfter=1.5,
+        spaceBefore=int(8 * spacing_multiplier),
+        spaceAfter=2,
         keepWithNext=True
     )
     
@@ -501,10 +501,10 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         'BodyTextCustom',
         parent=styles['Normal'],
         fontName='Helvetica',
-        fontSize=8,
-        leading=10,
+        fontSize=8.5,
+        leading=11.5,
         textColor=colors.HexColor('#334155'),
-        spaceAfter=1.5
+        spaceAfter=3
     )
     
     bullet_style = ParagraphStyle(
@@ -512,7 +512,7 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         parent=body_style,
         leftIndent=10,
         firstLineIndent=-8,
-        spaceAfter=1.2
+        spaceAfter=2.5
     )
 
     story = []
