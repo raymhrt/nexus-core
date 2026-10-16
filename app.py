@@ -200,17 +200,19 @@ def sanitize_cv_text(text: str) -> str:
 def smart_format_name_with_credentials(text: str) -> str:
     if not text:
         return ""
-    # List of common academic and professional credentials to preserve in uppercase
-    credentials = ["PHD", "PH.D", "BSC", "MSC", "MBA", "MD", "MBCHB", "ESQ", "CPA", "CA", "ENG"]
+    # Add exact variations like "PH.D." or "PH.D"
+    credentials = ["PHD", "PH.D", "PH.D.", "BSC", "MSC", "MBA", "MD", "MBCHB", "ESQ", "CPA", "CA", "ENG"]
     
     words = text.split()
     formatted_words = []
     for word in words:
-        # Strip trailing punctuation (like commas or periods) for checking
         clean_word = word.strip(".,").upper()
         if clean_word in credentials:
-            # Reattach original punctuation to the uppercase credential
-            formatted_word = word.upper()
+            # If it's Ph.D., format it neatly with proper casing
+            if "PH.D" in clean_word:
+                formatted_word = "Ph.D."
+            else:
+                formatted_word = word.upper()
         else:
             formatted_word = word.capitalize()
         formatted_words.append(formatted_word)
@@ -686,7 +688,7 @@ def generate_pdf_cover_letter(markdown_text: str) -> bytes:
     for i, line in enumerate(lines):
         if not header_processed:
             if i == 0:
-                # Line 1: Top header name stays ALL UPPERCASE (with credentials like RAYMOND HARTMAN, PHD)
+                # Line 1: Top header name stays ALL UPPERCASE
                 story.append(Paragraph(line.upper(), title_style))
             elif i in [1, 2, 3] and any(marker in line.lower() for marker in ['south africa', 'http', 'www', '@', '+', 'rc', 're:']):
                 story.append(Paragraph(markdown_to_reportlab_html(line), contact_style))
@@ -697,14 +699,17 @@ def generate_pdf_cover_letter(markdown_text: str) -> bytes:
             else:
                 story.append(Paragraph(markdown_to_reportlab_html(line), contact_style))
         else:
-            # Check for signature closing lines, and format the name dynamically using the smart function
+            # Check if we are at the very end of the document (signature block)
+            is_signature_line = (i >= len(lines) - 2) or any(cred in line.upper() for cred in ["PHD", "PH.D", "BSC", "MSC", "MBA"])
+            
             if line.lower().startswith("sincerely") or line.lower().startswith("respectfully"):
                 story.append(Paragraph(markdown_to_reportlab_html(line), signature_style))
-            elif i >= len(lines) - 2 or any(cred in line.upper() for cred in ["PHD", "BSC", "MSC", "MBA"]):
-                # Apply multi-user smart credential formatting (e.g., Raymond Hartman, PhD)
+            elif is_signature_line:
+                # ONLY apply smart credential formatting to the final signature name line
                 smart_name = smart_format_name_with_credentials(line)
                 story.append(Paragraph(markdown_to_reportlab_html(smart_name), signature_style))
             else:
+                # Standard body paragraphs remain completely untouched
                 story.append(Paragraph(markdown_to_reportlab_html(line), body_style))
 
     doc.build(story)
