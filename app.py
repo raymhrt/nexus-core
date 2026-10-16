@@ -158,6 +158,9 @@ def sanitize_cv_text(text: str) -> str:
     # Strip trailing wrapper phrases like "Prepared for the... position"
     text = re.sub(r'(?i)Prepared for the.*?position.*$', '', text)
     
+    # Strip trailing meta-commentary or markdown wrapper notes like "Prepared in markdown format..."
+    text = re.sub(r'(?i)Prepared in markdown format.*$', '', text)
+    
     lines = text.split('\n')
     cleaned_lines = []
     skipped_first = False
@@ -746,21 +749,23 @@ async def generate_tailored_cover_letter(user_email: str, master_resume_text: st
     You are an elite executive career strategist, senior technical writer, and corporate communication architect.
     Write a formal, deeply comprehensive, high-impact executive cover letter for the user ({user_email}) applying for the target role: {job_title} at {company_name}.
 
+    STRICT FORMATTING RULE: Return ONLY the raw executive cover letter text starting with the candidate name header and ending with the signature block. Do NOT include any closing remarks, explanations, notes, or meta-commentary like "Prepared in markdown format..." at the bottom.
+
     DEEP CONTENT EXPANSION & FULL-PAGE OCCUPANCY RULES:
     1. HEADER & CONTACT BLOCK: 
-       - Line 1: Candidate's exact name in uppercase.
-       - Line 2: Location.
-       - Line 3: Clean LinkedIn profile URL text.
-       - Line 4: Phone number and verified email ({user_email}) separated by ' | '.
+        - Line 1: Candidate's exact name in uppercase.
+        - Line 2: Location.
+        - Line 3: Clean LinkedIn profile URL text.
+        - Line 4: Phone number and verified email ({user_email}) separated by ' | '.
     2. DATE & RE LINE: 
-       - Date: {current_date}
-       - Re: {job_title} at {company_name}
+        - Date: {current_date}
+        - Re: {job_title} at {company_name}
     3. SALUTATION: Dear Hiring Committee and Executive Leadership at {company_name},
     4. FOUR SUBSTANTIAL, RICHLY DETAILED PARAGRAPHS (FULL-PAGE CANVAS TARGET):
-       - Paragraph 1 (Strategic Hook & Value Alignment): Write a comprehensive opening paragraph establishing your primary terminal credential, connecting your core domain expertise directly to {company_name}'s market trajectory or recent initiatives ({company_intel}), and positioning yourself as an immediate operational catalyst.
-       - Paragraph 2 (Comprehensive Technical Execution & Data Mastery): Write an extensive, highly detailed paragraph deeply articulating your analytical workflows, software pipelines (Python, statistical modeling, data visualization), and complex experimental methodologies from the Master CV that directly solve the specific technical challenges outlined in the job description ({job_description}). Emphasize data integrity, reproducibility, and rigorous validation frameworks.
-       - Paragraph 3 (Operational Discipline, Quality Assurance & Leadership): Write a robust paragraph bridging technical execution with leadership maturity. Detail your experience managing multidisciplinary projects, authoring strict Standard Operating Procedures (SOPs), enforcing quality assurance, and streamlining workflows to prove zero onboarding friction.
-       - Paragraph 4 (Enterprise Value Proposition & Closing): Write a substantial closing paragraph synthesizing your dual expertise (deep technical execution + operational leadership), outlining how your onboarding accelerates their immediate roadmap, and concluding with a confident, professional call to action and integration plan reference.
+        - Paragraph 1 (Strategic Hook & Value Alignment): Write a comprehensive opening paragraph establishing your primary terminal credential, connecting your core domain expertise directly to {company_name}'s market trajectory or recent initiatives ({company_intel}), and positioning yourself as an immediate operational catalyst.
+        - Paragraph 2 (Comprehensive Technical Execution & Data Mastery): Write an extensive, highly detailed paragraph deeply articulating your analytical workflows, software pipelines (Python, statistical modeling, data visualization), and complex experimental methodologies from the Master CV that directly solve the specific technical challenges outlined in the job description ({job_description}). Emphasize data integrity, reproducibility, and rigorous validation frameworks.
+        - Paragraph 3 (Operational Discipline, Quality Assurance & Leadership): Write a robust paragraph bridging technical execution with leadership maturity. Detail your experience managing multidisciplinary projects, authoring strict Standard Operating Procedures (SOPs), enforcing quality assurance, and streamlining workflows to prove zero onboarding friction.
+        - Paragraph 4 (Enterprise Value Proposition & Closing): Write a substantial closing paragraph synthesizing your dual expertise (deep technical execution + operational leadership), outlining how your onboarding accelerates their immediate roadmap, and concluding with a confident, professional call to action and integration plan reference.
     5. STRICT GROUND TRUTH: Use ONLY verified facts, degrees, tools, and roles from the Master CV text. Never invent false metrics, financial budgets, or unearned credentials.
     """
 
