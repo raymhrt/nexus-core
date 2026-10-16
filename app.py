@@ -1793,6 +1793,32 @@ async def download_match_pdf(match_id: int, request: Request, auth: dict = Depen
         headers={"Content-Disposition": f"attachment; filename=Tailored_CV_{match_id}.pdf"}
     )
 
+@app.post("/api/v1/career/matches/{match_id}/download-cover-letter-pdf")
+async def download_match_cover_letter_pdf(match_id: int, request: Request, auth: dict = Depends(verify_api_key_only)):
+    with db_transaction_scope() as (_, cursor):
+        if DATABASE_URL:
+            cursor.execute("SELECT cover_letter_variant, job_title, company_name FROM job_matches WHERE id = %s AND user_email = %s", (match_id, auth["email"]))
+        else:
+            cursor.execute("SELECT cover_letter_variant, job_title, company_name FROM job_matches WHERE id = ? AND user_email = ?", (match_id, auth["email"]))
+        row = cursor.fetchone()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Job match not found.")
+
+    m_data = dict(row) if not isinstance(row, dict) else row
+    cl_markdown = sanitize_cv_text(m_data.get("cover_letter_variant"))
+    
+    if not cl_markdown or len(cl_markdown.strip()) < 50:
+        raise HTTPException(status_code=400, detail="No tailored cover letter variant found for this match.")
+
+    pdf_bytes = generate_pdf_cover_letter(cl_markdown)
+    
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename=Tailored_Cover_Letter_{match_id}.pdf"}
+    )
+
 @app.post("/api/v1/career/matches/{match_id}/tailor")
 async def tailor_saved_match(match_id: int, auth: dict = Depends(verify_api_key_only)):
     with db_transaction_scope() as (_, cursor):
