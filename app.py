@@ -456,7 +456,7 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         'ContactStyle',
         parent=styles['Normal'],
         fontName='Helvetica',
-        fontSize=8,
+        fontSize=8.5,
         leading=10,
         textColor=colors.HexColor('#334155'),
         spaceAfter=1
