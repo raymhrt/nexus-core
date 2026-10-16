@@ -690,50 +690,44 @@ def generate_pdf_cover_letter(markdown_text: str) -> bytes:
             closing_part = parts[1].split("\n+27")[0] 
             cleaned_text = parts[0] + "Sincerely," + closing_part
 
-    lines = [line.strip() for line in cleaned_text.split('\n') if line.strip()]
-    header_processed = False
-    header_end_index = 0
+    # Split raw text strictly by double newlines first to preserve true paragraph blocks
+    raw_blocks = [block.strip() for block in cleaned_text.split('\n\n') if block.strip()]
     
-    for i, line in enumerate(lines):
-        if i >= len(lines) - 2 and ("+27" in line or "@yahoo.com" in line or "@gmail.com" in line):
-            continue
-
-        if not header_processed:
-            if i == 0:
-                story.append(Paragraph(line.upper(), title_style))
-                story.append(Spacer(1, 4))
-            elif i in [1, 2, 3] and any(marker in line.lower() for marker in ['south africa', 'http', 'www', '@', '+', 're:']):
-                story.append(Paragraph(markdown_to_reportlab_html(line), contact_style))
-            elif line.startswith("Re:") or "2026" in line or line.startswith("Dear "):
-                story.append(Paragraph(markdown_to_reportlab_html(line), meta_style))
-                if line.startswith("Dear "):
-                    header_processed = True  
-                    header_end_index = i + 1
-                    story.append(Spacer(1, 6)) # Clean gap after salutation
-            else:
-                story.append(Paragraph(markdown_to_reportlab_html(line), contact_style))
+    in_header = True
+    for block in raw_blocks:
+        if in_header:
+            # Process header lines individually
+            sub_lines = [l.strip() for l in block.split('\n') if l.strip()]
+            for line in sub_lines:
+                # Filter out isolated duplicate contact tails
+                if "+27" in line and len(story) > 5 and ("+27" in str(story[-1])):
+                    continue
+                    
+                if len(story) == 0:
+                    story.append(Paragraph(line.upper(), title_style))
+                    story.append(Spacer(1, 4))
+                elif any(marker in line.lower() for marker in ['south africa', 'http', 'www', '@', '+']):
+                    story.append(Paragraph(markdown_to_reportlab_html(line), contact_style))
+                elif line.startswith("Re:") or "2026" in line or line.startswith("Dear "):
+                    story.append(Paragraph(markdown_to_reportlab_html(line), meta_style))
+                    if line.startswith("Dear "):
+                        in_header = False  # Switch to body mode after the salutation
+                        story.append(Spacer(1, 6))
+                else:
+                    story.append(Paragraph(markdown_to_reportlab_html(line), contact_style))
         else:
-            break
-
-    # Process remaining body text strictly by double newlines (\n\n) to guarantee clean paragraph spacing
-    if header_end_index < len(lines):
-        remaining_text = "\n\n".join(lines[header_end_index:])
-        paragraphs = remaining_text.split('\n\n')
-        
-        for para in paragraphs:
-            clean_para = para.strip().replace('\n', ' ')
-            if not clean_para:
-                continue
-                
-            if clean_para.lower().startswith("sincerely") or clean_para.lower().startswith("respectfully"):
-                story.append(Spacer(1, 8)) # Controlled gap before sign-off
-                story.append(Paragraph(markdown_to_reportlab_html(clean_para), signature_style))
-            elif "hartman" in clean_para.lower() or "ph.d" in clean_para.lower() or "phd" in clean_para.lower():
-                clean_signature = clean_para.replace("PHD", "Ph.D.").replace("Phd", "Ph.D.").replace("PH.D", "Ph.D.")
+            # Body and signature blocks (replace internal single newlines with spaces so text wraps naturally)
+            block_clean = block.replace('\n', ' ')
+            
+            if block_clean.lower().startswith("sincerely") or block_clean.lower().startswith("respectfully"):
+                story.append(Spacer(1, 8))
+                story.append(Paragraph(markdown_to_reportlab_html(block_clean), signature_style))
+            elif "hartman" in block_clean.lower() or "ph.d" in block_clean.lower() or "phd" in block_clean.lower():
+                clean_signature = block_clean.replace("PHD", "Ph.D.").replace("Phd", "Ph.D.").replace("PH.D", "Ph.D.")
                 story.append(Paragraph(markdown_to_reportlab_html(clean_signature), signature_style))
             else:
-                story.append(Paragraph(markdown_to_reportlab_html(clean_para), body_style))
-                story.append(Spacer(1, 8)) # Guarantees clean white space between paragraph 1 and 2, 2 and 3, etc.
+                story.append(Paragraph(markdown_to_reportlab_html(block_clean), body_style))
+                story.append(Spacer(1, 10)) # Guaranteed clean vertical gap between every body paragraph!
 
     doc.build(story)
     buffer.seek(0)
