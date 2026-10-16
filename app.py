@@ -617,12 +617,12 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
 
 def generate_pdf_cover_letter(markdown_text: str) -> bytes:
     buffer = io.BytesIO()
-    # Balanced margins to occupy the full vertical page cleanly without spillover
+    # Optimized margins to frame a full-page executive letter perfectly
     doc = SimpleDocTemplate(
         buffer,
         pagesize=A4,
-        rightMargin=36, leftMargin=36,
-        topMargin=28, bottomMargin=28
+        rightMargin=40, leftMargin=40,
+        topMargin=32, bottomMargin=32
     )
     
     cleaned_text = sanitize_cv_text(markdown_text)
@@ -630,26 +630,26 @@ def generate_pdf_cover_letter(markdown_text: str) -> bytes:
     
     styles = getSampleStyleSheet()
     
-    # Expanded professional typography with optimal leading and paragraph gaps
+    # Larger, clean professional typography
     title_style = ParagraphStyle(
         'CoverTitle', parent=styles['Normal'],
-        fontName='Helvetica-Bold', fontSize=14, leading=16,
-        textColor=colors.HexColor('#0f172a'), spaceAfter=2
+        fontName='Helvetica-Bold', fontSize=16, leading=19,
+        textColor=colors.HexColor('#0f172a'), spaceAfter=3
     )
     contact_style = ParagraphStyle(
         'CoverContact', parent=styles['Normal'],
-        fontName='Helvetica', fontSize=8.5, leading=11,
-        textColor=colors.HexColor('#334155'), spaceAfter=10
+        fontName='Helvetica', fontSize=9.5, leading=13,
+        textColor=colors.HexColor('#334155'), spaceAfter=14
     )
     meta_style = ParagraphStyle(
         'CoverMeta', parent=styles['Normal'],
-        fontName='Helvetica-Bold', fontSize=8.5, leading=13,
-        textColor=colors.HexColor('#0284c7'), spaceAfter=8
+        fontName='Helvetica-Bold', fontSize=9.5, leading=14,
+        textColor=colors.HexColor('#0284c7'), spaceAfter=10
     )
     body_style = ParagraphStyle(
         'CoverBody', parent=styles['Normal'],
-        fontName='Helvetica', fontSize=8.5, leading=13.2,  # Optimized leading for full vertical fill
-        textColor=colors.HexColor('#334155'), spaceAfter=9   # Balanced spacing removes bottom whitespace
+        fontName='Helvetica', fontSize=10, leading=14.5,  # Larger font (10pt) & generous leading eliminates squashed look
+        textColor=colors.HexColor('#334155'), spaceAfter=11   # Balanced paragraph spacing fills the page naturally
     )
 
     story = []
@@ -665,7 +665,7 @@ def generate_pdf_cover_letter(markdown_text: str) -> bytes:
             story.append(Paragraph(markdown_to_reportlab_html(clean_line), contact_style))
         else:
             if is_header:
-                story.append(Spacer(1, 6))
+                story.append(Spacer(1, 8))
                 is_header = False
             
             if clean_line.startswith("Re:") or "2026" in clean_line or "Dear " in clean_line:
