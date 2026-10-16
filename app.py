@@ -617,28 +617,28 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
 
 def generate_pdf_cover_letter(markdown_text: str) -> bytes:
     buffer = io.BytesIO()
-    # Optimized margins to frame a full-page executive letter perfectly
+    # Balanced margins to frame a full-page executive letter cleanly
     doc = SimpleDocTemplate(
         buffer,
         pagesize=A4,
-        rightMargin=40, leftMargin=40,
-        topMargin=32, bottomMargin=32
+        rightMargin=45, leftMargin=45,
+        topMargin=36, bottomMargin=36
     )
     
     cleaned_text = sanitize_cv_text(markdown_text)
     
     styles = getSampleStyleSheet()
     
-    # Larger, clean professional typography
+    # Typography optimized for readability and spacing
     title_style = ParagraphStyle(
         'CoverTitle', parent=styles['Normal'],
-        fontName='Helvetica-Bold', fontSize=16, leading=19,
-        textColor=colors.HexColor('#0f172a'), spaceAfter=3
+        fontName='Helvetica-Bold', fontSize=15, leading=18,
+        textColor=colors.HexColor('#0f172a'), spaceAfter=4
     )
     contact_style = ParagraphStyle(
         'CoverContact', parent=styles['Normal'],
-        fontName='Helvetica', fontSize=9.5, leading=13,
-        textColor=colors.HexColor('#334155'), spaceAfter=14
+        fontName='Helvetica', fontSize=9, leading=13,
+        textColor=colors.HexColor('#334155'), spaceAfter=12
     )
     meta_style = ParagraphStyle(
         'CoverMeta', parent=styles['Normal'],
@@ -647,13 +647,12 @@ def generate_pdf_cover_letter(markdown_text: str) -> bytes:
     )
     body_style = ParagraphStyle(
         'CoverBody', parent=styles['Normal'],
-        fontName='Helvetica', fontSize=10, leading=14.5,  # Larger font (10pt) & generous leading eliminates squashed look
-        textColor=colors.HexColor('#334155'), spaceAfter=11   # Balanced paragraph spacing fills the page naturally
+        fontName='Helvetica', fontSize=9.5, leading=14,  # Balanced leading eliminates the squashed appearance
+        textColor=colors.HexColor('#334155'), spaceAfter=10   # Natural spacing fills the vertical canvas evenly
     )
 
     story = []
     
-    # Split text into distinct paragraphs using double newlines
     paragraphs = cleaned_text.split('\n\n')
     for idx, para in enumerate(paragraphs):
         clean_para = para.strip().replace('\n', ' ')
@@ -1900,13 +1899,14 @@ async def export_pdf_direct(payload: dict, api_key: str = Header(None, alias="x-
     asset_type = payload.get("asset_type", "CV").upper()
     job_title = payload.get("job_title") or "Tailored_CV"
 
-    # Sanitize and route through the pristine generate_pdf_cv pipeline
     cleaned_markdown = sanitize_cv_text(content)
     
-    # Stage 2: Enforce strict 2-page ceiling budget to prevent overflow
-    optimized_markdown = enforce_two_stage_page_budget(cleaned_markdown)
-    
-    pdf_bytes = generate_pdf_cv(optimized_markdown)
+    # Route to the correct PDF generator based on asset type
+    if "COVER" in asset_type or "LETTER" in asset_type:
+        pdf_bytes = generate_pdf_cover_letter(cleaned_markdown)
+    else:
+        optimized_markdown = enforce_two_stage_page_budget(cleaned_markdown)
+        pdf_bytes = generate_pdf_cv(optimized_markdown)
     
     filename = f"{job_title.replace(' ', '_')}_{asset_type}.pdf"
     return StreamingResponse(
