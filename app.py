@@ -617,11 +617,12 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
 
 def generate_pdf_cover_letter(markdown_text: str) -> bytes:
     buffer = io.BytesIO()
+    # Optimized margins to give the page balanced framing
     doc = SimpleDocTemplate(
         buffer,
         pagesize=A4,
-        rightMargin=36, leftMargin=36,
-        topMargin=32, bottomMargin=32
+        rightMargin=40, leftMargin=40,
+        topMargin=36, bottomMargin=36
     )
     
     cleaned_text = sanitize_cv_text(markdown_text)
@@ -629,24 +630,31 @@ def generate_pdf_cover_letter(markdown_text: str) -> bytes:
     
     styles = getSampleStyleSheet()
     
+    # Balanced, professional styles with enhanced leading and spacing
     title_style = ParagraphStyle(
         'CoverTitle', parent=styles['Normal'],
-        fontName='Helvetica-Bold', fontSize=14, leading=16,
-        textColor=colors.HexColor('#0f172a'), spaceAfter=2
+        fontName='Helvetica-Bold', fontSize=15, leading=18,
+        textColor=colors.HexColor('#0f172a'), spaceAfter=3
     )
     contact_style = ParagraphStyle(
         'CoverContact', parent=styles['Normal'],
-        fontName='Helvetica', fontSize=8.5, leading=11,
-        textColor=colors.HexColor('#334155'), spaceAfter=10
+        fontName='Helvetica', fontSize=9, leading=13,
+        textColor=colors.HexColor('#334155'), spaceAfter=14
+    )
+    meta_style = ParagraphStyle(
+        'CoverMeta', parent=styles['Normal'],
+        fontName='Helvetica-Bold', fontSize=9, leading=14,
+        textColor=colors.HexColor('#0284c7'), spaceAfter=12
     )
     body_style = ParagraphStyle(
         'CoverBody', parent=styles['Normal'],
-        fontName='Helvetica', fontSize=8.5, leading=11.5,
-        textColor=colors.HexColor('#334155'), spaceAfter=8
+        fontName='Helvetica', fontSize=9.5, leading=14.5, # Enhanced leading prevents the 'squashed' feel
+        textColor=colors.HexColor('#334155'), spaceAfter=12  # Proper paragraph gaps eliminate bottom white space
     )
 
     story = []
     is_header = True
+    
     for idx, line in enumerate(lines):
         clean_line = line.strip()
         if not clean_line:
@@ -658,9 +666,14 @@ def generate_pdf_cover_letter(markdown_text: str) -> bytes:
             story.append(Paragraph(markdown_to_reportlab_html(clean_line), contact_style))
         else:
             if is_header:
-                story.append(Spacer(1, 10))
+                story.append(Spacer(1, 8))
                 is_header = False
-            story.append(Paragraph(markdown_to_reportlab_html(clean_line), body_style))
+            
+            # Check if line looks like a Date or Re line to give it distinct styling
+            if clean_line.startswith("Re:") or "2026" in clean_line or "Dear " in clean_line:
+                story.append(Paragraph(markdown_to_reportlab_html(clean_line), meta_style))
+            else:
+                story.append(Paragraph(markdown_to_reportlab_html(clean_line), body_style))
 
     doc.build(story)
     buffer.seek(0)
@@ -727,9 +740,9 @@ async def generate_tailored_cover_letter(user_email: str, master_resume_text: st
 
     system_prompt = f"""
     You are an elite executive career strategist, senior technical writer, and corporate communication architect.
-    Write a formal, comprehensive, high-impact executive cover letter for the user ({user_email}) applying for the target role: {job_title} at {company_name}.
+    Write a formal, comprehensive, fully expanded executive cover letter for the user ({user_email}) applying for the target role: {job_title} at {company_name}.
 
-    CRITICAL STRATEGIC & SPATIAL RULES (ZERO HALLUCINATION & FULLY ADAPTABLE):
+    DEEP CONTENT EXPANSION & FULL-PAGE OCCUPANCY RULES:
     1. HEADER & CONTACT BLOCK: 
        - Line 1: Candidate's exact name in uppercase.
        - Line 2: Location.
@@ -739,11 +752,11 @@ async def generate_tailored_cover_letter(user_email: str, master_resume_text: st
        - Date: {current_date}
        - Re: {job_title} at {company_name}
     3. SALUTATION: Dear Hiring Committee and Executive Leadership at {company_name},
-    4. FOUR-PARAGRAPH COMPREHENSIVE BODY (FULL PAGE OCCUPANCY):
-       - Paragraph 1 (Introduction & Strategic Hook): State the target role, introducing the candidate's core credentials (such as PhD training or senior domain expertise) and directly referencing recent organizational initiatives or company background intelligence ({company_intel}).
-       - Paragraph 2 (Technical Execution & Data Mastery): Deeply articulate specific analytical workflows, software tools (e.g., Python, statistical modeling, data visualization), and complex experimental or technical methodologies present in the Master CV that solve the specific pain points outlined in the job description ({job_description}).
-       - Paragraph 3 (Transferable Leadership & Operational Discipline): Bridge technical capabilities with operational management experience (coordinating multidisciplinary teams, enforcing quality assurance, authoring SOPs, and driving process efficiency), proving cross-functional competence.
-       - Paragraph 4 (Value Proposition & Call to Action): Summarize the unique intersection of technical rigor and strategic execution, expressing enthusiasm to discuss how these competencies accelerate the company's objectives, concluding with a professional sign-off.
+    4. FOUR RICH, DEEPLY ELABORATED PARAGRAPHS (FULL-PAGE CANVAS TARGET):
+       - Paragraph 1 (Strategic Hook & Value Alignment): Write an extensive opening paragraph that establishes your primary terminal credential, links your core domain expertise directly to {company_name}'s market trajectory or recent initiatives ({company_intel}), and frames your candidacy as an immediate operational asset.
+       - Paragraph 2 (Comprehensive Technical Execution & Data Mastery): Write a long, highly detailed paragraph deeply articulating your analytical workflows, software pipelines (e.g., Python, statistical modeling, data visualization), and complex experimental methodologies from the Master CV that directly solve the specific pain points outlined in the job description ({job_description}). Elaborate on data integrity, reproducibility, and analytical rigor.
+       - Paragraph 3 (Operational Discipline, Quality Assurance & Leadership): Write a robust paragraph bridging technical execution with leadership. Detail your experience managing multidisciplinary projects, authoring rigorous standard operating procedures (SOPs), enforcing quality assurance, and driving process efficiency to prove zero onboarding friction.
+       - Paragraph 4 (Enterprise Value Proposition & Closing): Write a substantial closing paragraph synthesizing your unique intersection of technical depth and leadership, articulating how your onboarding accelerates their immediate strategic roadmap, and concluding with a confident, professional call to action.
     5. STRICT GROUND TRUTH: Use ONLY verified facts, degrees, tools, and roles from the Master CV text. Never invent false metrics, financial budgets, or unearned credentials.
     """
 
