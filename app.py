@@ -683,17 +683,19 @@ def generate_pdf_cover_letter(markdown_text: str) -> bytes:
 
     story = []
     
-    # Clean up any trailing duplicated phone numbers/emails from hallucinations
+    # 1. Clean up any trailing duplicated phone numbers or extra AI loops
     if "+27" in cleaned_text and cleaned_text.count("+27") > 1:
         parts = cleaned_text.split("Sincerely,")
         if len(parts) > 1:
             closing_part = parts[1].split("\n+27")[0] 
             cleaned_text = parts[0] + "Sincerely," + closing_part
 
-    # Use regex to split cleanly by one or more blank lines, capturing true paragraphs
+    # 2. Split strictly into paragraph blocks by double newlines
     raw_blocks = [b.strip() for b in re.split(r'\n\s*\n', cleaned_text) if b.strip()]
     
     in_header = True
+    body_blocks = []
+    
     for block in raw_blocks:
         if in_header:
             sub_lines = [l.strip() for l in block.split('\n') if l.strip()]
@@ -704,28 +706,45 @@ def generate_pdf_cover_letter(markdown_text: str) -> bytes:
                 if len(story) == 0:
                     story.append(Paragraph(line.upper(), title_style))
                     story.append(Spacer(1, 4))
-                elif any(marker in line.lower() for marker in ['south africa', 'http', 'www', '@', '+']):
+                elif any(marker in line.lower() for marker in ['south africa', 'http', 'www', '@', '+']) and not line.startswith("Re:"):
                     story.append(Paragraph(markdown_to_reportlab_html(line), contact_style))
                 elif line.startswith("Re:") or "2026" in line or line.startswith("Dear "):
                     story.append(Paragraph(markdown_to_reportlab_html(line), meta_style))
                     if line.startswith("Dear "):
-                        in_header = False  # Switch to body mode after salutation
+                        in_header = False  # Exit header mode definitively after Dear block
                         story.append(Spacer(1, 6))
                 else:
                     story.append(Paragraph(markdown_to_reportlab_html(line), contact_style))
         else:
-            # Normalize internal single newlines inside paragraph blocks to spaces
-            block_clean = re.sub(r'\s+', ' ', block).strip()
+            body_blocks.append(block)
+
+    # 3. Process body blocks with guaranteed spacing & dynamic multi-user signature cleaning
+    for block in body_blocks:
+        block_clean = re.sub(r'\s+', ' ', block).strip()
+        
+        if block_clean.lower().startswith("sincerely") or block_clean.lower().startswith("respectfully"):
+            story.append(Spacer(1, 10))
+            story.append(Paragraph(markdown_to_reportlab_html(block_clean), signature_style))
+        elif any(marker in block_clean.lower() for marker in ["sincerely", "respectfully", "regards"]) or len(block_clean.split()) <= 6 and not "." in block_clean[:-3]:
+            # DYNAMIC MULTI-USER SIGNATURE LINE DETECTION:
+            # Strips any trailing AI-hallucinated job titles or extra sentences tacked onto the signature line.
+            # It dynamically splits at common credential markers (PhD, MBA, BSc, etc.) to keep only the name + credential.
+            credential_pattern = re.compile(r'(Ph\.?D\.?|M\.?Sc\.?|B\.?Sc\.?|B\.?Com\.?|M\.?B\.?A\.?|Esq\.?|CPA|CA)', re.IGNORECASE)
+            match = credential_pattern.search(block_clean)
             
-            if block_clean.lower().startswith("sincerely") or block_clean.lower().startswith("respectfully"):
-                story.append(Spacer(1, 8))
-                story.append(Paragraph(markdown_to_reportlab_html(block_clean), signature_style))
-            elif "hartman" in block_clean.lower() or "ph.d" in block_clean.lower() or "phd" in block_clean.lower():
-                clean_signature = block_clean.replace("PHD", "Ph.D.").replace("Phd", "Ph.D.").replace("PH.D", "Ph.D.")
-                story.append(Paragraph(markdown_to_reportlab_html(clean_signature), signature_style))
+            if match:
+                end_idx = match.end()
+                clean_signature = block_clean[:end_idx].strip()
             else:
-                story.append(Paragraph(markdown_to_reportlab_html(block_clean), body_style))
-                story.append(Spacer(1, 10)) # GUARANTEED vertical gap between Paragraph 1, 2, 3, and 4
+                # If no formal degree is found, just take the first 4 words of the line to prevent trailing paragraph bleed
+                clean_signature = " ".join(block_clean.split()[:4])
+            
+            # Apply dynamic smart credential formatting for any user
+            formatted_signature = smart_format_name_with_credentials(clean_signature)
+            story.append(Paragraph(markdown_to_reportlab_html(formatted_signature), signature_style))
+        else:
+            story.append(Paragraph(markdown_to_reportlab_html(block_clean), body_style))
+            story.append(Spacer(1, 10))  # GUARANTEED GAP BETWEEN PARAGRAPH 1 AND 2 (AND ALL OTHERS)
 
     doc.build(story)
     buffer.seek(0)
