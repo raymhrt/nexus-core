@@ -629,7 +629,7 @@ def generate_pdf_cover_letter(markdown_text: str) -> bytes:
     
     styles = getSampleStyleSheet()
     
-    # Typography optimized for readability and spacing
+    # Typography optimized for readability, matching body font sizes
     title_style = ParagraphStyle(
         'CoverTitle', parent=styles['Normal'],
         fontName='Helvetica-Bold', fontSize=15, leading=18,
@@ -637,8 +637,8 @@ def generate_pdf_cover_letter(markdown_text: str) -> bytes:
     )
     contact_style = ParagraphStyle(
         'CoverContact', parent=styles['Normal'],
-        fontName='Helvetica', fontSize=9, leading=13,
-        textColor=colors.HexColor('#334155'), spaceAfter=12
+        fontName='Helvetica', fontSize=9.5, leading=14,  # Matched to body font and leading
+        textColor=colors.HexColor('#334155'), spaceAfter=4   # Reduced spacing to keep lines tight
     )
     meta_style = ParagraphStyle(
         'CoverMeta', parent=styles['Normal'],
@@ -647,8 +647,8 @@ def generate_pdf_cover_letter(markdown_text: str) -> bytes:
     )
     body_style = ParagraphStyle(
         'CoverBody', parent=styles['Normal'],
-        fontName='Helvetica', fontSize=9.5, leading=14,  # Balanced leading eliminates the squashed appearance
-        textColor=colors.HexColor('#334155'), spaceAfter=10   # Natural spacing fills the vertical canvas evenly
+        fontName='Helvetica', fontSize=9.5, leading=14,  
+        textColor=colors.HexColor('#334155'), spaceAfter=10   
     )
 
     story = []
@@ -662,7 +662,13 @@ def generate_pdf_cover_letter(markdown_text: str) -> bytes:
         if idx == 0:
             story.append(Paragraph(clean_para.upper(), title_style))
         elif idx < 3 and ('|' in clean_para or '@' in clean_para or 'http' in clean_para):
-            story.append(Paragraph(markdown_to_reportlab_html(clean_para), contact_style))
+            # If the line contains both phone and email separated by '|', split them onto individual lines
+            if '|' in clean_para and '@' in clean_para:
+                sub_parts = [p.strip() for p in clean_para.split('|')]
+                for part in sub_parts:
+                    story.append(Paragraph(markdown_to_reportlab_html(part), contact_style))
+            else:
+                story.append(Paragraph(markdown_to_reportlab_html(clean_para), contact_style))
         elif clean_para.startswith("Re:") or "2026" in clean_para or clean_para.startswith("Dear "):
             story.append(Paragraph(markdown_to_reportlab_html(clean_para), meta_style))
         else:
