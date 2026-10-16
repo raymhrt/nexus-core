@@ -635,7 +635,7 @@ async def generate_tailored_cv(user_email: str, master_resume_text: str, job_tit
     4. PROFESSIONAL SUMMARY (FLUID EXECUTIVE PARAGRAPH): Write the Professional Summary strictly as ONE single, continuous, uninterrupted block of text forming a cohesive narrative paragraph. Do NOT format it as a list of sentences or line breaks. It must flow seamlessly from foundational credentials through specialized technical capabilities to strategic organizational impact.
     5. CORE COMPETENCIES, TECHNICAL SKILLS & AWARDS FORMATTING (INLINE FLOW):
         - CORE COMPETENCIES: Present competencies strictly as 4 to 5 rich, inline-flowing thematic bullet lines where related skills follow consecutively separated by commas or pipes (e.g., `• Research Planning, Hypothesis Development, Assay Optimization & Method Design`). Never generate isolated single-word bullet lines.
-        - TECHNICAL SKILLS: Present technical skills grouped logically by category (e.g., Molecular Biology, Protein Biochemistry, Biophysics, Software) as clean inline-flowing bullet lines separated by commas or pipes (e.g., `- Molecular Biology: PCR, DNA/RNA Extraction, Molecular Cloning, Gel Electrophoresis`). Never generate single-item vertical lists.
+        - TECHNICAL SKILLS: Present technical skills STRICTLY grouped by category into 4 to 5 rich, inline-flowing bullet lines (e.g., `- Molecular Biology & Biochemistry: PCR, DNA/RNA Extraction, Molecular Cloning, Protein Purification, SDS-PAGE | Biophysics & Structural Biology: SPR, ITC, X-ray Crystallography | Data & Software: Python, GraphPad Prism, SigmaPlot | Laboratory Operations: Quality Assurance, Protocol Development, Safety Audits`). NEVER generate single-item vertical lists or isolated skills per line.
         - AWARDS & SCHOLARSHIPS: Format every award consistently as: Award Name - Institution | Year (e.g., PhD Merit Award - University of the Witwatersrand | 2025).
     6. MAXIMUM CANVAS UTILIZATION & DENSITY MANDATE (CRITICAL):
         - 2-PAGE CANVAS TARGET: You must generate a robust, comprehensive CV length that contains between 140 to 160 total lines of text. This ensures it completely fills the 2-page PDF canvas (~1.85 to 1.95 pages) with zero awkward white space at the bottom of page 2 and zero spillover onto page 3.
@@ -663,7 +663,7 @@ async def generate_tailored_cv(user_email: str, master_resume_text: str, job_tit
     Role: {job_title}
     {job_description}
 
-    Generate the complete, strictly grounded, tailored Markdown CV variant now. Dynamically adapt your descriptive depth to the candidate's unique profile volume to maximize the 2-page canvas without trailing whitespace, ensuring zero repetition and strict adherence to the 2-page ceiling.
+    Generate the complete, strictly grounded, tailored Markdown CV variant now. Ensure Technical Skills are grouped into clean inline category lines, and adapt your descriptive depth to maximize the 2-page canvas.
     """
 
     loop = asyncio.get_running_loop()
