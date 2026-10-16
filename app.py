@@ -193,6 +193,29 @@ def sanitize_cv_text(text: str) -> str:
     
     return text.strip()
 
+def sanitize_cv_text(text: str) -> str:
+    # ... existing sanitization logic ...
+    return text.strip()
+
+def smart_format_name_with_credentials(text: str) -> str:
+    if not text:
+        return ""
+    # List of common academic and professional credentials to preserve in uppercase
+    credentials = ["PHD", "PH.D", "BSC", "MSC", "MBA", "MD", "MBCHB", "ESQ", "CPA", "CA", "ENG"]
+    
+    words = text.split()
+    formatted_words = []
+    for word in words:
+        # Strip trailing punctuation (like commas or periods) for checking
+        clean_word = word.strip(".,").upper()
+        if clean_word in credentials:
+            # Reattach original punctuation to the uppercase credential
+            formatted_word = word.upper()
+        else:
+            formatted_word = word.capitalize()
+        formatted_words.append(formatted_word)
+    return " ".join(formatted_words)
+
 def markdown_to_reportlab_html(text: str) -> str:
     if not text:
         return ""
@@ -620,7 +643,6 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
 
 def generate_pdf_cover_letter(markdown_text: str) -> bytes:
     buffer = io.BytesIO()
-    # Balanced margins to frame a full-page executive letter cleanly
     doc = SimpleDocTemplate(
         buffer,
         pagesize=A4,
@@ -629,10 +651,8 @@ def generate_pdf_cover_letter(markdown_text: str) -> bytes:
     )
     
     cleaned_text = sanitize_cv_text(markdown_text)
-    
     styles = getSampleStyleSheet()
     
-    # Typography optimized for readability, matching body font sizes
     title_style = ParagraphStyle(
         'CoverTitle', parent=styles['Normal'],
         fontName='Helvetica-Bold', fontSize=15, leading=18,
@@ -653,7 +673,6 @@ def generate_pdf_cover_letter(markdown_text: str) -> bytes:
         fontName='Helvetica', fontSize=9.5, leading=14,  
         textColor=colors.HexColor('#334155'), spaceAfter=10   
     )
-    # Tighter style for signature block to eliminate big vertical gaps
     signature_style = ParagraphStyle(
         'CoverSignature', parent=styles['Normal'],
         fontName='Helvetica', fontSize=9.5, leading=14,
@@ -661,20 +680,14 @@ def generate_pdf_cover_letter(markdown_text: str) -> bytes:
     )
 
     story = []
-    
-    # Split raw text into individual lines to handle layout precisely
     lines = [line.strip() for line in cleaned_text.split('\n') if line.strip()]
-    
     header_processed = False
     
     for i, line in enumerate(lines):
-        # Format name correctly in Title Case rather than forcing uppercase for the signature block
-        formatted_line = line.title() if ("hartman" in line.lower() or "raymond" in line.lower()) and not line.startswith("http") else line
-
         if not header_processed:
             if i == 0:
-                # Line 1: Name (Title Case maintained)
-                story.append(Paragraph(formatted_line, title_style))
+                # Line 1: Top header name stays ALL UPPERCASE (with credentials like RAYMOND HARTMAN, PHD)
+                story.append(Paragraph(line.upper(), title_style))
             elif i in [1, 2, 3] and any(marker in line.lower() for marker in ['south africa', 'http', 'www', '@', '+', 'rc', 're:']):
                 story.append(Paragraph(markdown_to_reportlab_html(line), contact_style))
             elif line.startswith("Re:") or "2026" in line or line.startswith("Dear "):
@@ -684,9 +697,13 @@ def generate_pdf_cover_letter(markdown_text: str) -> bytes:
             else:
                 story.append(Paragraph(markdown_to_reportlab_html(line), contact_style))
         else:
-            # Check if we are handling the closing/signature block lines to use tight spacing
-            if line.lower().startswith("sincerely") or line.lower().startswith("respectfully") or "hartman" in line.lower():
-                story.append(Paragraph(markdown_to_reportlab_html(formatted_line), signature_style))
+            # Check for signature closing lines, and format the name dynamically using the smart function
+            if line.lower().startswith("sincerely") or line.lower().startswith("respectfully"):
+                story.append(Paragraph(markdown_to_reportlab_html(line), signature_style))
+            elif i >= len(lines) - 2 or any(cred in line.upper() for cred in ["PHD", "BSC", "MSC", "MBA"]):
+                # Apply multi-user smart credential formatting (e.g., Raymond Hartman, PhD)
+                smart_name = smart_format_name_with_credentials(line)
+                story.append(Paragraph(markdown_to_reportlab_html(smart_name), signature_style))
             else:
                 story.append(Paragraph(markdown_to_reportlab_html(line), body_style))
 
