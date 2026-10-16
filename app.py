@@ -409,26 +409,18 @@ def clean_contact_line(line: str, user_email: str) -> str:
     return " | ".join(parts)
 
 def enforce_two_stage_page_budget(markdown_cv: str) -> str:
-    """
-    Stage 2 Intelligent Balancer: Maximizes 2-page canvas utilization 
-    while acting as a safety ceiling to prevent accidental 3rd page spills.
-    """
     lines = markdown_cv.split('\n')
-    
-    # Absolute safety ceiling: If content exceeds ~180 lines, gently prune 
-    # excess introductory summary or redundant bullet text rather than cutting off mid-section.
-    if len(lines) > 180:
-        # Keep header, summary, and core sections, trim excessive tail items gracefully
+    # Raise ceiling slightly to permit full 2-page vertical stretching (~195-210 lines)
+    if len(lines) > 210:
         filtered_lines = []
         bullet_tally = 0
         for line in lines:
             if line.startswith("- ") or line.startswith("* ") or line.startswith("• "):
                 bullet_tally += 1
-                if bullet_tally > 22:  # Hard safety ceiling for total bullets across all roles
+                if bullet_tally > 30:  # Higher ceiling to eliminate whitespace
                     continue
             filtered_lines.append(line)
         return "\n".join(filtered_lines)
-        
     return markdown_cv
 
 def generate_pdf_cv(markdown_text: str) -> bytes:
@@ -510,9 +502,9 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         parent=styles['Normal'],
         fontName='Helvetica',
         fontSize=8,
-        leading=10.5,
+        leading=10,
         textColor=colors.HexColor('#334155'),
-        spaceAfter=2
+        spaceAfter=1.5
     )
     
     bullet_style = ParagraphStyle(
@@ -520,7 +512,7 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         parent=body_style,
         leftIndent=10,
         firstLineIndent=-8,
-        spaceAfter=1.8
+        spaceAfter=1.2
     )
 
     story = []
