@@ -638,7 +638,7 @@ def generate_pdf_cover_letter(markdown_text: str) -> bytes:
     contact_style = ParagraphStyle(
         'CoverContact', parent=styles['Normal'],
         fontName='Helvetica', fontSize=9.5, leading=14,  # Matched to body font and leading
-        textColor=colors.HexColor('#334155'), spaceAfter=4   # Reduced spacing to keep lines tight
+        textColor=colors.HexColor('#334155'), spaceAfter=3   # Tight, clean line spacing
     )
     meta_style = ParagraphStyle(
         'CoverMeta', parent=styles['Normal'],
@@ -653,26 +653,31 @@ def generate_pdf_cover_letter(markdown_text: str) -> bytes:
 
     story = []
     
-    paragraphs = cleaned_text.split('\n\n')
-    for idx, para in enumerate(paragraphs):
-        clean_para = para.strip().replace('\n', ' ')
-        if not clean_para:
-            continue
-            
-        if idx == 0:
-            story.append(Paragraph(clean_para.upper(), title_style))
-        elif idx < 3 and ('|' in clean_para or '@' in clean_para or 'http' in clean_para):
-            # If the line contains both phone and email separated by '|', split them onto individual lines
-            if '|' in clean_para and '@' in clean_para:
-                sub_parts = [p.strip() for p in clean_para.split('|')]
-                for part in sub_parts:
-                    story.append(Paragraph(markdown_to_reportlab_html(part), contact_style))
+    # Split raw text into individual lines to handle the header block precisely
+    lines = [line.strip() for line in cleaned_text.split('\n') if line.strip()]
+    
+    header_processed = False
+    body_lines = []
+    
+    for i, line in enumerate(lines):
+        # Identify header components (Name, Location, LinkedIn, Phone/Email, Date, Re:, Dear)
+        if not header_processed:
+            if i == 0:
+                # Line 1: Name
+                story.append(Paragraph(line.upper(), title_style))
+            elif i in [1, 2, 3] and any(marker in line.lower() for marker in ['south africa', 'http', 'www', '@', '+', 'rc', 're:']):
+                # Lines 2-4: Location, LinkedIn, Phone/Email on separate lines
+                story.append(Paragraph(markdown_to_reportlab_html(line), contact_style))
+            elif line.startswith("Re:") or "2026" in line or line.startswith("Dear "):
+                story.append(Paragraph(markdown_to_reportlab_html(line), meta_style))
+                if line.startswith("Dear "):
+                    header_processed = True  # Switch to body processing after the salutation
             else:
-                story.append(Paragraph(markdown_to_reportlab_html(clean_para), contact_style))
-        elif clean_para.startswith("Re:") or "2026" in clean_para or clean_para.startswith("Dear "):
-            story.append(Paragraph(markdown_to_reportlab_html(clean_para), meta_style))
+                # Fallback if line mapping shifts slightly
+                story.append(Paragraph(markdown_to_reportlab_html(line), contact_style))
         else:
-            story.append(Paragraph(markdown_to_reportlab_html(clean_para), body_style))
+            # Once past the header/salutation, group or add body paragraphs
+            story.append(Paragraph(markdown_to_reportlab_html(line), body_style))
 
     doc.build(story)
     buffer.seek(0)
