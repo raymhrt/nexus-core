@@ -673,7 +673,7 @@ def generate_pdf_cover_letter(markdown_text: str) -> bytes:
     body_style = ParagraphStyle(
         'CoverBody', parent=styles['Normal'],
         fontName='Helvetica', fontSize=9.5, leading=14,  
-        textColor=colors.HexColor('#334155'), spaceAfter=0   # Spacing handled cleanly by explicit Spacers
+        textColor=colors.HexColor('#334155'), spaceAfter=0   
     )
     signature_style = ParagraphStyle(
         'CoverSignature', parent=styles['Normal'],
@@ -685,17 +685,16 @@ def generate_pdf_cover_letter(markdown_text: str) -> bytes:
     
     # Clean up any trailing duplicated phone numbers/emails from hallucinations
     if "+27" in cleaned_text and cleaned_text.count("+27") > 1:
-        # Cut off extra trailing contact blocks if the AI looped
         parts = cleaned_text.split("Sincerely,")
         if len(parts) > 1:
-            closing_part = parts[1].split("\n+27")[0] # Strip trailing phone numbers
+            closing_part = parts[1].split("\n+27")[0] 
             cleaned_text = parts[0] + "Sincerely," + closing_part
 
     lines = [line.strip() for line in cleaned_text.split('\n') if line.strip()]
     header_processed = False
+    header_end_index = 0
     
     for i, line in enumerate(lines):
-        # Ignore isolated duplicate contact lines at the absolute tail end
         if i >= len(lines) - 2 and ("+27" in line or "@yahoo.com" in line or "@gmail.com" in line):
             continue
 
@@ -709,21 +708,32 @@ def generate_pdf_cover_letter(markdown_text: str) -> bytes:
                 story.append(Paragraph(markdown_to_reportlab_html(line), meta_style))
                 if line.startswith("Dear "):
                     header_processed = True  
+                    header_end_index = i + 1
                     story.append(Spacer(1, 6)) # Clean gap after salutation
             else:
                 story.append(Paragraph(markdown_to_reportlab_html(line), contact_style))
         else:
-            # Check for signature block lines
-            if line.lower().startswith("sincerely") or line.lower().startswith("respectfully"):
+            break
+
+    # Process remaining body text strictly by double newlines (\n\n) to guarantee clean paragraph spacing
+    if header_end_index < len(lines):
+        remaining_text = "\n\n".join(lines[header_end_index:])
+        paragraphs = remaining_text.split('\n\n')
+        
+        for para in paragraphs:
+            clean_para = para.strip().replace('\n', ' ')
+            if not clean_para:
+                continue
+                
+            if clean_para.lower().startswith("sincerely") or clean_para.lower().startswith("respectfully"):
                 story.append(Spacer(1, 8)) # Controlled gap before sign-off
-                story.append(Paragraph(markdown_to_reportlab_html(line), signature_style))
-            elif "hartman" in line.lower() or "ph.d" in line.lower() or "phd" in line.lower():
-                clean_signature = line.replace("PHD", "Ph.D.").replace("Phd", "Ph.D.").replace("PH.D", "Ph.D.")
+                story.append(Paragraph(markdown_to_reportlab_html(clean_para), signature_style))
+            elif "hartman" in clean_para.lower() or "ph.d" in clean_para.lower() or "phd" in clean_para.lower():
+                clean_signature = clean_para.replace("PHD", "Ph.D.").replace("Phd", "Ph.D.").replace("PH.D", "Ph.D.")
                 story.append(Paragraph(markdown_to_reportlab_html(clean_signature), signature_style))
             else:
-                # Body paragraphs with explicit vertical spacers between them
-                story.append(Paragraph(markdown_to_reportlab_html(line), body_style))
-                story.append(Spacer(1, 8)) # Guarantees clean white space between paragraph 1, 2, 3, etc.
+                story.append(Paragraph(markdown_to_reportlab_html(clean_para), body_style))
+                story.append(Spacer(1, 8)) # Guarantees clean white space between paragraph 1 and 2, 2 and 3, etc.
 
     doc.build(story)
     buffer.seek(0)
