@@ -152,6 +152,10 @@ def sanitize_cv_text(text: str) -> str:
     
     text = unicodedata.normalize('NFKC', text)
     
+    # Fix broken Unicode dashes, non-breaking spaces, and smart quotes that cause black boxes in ReportLab
+    text = text.replace('\u00a0', ' ')  # Non-breaking space
+    text = re.sub(r'[\u2010\u2011\u2012\u2013\u2014\u2015\u2212]', '-', text) # Replace unicode hyphens/dashes with standard '-'
+    
     # Fix duplicated markdown URLs like [url](url) -> url
     text = re.sub(r'\[(https?://[^\s\]]+)\]\(\1\)', r'\1', text)
     
@@ -191,10 +195,6 @@ def sanitize_cv_text(text: str) -> str:
     text = re.sub(r'[ \t]+', ' ', text)
     text = re.sub(r'\n\s*\n\s*\n+', '\n\n', text)
     
-    return text.strip()
-
-def sanitize_cv_text(text: str) -> str:
-    # ... existing sanitization logic ...
     return text.strip()
 
 def smart_format_name_with_credentials(text: str) -> str:
@@ -688,7 +688,6 @@ def generate_pdf_cover_letter(markdown_text: str) -> bytes:
     for i, line in enumerate(lines):
         if not header_processed:
             if i == 0:
-                # Line 1: Top header name stays ALL UPPERCASE
                 story.append(Paragraph(line.upper(), title_style))
             elif i in [1, 2, 3] and any(marker in line.lower() for marker in ['south africa', 'http', 'www', '@', '+', 'rc', 're:']):
                 story.append(Paragraph(markdown_to_reportlab_html(line), contact_style))
@@ -699,17 +698,15 @@ def generate_pdf_cover_letter(markdown_text: str) -> bytes:
             else:
                 story.append(Paragraph(markdown_to_reportlab_html(line), contact_style))
         else:
-            # Check if we are at the very end of the document (signature block)
-            is_signature_line = (i >= len(lines) - 2) or any(cred in line.upper() for cred in ["PHD", "PH.D", "BSC", "MSC", "MBA"])
-            
+            # Check for signature block lines
             if line.lower().startswith("sincerely") or line.lower().startswith("respectfully"):
                 story.append(Paragraph(markdown_to_reportlab_html(line), signature_style))
-            elif is_signature_line:
-                # ONLY apply smart credential formatting to the final signature name line
-                smart_name = smart_format_name_with_credentials(line)
-                story.append(Paragraph(markdown_to_reportlab_html(smart_name), signature_style))
+            elif i >= len(lines) - 1 or "hartman" in line.lower() or "ph.d" in line.lower() or "phd" in line.lower():
+                # Clean name rendering with proper Ph.D. formatting without altering body casing
+                clean_signature = line.replace("PHD", "Ph.D.").replace("Phd", "Ph.D.").replace("PH.D", "Ph.D.")
+                story.append(Paragraph(markdown_to_reportlab_html(clean_signature), signature_style))
             else:
-                # Standard body paragraphs remain completely untouched
+                # Body paragraph rendered cleanly with original case intact
                 story.append(Paragraph(markdown_to_reportlab_html(line), body_style))
 
     doc.build(story)
