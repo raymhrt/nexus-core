@@ -728,7 +728,7 @@ async def generate_tailored_cv(user_email: str, master_resume_text: str, job_tit
     guarded_cv = enforce_ground_truth_guardrails(user_email, master_resume_text, raw_cv)
     return sanitize_cv_text(guarded_cv)
 
-async def generate_tailored_cover_letter(user_email: str, master_resume_text: str, job_title: str, company_name: str, job_description: str) -> str:
+async def generate_tailored_cover_letter(user_email: str, master_resume_text: str, job_title: str, company_name: str, job_description: str, force_refresh: bool = False) -> str:
     current_date = datetime.now(timezone.utc).strftime('%d %B %Y')
     company_intel = fetch_real_time_company_intelligence(company_name)
 
@@ -766,10 +766,13 @@ async def generate_tailored_cover_letter(user_email: str, master_resume_text: st
     Generate the complete, highly detailed, strictly grounded executive cover letter in clean Markdown.
     """
 
+    # Generate a dynamic salt if force_refresh is True to guarantee a brand new generation bypass
+    cache_salt = f"cl_{company_name}_{job_title}_{time.time()}" if force_refresh else f"cl_{company_name}_{job_title}"
+
     loop = asyncio.get_running_loop()
     cover_letter_output = await loop.run_in_executor(
         None,
-        lambda: call_groq_ai(user_prompt, system_prompt=system_prompt, cache_salt=f"cl_{company_name}_{job_title}")
+        lambda: call_groq_ai(user_prompt, system_prompt=system_prompt, cache_salt=cache_salt)
     )
     
     guarded_cl = enforce_ground_truth_guardrails(user_email, master_resume_text, cover_letter_output.strip())
@@ -1726,12 +1729,14 @@ async def refresh_career_match(match_id: int, auth: dict = Depends(verify_api_ke
             job_description=job_description
         ))
 
+        # Force a fresh generation update every time Ghostwriter or refresh is called
         tailored_cl = sanitize_cv_text(await generate_tailored_cover_letter(
             user_email=auth["email"],
             master_resume_text=master_resume,
             job_title=job_title,
             company_name=company_name,
-            job_description=job_description
+            job_description=job_description,
+            force_refresh=True
         ))
 
         ats_score = calculate_ats_keyword_match_score(job_description, tailored_cv_text)
@@ -1757,7 +1762,7 @@ async def refresh_career_match(match_id: int, auth: dict = Depends(verify_api_ke
                 auth["email"]
             ))
 
-        return {"status": "success", "message": "Job match successfully refreshed with latest tailored CV variants."}
+        return {"status": "success", "message": "Job match successfully refreshed with the latest updated cover letter and CV variants."}
     except HTTPException as he:
         raise he
     except Exception as e:
@@ -1852,12 +1857,14 @@ async def tailor_saved_match(match_id: int, auth: dict = Depends(verify_api_key_
         job_description=job_description
     ))
 
+    # Force fresh generation on explicit tailor calls
     tailored_cl = sanitize_cv_text(await generate_tailored_cover_letter(
         user_email=auth["email"],
         master_resume_text=master_resume,
         job_title=job_title,
         company_name=company_name,
-        job_description=job_description
+        job_description=job_description,
+        force_refresh=True
     ))
 
     ats_score = calculate_ats_keyword_match_score(job_description, tailored_cv_text)
