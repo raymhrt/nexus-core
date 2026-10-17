@@ -1981,14 +1981,16 @@ async def export_pdf_direct(payload: dict, api_key: str = Header(None, alias="x-
 
     cleaned_markdown = sanitize_cv_text(content)
     
-    # Route to the correct PDF generator based on asset type
     if "COVER" in asset_type or "LETTER" in asset_type:
         pdf_bytes = generate_pdf_cover_letter(cleaned_markdown)
     else:
         optimized_markdown = enforce_two_stage_page_budget(cleaned_markdown)
         pdf_bytes = generate_pdf_cv(optimized_markdown)
     
-    filename = f"{job_title.replace(' ', '_')}_{asset_type}.pdf"
+    # Sanitize job title to prevent latin-1 unicode header crashes
+    safe_title = ''.join(c for c in job_title if ord(c) < 256).strip().replace(' ', '_')
+    filename = f"{safe_title}_{asset_type}.pdf"
+    
     return StreamingResponse(
         io.BytesIO(pdf_bytes), 
         media_type="application/pdf", 
