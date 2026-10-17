@@ -290,7 +290,7 @@ def validate_real_world_job(job: dict) -> bool:
 def sanitize_ats_url(url: str, role_title: str, company_name: str) -> str:
     if url and "example" not in url and ("http://" in url or "https://" in url):
         return url
-    return "[https://www.linkedin.com/jobs/search/?keywords=](https://www.linkedin.com/jobs/search/?keywords=)" + urllib.parse.quote(role_title + ' ' + company_name)
+    return "https://www.linkedin.com/jobs/search/?keywords=" + urllib.parse.quote(role_title + ' ' + company_name)
 
 def get_cached_ai_response(cache_key: str) -> Optional[str]:
     try:
@@ -976,7 +976,7 @@ def build_ghostwriter_prompt(master_cv_markdown: str, target_job_description: st
 def fetch_real_time_company_intelligence(company_name: str) -> str:
     try:
         clean_name = company_name.strip()
-        search_url = "[https://html.duckduckgo.com/html/?q=](https://html.duckduckgo.com/html/?q=)" + urllib.parse.quote(clean_name + ' news company milestones')
+        search_url = "https://html.duckduckgo.com/html/?q=" + urllib.parse.quote(clean_name + ' news company milestones')
         headers = {"User-Agent": "Mozilla/5.0"}
         res = requests.get(search_url, headers=headers, timeout=4)
         if res.status_code == 200:
@@ -1021,7 +1021,7 @@ def recursive_org_chart_decision_maker_discovery(company_name: str, job_title: s
 
     if HUNTER_API_KEY and c_clean:
         try:
-            url = "[https://api.hunter.io/v2/domain-search?domain=](https://api.hunter.io/v2/domain-search?domain=)" + clean_domain + f"&department=executive&api_key={HUNTER_API_KEY}"
+            url = "https://api.hunter.io/v2/domain-search?domain=" + clean_domain + f"&department=executive&api_key={HUNTER_API_KEY}"
             res = requests.get(url, timeout=5)
             if res.status_code == 200:
                 data = res.json().get("data", {})
@@ -1159,7 +1159,7 @@ async def multi_tenant_job_infiltration(target_roles: str, location: str, count:
         for country in countries_to_try:
             if ADZUNA_APP_ID and ADZUNA_APP_KEY:
                 try:
-                    adzuna_url = "[https://api.adzuna.com/v1/api/jobs/](https://api.adzuna.com/v1/api/jobs/)" + country + f"/search/1?app_id={ADZUNA_APP_ID}&app_key={ADZUNA_APP_KEY}&what={urllib.parse.quote(primary_term)}&content-type=application/json"
+                    adzuna_url = f"https://api.adzuna.com/v1/api/jobs/{country}/search/1?app_id={ADZUNA_APP_ID}&app_key={ADZUNA_APP_KEY}&what={urllib.parse.quote(primary_term)}&content-type=application/json"
                     res = requests.get(adzuna_url, timeout=6)
                     if res.status_code == 200:
                         for item in res.json().get("results", []):
@@ -2199,7 +2199,7 @@ async def dispatch_career_outreach(match_id: int, payload: OutreachDispatchReque
 
     if RESEND_API_KEY:
         headers = {"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"}
-        res = requests.post("[https://api.resend.com/emails](https://api.resend.com/emails)", json={
+        res = requests.post("https://api.resend.com/emails", json={...})
             "from": f"QuantCode Outreach <{SENDER_EMAIL}>", 
             "to": [target_email],
             "subject": payload.subject, 
@@ -2399,7 +2399,7 @@ Your Secret API Key:
 
 Keep this key secure and use it in your `x-api-key` header for all API requests.
 
-Dashboard: [https://nexus-core-yfou.onrender.com/](https://nexus-core-yfou.onrender.com/)
+Dashboard: https://nexus-core-yfou.onrender.com/
 """
                 requests.post("[https://api.resend.com/emails](https://api.resend.com/emails)", json={
                     "from": f"QuantCode Billing <{SENDER_EMAIL}>", 
