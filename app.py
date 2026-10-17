@@ -2199,7 +2199,7 @@ async def dispatch_career_outreach(match_id: int, payload: OutreachDispatchReque
 
     if RESEND_API_KEY:
         headers = {"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"}
-        res = requests.post("https://api.resend.com/emails", json={...})
+        res = requests.post("https://api.resend.com/emails", json={
             "from": f"QuantCode Outreach <{SENDER_EMAIL}>", 
             "to": [target_email],
             "subject": payload.subject, 
