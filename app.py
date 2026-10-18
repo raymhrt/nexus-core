@@ -549,7 +549,8 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         "professional summary", "summary", "core competencies", "competencies",
         "technical skills", "skills", "professional experience", "experience",
         "education", "awards & scholarships", "awards", "certifications",
-        "selected publications", "publications"
+        "selected publications", "publications", "additional information", 
+        "projects", "languages", "interests", "extracurricular activities"
     ]
     
     header_lines_processed = 0
@@ -768,7 +769,7 @@ async def generate_tailored_cv(user_email: str, master_resume_text: str, job_tit
         - 2-PAGE CANVAS TARGET: Maximize the 2-page PDF canvas right down to the bottom margin with zero trailing white space and zero spillover onto page 3 by richly expanding, detailing, and contextualizing the *existing* responsibilities and methodologies found in the Master CV into multi-clause descriptions.
         - STRICT CONSTRAINT: Never add fake roles or fabricate non-existent duties. Expand only what is genuinely present in the source text.
         - SECTION COMPLETENESS: Ensure all sections—including Professional Summary, Core Competencies, Technical Skills, Professional Experience, Education, Certifications, Awards & Scholarships, and Publications—are fully expanded using only true source data with zero omissions.
-    7. SECTION ORDER & HEADINGS: Structure the CV with these exact section headers in this exact chronological order using '## ':
+    7. SECTION ORDER & HEADINGS: Structure the CV with these core section headers in this exact chronological order using '## ':
         ## PROFESSIONAL SUMMARY
         ## CORE COMPETENCIES
         ## TECHNICAL SKILLS
@@ -776,8 +777,9 @@ async def generate_tailored_cv(user_email: str, master_resume_text: str, job_tit
         ## EDUCATION
         ## CERTIFICATIONS
         ## AWARDS & SCHOLARSHIPS
+        If unique custom sections (such as Additional Information, Projects, or Languages) exist in the Master CV, include them cleanly right before Publications.
         ## PUBLICATIONS
-        NEVER scramble this order, combine sections, or create ad-hoc subheadings.
+        Never scramble the core order, combine sections, or create unrequested ad-hoc subheadings.
     8. BULLET POINTS & PARAGRAPHS: Use standard bullet points ('- ' or '* ') for every single item inside Core Competencies, Technical Skills, Professional Experience, Awards, and Certifications. List publications and education entries as clean text paragraphs with proper formatting.
     """
 
