@@ -389,28 +389,38 @@ def enforce_ground_truth_guardrails(user_email: str, master_resume_text: str, ge
 
 def calculate_ats_keyword_match_score(job_description: str, tailored_cv_text: str) -> int:
     if not job_description or not tailored_cv_text:
-        return 88
+        return 82
         
+    jd_lower = job_description.lower()
+    cv_lower = tailored_cv_text.lower()
+    
+    # Comprehensive stopword exclusion
     stopwords = {
         "and", "the", "to", "a", "of", "in", "for", "is", "on", "that", "by", 
         "this", "with", "i", "you", "it", "not", "or", "be", "are", "from", 
         "at", "as", "your", "all", "have", "new", "more", "an", "was", "we", 
-        "will", "my", "one", "has", "our", "work", "their", "can", "role", "team"
+        "will", "my", "one", "has", "our", "work", "their", "can", "role", "team",
+        "experience", "working", "ability", "strong", "preferred", "requirements"
     }
     
-    jd_words = set(re.findall(r'\b[a-zA-Z]{3,}\b', job_description.lower()))
+    # Extract distinct technical terms / keywords from JD
+    jd_words = set(re.findall(r'\b[a-zA-Z]{3,}\b', jd_lower))
     filtered_jd_keywords = {w for w in jd_words if w not in stopwords}
     
     if not filtered_jd_keywords:
-        return 90
+        return 88
         
-    cv_text_lower = tailored_cv_text.lower()
+    # Calculate intersection and weighted presence
+    matched_keywords = [kw for kw in filtered_jd_keywords if kw in cv_lower]
+    match_ratio = len(matched_keywords) / len(filtered_jd_keywords)
     
-    matched_count = sum(1 for kw in filtered_jd_keywords if kw in cv_text_lower)
+    # Identify missing keywords to apply a balanced penalty scale
+    missing_keywords = filtered_jd_keywords - set(matched_keywords)
+    penalty = min(0.1, (len(missing_keywords) / len(filtered_jd_keywords)) * 0.15)
     
-    raw_ratio = matched_count / len(filtered_jd_keywords)
-    scaled_score = int(82 + (raw_ratio * 16))
-    return max(85, min(98, scaled_score))
+    # Base floor + weighted calculation (ranges safely between 78 and 98)
+    final_score = int(80 + (match_ratio * 20) - (penalty * 10))
+    return max(78, min(98, final_score))
 
 def clean_contact_line(line: str, user_email: str) -> str:
     if not line:
@@ -934,42 +944,47 @@ async def audit_and_correct_tailored_documents_dynamic(
 def build_ghostwriter_prompt(master_cv_markdown: str, target_job_description: str, target_role: str, company_name: str, user_email: str, tone: str = "executive_leader") -> str:
     cleaned_cv = sanitize_cv_text(master_cv_markdown) if master_cv_markdown and len(master_cv_markdown.strip()) > 20 else f"Candidate Profile: Professional Technical Researcher ({user_email})."
     return f"""
-    You are an elite executive career strategist and ATS optimization expert.
-    Your task is to tailor the candidate's actual Master CV into an ATS-optimized, 1-page Markdown resume targeting the job description below.
+    You are an elite, uncompromised Executive Recruiter and Senior ATS Evaluation Engine.
+    Evaluate the candidate's Master CV against the target job description with absolute rigor and tailor the CV accordingly.
 
     TONE CALIBRATION: {tone}
     CANDIDATE EMAIL: {user_email}
+
+    EVALUATION INSTRUCTIONS:
+    1. FIT SCORE (0 to 100): Calculate an objective match score. 90-98 for exceptional domain overlap, 80-89 for strong transferable skills with minor gaps, <78 for major missing core competencies.
+    2. MATCHED STRENGTHS: List 3 to 4 concrete technical or methodological overlaps found in both texts.
+    3. TRANSFERABLE GAPS: Identify secondary tool or scale gaps that the candidate can quickly bridge.
+    4. CRITICAL MISSING: List mandatory compliance, software, or degree requirements from the JD that are completely absent in the Master CV.
 
     ABSOLUTE ANTI-HALLUCINATION RULES:
     1. ZERO INVENTED PERSONAS: You are strictly forbidden from inventing fake names or altering the candidate's core identity. Always retain email: {user_email}.
     2. STRICT GROUND TRUTH: Use the actual degrees, institutions, and employment history present in the Master CV text below.
     3. THE X-Y-Z FORMULA: Reframe the candidate's real experience using impact metrics.
-    4. 1-PAGE COMPRESSION: Keep bullets punchy, scannable, and formatted in clean Markdown.
+    4. 2-PAGE COMPRESSION: Keep bullets punchy, scannable, and formatted in clean Markdown.
 
     ---
     CANDIDATE MASTER CV:
     {cleaned_cv}
     ---
     
-    TARGET JOB:
+    TARGET JOB DESCRIPTION:
     Company: {company_name}
     Role: {target_role}
-    Job Description:
     {target_job_description}
     ---
     
     RETURN STRICT JSON WITH THESE EXACT KEYS:
     - "track": Choose ONE primary track ("A. Medical Affairs / MSL", "B. Clinical Research / CRA", "C. R&D / Laboratory Science / QC", "D. Commercial / Application Scientist", "E. Leadership / Strategy")
     - "seniority_fit": "Entry / Mid / Senior"
-    - "fit_score": integer (0 to 99)
+    - "fit_score": integer
     - "is_valid_match": boolean (true)
-    - "matched_strengths": ["Strength 1", "Strength 2", "Strength 3"]
-    - "transferable_gaps": ["Gap 1", "Gap 2"]
+    - "matched_strengths": ["Strength 1", "Strength 2"]
+    - "transferable_gaps": ["Gap 1"]
     - "critical_missing": ["Missing 1"]
     - "top_rejection_risks": ["Risk 1", "Risk 2"]
-    - "match_rationale": ["Rationale 1", "Rationale 2"]
-    - "tailored_cv": "A complete, ATS-optimized 1-page Markdown CV using the candidate's actual background and degrees."
-    - "tailored_cover_letter": "A compelling 3-paragraph executive cover letter addressed to {company_name}."
+    - "match_rationale": ["Detailed explanation of score"]
+    - "tailored_cv": "A complete, ATS-optimized 2-page Markdown CV using the candidate's actual background and degrees."
+    - "tailored_cover_letter": "A compelling executive cover letter addressed to {company_name}."
     - "salary_benchmark": "Estimated compensation range"
     - "negotiation_strategy": "Strategy details"
     - "interview_playbook": [{{"stage": "Screening", "focus": "Focus areas"}}, {{"stage": "Technical", "focus": "Focus areas"}}]
@@ -1948,7 +1963,14 @@ async def tailor_saved_match(match_id: int, auth: dict = Depends(verify_api_key_
         force_refresh=True
     ))
 
-    ats_score = calculate_ats_keyword_match_score(job_description, tailored_cv_text)
+    # Use the ghostwriter evaluation prompt to keep the score unified and consistent
+    eval_prompt = build_ghostwriter_prompt(master_resume, job_description, job_title, company_name, auth["email"])
+    loop = asyncio.get_running_loop()
+    raw_eval = await loop.run_in_executor(None, call_groq_ai, eval_prompt, "You are an elite recruitment AI returning precise raw JSON.")
+    eval_data = extract_json_safely(raw_eval, {})
+    
+    # Extract the unified AI fit score, falling back to keyword calculation only if missing
+    ats_score = safe_int(eval_data.get('fit_score'), calculate_ats_keyword_match_score(job_description, tailored_cv_text))
 
     with db_transaction_scope() as (_, cursor):
         if DATABASE_URL:
@@ -2405,11 +2427,11 @@ Keep this key secure and use it in your `x-api-key` header for all API requests.
 
 Dashboard: https://nexus-core-yfou.onrender.com/
 """
-                requests.post("[https://api.resend.com/emails](https://api.resend.com/emails)", json={
-                    "from": f"QuantCode Billing <{SENDER_EMAIL}>", 
-                    "to": [customer_email],
-                    "subject": "Your QuantCode Nexus API Key & Subscription Access",
-                    "text": email_body
+                requests.post("https://api.resend.com/emails", json={
+                   "from": f"QuantCode Billing <{SENDER_EMAIL}>", 
+                   "to": [customer_email],
+                   "subject": "Your QuantCode Nexus API Key & Subscription Access",
+                   "text": email_body
                 }, headers=email_headers, timeout=5)
             except Exception as mail_err:
                 logger.error(f"Failed to dispatch subscription API key email: {mail_err}")
