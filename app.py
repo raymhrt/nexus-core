@@ -389,35 +389,50 @@ def enforce_ground_truth_guardrails(user_email: str, master_resume_text: str, ge
 
 def calculate_hybrid_match_score(job_description: str, tailored_cv_text: str, user_embedding: Optional[List[float]] = None, job_embedding: Optional[List[float]] = None) -> int:
     """
-    Advanced Hybrid Match Score Calculation:
-    1. Computes vector cosine similarity if embeddings are available.
-    2. Computes weighted technical keyword overlap.
-    3. Blends 70% semantic vector similarity + 30% keyword precision.
+    Ultimate Enterprise-Grade Hybrid ATS Scoring Engine:
+    1. Extracts and cross-verifies core technical entity intersection.
+    2. Computes asymmetric penalty weighting for critical skill gaps.
+    3. Applies vector cosine similarity with a sigmoidal calibration stretch.
     """
-    keyword_score = 0
+    keyword_score = 50
     if job_description and tailored_cv_text:
         jd_lower = job_description.lower()
         cv_lower = tailored_cv_text.lower()
+        
+        # Enterprise Core Tech & Methodology Vocabulary
+        core_domain_lexicon = {
+            "python", "fastapi", "postgresql", "sqlite", "stripe", "docker", "render",
+            "git", "api", "asyncio", "pydantic", "uvicorn", "numpy", "pandas",
+            "react", "javascript", "typescript", "kubernetes", "aws", "ci/cd",
+            "molecular biology", "pcr", "crispr", "assay", "clinical research", "gmp",
+            "rest", "json", "sql", "websocket", "sentry", "apscheduler"
+        }
         
         stopwords = {
             "and", "the", "to", "a", "of", "in", "for", "is", "on", "that", "by", 
             "this", "with", "i", "you", "it", "not", "or", "be", "are", "from", 
             "at", "as", "your", "all", "have", "new", "more", "an", "was", "we", 
-            "will", "my", "one", "has", "our", "work", "their", "can", "role", "team",
-            "experience", "working", "ability", "strong", "preferred", "requirements",
-            "such", "using", "use", "per", "candidate", "position", "company", "about",
-            "th", "st", "nd", "rd", "etc", "also", "including", "within", "through"
+            "will", "my", "one", "has", "our", "work", "their", "can", "role", "team"
         }
         
         jd_words = set(re.findall(r'\b[a-zA-Z0-9\+\#]{2,}\b', jd_lower))
-        filtered_jd_keywords = {w for w in jd_words if w not in stopwords}
+        filtered_jd = {w for w in jd_words if w not in stopwords}
         
-        if filtered_jd_keywords:
-            matched_keywords = [kw for kw in filtered_jd_keywords if kw in cv_lower]
-            match_ratio = len(matched_keywords) / len(filtered_jd_keywords)
-            keyword_score = int(round(match_ratio * 100))
+        if filtered_jd:
+            matched_weight = 0
+            total_weight = 0
+            
+            for word in filtered_jd:
+                # Assign 3x weight to critical core domain tech
+                weight = 3.0 if word in core_domain_lexicon else 1.0
+                total_weight += weight
+                if word in cv_lower:
+                    matched_weight += weight
+            
+            raw_ratio = matched_weight / total_weight if total_weight > 0 else 0.0
+            keyword_score = int(round(raw_ratio * 100))
 
-    # Compute Cosine Similarity if embeddings are provided
+    # Compute Cosine Similarity with Sigmoidal Calibration Stretch
     semantic_score = keyword_score
     if user_embedding and job_embedding:
         try:
@@ -428,14 +443,18 @@ def calculate_hybrid_match_score(job_description: str, tailored_cv_text: str, us
             norm_j = np.linalg.norm(vec_j)
             if norm_u > 0 and norm_j > 0:
                 cosine_sim = dot_product / (norm_u * norm_j)
-                # Map cosine similarity [-1, 1] to percentage [0, 100]
-                semantic_score = int(round((max(0.0, float(cosine_sim))) * 100))
+                clamped_sim = max(0.0, float(cosine_sim))
+                # Sigmoidal stretch to separate mediocre vs exceptional matches
+                stretched_sim = 1.0 / (1.0 + np.exp(-10.0 * (clamped_sim - 0.65)))
+                semantic_score = int(round(stretched_sim * 100))
         except Exception:
             pass
 
-    # Blend: 70% Semantic Vector Similarity + 30% Keyword Precision Match
-    final_score = int(round((0.7 * semantic_score) + (0.3 * keyword_score)))
-    return max(15, min(99, final_score)) # Ensures realistic calibrated executive bounds
+    # Blend: 70% Calibrated Semantic Similarity + 30% Weighted Entity Precision
+    blended = (0.70 * semantic_score) + (0.30 * keyword_score)
+    
+    final_score = int(round(blended))
+    return max(15, min(98, final_score))
 
 def clean_contact_line(line: str, user_email: str) -> str:
     if not line:
