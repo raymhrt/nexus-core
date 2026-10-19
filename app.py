@@ -389,50 +389,32 @@ def enforce_ground_truth_guardrails(user_email: str, master_resume_text: str, ge
 
 def calculate_hybrid_match_score(job_description: str, tailored_cv_text: str, user_embedding: Optional[List[float]] = None, job_embedding: Optional[List[float]] = None) -> int:
     """
-    Ultimate Enterprise-Grade Hybrid ATS Scoring Engine:
-    1. Extracts and cross-verifies core technical entity intersection.
-    2. Computes asymmetric penalty weighting for critical skill gaps.
-    3. Applies vector cosine similarity with a sigmoidal calibration stretch.
+    Enterprise-Grade Hybrid ATS Scoring Engine with Domain Gap Penalty:
+    1. Evaluates semantic vector similarity.
+    2. Cross-verifies core technical and operational domain intersection.
+    3. Applies heavy penalties if operational/clinical management keywords are absent from an operations role.
     """
-    keyword_score = 50
+    keyword_score = 40
     if job_description and tailored_cv_text:
         jd_lower = job_description.lower()
         cv_lower = tailored_cv_text.lower()
         
-        # Enterprise Core Tech & Methodology Vocabulary
-        core_domain_lexicon = {
-            "python", "fastapi", "postgresql", "sqlite", "stripe", "docker", "render",
-            "git", "api", "asyncio", "pydantic", "uvicorn", "numpy", "pandas",
-            "react", "javascript", "typescript", "kubernetes", "aws", "ci/cd",
-            "molecular biology", "pcr", "crispr", "assay", "clinical research", "gmp",
-            "rest", "json", "sql", "websocket", "sentry", "apscheduler"
-        }
+        # Check for clinical operations / site activation specific terms required by the JD
+        operational_terms = {"site activation", "study start-up", "ethics approvals", "regulatory submissions", "site identification", "contract negotiation"}
+        matched_ops = sum(1 for term in operational_terms if term in jd_lower and term in cv_lower)
         
-        stopwords = {
-            "and", "the", "to", "a", "of", "in", "for", "is", "on", "that", "by", 
-            "this", "with", "i", "you", "it", "not", "or", "be", "are", "from", 
-            "at", "as", "your", "all", "have", "new", "more", "an", "was", "we", 
-            "will", "my", "one", "has", "our", "work", "their", "can", "role", "team"
-        }
-        
-        jd_words = set(re.findall(r'\b[a-zA-Z0-9\+\#]{2,}\b', jd_lower))
-        filtered_jd = {w for w in jd_words if w not in stopwords}
-        
-        if filtered_jd:
-            matched_weight = 0
-            total_weight = 0
-            
-            for word in filtered_jd:
-                # Assign 3x weight to critical core domain tech
-                weight = 3.0 if word in core_domain_lexicon else 1.0
-                total_weight += weight
-                if word in cv_lower:
-                    matched_weight += weight
-            
-            raw_ratio = matched_weight / total_weight if total_weight > 0 else 0.0
-            keyword_score = int(round(raw_ratio * 100))
+        # If it's a clinical operations management role and the candidate has 0 operational matches, cap the keyword score
+        if any(t in jd_lower for t in ["site activation", "study start-up", "clinical operations"]) and matched_ops == 0:
+            keyword_score = 25
+        else:
+            stopwords = {"and", "the", "to", "a", "of", "in", "for", "is", "on", "that", "by", "with", "as", "at"}
+            jd_words = set(re.findall(r'\b[a-zA-Z0-9\+\#]{2,}\b', jd_lower))
+            filtered_jd = {w for w in jd_words if w not in stopwords}
+            if filtered_jd:
+                matched = sum(1 for w in filtered_jd if w in cv_lower)
+                keyword_score = int(round((matched / len(filtered_jd)) * 100))
 
-    # Compute Cosine Similarity with Sigmoidal Calibration Stretch
+    # Compute Cosine Similarity
     semantic_score = keyword_score
     if user_embedding and job_embedding:
         try:
@@ -443,18 +425,16 @@ def calculate_hybrid_match_score(job_description: str, tailored_cv_text: str, us
             norm_j = np.linalg.norm(vec_j)
             if norm_u > 0 and norm_j > 0:
                 cosine_sim = dot_product / (norm_u * norm_j)
-                clamped_sim = max(0.0, float(cosine_sim))
-                # Sigmoidal stretch to separate mediocre vs exceptional matches
-                stretched_sim = 1.0 / (1.0 + np.exp(-10.0 * (clamped_sim - 0.65)))
-                semantic_score = int(round(stretched_sim * 100))
+                semantic_score = int(round(max(0.0, float(cosine_sim)) * 100))
         except Exception:
             pass
 
-    # Blend: 70% Calibrated Semantic Similarity + 30% Weighted Entity Precision
-    blended = (0.70 * semantic_score) + (0.30 * keyword_score)
-    
+    # Blend: 60% Semantic Similarity + 40% Precision Keyword Match
+    blended = (0.60 * semantic_score) + (0.40 * keyword_score)
     final_score = int(round(blended))
-    return max(15, min(98, final_score))
+    
+    # Enforce realistic bounds
+    return max(10, min(95, final_score))
 
 def clean_contact_line(line: str, user_email: str) -> str:
     if not line:
@@ -1528,6 +1508,7 @@ async def isolated_user_job_scouting_worker(user_email: str, requested_count: in
             await sse_broker.broadcast("career_swarm_update", {"user": user_email, "status": "no_matches", "message": "Scouting complete. No jobs met evaluation criteria."})
             return
 
+        # Sort evaluated matches strictly by highest fit score first
         valid_results.sort(key=lambda x: x.get('fit_score', 0), reverse=True)
         evaluated_matches = valid_results[:requested_count]
 
@@ -1723,7 +1704,7 @@ def get_career_matches(min_fit: int = Query(0, ge=0, le=100), user=Depends(verif
                    ats_portal_url, status 
             FROM job_matches 
             WHERE user_email = %s AND fit_score >= %s
-            ORDER BY timestamp DESC
+            ORDER BY fit_score DESC, timestamp DESC
         """ if DATABASE_URL else """
             SELECT id, company_name, job_title as role_title, location, fit_score, match_rationale as rationale, 
                    matched_requirements, transferable_gaps, critical_missing,
@@ -1733,7 +1714,7 @@ def get_career_matches(min_fit: int = Query(0, ge=0, le=100), user=Depends(verif
                    ats_portal_url, status 
             FROM job_matches 
             WHERE user_email = ? AND fit_score >= ?
-            ORDER BY timestamp DESC
+            ORDER BY fit_score DESC, timestamp DESC
         """
         cursor.execute(sql, (user["email"], min_fit))
         raw_matches = [dict(r) for r in cursor.fetchall()]
