@@ -389,52 +389,35 @@ def enforce_ground_truth_guardrails(user_email: str, master_resume_text: str, ge
 
 def calculate_hybrid_match_score(job_description: str, tailored_cv_text: str, user_embedding: Optional[List[float]] = None, job_embedding: Optional[List[float]] = None) -> int:
     """
-    Enterprise-Grade Hybrid ATS Scoring Engine with Domain Gap Penalty:
-    1. Evaluates semantic vector similarity.
-    2. Cross-verifies core technical and operational domain intersection.
-    3. Applies heavy penalties if operational/clinical management keywords are absent from an operations role.
+    Universal Non-Hardcoded Linguistic Scoring Engine:
+    Uses only standard English grammatical stopwords (articles/prepositions).
+    Zero domain-specific hardcoding. Adapts universally to any industry.
     """
-    keyword_score = 40
-    if job_description and tailored_cv_text:
-        jd_lower = job_description.lower()
-        cv_lower = tailored_cv_text.lower()
-        
-        # Check for clinical operations / site activation specific terms required by the JD
-        operational_terms = {"site activation", "study start-up", "ethics approvals", "regulatory submissions", "site identification", "contract negotiation"}
-        matched_ops = sum(1 for term in operational_terms if term in jd_lower and term in cv_lower)
-        
-        # If it's a clinical operations management role and the candidate has 0 operational matches, cap the keyword score
-        if any(t in jd_lower for t in ["site activation", "study start-up", "clinical operations"]) and matched_ops == 0:
-            keyword_score = 25
-        else:
-            stopwords = {"and", "the", "to", "a", "of", "in", "for", "is", "on", "that", "by", "with", "as", "at"}
-            jd_words = set(re.findall(r'\b[a-zA-Z0-9\+\#]{2,}\b', jd_lower))
-            filtered_jd = {w for w in jd_words if w not in stopwords}
-            if filtered_jd:
-                matched = sum(1 for w in filtered_jd if w in cv_lower)
-                keyword_score = int(round((matched / len(filtered_jd)) * 100))
+    if not job_description or not tailored_cv_text:
+        return 50
 
-    # Compute Cosine Similarity
-    semantic_score = keyword_score
-    if user_embedding and job_embedding:
-        try:
-            vec_u = np.array(user_embedding, dtype=float)
-            vec_j = np.array(job_embedding, dtype=float)
-            dot_product = np.dot(vec_u, vec_j)
-            norm_u = np.linalg.norm(vec_u)
-            norm_j = np.linalg.norm(vec_j)
-            if norm_u > 0 and norm_j > 0:
-                cosine_sim = dot_product / (norm_u * norm_j)
-                semantic_score = int(round(max(0.0, float(cosine_sim)) * 100))
-        except Exception:
-            pass
+    # Universal grammatical stop words only (no domain/professional words)
+    linguistic_stopwords = {
+        "and", "the", "to", "a", "of", "in", "for", "is", "on", "that", "by", "with", 
+        "as", "at", "an", "or", "from", "this", "it", "be", "are", "was", "were", 
+        "an", "they", "have", "has", "had", "which", "their", "will", "would"
+    }
 
-    # Blend: 60% Semantic Similarity + 40% Precision Keyword Match
-    blended = (0.60 * semantic_score) + (0.40 * keyword_score)
-    final_score = int(round(blended))
+    jd_words = set(re.findall(r'\b[a-zA-Z0-9\+\#]{3,}\b', job_description.lower()))
+    cv_words = set(re.findall(r'\b[a-zA-Z0-9\+\#]{3,}\b', tailored_cv_text.lower()))
+
+    filtered_jd = {w for w in jd_words if w not in linguistic_stopwords}
+    filtered_cv = {w for w in cv_words if w not in linguistic_stopwords}
+
+    if not filtered_jd:
+        return 50
+
+    intersection = filtered_jd.intersection(filtered_cv)
+    overlap_ratio = len(intersection) / len(filtered_jd)
     
-    # Enforce realistic bounds
-    return max(10, min(95, final_score))
+    # Scale smoothly
+    score = int(round(overlap_ratio * 130))
+    return max(20, min(95, score))
 
 def clean_contact_line(line: str, user_email: str) -> str:
     if not line:
@@ -1266,7 +1249,7 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
                 "job_title": role,
                 "job_description": desc,
                 "location": job.get('location', "Global"),
-                "fit_score": safe_int(eval_data.get('fit_score'), 82),
+                "fit_score": safe_int(eval_data.get('fit_score'), 50), # Uses the AI engine's rigorous score directly
                 "track": eval_data.get('track', 'C. R&D / Laboratory Science / QC'),
                 "seniority_fit": eval_data.get('seniority_fit', 'Mid / Senior'),
                 "match_rationale": rationale_str,
@@ -1471,9 +1454,9 @@ def verify_api_key_only(x_api_key: str = Header(...), request: Request = None):
         "ip": client_ip
     }
 
-async def isolated_user_job_scouting_worker(user_email: str, requested_count: int, target_locations: str, target_roles: str):
+async def isolated_user_job_scouting_worker(user_email: str, requested_count: int, target_locations: str, target_roles: str, min_match_score: int = 40):
     saved_count = 0
-    await sse_broker.broadcast("multi_tenant_telemetry", {"user": user_email, "message": f"Executing live infiltration for {user_email}..."})
+    await sse_broker.broadcast("multi_tenant_telemetry", {"user": user_email, "message": f"Executing live infiltration for {user_email} (Minimum Fit Filter: {min_match_score}%)..."})
 
     try:
         with db_transaction_scope() as (_, cursor):
@@ -1498,14 +1481,17 @@ async def isolated_user_job_scouting_worker(user_email: str, requested_count: in
         await sse_broker.broadcast("multi_tenant_telemetry", {"user": user_email, "message": f"Discovered {len(raw_jobs)} positions. Running paced AI vector evaluations..."})
         
         valid_results = []
-        for job in raw_jobs[:8]:
+        for job in raw_jobs[:10]:
             evaluated = await evaluate_job_for_specific_user(job, profile_content, user_email, AI_EVAL_SEMAPHORE)
             if evaluated:
-                valid_results.append(evaluated)
+                # STRICTLY ENFORCE MINIMUM FIT SCORE FILTER
+                score = safe_int(evaluated.get('fit_score'), 0)
+                if score >= min_match_score:
+                    valid_results.append(evaluated)
             await asyncio.sleep(7.0) 
 
         if not valid_results:
-            await sse_broker.broadcast("career_swarm_update", {"user": user_email, "status": "no_matches", "message": "Scouting complete. No jobs met evaluation criteria."})
+            await sse_broker.broadcast("career_swarm_update", {"user": user_email, "status": "no_matches", "message": f"Scouting complete. No jobs met or exceeded your {min_match_score}% match filter threshold."})
             return
 
         # Sort evaluated matches strictly by highest fit score first
@@ -1572,7 +1558,7 @@ async def isolated_user_job_scouting_worker(user_email: str, requested_count: in
                             ic.execute("UPDATE subscriber_credits SET credits_remaining = credits_remaining - 1 WHERE email = ?", (user_email,))
                         saved_count += 1
 
-        await sse_broker.broadcast("career_swarm_update", {"user": user_email, "status": "scouted", "message": f"Swarm completed. Indexed {saved_count} verified matches."})
+        await sse_broker.broadcast("career_swarm_update", {"user": user_email, "status": "scouted", "message": f"Swarm completed. Indexed {saved_count} verified matches meeting the {min_match_score}% threshold."})
     except Exception as e:
         logger.error(f"Error in isolated worker for {user_email}: {str(e)}", exc_info=True)
 
@@ -1634,6 +1620,7 @@ class CareerCriteriaInput(BaseModel):
     target_roles: str
     locations: str
     job_count: Optional[int] = Field(default=3, ge=1, le=20)
+    min_match_score: Optional[int] = Field(default=40, ge=0, le=100) # Added threshold filter
 
 class TailorRequest(BaseModel):
     job_description: str
@@ -1695,28 +1682,33 @@ def get_credits(user=Depends(verify_api_key_only)):
 @app.get("/api/v1/career/matches")
 def get_career_matches(min_fit: int = Query(0, ge=0, le=100), user=Depends(verify_api_key_only)):
     with db_transaction_scope() as (_, cursor):
-        sql = """
-            SELECT id, company_name, job_title as role_title, location, fit_score, match_rationale as rationale, 
-                   matched_requirements, transferable_gaps, critical_missing,
-                   decision_maker_name as networking_target_name, decision_maker_title as networking_target_role, 
-                   decision_maker_email as networking_target_email, warm_intro_pathway, outreach_draft, 
-                   salary_benchmark, recruiter_verified, negotiation_strategy, cv_variant, cover_letter_variant, interview_playbook, 
-                   ats_portal_url, status 
-            FROM job_matches 
-            WHERE user_email = %s AND fit_score >= %s
-            ORDER BY fit_score DESC, timestamp DESC
-        """ if DATABASE_URL else """
-            SELECT id, company_name, job_title as role_title, location, fit_score, match_rationale as rationale, 
-                   matched_requirements, transferable_gaps, critical_missing,
-                   decision_maker_name as networking_target_name, decision_maker_title as networking_target_role, 
-                   decision_maker_email as networking_target_email, warm_intro_pathway, outreach_draft, 
-                   salary_benchmark, recruiter_verified, negotiation_strategy, cv_variant, cover_letter_variant, interview_playbook, 
-                   ats_portal_url, status 
-            FROM job_matches 
-            WHERE user_email = ? AND fit_score >= ?
-            ORDER BY fit_score DESC, timestamp DESC
-        """
-        cursor.execute(sql, (user["email"], min_fit))
+        if DATABASE_URL:
+            sql = """
+                SELECT id, company_name, job_title as role_title, location, fit_score, match_rationale as rationale, 
+                       matched_requirements, transferable_gaps, critical_missing,
+                       decision_maker_name as networking_target_name, decision_maker_title as networking_target_role, 
+                       decision_maker_email as networking_target_email, warm_intro_pathway, outreach_draft, 
+                       salary_benchmark, recruiter_verified, negotiation_strategy, cv_variant, cover_letter_variant, interview_playbook, 
+                       ats_portal_url, status 
+                FROM job_matches 
+                WHERE user_email = %s AND fit_score >= %s
+                ORDER BY fit_score DESC, timestamp DESC
+            """
+            cursor.execute(sql, (user["email"], min_fit))
+        else:
+            sql = """
+                SELECT id, company_name, job_title as role_title, location, fit_score, match_rationale as rationale, 
+                       matched_requirements, transferable_gaps, critical_missing,
+                       decision_maker_name as networking_target_name, decision_maker_title as networking_target_role, 
+                       decision_maker_email as networking_target_email, warm_intro_pathway, outreach_draft, 
+                       salary_benchmark, recruiter_verified, negotiation_strategy, cv_variant, cover_letter_variant, interview_playbook, 
+                       ats_portal_url, status 
+                FROM job_matches 
+                WHERE user_email = ? AND fit_score >= ?
+                ORDER BY fit_score DESC, timestamp DESC
+            """
+            cursor.execute(sql, (user["email"], min_fit))
+            
         raw_matches = [dict(r) for r in cursor.fetchall()]
 
     normalized_matches = []
@@ -2216,7 +2208,8 @@ async def save_career_criteria(payload: CareerCriteriaInput, background_tasks: B
         user_email=auth["email"],
         requested_count=payload.job_count,
         target_locations=payload.locations,
-        target_roles=payload.target_roles
+        target_roles=payload.target_roles,
+        min_match_score=payload.min_match_score # Pass filter down to worker
     )
     
     await sse_broker.broadcast("multi_tenant_launched", {"user": auth["email"], "roles": payload.target_roles, "locations": payload.locations})
