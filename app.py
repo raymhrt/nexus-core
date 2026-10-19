@@ -127,7 +127,7 @@ def safe_str(val: Any) -> str:
         return json.dumps(val)
     return str(val)
 
-def safe_int(val: Any, default: int = 88) -> int:
+def safe_int(val: Any, default: int = 50) -> int:
     try:
         return int(val)
     except Exception:
@@ -387,40 +387,55 @@ def enforce_ground_truth_guardrails(user_email: str, master_resume_text: str, ge
             
     return generated_text
 
-def calculate_ats_keyword_match_score(job_description: str, tailored_cv_text: str) -> int:
-    if not job_description or not tailored_cv_text:
-        return 82
+def calculate_hybrid_match_score(job_description: str, tailored_cv_text: str, user_embedding: Optional[List[float]] = None, job_embedding: Optional[List[float]] = None) -> int:
+    """
+    Advanced Hybrid Match Score Calculation:
+    1. Computes vector cosine similarity if embeddings are available.
+    2. Computes weighted technical keyword overlap.
+    3. Blends 70% semantic vector similarity + 30% keyword precision.
+    """
+    keyword_score = 0
+    if job_description and tailored_cv_text:
+        jd_lower = job_description.lower()
+        cv_lower = tailored_cv_text.lower()
         
-    jd_lower = job_description.lower()
-    cv_lower = tailored_cv_text.lower()
-    
-    # Comprehensive stopword exclusion
-    stopwords = {
-        "and", "the", "to", "a", "of", "in", "for", "is", "on", "that", "by", 
-        "this", "with", "i", "you", "it", "not", "or", "be", "are", "from", 
-        "at", "as", "your", "all", "have", "new", "more", "an", "was", "we", 
-        "will", "my", "one", "has", "our", "work", "their", "can", "role", "team",
-        "experience", "working", "ability", "strong", "preferred", "requirements"
-    }
-    
-    # Extract distinct technical terms / keywords from JD
-    jd_words = set(re.findall(r'\b[a-zA-Z]{3,}\b', jd_lower))
-    filtered_jd_keywords = {w for w in jd_words if w not in stopwords}
-    
-    if not filtered_jd_keywords:
-        return 88
+        stopwords = {
+            "and", "the", "to", "a", "of", "in", "for", "is", "on", "that", "by", 
+            "this", "with", "i", "you", "it", "not", "or", "be", "are", "from", 
+            "at", "as", "your", "all", "have", "new", "more", "an", "was", "we", 
+            "will", "my", "one", "has", "our", "work", "their", "can", "role", "team",
+            "experience", "working", "ability", "strong", "preferred", "requirements",
+            "such", "using", "use", "per", "candidate", "position", "company", "about",
+            "th", "st", "nd", "rd", "etc", "also", "including", "within", "through"
+        }
         
-    # Calculate intersection and weighted presence
-    matched_keywords = [kw for kw in filtered_jd_keywords if kw in cv_lower]
-    match_ratio = len(matched_keywords) / len(filtered_jd_keywords)
-    
-    # Identify missing keywords to apply a balanced penalty scale
-    missing_keywords = filtered_jd_keywords - set(matched_keywords)
-    penalty = min(0.1, (len(missing_keywords) / len(filtered_jd_keywords)) * 0.15)
-    
-    # Base floor + weighted calculation (ranges safely between 78 and 98)
-    final_score = int(80 + (match_ratio * 20) - (penalty * 10))
-    return max(78, min(98, final_score))
+        jd_words = set(re.findall(r'\b[a-zA-Z0-9\+\#]{2,}\b', jd_lower))
+        filtered_jd_keywords = {w for w in jd_words if w not in stopwords}
+        
+        if filtered_jd_keywords:
+            matched_keywords = [kw for kw in filtered_jd_keywords if kw in cv_lower]
+            match_ratio = len(matched_keywords) / len(filtered_jd_keywords)
+            keyword_score = int(round(match_ratio * 100))
+
+    # Compute Cosine Similarity if embeddings are provided
+    semantic_score = keyword_score
+    if user_embedding and job_embedding:
+        try:
+            vec_u = np.array(user_embedding, dtype=float)
+            vec_j = np.array(job_embedding, dtype=float)
+            dot_product = np.dot(vec_u, vec_j)
+            norm_u = np.linalg.norm(vec_u)
+            norm_j = np.linalg.norm(vec_j)
+            if norm_u > 0 and norm_j > 0:
+                cosine_sim = dot_product / (norm_u * norm_j)
+                # Map cosine similarity [-1, 1] to percentage [0, 100]
+                semantic_score = int(round((max(0.0, float(cosine_sim))) * 100))
+        except Exception:
+            pass
+
+    # Blend: 70% Semantic Vector Similarity + 30% Keyword Precision Match
+    final_score = int(round((0.7 * semantic_score) + (0.3 * keyword_score)))
+    return max(15, min(99, final_score)) # Ensures realistic calibrated executive bounds
 
 def clean_contact_line(line: str, user_email: str) -> str:
     if not line:
@@ -1216,7 +1231,7 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
                 eval_data = {
                     "track": "C. R&D / Laboratory Science / QC",
                     "seniority_fit": "Senior",
-                    "fit_score": 82,
+                    "fit_score": 50,
                     "matched_strengths": ["Technical Execution & Domain Analysis", "Methodology Design"],
                     "transferable_gaps": ["Industry-specific platform scaling"],
                     "critical_missing": ["Advanced compliance certification"],
@@ -1529,7 +1544,7 @@ async def isolated_user_job_scouting_worker(user_email: str, requested_count: in
                     safe_str(match_item.get('job_title')),
                     safe_str(match_item.get('job_description')),
                     safe_str(match_item.get('location')),
-                    safe_int(match_item.get('fit_score'), 88),
+                    safe_int(match_item.get('fit_score'), 50),
                     safe_str(match_item.get('match_rationale')),
                     matched_reqs_json,
                     transferable_json,
@@ -1678,7 +1693,7 @@ def get_credits(user=Depends(verify_api_key_only)):
     return {"status": "success", "credits": user["credits"], "limit": user["limit"], "tier": user["tier"]}
 
 @app.get("/api/v1/career/matches")
-def get_career_matches(min_fit: int = Query(50, ge=0, le=100), user=Depends(verify_api_key_only)):
+def get_career_matches(min_fit: int = Query(0, ge=0, le=100), user=Depends(verify_api_key_only)):
     with db_transaction_scope() as (_, cursor):
         sql = """
             SELECT id, company_name, job_title as role_title, location, fit_score, match_rationale as rationale, 
@@ -1801,9 +1816,9 @@ async def refresh_career_match(match_id: int, auth: dict = Depends(verify_api_ke
                 raise HTTPException(status_code=404, detail="Job match not found.")
 
             if DATABASE_URL:
-                cursor.execute("SELECT profile_json FROM user_profiles WHERE email = %s", (auth["email"],))
+                cursor.execute("SELECT profile_json, embedding FROM user_profiles WHERE email = %s", (auth["email"],))
             else:
-                cursor.execute("SELECT profile_json FROM user_profiles WHERE email = ?", (auth["email"],))
+                cursor.execute("SELECT profile_json, embedding FROM user_profiles WHERE email = ?", (auth["email"],))
             profile_row = cursor.fetchone()
 
             if not profile_row:
@@ -1813,6 +1828,9 @@ async def refresh_career_match(match_id: int, auth: dict = Depends(verify_api_ke
         p_dict = dict(profile_row) if not isinstance(profile_row, dict) else profile_row
         
         master_resume = p_dict.get('profile_json', '')
+        raw_emb = p_dict.get('embedding', '')
+        user_embedding = json.loads(raw_emb) if raw_emb else generate_text_embedding(master_resume)
+
         company_name = m_dict.get('company_name', '')
         job_title = m_dict.get('job_title', '')
         job_description = m_dict.get('job_description', '')
@@ -1825,7 +1843,6 @@ async def refresh_career_match(match_id: int, auth: dict = Depends(verify_api_ke
             job_description=job_description
         ))
 
-        # Force a fresh generation update every time Ghostwriter or refresh is called
         tailored_cl = sanitize_cv_text(await generate_tailored_cover_letter(
             user_email=auth["email"],
             master_resume_text=master_resume,
@@ -1835,30 +1852,32 @@ async def refresh_career_match(match_id: int, auth: dict = Depends(verify_api_ke
             force_refresh=True
         ))
 
-        ats_score = calculate_ats_keyword_match_score(job_description, tailored_cv_text)
+        job_embed = generate_text_embedding(f"{job_title} {company_name} {job_description}")
+        hybrid_score = calculate_hybrid_match_score(job_description, tailored_cv_text, user_embedding=user_embedding, job_embedding=job_embed)
 
         with db_transaction_scope() as (_, cursor):
             if DATABASE_URL:
                 update_sql = """
                     UPDATE job_matches 
-                    SET fit_score = %s, cv_variant = %s, cover_letter_variant = %s, timestamp = NOW()
+                    SET fit_score = %s, cv_variant = %s, cover_letter_variant = %s, embedding = %s, timestamp = NOW() 
                     WHERE id = %s AND user_email = %s
                 """
             else:
                 update_sql = """
                     UPDATE job_matches 
-                    SET fit_score = ?, cv_variant = ?, cover_letter_variant = ?, timestamp = datetime('now')
+                    SET fit_score = ?, cv_variant = ?, cover_letter_variant = ?, embedding = ?, timestamp = datetime('now') 
                     WHERE id = ? AND user_email = ?
                 """
             cursor.execute(update_sql, (
-                ats_score,
+                hybrid_score,
                 tailored_cv_text,
                 tailored_cl,
+                json.dumps(job_embed),
                 match_id,
                 auth["email"]
             ))
 
-        return {"status": "success", "message": "Job match successfully refreshed with the latest updated cover letter and CV variants."}
+        return {"status": "success", "message": "Job match successfully refreshed with hybrid semantic vector scoring."}
     except HTTPException as he:
         raise he
     except Exception as e:
@@ -1929,9 +1948,9 @@ async def tailor_saved_match(match_id: int, auth: dict = Depends(verify_api_key_
             raise HTTPException(status_code=404, detail="Job match not found.")
 
         if DATABASE_URL:
-            cursor.execute("SELECT profile_json FROM user_profiles WHERE email = %s", (auth["email"],))
+            cursor.execute("SELECT profile_json, embedding FROM user_profiles WHERE email = %s", (auth["email"],))
         else:
-            cursor.execute("SELECT profile_json FROM user_profiles WHERE email = ?", (auth["email"],))
+            cursor.execute("SELECT profile_json, embedding FROM user_profiles WHERE email = ?", (auth["email"],))
         profile_row = cursor.fetchone()
 
         if not profile_row:
@@ -1941,6 +1960,9 @@ async def tailor_saved_match(match_id: int, auth: dict = Depends(verify_api_key_
     p_dict = dict(profile_row) if not isinstance(profile_row, dict) else profile_row
     
     master_resume = p_dict.get('profile_json', '')
+    raw_emb = p_dict.get('embedding', '')
+    user_embedding = json.loads(raw_emb) if raw_emb else generate_text_embedding(master_resume)
+
     company_name = m_dict.get('company_name', '')
     job_title = m_dict.get('job_title', '')
     job_description = m_dict.get('job_description', '')
@@ -1953,7 +1975,6 @@ async def tailor_saved_match(match_id: int, auth: dict = Depends(verify_api_key_
         job_description=job_description
     ))
 
-    # Force fresh generation on explicit tailor calls
     tailored_cl = sanitize_cv_text(await generate_tailored_cover_letter(
         user_email=auth["email"],
         master_resume_text=master_resume,
@@ -1963,32 +1984,26 @@ async def tailor_saved_match(match_id: int, auth: dict = Depends(verify_api_key_
         force_refresh=True
     ))
 
-    # Use the ghostwriter evaluation prompt to keep the score unified and consistent
-    eval_prompt = build_ghostwriter_prompt(master_resume, job_description, job_title, company_name, auth["email"])
-    loop = asyncio.get_running_loop()
-    raw_eval = await loop.run_in_executor(None, call_groq_ai, eval_prompt, "You are an elite recruitment AI returning precise raw JSON.")
-    eval_data = extract_json_safely(raw_eval, {})
-    
-    # Extract the unified AI fit score, falling back to keyword calculation only if missing
-    ats_score = safe_int(eval_data.get('fit_score'), calculate_ats_keyword_match_score(job_description, tailored_cv_text))
+    job_embed = generate_text_embedding(f"{job_title} {company_name} {job_description}")
+    hybrid_score = calculate_hybrid_match_score(job_description, tailored_cv_text, user_embedding=user_embedding, job_embedding=job_embed)
 
     with db_transaction_scope() as (_, cursor):
         if DATABASE_URL:
             cursor.execute("""
                 UPDATE job_matches 
-                SET fit_score = %s, cv_variant = %s, cover_letter_variant = %s, timestamp = NOW() 
+                SET fit_score = %s, cv_variant = %s, cover_letter_variant = %s, embedding = %s, timestamp = NOW() 
                 WHERE id = %s AND user_email = %s
-            """, (ats_score, tailored_cv_text, tailored_cl, match_id, auth["email"]))
+            """, (hybrid_score, tailored_cv_text, tailored_cl, json.dumps(job_embed), match_id, auth["email"]))
         else:
             cursor.execute("""
                 UPDATE job_matches 
-                SET fit_score = ?, cv_variant = ?, cover_letter_variant = ?, timestamp = datetime('now') 
+                SET fit_score = ?, cv_variant = ?, cover_letter_variant = ?, embedding = ?, timestamp = datetime('now') 
                 WHERE id = ? AND user_email = ?
-            """, (ats_score, tailored_cv_text, tailored_cl, match_id, auth["email"]))
+            """, (hybrid_score, tailored_cv_text, tailored_cl, json.dumps(job_embed), match_id, auth["email"]))
 
     return {
         "status": "success",
-        "ats_match_score": ats_score,
+        "ats_match_score": hybrid_score,
         "tailored_cv": tailored_cv_text,
         "tailored_cover_letter": tailored_cl
     }
