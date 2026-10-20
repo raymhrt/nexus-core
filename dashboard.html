@@ -263,7 +263,7 @@
                                         <input type="hidden" id="selected-job-count" value="5">
                                     </div>
                                 </div>
-                                <!-- Adjustable Match Percentage Filter Slider Control (Default 50%) -->
+                                <!-- Adjustable Match Percentage Filter Slider Control -->
                                 <div class="pt-1">
                                     <label class="block text-[11px] font-semibold text-slate-300 mb-1">Min Match Fit Filter: <span id="minFitLabel" class="text-sky-400 font-bold">50%</span></label>
                                     <input type="range" id="minMatchFitSlider" min="0" max="95" step="5" value="50" oninput="updateMinFitLabel(this.value)" onchange="loadCareerMatches()" class="w-full accent-sky-400 cursor-pointer">
@@ -1845,6 +1845,9 @@
             const locations = document.getElementById('targetJobLocations').value.trim();
             const job_count = parseInt(document.getElementById('selected-job-count').value) || 5;
             
+            // Read current value from the match fit filter slider dynamically
+            const min_fit = parseInt(document.getElementById('minMatchFitSlider')?.value || 70, 10);
+            
             localStorage.setItem('nexus_target_roles', target_roles);
             localStorage.setItem('nexus_target_locations', locations);
 
@@ -1865,7 +1868,7 @@
                 const res = await fetch('/api/v1/career/criteria', {
                     method: 'POST',
                     headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ target_roles, locations, job_count })
+                    body: JSON.stringify({ target_roles, locations, job_count, min_fit })
                 });
                 const data = await res.json();
                 if (res.ok) {
@@ -1963,21 +1966,24 @@
                     });
 
                     // Triggered when scouting completes or yields no results
-                    sseEventSource.addEventListener("career_swarm_update", (event) => {
-                        const data = JSON.parse(event.data);
-                        statusTitle.textContent = "Swarm Operation Complete";
-                        statusMsg.textContent = data.message;
+                    const handleSwarmCompletion = (event) => {
+                        try {
+                            const data = JSON.parse(event.data);
+                            if (statusTitle) statusTitle.textContent = "Swarm Operation Complete";
+                            if (statusMsg) statusMsg.textContent = data.message || "Swarm completed successfully.";
+                        } catch(e) {}
+
+                        // Immediately hide the persistent loading banner
+                        if (banner) banner.style.display = "none";
                         
-                        // Hide banner after 5 seconds once completed and reload matches
-                        setTimeout(() => {
-                            banner.style.display = "none";
-                            if (typeof fetchCareerMatches === 'function') {
-                                fetchCareerMatches(); // Automatically refresh your job matches grid
-                            } else if (typeof loadCareerMatches === 'function') {
-                                loadCareerMatches();
-                            }
-                        }, 5000);
-                    });
+                        // Immediately reload matches using the current UI slider threshold
+                        if (typeof loadCareerMatches === 'function') {
+                            loadCareerMatches();
+                        }
+                    };
+
+                    sseEventSource.addEventListener("career_swarm_update", handleSwarmCompletion);
+                    sseEventSource.addEventListener("swarm_completed", handleSwarmCompletion);
 
                     sseEventSource.onmessage = function(event) {
                         try {
