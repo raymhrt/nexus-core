@@ -253,15 +253,26 @@ def extract_json_safely(raw_text: str, default: Any = None) -> Any:
         return default
 
 def generate_text_embedding(text: str) -> List[float]:
+    """
+    Generates a deterministic frequency vector based on vocabulary hashes
+    so cosine similarity actually correlates with text and keyword overlap.
+    """
     try:
-        hasher = hashlib.sha256(text.encode('utf-8'))
-        seed = int(hasher.hexdigest(), 16) % (2**32)
-        np.random.seed(seed)
-        vec = np.random.normal(0, 1, 768)
+        stopwords = {"the", "and", "for", "with", "that", "this", "from", "you", "your", "are", "have", "will", "our", "all", "can", "role", "team", "company", "work", "job", "years", "experience", "skills", "ability"}
+        words = [w for w in re.findall(r'\b[a-z]{3,}\b', text.lower()) if w not in stopwords]
+        
+        if not words:
+            return [0.0] * 256
+            
+        vec = np.zeros(256, dtype=float)
+        for w in words:
+            idx = int(hashlib.md5(w.encode('utf-8')).hexdigest(), 16) % 256
+            vec[idx] += 1.0
+            
         norm = np.linalg.norm(vec)
-        return (vec / norm).tolist() if norm > 0 else [0.0] * 768
+        return (vec / norm).tolist() if norm > 0 else [0.0] * 256
     except Exception:
-        return [0.0] * 768
+        return [0.0] * 256
 
 def validate_real_world_job(job: dict) -> bool:
     if not job.get("job_title") or not job.get("company_name"):
@@ -271,12 +282,17 @@ def validate_real_world_job(job: dict) -> bool:
     desc_lower = job.get("job_description", "").lower()
     text_blob = f"{title_lower} {desc_lower}"
     
-    mock_markers = ["test job", "lorem ipsum", "placeholder", "foo bar", "example company"]
+    mock_markers = ["test job", "lorem ipsum", "placeholder", "foo bar", "example company", "sample vacancy"]
     if any(m in text_blob for m in mock_markers):
         return False
         
-    # Hard negative keyword filter to block completely unrelated sectors (e.g. Geology, Mining, Packaging, Civil)
-    forbidden_keywords = ["geology", "geologist", "mining", "packaging", "automotive mechanic", "civil engineer", "accounting", "tax specialist"]
+    # Expanded negative keyword filter to block completely unrelated sectors
+    forbidden_keywords = [
+        "geology", "geologist", "mining", "packaging", "automotive mechanic", 
+        "civil engineer", "accounting", "tax specialist", "nurse", "nursing", 
+        "retail assistant", "cashier", "waiter", "bartender", "real estate agent",
+        "sales representative", "insurance broker", "call center"
+    ]
     if any(fk in title_lower for fk in forbidden_keywords):
         return False
 
@@ -404,7 +420,7 @@ def get_domain_scaling_parameters(user_domain: str) -> tuple:
 def calculate_hybrid_match_score(job_description: str, tailored_cv_text: str, user_profile: Optional[dict] = None, user_embedding: Optional[List[float]] = None, job_embedding: Optional[List[float]] = None, candidate_skills: Optional[list] = None) -> int:
     """
     Computes an accurate match score by blending semantic conceptual fit 
-    with precise technical skill intersection.
+    with filtered technical skill intersection.
     """
     try:
         if not user_embedding:
@@ -420,31 +436,30 @@ def calculate_hybrid_match_score(job_description: str, tailored_cv_text: str, us
         norm_j = np.linalg.norm(vec_j)
         
         if norm_u == 0 or norm_j == 0:
-            semantic_score = 50.0
+            semantic_score = 40.0
         else:
             cosine_similarity = float(dot_product / (norm_u * norm_j))
             semantic_score = max(0.0, min(1.0, cosine_similarity)) * 100.0
 
-        # Technical Skill Overlap Precision
+        # Filtered Technical Skill Overlap (Excluding Stopwords)
+        stopwords = {"the", "and", "for", "with", "that", "this", "from", "you", "your", "are", "have", "will", "our", "all", "can", "role", "team", "company", "work", "job", "years", "experience", "skills", "ability", "position", "candidate"}
+        
         jd_lower = job_description.lower()
-        if not candidate_skills:
-            candidate_skills = re.findall(r'\b[a-z]{3,}\b', tailored_cv_text.lower())
-            
-        cand_lower = {s.lower().strip() for s in candidate_skills}
-        jd_words = set(re.findall(r'\b[a-z]{4,}\b', jd_lower))
+        jd_words = {w for w in re.findall(r'\b[a-z]{4,}\b', jd_lower) if w not in stopwords}
+        cand_words = {w for w in re.findall(r'\b[a-z]{4,}\b', tailored_cv_text.lower()) if w not in stopwords}
         
         if jd_words:
-            overlap = len(jd_words.intersection(cand_lower)) / len(jd_words)
-            skill_score = min(100.0, overlap * 250.0) # Scaled density overlap
+            overlap = len(jd_words.intersection(cand_words)) / len(jd_words)
+            skill_score = min(100.0, overlap * 300.0)
         else:
-            skill_score = 70.0
+            skill_score = 50.0
 
-        # Weighted Blend: 60% Semantic Domain Fit + 40% Technical Precision
-        final_score = int(round((0.60 * semantic_score) + (0.40 * skill_score)))
-        return max(20, min(99, final_score))
+        # Weighted Blend: 50% Semantic Domain Fit + 50% Technical Precision
+        final_score = int(round((0.50 * semantic_score) + (0.50 * skill_score)))
+        return max(15, min(98, final_score))
     except Exception as e:
         logger.error(f"Error in hybrid match scoring: {e}")
-        return 70
+        return 50
 
 def calculate_ats_compliance_score(tailored_cv_text: str, job_description: str) -> int:
     """
@@ -1134,41 +1149,26 @@ def recursive_org_chart_decision_maker_discovery(company_name: str, job_title: s
 
 async def ai_adaptable_role_expansion(target_roles: str, user_profile_json: Optional[str] = None) -> List[str]:
     prompt = f"""
-    You are Agent 1 (Senior Search Strategist). Analyze the user's target roles and master CV profile to construct highly intelligent, flexible search queries.
+    You are Agent 1 (Senior Search Strategist). Analyze the user's target roles and master CV profile to construct precise, high-intent search queries.
     Target Roles: "{target_roles}"
     User Master Profile / CV: {user_profile_json or 'None Provided'}
 
-    Generate a JSON array of 12 to 15 clean, atomic search phrases. Include both specific multi-word domain titles and broader single-word or dual-word core competencies.
+    Generate a JSON array of 6 to 8 clean, multi-word search phrases (e.g., "Senior Python Developer", "Backend Software Engineer", "Data Scientist"). NEVER generate overly broad single-word terms like "Developer" or "Engineer".
     Return ONLY a valid JSON array of strings (no markdown backticks, raw JSON only).
     """
     try:
         raw_ai = call_groq_ai(prompt, system_prompt="You are an expert recruitment data engineer returning raw JSON arrays.")
         phrases = extract_json_safely(raw_ai, [])
         if isinstance(phrases, list) and phrases:
-            cleaned = []
-            for p in phrases:
-                p_str = str(p).strip()
-                p_clean = re.sub(r'[^a-zA-Z0-9\s]', ' ', p_str)
-                p_clean = re.sub(r'\s+', ' ', p_clean).strip()
-                if len(p_clean) > 2 and len(p_clean.split()) <= 4:
-                    cleaned.append(p_clean)
+            cleaned = [str(p).strip() for p in phrases if len(str(p).strip()) > 4 and len(str(p).strip().split()) >= 2]
             if cleaned:
                 return cleaned
     except Exception as e:
         logger.warning(f"AI role expansion fallback triggered due to: {e}")
 
-    derived_terms = []
-    for chunk in re.split(r'[-–—:,/]+', target_roles):
-        c_clean = re.sub(r'[^a-zA-Z0-9\s]', ' ', chunk)
-        c_clean = re.sub(r'\s+', ' ', c_clean).strip()
-        if len(c_clean) > 3:
-            derived_terms.append(c_clean)
-            words = c_clean.split()
-            if len(words) > 1:
-                derived_terms.append(words[-1])
-                derived_terms.append(" ".join(words[-2:]))
-    
-    return list(set(derived_terms))
+    # Fallback: keep multi-word phrases only, discarding single-word explosions
+    derived_terms = [r.strip() for r in target_roles.split(',') if len(r.strip()) > 3 and len(r.strip().split()) >= 2]
+    return derived_terms if derived_terms else ["Software Engineer", "Technical Specialist"]
 
 async def multi_tenant_job_infiltration(target_roles: str, location: str, count: int, user_profile_json: Optional[str] = None) -> List[Dict]:
     ai_variations = await ai_adaptable_role_expansion(target_roles, user_profile_json)
