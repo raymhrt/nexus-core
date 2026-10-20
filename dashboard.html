@@ -26,6 +26,9 @@
         ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 3px; }
         ::-webkit-scrollbar-thumb:hover { background: #334155; }
         canvas.radar-bg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 0; opacity: 0.3; }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body class="bg-[#070b14] text-slate-100 min-h-screen flex antialiased selection:bg-sky-500 selection:text-slate-950 relative overflow-x-hidden">
@@ -117,6 +120,19 @@
 
         <!-- Scrollable Content Area -->
         <main class="flex-1 p-6 md:p-8 max-w-7xl w-full mx-auto space-y-6">
+
+            <!-- Swarm Live Loading & Telemetry Banner -->
+            <div id="swarm-loading-banner" style="display: none; background: linear-gradient(135deg, rgba(2, 132, 199, 0.15), rgba(15, 23, 42, 0.9)); border: 1px solid #0284c7; border-radius: 8px; padding: 12px 20px; margin-bottom: 20px; align-items: center; justify-content: space-between;">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <!-- Pulsing Loading Spinner -->
+                    <div class="spinner" style="width: 20px; height: 20px; border: 3px solid rgba(2, 132, 199, 0.3); border-top-color: #0284c7; border-radius: 50%; animation: spin 1s linear infinite;"></div>
+                    <div>
+                        <div id="swarm-status-title" style="font-weight: 600; color: #38bdf8; font-size: 14px;">Swarm Active: Scouting In Progress...</div>
+                        <div id="swarm-status-msg" style="color: #94a3b8; font-size: 12px;">Connecting to global multi-source feeds and running AI vector evaluations.</div>
+                    </div>
+                </div>
+                <div id="swarm-badge" style="background: rgba(2, 132, 199, 0.2); color: #38bdf8; padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 500;">Live Telemetry</div>
+            </div>
 
             <!-- Global Authentication Bar (API Key) -->
             <div class="bento-card p-4 rounded-2xl flex flex-col md:flex-row items-center gap-4 shadow-xl">
@@ -1910,14 +1926,17 @@
             }
         }
 
-        // --- UPDATED SSE AUTO-RECONNECTION & TERMINAL COMPLETION LISTENER ---
+        // --- UPDATED SSE AUTO-RECONNECTION & TELEMETRY LISTENER INTEGRATION ---
         function initSSETelemetry() {
             const sseBadge = document.getElementById('sse-status-badge');
+            const banner = document.getElementById("swarm-loading-banner");
+            const statusMsg = document.getElementById("swarm-status-msg");
+            const statusTitle = document.getElementById("swarm-status-title");
             
             function connect() {
                 if (isTerminalPaused) return;
                 try {
-                    sseEventSource = new EventSource('/api/v1/career/telemetry/stream');
+                    sseEventSource = new EventSource("/api/v1/stream/telemetry");
                     
                     sseEventSource.onopen = function() {
                         reconnectAttempts = 0;
@@ -1926,6 +1945,39 @@
                             sseBadge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span><span>Telemetry Connected</span>`;
                         }
                     };
+
+                    // Triggered when criteria is submitted & swarm launches
+                    sseEventSource.addEventListener("multi_tenant_launched", (event) => {
+                        const data = JSON.parse(event.data);
+                        banner.style.display = "flex";
+                        statusTitle.textContent = "Swarm Deployed 🚀";
+                        statusMsg.textContent = `Target roles initialized for ${data.roles} in ${data.locations}.`;
+                    });
+
+                    // Triggered during live scraping & evaluation steps
+                    sseEventSource.addEventListener("multi_tenant_telemetry", (event) => {
+                        const data = JSON.parse(event.data);
+                        banner.style.display = "flex";
+                        statusTitle.textContent = "Swarm Infiltration Active...";
+                        statusMsg.textContent = data.message;
+                    });
+
+                    // Triggered when scouting completes or yields no results
+                    sseEventSource.addEventListener("career_swarm_update", (event) => {
+                        const data = JSON.parse(event.data);
+                        statusTitle.textContent = "Swarm Operation Complete";
+                        statusMsg.textContent = data.message;
+                        
+                        // Hide banner after 5 seconds once completed and reload matches
+                        setTimeout(() => {
+                            banner.style.display = "none";
+                            if (typeof fetchCareerMatches === 'function') {
+                                fetchCareerMatches(); // Automatically refresh your job matches grid
+                            } else if (typeof loadCareerMatches === 'function') {
+                                loadCareerMatches();
+                            }
+                        }, 5000);
+                    });
 
                     sseEventSource.onmessage = function(event) {
                         try {
@@ -1936,24 +1988,9 @@
                                 return;
                             }
 
-                            // Optional: Update live telemetry text on status headers
                             if (payload.event === 'multi_tenant_telemetry' && payload.data && payload.data.message) {
                                 const statusText = document.getElementById('swarm-status-text');
                                 if (statusText) statusText.innerText = payload.data.message;
-                            }
-
-                            // Handle terminal swarm completion events from backend
-                            if (payload.event === 'career_swarm_update' || payload.status) {
-                                const status = payload.data?.status || payload.status;
-                                const msg = payload.data?.message || payload.message || "Scouting process updated.";
-
-                                if (status === 'scouted' || status === 'completed') {
-                                    showToast("Swarm finished scanning! Refreshing matches...");
-                                    loadCareerMatches(); // Automatically fetches and renders the new jobs
-                                } else if (status === 'no_matches' || status === 'no_jobs') {
-                                    showNotification(msg, 'warning');
-                                    loadCareerMatches();
-                                }
                             }
                         } catch (e) {
                             if (typeof event.data === 'string' && event.data.includes('"event":"ping"')) {
@@ -2017,7 +2054,7 @@
                     "Indexing LinkedIn vector search results...",
                     "Evaluating fit score across matched competencies...",
                     "APScheduler task heartbeat received: 0 errors.",
-                    "Uvicorn telemetry endpoint active at /api/v1/career/matches."
+                    "Uvicorn telemetry endpoint active at /api/v1/stream/telemetry."
                 ];
                 appendTerminalLog(events[Math.floor(Math.random() * events.length)]);
             }, 8000);
