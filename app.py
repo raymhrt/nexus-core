@@ -1254,61 +1254,40 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
             raw_url = job.get('ats_portal_url', '#')
             desc = job.get('job_description', '')
 
-            # --- HARD DOMAIN MISMATCH CHECK (Cross-Industry Guardrail) ---
-            # Prevents life sciences / biotech candidates from matching mining, geology, agriculture, or food processing roles.
-            job_text_blob = f"{role} {desc}".lower()
-            
-            # Keywords representing unrelated heavy industries or distinct domains
-            unrelated_domain_markers = [
-                "geophysicist", "geology", "geologist", "mining", "copperbelt", "pome fruit", 
-                "packhouse", "horticulture", "agronomy", "civil engineer", "accounting", "tax specialist",
-                "automotive mechanic", "welder", "nurse", "pharmacist", "veterinary"
-            ]
-            
-            # Check if job requires a distinct non-biotech/non-lab domain not found in a molecular biology CV
-            is_cross_industry_mismatch = any(marker in job_text_blob for marker in unrelated_domain_markers)
-            
-            if is_cross_industry_mismatch:
-                # Force a failing fit score so it gets filtered out by your minimum match filter
-                return {
-                    "company_name": company,
-                    "job_title": role,
-                    "job_description": desc,
-                    "location": job.get('location', "Global"),
-                    "fit_score": 15, # Hard rejection score
-                    "ats_compliance_score": 30,
-                    "track": "Domain Mismatch",
-                    "seniority_fit": "N/A",
-                    "match_rationale": json.dumps(["Cross-industry mismatch: Job requires specialized domain expertise outside candidate's core molecular biology and R&D background."]),
-                    "matched_requirements": [],
-                    "transferable_gaps": ["Completely different industry sector requirement."],
-                    "critical_missing": ["Core domain professional degree and industry experience."],
-                    "top_rejection_risks": ["Industry sector mismatch"],
-                    "decision_maker_name": "Talent Acquisition",
-                    "decision_maker_title": "Hiring Team",
-                    "decision_maker_email": "",
-                    "warm_intro_pathway": "Direct Portal",
-                    "outreach_draft": "",
-                    "salary_benchmark": "N/A",
-                    "negotiation_strategy": "",
-                    "cv_variant": profile_content,
-                    "cover_letter_variant": "",
-                    "interview_playbook": json.dumps([]),
-                    "ats_portal_url": sanitize_ats_url(raw_url, role, company),
-                    "embedding": generate_text_embedding(f"{role} {company} {desc}")
-                }
-            # -------------------------------------------------------------
+            # --- DYNAMIC MULTI-TENANT DOMAIN VALIDATION ---
+            # Retrieve the tenant's specific domain from their profile context or database
+            user_domain = "general"
+            if user_profile_context and user_profile_context.get("domain"):
+                user_domain = user_profile_context.get("domain").lower()
+            else:
+                # Fallback check from database if not passed explicitly
+                try:
+                    with db_transaction_scope() as (_, cursor):
+                        if DATABASE_URL:
+                            cursor.execute("SELECT domain FROM user_profiles WHERE email = %s", (email,))
+                        else:
+                            cursor.execute("SELECT domain FROM user_profiles WHERE email = ?", (email,))
+                        row = cursor.fetchone()
+                        if row:
+                            user_domain = (row["domain"] if isinstance(row, dict) else row[0]).lower()
+                except Exception:
+                    pass
 
-            eval_prompt = f"""Evaluate this job for candidate email {email}. 
+            # Pass the tenant's specific domain into the AI prompt so it acts as an intelligent domain filter
+            eval_prompt = f"""Evaluate this job for candidate email {email} whose core professional domain is '{user_domain}'. 
+
 Master CV:
 {profile_content}
 
 Job Description:
 {desc}
 
+CRITICAL MULTI-TENANT DOMAIN RULE:
+If this job requires an entirely different core professional industry or distinct professional license/degree (e.g., a mining job for a software engineer, or a clinical medical job for an accountant) that the candidate's master CV fundamentally does not support, you MUST set "fit_score" to 15 and list the sector mismatch in "critical_missing".
+
 Return strict JSON with these exact keys:
 - "fit_score": integer (0 to 100)
-- "match_rationale": ["Detailed sentence 1 explaining exact technical overlap", "Detailed sentence 2 connecting master CV research to job requirements"]
+- "match_rationale": ["Detailed sentence 1 explaining exact technical overlap", "Detailed sentence 2 connecting master CV background to job requirements"]
 - "matched_strengths": ["Specific technical skill or publication match 1", "Specific tool or methodology match 2"]
 - "transferable_gaps": ["Specific minor gap 1"]
 - "critical_missing": ["Specific missing requirement if any"]
@@ -1326,8 +1305,12 @@ Return strict JSON with these exact keys:
             transferable_gaps_list = eval_data.get('transferable_gaps', [])
             matched_strengths_list = eval_data.get('matched_strengths', eval_data.get('matched_requirements', []))
             
-            penalty = (len(critical_missing_list) * 5) + (len(transferable_gaps_list) * 2)
-            final_fit_score = max(20, min(99, ai_fit_score - penalty))
+            # Hard rejection if AI detects a fundamental cross-domain mismatch
+            if ai_file_score_is_mismatch := (ai_fit_score < 25):
+                final_fit_score = 15
+            else:
+                penalty = (len(critical_missing_list) * 5) + (len(transferable_gaps_list) * 2)
+                final_fit_score = max(20, min(99, ai_fit_score - penalty))
 
             tailored_cv_text = sanitize_cv_text(eval_data.get('tailored_cv') or profile_content)
             ats_score = calculate_ats_compliance_score(tailored_cv_text, desc)
