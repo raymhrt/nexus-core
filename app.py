@@ -1238,7 +1238,24 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
             raw_url = job.get('ats_portal_url', '#')
             desc = job.get('job_description', '')
 
-            eval_prompt = f"Evaluate this job for candidate email {email}. Master CV:\n{profile_content}\n\nJob Description:\n{desc}\n\nReturn JSON with fit_score, matched_strengths, transferable_gaps, critical_missing."
+            eval_prompt = f"""Evaluate this job for candidate email {email}. 
+Master CV:
+{profile_content}
+
+Job Description:
+{desc}
+
+Return strict JSON with these exact keys:
+- "fit_score": integer (0 to 100)
+- "matched_strengths": ["Strength 1", "Strength 2"]
+- "transferable_gaps": ["Gap 1"]
+- "critical_missing": ["Missing requirement 1"]
+- "track": "Primary Track Name"
+- "seniority_fit": "Senior"
+- "match_rationale": ["Explanation sentence 1"]
+- "tailored_cv": "Markdown CV"
+- "tailored_cover_letter": "Markdown cover letter"
+"""
             loop = asyncio.get_running_loop()
             raw_eval = await loop.run_in_executor(None, call_groq_ai, eval_prompt, "You are an expert recruitment AI returning precise JSON.")
             eval_data = extract_json_safely(raw_eval, {})
@@ -1246,10 +1263,11 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
             ai_fit_score = safe_int(eval_data.get('fit_score'), 70)
             critical_missing_list = eval_data.get('critical_missing', [])
             transferable_gaps_list = eval_data.get('transferable_gaps', [])
+            matched_strengths_list = eval_data.get('matched_strengths', eval_data.get('matched_requirements', []))
             
-            # SOFTENED PENALTY CALCULATION (Prevents drop to 15%)
-            penalty = (len(critical_missing_list) * 3) + (len(transferable_gaps_list) * 1)
-            final_fit_score = max(40, min(99, ai_fit_score - penalty))
+            # Accurate penalty calculation
+            penalty = (len(critical_missing_list) * 5) + (len(transferable_gaps_list) * 2)
+            final_fit_score = max(20, min(99, ai_fit_score - penalty))
 
             tailored_cv_text = sanitize_cv_text(eval_data.get('tailored_cv') or profile_content)
             ats_score = calculate_ats_compliance_score(tailored_cv_text, desc)
@@ -1266,7 +1284,7 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
                 "track": eval_data.get('track', 'Adaptive Domain Core'),
                 "seniority_fit": eval_data.get('seniority_fit', 'Senior'),
                 "match_rationale": json.dumps(eval_data.get('match_rationale', ["Functional congruence confirmed."])),
-                "matched_requirements": eval_data.get('matched_strengths', []),
+                "matched_requirements": matched_strengths_list,
                 "transferable_gaps": transferable_gaps_list,
                 "critical_missing": critical_missing_list,
                 "top_rejection_risks": eval_data.get('top_rejection_risks', []),
@@ -1748,9 +1766,9 @@ def get_career_matches(min_fit: int = Query(0, ge=0, le=100), user=Depends(verif
             except Exception:
                 return [val]
 
-        matched_arr = parse_json_array(m.get("matched_requirements"), ["Core Domain Competency"])
-        transferable_arr = parse_json_array(m.get("transferable_gaps"), ["Secondary Toolchain Adaptation"])
-        critical_arr = parse_json_array(m.get("critical_missing"), ["Specific Enterprise Certification"])
+        matched_arr = parse_json_array(m.get("matched_requirements"), [])
+        transferable_arr = parse_json_array(m.get("transferable_gaps"), [])
+        critical_arr = parse_json_array(m.get("critical_missing"), [])
 
         normalized_matches.append({
             "id": m.get("id"),
@@ -1762,11 +1780,9 @@ def get_career_matches(min_fit: int = Query(0, ge=0, le=100), user=Depends(verif
             "rationale": rat,
             "match_rationale": rat,
             "matched_requirements": matched_arr,
-            "matched_requirements_count": len(matched_arr),
+            "matched_strengths": matched_arr, # Added alias for frontend compatibility
             "transferable_gaps": transferable_arr,
-            "transferable_gaps_count": len(transferable_arr),
             "critical_missing": critical_arr,
-            "critical_missing_count": len(critical_arr),
             "networking_target_name": dm_name,
             "decision_maker_name": dm_name,
             "networking_target_role": dm_role,
