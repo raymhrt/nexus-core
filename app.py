@@ -266,13 +266,24 @@ def generate_text_embedding(text: str) -> List[float]:
 def validate_real_world_job(job: dict) -> bool:
     if not job.get("job_title") or not job.get("company_name"):
         return False
-    text_blob = f"{job.get('job_title', '')} {job.get('company_name', '')}".lower()
+        
+    title_lower = job.get("job_title", "").lower()
+    desc_lower = job.get("job_description", "").lower()
+    text_blob = f"{title_lower} {desc_lower}"
+    
     mock_markers = ["test job", "lorem ipsum", "placeholder", "foo bar", "example company"]
     if any(m in text_blob for m in mock_markers):
         return False
+        
+    # Hard negative keyword filter to block completely unrelated sectors (e.g. Geology, Mining, Packaging, Civil)
+    forbidden_keywords = ["geology", "geologist", "mining", "packaging", "automotive mechanic", "civil engineer", "accounting", "tax specialist"]
+    if any(fk in title_lower for fk in forbidden_keywords):
+        return False
+
     url = job.get("ats_portal_url", "")
     if not url.startswith("http://") and not url.startswith("https://"):
         return False
+        
     return True
 
 def sanitize_ats_url(url: str, role_title: str, company_name: str) -> str:
@@ -381,6 +392,11 @@ def get_domain_scaling_parameters(user_domain: str) -> tuple:
         "backend_engineering": (95, 5),
         "frontend_engineering": (90, 10),
         "product_management": (80, 20),
+        "biotechnology": (92, 8),
+        "life_sciences": (92, 8),
+        "medical": (92, 8),
+        "finance": (90, 10),
+        "legal": (88, 12),
         "general": (90, 10)
     }
     return domain_weights.get(user_domain.lower(), (90, 10))
@@ -1247,12 +1263,12 @@ Job Description:
 
 Return strict JSON with these exact keys:
 - "fit_score": integer (0 to 100)
-- "matched_strengths": ["Strength 1", "Strength 2"]
-- "transferable_gaps": ["Gap 1"]
-- "critical_missing": ["Missing requirement 1"]
+- "match_rationale": ["Detailed sentence 1 explaining exact technical overlap", "Detailed sentence 2 connecting master CV research to job requirements"]
+- "matched_strengths": ["Specific technical skill or publication match 1", "Specific tool or methodology match 2"]
+- "transferable_gaps": ["Specific minor gap 1"]
+- "critical_missing": ["Specific missing requirement if any"]
 - "track": "Primary Track Name"
 - "seniority_fit": "Senior"
-- "match_rationale": ["Explanation sentence 1"]
 - "tailored_cv": "Markdown CV"
 - "tailored_cover_letter": "Markdown cover letter"
 """
@@ -1265,7 +1281,6 @@ Return strict JSON with these exact keys:
             transferable_gaps_list = eval_data.get('transferable_gaps', [])
             matched_strengths_list = eval_data.get('matched_strengths', eval_data.get('matched_requirements', []))
             
-            # Accurate penalty calculation
             penalty = (len(critical_missing_list) * 5) + (len(transferable_gaps_list) * 2)
             final_fit_score = max(20, min(99, ai_fit_score - penalty))
 
@@ -1780,7 +1795,7 @@ def get_career_matches(min_fit: int = Query(0, ge=0, le=100), user=Depends(verif
             "rationale": rat,
             "match_rationale": rat,
             "matched_requirements": matched_arr,
-            "matched_strengths": matched_arr, # Added alias for frontend compatibility
+            "matched_strengths": matched_arr,  # Aliased for frontend UI compatibility
             "transferable_gaps": transferable_arr,
             "critical_missing": critical_arr,
             "networking_target_name": dm_name,
@@ -2261,7 +2276,7 @@ async def save_career_criteria(payload: CareerCriteriaInput, background_tasks: B
         requested_count=payload.job_count,
         target_locations=payload.locations,
         target_roles=payload.target_roles,
-        min_match_score=payload.min_match_score # Pass filter down to worker
+        min_match_score=payload.min_match_score  # <--- Passes the exact filter from UI
     )
     
     await sse_broker.broadcast("multi_tenant_launched", {"user": auth["email"], "roles": payload.target_roles, "locations": payload.locations})
