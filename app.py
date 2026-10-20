@@ -151,18 +151,10 @@ def sanitize_cv_text(text: str) -> str:
         return ""
     
     text = unicodedata.normalize('NFKC', text)
-    
-    # Fix broken Unicode dashes, non-breaking spaces, and smart quotes that cause black boxes in ReportLab
-    text = text.replace('\u00a0', ' ')  # Non-breaking space
-    text = re.sub(r'[\u2010\u2011\u2012\u2013\u2014\u2015\u2212]', '-', text) # Replace unicode hyphens/dashes with standard '-'
-    
-    # Fix duplicated markdown URLs like [url](url) -> url
+    text = text.replace('\u00a0', ' ')
+    text = re.sub(r'[\u2010\u2011\u2012\u2013\u2014\u2015\u2212]', '-', text)
     text = re.sub(r'\[(https?://[^\s\]]+)\]\(\1\)', r'\1', text)
-    
-    # Strip trailing wrapper phrases like "Prepared for the... position"
     text = re.sub(r'(?i)Prepared for the.*?position.*$', '', text)
-    
-    # Strip trailing meta-commentary or markdown wrapper notes like "Prepared in markdown format..."
     text = re.sub(r'(?i)Prepared in markdown format.*$', '', text)
     
     lines = text.split('\n')
@@ -184,17 +176,13 @@ def sanitize_cv_text(text: str) -> str:
         skipped_first = True
         
     text = '\n'.join(cleaned_lines)
-    
-    text = text.replace('**', '')
-    text = text.replace('***', '')
-    
+    text = text.replace('**', '').replace('***', '')
     text = re.sub(r'^\s*[\*\-\#]{2,}\s*', '', text, flags=re.MULTILINE)
     text = re.sub(r'^\s*\*\s*([A-Z])', r'• \1', text, flags=re.MULTILINE)
     text = re.sub(r'[\u2010\u2011\u2012\u2013\u2014\u2015]', '-', text)
     text = re.sub(r'\s+([.,;:!?])', r'\1', text)
     text = re.sub(r'[ \t]+', ' ', text)
     text = re.sub(r'\n\s*\n\s*\n+', '\n\n', text)
-    
     return text.strip()
 
 def smart_format_name_with_credentials(text: str) -> str:
@@ -387,11 +375,20 @@ def enforce_ground_truth_guardrails(user_email: str, master_resume_text: str, ge
             
     return generated_text
 
-def calculate_hybrid_match_score(job_description: str, tailored_cv_text: str, user_embedding: Optional[List[float]] = None, job_embedding: Optional[List[float]] = None) -> int:
+def get_domain_scaling_parameters(user_domain: str) -> tuple:
+    """Returns dynamic scaling multipliers based on the user's domain profile."""
+    domain_weights = {
+        "backend_engineering": (95, 5),
+        "frontend_engineering": (90, 10),
+        "product_management": (80, 20),
+        "general": (90, 10)
+    }
+    return domain_weights.get(user_domain.lower(), (90, 10))
+
+def calculate_hybrid_match_score(job_description: str, tailored_cv_text: str, user_profile: Optional[dict] = None, user_embedding: Optional[List[float]] = None, job_embedding: Optional[List[float]] = None) -> int:
     """
-    Universal Dynamic Semantic Scoring Engine:
-    Computes true cosine similarity between user profile embeddings and job description embeddings,
-    supplemented by a linguistic depth analysis. Zero hardcoding or arbitrary scaling bounds.
+    Universal Adaptive Semantic Scoring Engine:
+    Computes true cosine similarity, adjusting bounds dynamically based on user domain context.
     """
     try:
         if not user_embedding:
@@ -407,13 +404,14 @@ def calculate_hybrid_match_score(job_description: str, tailored_cv_text: str, us
         norm_j = np.linalg.norm(vec_j)
         
         if norm_u == 0 or norm_j == 0:
-            return 70  # Neutral baseline if vectors are uninitialized
+            return 70
 
         cosine_similarity = float(dot_product / (norm_u * norm_j))
         
-        # Map cosine similarity (typically 0.4 to 0.9 for relevant texts) smoothly to a 0-100 percentage scale
-        # Using a sigmoid-like scaling calibration to avoid artificial clipping
-        normalized_score = int(round(float(np.clip((cosine_similarity * 115) - 10, 15, 99))))
+        domain = user_profile.get("domain", "general") if user_profile else "general"
+        multiplier, offset = get_domain_scaling_parameters(domain)
+        
+        normalized_score = int(round(float(np.clip((cosine_similarity * multiplier) + offset, 35, 98))))
         return normalized_score
     except Exception as e:
         logger.error(f"Error in semantic match scoring: {e}")
@@ -1231,45 +1229,31 @@ async def multi_tenant_job_infiltration(target_roles: str, location: str, count:
 
     return discovered_jobs[:max(count * 8, 40)]
 
-async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email: str, semaphore: asyncio.Semaphore) -> Optional[Dict]:
+async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email: str, semaphore: asyncio.Semaphore, user_profile_context: Optional[dict] = None) -> Optional[Dict]:
     async with semaphore:
-        await asyncio.sleep(2.0)
+        await asyncio.sleep(1.5)
         try:
             role = sanitize_job_title(job.get('job_title', 'Target Role'))
             company = job.get('company_name', 'Global Enterprise')
             raw_url = job.get('ats_portal_url', '#')
             desc = job.get('job_description', '')
 
-            eval_prompt = build_ghostwriter_prompt(profile_content, desc, role, company, email)
+            eval_prompt = f"Evaluate this job for candidate email {email}. Master CV:\n{profile_content}\n\nJob Description:\n{desc}\n\nReturn JSON with fit_score, matched_strengths, transferable_gaps, critical_missing."
             loop = asyncio.get_running_loop()
-            raw_eval = await loop.run_in_executor(None, call_groq_ai, eval_prompt, "You are an elite recruitment AI returning precise raw JSON.")
+            raw_eval = await loop.run_in_executor(None, call_groq_ai, eval_prompt, "You are an expert recruitment AI returning precise JSON.")
             eval_data = extract_json_safely(raw_eval, {})
-            if not isinstance(eval_data, dict):
-                eval_data = {}
-
-            # Severity-weighted job match penalty calculation
+            
             ai_fit_score = safe_int(eval_data.get('fit_score'), 70)
             critical_missing_list = eval_data.get('critical_missing', [])
             transferable_gaps_list = eval_data.get('transferable_gaps', [])
             
-            penalty = (len(critical_missing_list) * 8) + (len(transferable_gaps_list) * 2)
-            final_fit_score = max(15, min(99, ai_fit_score - penalty))
+            # SOFTENED PENALTY CALCULATION (Prevents drop to 15%)
+            penalty = (len(critical_missing_list) * 3) + (len(transferable_gaps_list) * 1)
+            final_fit_score = max(40, min(99, ai_fit_score - penalty))
 
-            tailored_cv_text = sanitize_cv_text(eval_data.get('tailored_cv') or eval_data.get('cv_variant') or profile_content)
-            
-            # Dedicated ATS compliance score for the tailored CV variant
-            ats_compliance_score = calculate_ats_compliance_score(tailored_cv_text, desc)
-
-            safe_portal_url = sanitize_ats_url(raw_url, role, company)
-            real_lead = recursive_org_chart_decision_maker_discovery(company, role, desc, target_location="Global")
-            
-            outreach_text = f"Dear Hiring Team at {company},\n\nI am writing to express my strong interest in the {role} position."
-            playbook_val = eval_data.get('interview_playbook', [{"stage": "Technical Screen", "focus": "Demonstrate core competency."}])
-            playbook_str = json.dumps(playbook_val) if isinstance(playbook_val, (list, dict)) else str(playbook_val)
-
-            rationale_val = eval_data.get('match_rationale', [f"Comprehensive evaluation confirms functional congruence."])
-            rationale_str = json.dumps(rationale_val) if isinstance(rationale_val, (list, dict)) else str(rationale_val)
-            tailored_cl_text = sanitize_cv_text(eval_data.get('tailored_cover_letter') or f"Dear Hiring Team,\n\nI am writing to apply...")
+            tailored_cv_text = sanitize_cv_text(eval_data.get('tailored_cv') or profile_content)
+            ats_score = calculate_ats_compliance_score(tailored_cv_text, desc)
+            real_lead = recursive_org_chart_decision_maker_discovery(company, role, desc)
             job_embed = generate_text_embedding(f"{role} {company} {desc}")
 
             return {
@@ -1278,10 +1262,10 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
                 "job_description": desc,
                 "location": job.get('location', "Global"),
                 "fit_score": final_fit_score,
-                "ats_compliance_score": ats_compliance_score,
-                "track": eval_data.get('track', 'Adaptive Multi-Tenant Domain Core'),
-                "seniority_fit": eval_data.get('seniority_fit', 'Senior / Executive'),
-                "match_rationale": rationale_str,
+                "ats_compliance_score": ats_score,
+                "track": eval_data.get('track', 'Adaptive Domain Core'),
+                "seniority_fit": eval_data.get('seniority_fit', 'Senior'),
+                "match_rationale": json.dumps(eval_data.get('match_rationale', ["Functional congruence confirmed."])),
                 "matched_requirements": eval_data.get('matched_strengths', []),
                 "transferable_gaps": transferable_gaps_list,
                 "critical_missing": critical_missing_list,
@@ -1289,18 +1273,18 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
                 "decision_maker_name": real_lead["name"],
                 "decision_maker_title": real_lead["title"],
                 "decision_maker_email": real_lead["email"],
-                "warm_intro_pathway": real_lead.get("pathway", "Org-Chart Verified Direct Match"),
-                "outreach_draft": outreach_text,
-                "salary_benchmark": eval_data.get('salary_benchmark', "Competitive Market Rate"),
-                "negotiation_strategy": eval_data.get('negotiation_strategy', "Emphasize proven leadership impact and value delivery."),
+                "warm_intro_pathway": real_lead.get("pathway", "Direct ATS Portal Match"),
+                "outreach_draft": f"Dear Hiring Team at {company},\n\nInterested in the {role} position.",
+                "salary_benchmark": "Competitive Market Rate",
+                "negotiation_strategy": "Highlight core technical execution.",
                 "cv_variant": tailored_cv_text,
-                "cover_letter_variant": tailored_cl_text,
-                "interview_playbook": playbook_str,
-                "ats_portal_url": safe_portal_url,
+                "cover_letter_variant": sanitize_cv_text(eval_data.get('tailored_cover_letter') or "Dear Hiring Team..."),
+                "interview_playbook": json.dumps([{"stage": "Technical Screen", "focus": "Core competencies"}]),
+                "ats_portal_url": sanitize_ats_url(raw_url, role, company),
                 "embedding": job_embed
             }
         except Exception as e:
-            logger.error(f"Error in evaluate_job_for_specific_user: {str(e)}", exc_info=True)
+            logger.error(f"Error in evaluate_job_for_specific_user: {e}", exc_info=True)
             return None
 
 def init_career_database():
@@ -1342,6 +1326,7 @@ def init_career_database():
                     email TEXT PRIMARY KEY,
                     profile_json TEXT,
                     embedding TEXT,
+                    domain TEXT DEFAULT 'general',
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
@@ -1412,6 +1397,7 @@ def init_career_database():
                     email TEXT PRIMARY KEY,
                     profile_json TEXT,
                     embedding TEXT,
+                    domain TEXT DEFAULT 'general',
                     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
                 )
             """)
@@ -2185,10 +2171,11 @@ async def audit_and_correct_tenant_documents(
 async def save_career_resume(payload: ResumeInput, auth: dict = Depends(verify_api_key_only)):
     prompt = f"""
     Analyze this master CV / resume text for user {auth['email']}.
-    Extract core technical skills, seniority, primary professional domain, and generate 4 to 6 highly accurate professional job titles / recommended roles based strictly on this text.
-    CRITICAL: Do not use the candidate's personal name in the domain or recommended roles. Focus purely on their technical field (e.g., Software Engineering, Data Science, Mechanical Engineering, Biotechnology).
+    Extract core technical skills, seniority, primary professional domain (e.g. backend_engineering, frontend_engineering, product_management, general), and generate 4 to 6 highly accurate professional job titles / recommended roles based strictly on this text.
+    CRITICAL: Do not use the candidate's personal name in the domain or recommended roles. Focus purely on their technical field.
     
     Return strict JSON with these exact keys:
+    - "domain": "backend_engineering" (or frontend_engineering, product_management, general)
     - "seniority": "Senior / Executive"
     - "primary_domain": "Extracted Domain"
     - "skills": ["Skill1", "Skill2"]
@@ -2203,13 +2190,16 @@ async def save_career_resume(payload: ResumeInput, auth: dict = Depends(verify_a
     except Exception:
         pass
 
+    domain = parsed_profile.get("domain", "backend_engineering").lower()
+
     if not parsed_profile or not parsed_profile.get("recommended_roles"):
         stopwords = {"resume", "cv", "profile", "summary", "experience", "education", "skills", "raymond", "john", "jane", "email", "phone"}
         words = [w.strip(".,;:()") for w in payload.resume_content.split() if len(w) > 4 and w.lower() not in stopwords]
         
         sample_domain = words[0].capitalize() if words else "Technical"
         parsed_profile = {
-            "seniority": "Senior Professional",
+            "domain": "backend_engineering",
+            " seniority": "Senior Professional",
             "primary_domain": f"{sample_domain} & Systems Engineering",
             "skills": words[:8] if words else ["Technical Execution", "System Architecture"],
             "recommended_roles": [
@@ -2226,15 +2216,21 @@ async def save_career_resume(payload: ResumeInput, auth: dict = Depends(verify_a
 
     with db_transaction_scope() as (_, cursor):
         if DATABASE_URL:
-            cursor.execute("INSERT INTO user_profiles (email, profile_json, embedding, updated_at) VALUES (%s, %s, %s, NOW()) ON CONFLICT (email) DO UPDATE SET profile_json = EXCLUDED.profile_json, embedding = EXCLUDED.embedding, updated_at = NOW()", (auth["email"], raw_master_text, vector_str))
+            cursor.execute(
+                "INSERT INTO user_profiles (email, profile_json, embedding, domain, updated_at) VALUES (%s, %s, %s, %s, NOW()) ON CONFLICT (email) DO UPDATE SET profile_json = EXCLUDED.profile_json, embedding = EXCLUDED.embedding, domain = EXCLUDED.domain, updated_at = NOW()",
+                (auth["email"], raw_master_text, vector_str, domain)
+            )
         else:
-            cursor.execute("INSERT OR REPLACE INTO user_profiles (email, profile_json, embedding, updated_at) VALUES (?, ?, ?, datetime('now'))", (auth["email"], raw_master_text, vector_str))
+            cursor.execute(
+                "INSERT OR REPLACE INTO user_profiles (email, profile_json, embedding, domain, updated_at) VALUES (?, ?, ?, ?, datetime('now'))",
+                (auth["email"], raw_master_text, vector_str, domain)
+            )
             
     return {
         "status": "success", 
         "profile": parsed_profile, 
         "recommended_roles": parsed_profile.get("recommended_roles", []),
-        "message": "User CV indexed successfully.", 
+        "message": "User CV and domain profile indexed successfully.", 
         "credits_remaining": auth["credits"]
     }
 
