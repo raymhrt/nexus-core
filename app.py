@@ -1462,7 +1462,6 @@ def verify_api_key_only(x_api_key: str = Header(...), request: Request = None):
 async def isolated_user_job_scouting_worker(user_email: str, requested_count: int, target_locations: str, target_roles: str, min_match_score: int = 40):
     saved_count = 0
     await sse_broker.broadcast("multi_tenant_telemetry", {"user": user_email, "message": f"Executing live infiltration for {user_email} (Minimum Fit Filter: {min_match_score}%)..."})
-
     try:
         with db_transaction_scope() as (_, cursor):
             if DATABASE_URL:
@@ -1685,7 +1684,7 @@ def get_credits(user=Depends(verify_api_key_only)):
     return {"status": "success", "credits": user["credits"], "limit": user["limit"], "tier": user["tier"]}
 
 @app.get("/api/v1/career/matches")
-def get_career_matches(min_fit: int = Query(0, ge=0, le=100), user=Depends(verify_api_key_only)):
+def get_career_matches(min_fit: int = Query(40, ge=0, le=100), user=Depends(verify_api_key_only)):
     with db_transaction_scope() as (_, cursor):
         if DATABASE_URL:
             sql = """
@@ -2225,7 +2224,7 @@ async def save_career_criteria(payload: CareerCriteriaInput, background_tasks: B
         requested_count=payload.job_count,
         target_locations=payload.locations,
         target_roles=payload.target_roles,
-        min_match_score=payload.min_match_score # Pass filter down to worker
+        min_match_score=payload.min_match_score  # <-- Ensure this is passed correctly!
     )
     
     await sse_broker.broadcast("multi_tenant_launched", {"user": auth["email"], "roles": payload.target_roles, "locations": payload.locations})
