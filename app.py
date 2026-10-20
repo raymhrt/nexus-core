@@ -401,10 +401,10 @@ def get_domain_scaling_parameters(user_domain: str) -> tuple:
     }
     return domain_weights.get(user_domain.lower(), (90, 10))
 
-def calculate_hybrid_match_score(job_description: str, tailored_cv_text: str, user_profile: Optional[dict] = None, user_embedding: Optional[List[float]] = None, job_embedding: Optional[List[float]] = None) -> int:
+def calculate_hybrid_match_score(job_description: str, tailored_cv_text: str, user_profile: Optional[dict] = None, user_embedding: Optional[List[float]] = None, job_embedding: Optional[List[float]] = None, candidate_skills: Optional[list] = None) -> int:
     """
-    Universal Adaptive Semantic Scoring Engine:
-    Computes true cosine similarity, adjusting bounds dynamically based on user domain context.
+    Computes an accurate match score by blending semantic conceptual fit 
+    with precise technical skill intersection.
     """
     try:
         if not user_embedding:
@@ -420,18 +420,31 @@ def calculate_hybrid_match_score(job_description: str, tailored_cv_text: str, us
         norm_j = np.linalg.norm(vec_j)
         
         if norm_u == 0 or norm_j == 0:
-            return 70
+            semantic_score = 50.0
+        else:
+            cosine_similarity = float(dot_product / (norm_u * norm_j))
+            semantic_score = max(0.0, min(1.0, cosine_similarity)) * 100.0
 
-        cosine_similarity = float(dot_product / (norm_u * norm_j))
+        # Technical Skill Overlap Precision
+        jd_lower = job_description.lower()
+        if not candidate_skills:
+            candidate_skills = re.findall(r'\b[a-z]{3,}\b', tailored_cv_text.lower())
+            
+        cand_lower = {s.lower().strip() for s in candidate_skills}
+        jd_words = set(re.findall(r'\b[a-z]{4,}\b', jd_lower))
         
-        domain = user_profile.get("domain", "general") if user_profile else "general"
-        multiplier, offset = get_domain_scaling_parameters(domain)
-        
-        normalized_score = int(round(float(np.clip((cosine_similarity * multiplier) + offset, 35, 98))))
-        return normalized_score
+        if jd_words:
+            overlap = len(jd_words.intersection(cand_lower)) / len(jd_words)
+            skill_score = min(100.0, overlap * 250.0) # Scaled density overlap
+        else:
+            skill_score = 70.0
+
+        # Weighted Blend: 60% Semantic Domain Fit + 40% Technical Precision
+        final_score = int(round((0.60 * semantic_score) + (0.40 * skill_score)))
+        return max(20, min(99, final_score))
     except Exception as e:
-        logger.error(f"Error in semantic match scoring: {e}")
-        return 75
+        logger.error(f"Error in hybrid match scoring: {e}")
+        return 70
 
 def calculate_ats_compliance_score(tailored_cv_text: str, job_description: str) -> int:
     """
@@ -1550,14 +1563,18 @@ async def isolated_user_job_scouting_worker(user_email: str, requested_count: in
         for job in raw_jobs[:10]:
             evaluated = await evaluate_job_for_specific_user(job, profile_content, user_email, AI_EVAL_SEMAPHORE)
             if evaluated:
-                # STRICTLY ENFORCE MINIMUM FIT SCORE FILTER
+                # STRICTLY ENFORCE UI FILTER THRESHOLD (No hardcoded overrides)
                 score = safe_int(evaluated.get('fit_score'), 0)
                 if score >= min_match_score:
                     valid_results.append(evaluated)
             await asyncio.sleep(7.0) 
 
         if not valid_results:
-            await sse_broker.broadcast("career_swarm_update", {"user": user_email, "status": "no_matches", "message": f"Scouting complete. No jobs met or exceeded your {min_match_score}% match filter threshold."})
+            await sse_broker.broadcast("career_swarm_update", {
+                "user": user_email, 
+                "status": "no_matches", 
+                "message": f"Scouting complete. No jobs met or exceeded your configured {min_match_score}% match filter threshold."
+            })
             return
 
         # Sort evaluated matches strictly by highest fit score first

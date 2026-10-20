@@ -1845,11 +1845,20 @@
             const locations = document.getElementById('targetJobLocations').value.trim();
             const job_count = parseInt(document.getElementById('selected-job-count').value) || 5;
             
-            // Read current value from the match fit filter slider dynamically
             const min_fit = parseInt(document.getElementById('minMatchFitSlider')?.value || 70, 10);
             
             localStorage.setItem('nexus_target_roles', target_roles);
             localStorage.setItem('nexus_target_locations', locations);
+
+            // SHOW BANNER IMMEDIATELY WHEN THE SWARM STARTS LOOKING
+            const banner = document.getElementById("swarm-loading-banner");
+            const statusTitle = document.getElementById("swarm-status-title");
+            const statusMsg = document.getElementById("swarm-status-msg");
+            if (banner) {
+                banner.style.display = "flex";
+                if (statusTitle) statusTitle.textContent = "Swarm Active: Scouting In Progress...";
+                if (statusMsg) statusMsg.textContent = "Connecting to global multi-source feeds and running AI vector evaluations.";
+            }
 
             const container = document.getElementById('jobMatchesContainer');
             if (container) {
@@ -1882,6 +1891,7 @@
             } catch (err) {
                 btn.innerHTML = `❌ Error`; 
                 showToast(err.message || "Network request failed.", true);
+                if (banner) banner.style.display = "none";
                 setTimeout(() => { 
                     btn.innerHTML = originalText; 
                     btn.disabled = false; 
@@ -1952,20 +1962,20 @@
                     // Triggered when criteria is submitted & swarm launches
                     sseEventSource.addEventListener("multi_tenant_launched", (event) => {
                         const data = JSON.parse(event.data);
-                        banner.style.display = "flex";
-                        statusTitle.textContent = "Swarm Deployed 🚀";
-                        statusMsg.textContent = `Target roles initialized for ${data.roles} in ${data.locations}.`;
+                        if (banner) banner.style.display = "flex";
+                        if (statusTitle) statusTitle.textContent = "Swarm Deployed 🚀";
+                        if (statusMsg) statusMsg.textContent = `Target roles initialized for ${data.roles || 'target roles'} in ${data.locations || 'target locations'}.`;
                     });
 
                     // Triggered during live scraping & evaluation steps
                     sseEventSource.addEventListener("multi_tenant_telemetry", (event) => {
                         const data = JSON.parse(event.data);
-                        banner.style.display = "flex";
-                        statusTitle.textContent = "Swarm Infiltration Active...";
-                        statusMsg.textContent = data.message;
+                        if (banner) banner.style.display = "flex";
+                        if (statusTitle) statusTitle.textContent = "Swarm Infiltration Active...";
+                        if (statusMsg) statusMsg.textContent = data.message;
                     });
 
-                    // Triggered when scouting completes or yields no results
+                    // Triggered when scouting completes: Hides banner and displays newly found jobs
                     const handleSwarmCompletion = (event) => {
                         try {
                             const data = JSON.parse(event.data);
@@ -1973,10 +1983,10 @@
                             if (statusMsg) statusMsg.textContent = data.message || "Swarm completed successfully.";
                         } catch(e) {}
 
-                        // Immediately hide the persistent loading banner
+                        // HIDE THE BANNER WHEN NEW JOBS ARE FOUND
                         if (banner) banner.style.display = "none";
                         
-                        // Immediately reload matches using the current UI slider threshold
+                        // RELOAD MATCHES TO DISPLAY THE NEWLY FOUND JOBS
                         if (typeof loadCareerMatches === 'function') {
                             loadCareerMatches();
                         }
@@ -1989,7 +1999,6 @@
                         try {
                             const payload = JSON.parse(event.data);
                             
-                            // Filter heartbeat pings
                             if (payload.event === 'ping' || payload.type === 'ping' || payload.status === 'ping') {
                                 return;
                             }
