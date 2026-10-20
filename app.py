@@ -1138,6 +1138,9 @@ async def multi_tenant_job_infiltration(target_roles: str, location: str, count:
         if len(discovered_jobs) >= count * 15:
             break
         try:
+            # Add a random human-like delay between searches to evade bot detection
+            await asyncio.sleep(random.uniform(4.0, 8.0))
+            
             df_jobs = await loop.run_in_executor(
                 None, 
                 lambda: scrape_jobs(
@@ -1164,7 +1167,7 @@ async def multi_tenant_job_infiltration(target_roles: str, location: str, count:
                         seen_urls.add(job_item["ats_portal_url"])
                         discovered_jobs.append(job_item)
         except Exception as e:
-            logger.error(f"JobSpy scraping exception for term '{term}': {e}")
+            logger.warning(f"JobSpy scraper blocked or rate-limited for term '{term}': {e}. Continuing with alternative sources...")
 
     if len(discovered_jobs) < count:
         countries_to_try = ["za", "us"] if is_sa_search else ["us"]
@@ -1488,11 +1491,10 @@ async def isolated_user_job_scouting_worker(user_email: str, requested_count: in
         for job in raw_jobs[:10]:
             evaluated = await evaluate_job_for_specific_user(job, profile_content, user_email, AI_EVAL_SEMAPHORE)
             if evaluated:
-                # STRICTLY ENFORCE MINIMUM FIT SCORE FILTER
                 score = safe_int(evaluated.get('fit_score'), 0)
                 if score >= min_match_score:
                     valid_results.append(evaluated)
-            await asyncio.sleep(7.0) 
+            await asyncio.sleep(15.0) # Increased from 7.0s to 15.0s to respect rate windows 
 
         if not valid_results:
             await sse_broker.broadcast("career_swarm_update", {"user": user_email, "status": "no_matches", "message": f"Scouting complete. No jobs met or exceeded your {min_match_score}% match filter threshold."})
