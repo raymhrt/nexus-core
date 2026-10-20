@@ -325,10 +325,10 @@ def call_groq_ai(prompt: str, system_prompt: str = "You are the complete multi-t
 
     headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
     payload = {
-        "model": "openai/gpt-oss-120b",
+        "model": "llama-3.1-8b-instant",  # Swapped from gpt-oss-120b to higher-TPM model
         "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}],
         "temperature": 0.2,
-        "max_tokens": 8192  # Increased from 4096 to prevent truncation of tail sections
+        "max_tokens": 4096
     }
 
     max_retries = 5
@@ -1488,13 +1488,15 @@ async def isolated_user_job_scouting_worker(user_email: str, requested_count: in
         await sse_broker.broadcast("multi_tenant_telemetry", {"user": user_email, "message": f"Discovered {len(raw_jobs)} positions. Running paced AI vector evaluations..."})
         
         valid_results = []
-        for job in raw_jobs[:10]:
+        # Restrict batch size per run to stay well within Groq rate windows
+        for job in raw_jobs[:3]:
             evaluated = await evaluate_job_for_specific_user(job, profile_content, user_email, AI_EVAL_SEMAPHORE)
             if evaluated:
                 score = safe_int(evaluated.get('fit_score'), 0)
                 if score >= min_match_score:
                     valid_results.append(evaluated)
-            await asyncio.sleep(15.0) # Increased from 7.0s to 15.0s to respect rate windows 
+            # Enforce a mandatory 15-second breathing room to completely prevent Groq 429s
+            await asyncio.sleep(15.0)
 
         if not valid_results:
             await sse_broker.broadcast("career_swarm_update", {"user": user_email, "status": "no_matches", "message": f"Scouting complete. No jobs met or exceeded your {min_match_score}% match filter threshold."})
