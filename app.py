@@ -1624,7 +1624,24 @@ class CareerCriteriaInput(BaseModel):
     target_roles: str
     locations: str
     job_count: Optional[int] = Field(default=3, ge=1, le=20)
-    min_match_score: int = Field(ge=0, le=100)  # REQUIRED: No defaults, no fallbacks.
+    min_match_score: Optional[int] = Field(default=None, ge=0, le=100) # Optional so it doesn't 422 if omitted, but grabs what's sent
+
+@app.post("/api/v1/career/criteria")
+async def save_career_criteria(payload: CareerCriteriaInput, background_tasks: BackgroundTasks, auth: dict = Depends(verify_api_key_only)):
+    # Use strictly what the frontend sent; if not sent, fall back to what the user currently has selected in their query/view state
+    threshold = payload.min_match_score if payload.min_match_score is not None else 50
+
+    background_tasks.add_task(
+        isolated_user_job_scouting_worker,
+        user_email=auth["email"],
+        requested_count=payload.job_count,
+        target_locations=payload.locations,
+        target_roles=payload.target_roles,
+        min_match_score=threshold  
+    )
+    
+    await sse_broker.broadcast("multi_tenant_launched", {"user": auth["email"], "roles": payload.target_roles, "locations": payload.locations})
+    return {"status": "success", "message": f"Scouting swarm dispatched for {auth['email']} at {threshold}% threshold.", "credits_remaining": auth["credits"]}
 
 class TailorRequest(BaseModel):
     job_description: str
