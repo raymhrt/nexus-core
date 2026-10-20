@@ -1271,7 +1271,6 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
             if user_profile_context and user_profile_context.get("domain"):
                 user_domain = user_profile_context.get("domain").lower()
 
-            # --- CRITICAL FIX: FORCE UNIQUE JOB DESCRIPTION PARSING ---
             eval_prompt = f"""
             You are an expert executive recruiter and technical hiring manager.
             Analyze the candidate's Master CV against THIS SPECIFIC JOB POSTING. Do not generate generic summaries. Tailor the strengths, transferable gaps, and rationale strictly based on the provided job description text.
@@ -1285,14 +1284,14 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
 
             Return strict JSON with these exact keys:
             - "fit_score": integer (0 to 100)
-            - "match_rationale": ["Detailed sentence 1 explaining exact technical overlap with this specific posting", "Detailed sentence 2 connecting master CV background to job requirements"]
-            - "matched_strengths": ["Specific technical skill or publication from CV matching this JD 1", "Specific tool or methodology matching this JD 2"]
-            - "transferable_gaps": ["Specific gap or missing tool mentioned in this specific JD 1"]
-            - "critical_missing": ["Specific missing requirement from this specific JD if any"]
-            - "track": "Primary Track Name"
-            - "seniority_fit": "Senior"
-            - "tailored_cv": "Tailored Markdown CV for this specific role"
-            - "tailored_cover_letter": "Tailored cover letter for this specific role"
+            - "match_rationale": [string, string]
+            - "matched_strengths": [string, string, ...]
+            - "transferable_gaps": [string, ...]
+            - "critical_missing": [string, ...]
+            - "track": string
+            - "seniority_fit": string
+            - "tailored_cv": string
+            - "tailored_cover_letter": string
             """
             
             loop = asyncio.get_running_loop()
@@ -1303,7 +1302,7 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
             critical_missing_list = eval_data.get('critical_missing', [])
             transferable_gaps_list = eval_data.get('transferable_gaps', [])
             
-            # Ensure unique extraction from LLM response
+            # Ensure strengths are cleanly extracted and structured as a list
             matched_strengths_list = eval_data.get('matched_strengths') or eval_data.get('matched_requirements', [])
             if not isinstance(matched_strengths_list, list):
                 matched_strengths_list = [str(matched_strengths_list)]
@@ -1326,7 +1325,7 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
                 "track": eval_data.get('track', 'Adaptive Domain Core'),
                 "seniority_fit": eval_data.get('seniority_fit', 'Senior'),
                 "match_rationale": json.dumps(eval_data.get('match_rationale', ["Functional congruence confirmed."])),
-                "matched_requirements": matched_strengths_list,
+                "matched_requirements": matched_strengths_list,  # Stored cleanly as a JSON list array
                 "transferable_gaps": transferable_gaps_list,
                 "critical_missing": critical_missing_list,
                 "top_rejection_risks": eval_data.get('top_rejection_risks', []),
@@ -1534,8 +1533,7 @@ def verify_api_key_only(x_api_key: str = Header(...), request: Request = None):
 
 async def isolated_user_job_scouting_worker(user_email: str, requested_count: int, target_locations: str, target_roles: str, min_match_score: int = 60):
     saved_count = 0
-    # Now it dynamically uses whatever score was passed from the UI criterion
-    await sse_broker.broadcast("multi_tenant_telemetry", {"user": user_email, "message": f"Executing live infiltration for {user_email} (Minimum Fit Filter: {min_match_score}%)..."})
+    await sse_broker.broadcast("multi_tenant_telemetry", {"user": user_email, "message": f"Executing live infiltration for {user_email} (Minimum Fit Filter Set To: {min_match_score}%)..."})
 
     try:
         with db_transaction_scope() as (_, cursor):
@@ -1563,10 +1561,22 @@ async def isolated_user_job_scouting_worker(user_email: str, requested_count: in
         for job in raw_jobs[:10]:
             evaluated = await evaluate_job_for_specific_user(job, profile_content, user_email, AI_EVAL_SEMAPHORE)
             if evaluated:
-                # STRICTLY ENFORCE UI FILTER THRESHOLD (No hardcoded overrides)
                 score = safe_int(evaluated.get('fit_score'), 0)
+                
+                # STRICTLY FILTER TELEMETRY AND MATCHES AGAINST USER'S UI CRITERIA
                 if score >= min_match_score:
                     valid_results.append(evaluated)
+                    # Broadcast live telemetry event only for jobs meeting the active filter threshold
+                    await sse_broker.broadcast("multi_tenant_telemetry", {
+                        "user": user_email, 
+                        "job_title": evaluated["job_title"],
+                        "company_name": evaluated["company_name"],
+                        "match_score": score,
+                        "message": f"Verified match: {evaluated['company_name']} ({score}% match meets {min_match_score}% filter)"
+                    })
+                else:
+                    logger.info(f"Dropping job {evaluated['job_title']} at {evaluated['company_name']} ({score}%) below user filter threshold of {min_match_score}%.")
+            
             await asyncio.sleep(7.0) 
 
         if not valid_results:
@@ -1577,7 +1587,6 @@ async def isolated_user_job_scouting_worker(user_email: str, requested_count: in
             })
             return
 
-        # Sort evaluated matches strictly by highest fit score first
         valid_results.sort(key=lambda x: x.get('fit_score', 0), reverse=True)
         evaluated_matches = valid_results[:requested_count]
 
@@ -1704,6 +1713,20 @@ class CareerCriteriaInput(BaseModel):
     locations: str
     job_count: Optional[int] = Field(default=3, ge=1, le=20)
     min_match_score: Optional[int] = Field(default=60, ge=0, le=100)
+
+class JobEvaluationResponse(BaseModel):
+    fit_score: int
+    match_rationale: List[str]
+    matched_requirements: List[str] = Field(..., alias="matched_strengths")
+    transferable_gaps: List[str]
+    critical_missing: List[str]
+    track: str
+    seniority_fit: str
+    tailored_cv: str
+    tailored_cover_letter: str
+
+    class Config:
+        populate_by_name = True
 
 class TailorRequest(BaseModel):
     job_description: str
