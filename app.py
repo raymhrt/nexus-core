@@ -1330,6 +1330,9 @@ def init_career_database():
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+
+            cursor.execute("ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS domain TEXT DEFAULT 'general';")
+
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS job_matches (
                     id SERIAL PRIMARY KEY,
