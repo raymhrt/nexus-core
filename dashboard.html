@@ -1975,7 +1975,7 @@
                         if (statusMsg) statusMsg.textContent = data.message;
                     });
 
-                    // Triggered when scouting completes: Hides banner and displays newly found jobs
+                    // Unified Completion Handler to Hide Banner and Render New Jobs
                     const handleSwarmCompletion = (event) => {
                         try {
                             const data = JSON.parse(event.data);
@@ -1990,16 +1990,25 @@
                         if (typeof loadCareerMatches === 'function') {
                             loadCareerMatches();
                         }
+                        showToast("Swarm scouting complete! New matches loaded.");
                     };
 
+                    // Bind all potential completion event names sent by backend workers
                     sseEventSource.addEventListener("career_swarm_update", handleSwarmCompletion);
                     sseEventSource.addEventListener("swarm_completed", handleSwarmCompletion);
+                    sseEventSource.addEventListener("complete", handleSwarmCompletion);
 
                     sseEventSource.onmessage = function(event) {
                         try {
                             const payload = JSON.parse(event.data);
                             
                             if (payload.event === 'ping' || payload.type === 'ping' || payload.status === 'ping') {
+                                return;
+                            }
+
+                            // Catch completion events sent over default message stream
+                            if (payload.event === 'swarm_completed' || payload.event === 'career_swarm_update' || payload.status === 'completed') {
+                                handleSwarmCompletion(event);
                                 return;
                             }
 

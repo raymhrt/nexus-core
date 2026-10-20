@@ -1611,7 +1611,7 @@ async def isolated_user_job_scouting_worker(user_email: str, requested_count: in
                     user_email,
                     safe_str(match_item.get('company_name')),
                     safe_str(match_item.get('job_title')),
-    		    safe_str(match_item.get('job_description')),
+                    safe_str(match_item.get('job_description')),
                     safe_str(match_item.get('location')),
                     safe_int(match_item.get('fit_score'), 50),
                     safe_str(match_item.get('match_rationale')),
@@ -1703,7 +1703,7 @@ class CareerCriteriaInput(BaseModel):
     target_roles: str
     locations: str
     job_count: Optional[int] = Field(default=3, ge=1, le=20)
-    min_match_score: Optional[int] = Field(default=60, ge=0, le=100) # Updated default to match UI preference
+    min_match_score: Optional[int] = Field(default=60, ge=0, le=100)
 
 class TailorRequest(BaseModel):
     job_description: str
