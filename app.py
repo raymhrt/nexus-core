@@ -1624,7 +1624,7 @@ class CareerCriteriaInput(BaseModel):
     target_roles: str
     locations: str
     job_count: Optional[int] = Field(default=3, ge=1, le=20)
-    min_match_score: Optional[int] = Field(default=40, ge=0, le=100) # Added threshold filter
+    min_match_score: int = Field(ge=0, le=100)  # REQUIRED: No defaults, no fallbacks.
 
 class TailorRequest(BaseModel):
     job_description: str
@@ -2224,11 +2224,11 @@ async def save_career_criteria(payload: CareerCriteriaInput, background_tasks: B
         requested_count=payload.job_count,
         target_locations=payload.locations,
         target_roles=payload.target_roles,
-        min_match_score=payload.min_match_score  # <-- Ensure this is passed correctly!
+        min_match_score=payload.min_match_score  # Uses strictly what was set on the frontend filter
     )
     
     await sse_broker.broadcast("multi_tenant_launched", {"user": auth["email"], "roles": payload.target_roles, "locations": payload.locations})
-    return {"status": "success", "message": f"Scouting swarm dispatched for {auth['email']}.", "credits_remaining": auth["credits"]}
+    return {"status": "success", "message": f"Scouting swarm dispatched for {auth['email']} at {payload.min_match_score}% threshold.", "credits_remaining": auth["credits"]}
 
 @app.post("/api/v1/career/matches/{match_id}/dispatch")
 async def dispatch_career_outreach(match_id: int, payload: OutreachDispatchRequest, auth: dict = Depends(verify_api_key_only)):
