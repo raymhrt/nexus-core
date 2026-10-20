@@ -1254,6 +1254,51 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
             raw_url = job.get('ats_portal_url', '#')
             desc = job.get('job_description', '')
 
+            # --- HARD DOMAIN MISMATCH CHECK (Cross-Industry Guardrail) ---
+            # Prevents life sciences / biotech candidates from matching mining, geology, agriculture, or food processing roles.
+            job_text_blob = f"{role} {desc}".lower()
+            
+            # Keywords representing unrelated heavy industries or distinct domains
+            unrelated_domain_markers = [
+                "geophysicist", "geology", "geologist", "mining", "copperbelt", "pome fruit", 
+                "packhouse", "horticulture", "agronomy", "civil engineer", "accounting", "tax specialist",
+                "automotive mechanic", "welder", "nurse", "pharmacist", "veterinary"
+            ]
+            
+            # Check if job requires a distinct non-biotech/non-lab domain not found in a molecular biology CV
+            is_cross_industry_mismatch = any(marker in job_text_blob for marker in unrelated_domain_markers)
+            
+            if is_cross_industry_mismatch:
+                # Force a failing fit score so it gets filtered out by your minimum match filter
+                return {
+                    "company_name": company,
+                    "job_title": role,
+                    "job_description": desc,
+                    "location": job.get('location', "Global"),
+                    "fit_score": 15, # Hard rejection score
+                    "ats_compliance_score": 30,
+                    "track": "Domain Mismatch",
+                    "seniority_fit": "N/A",
+                    "match_rationale": json.dumps(["Cross-industry mismatch: Job requires specialized domain expertise outside candidate's core molecular biology and R&D background."]),
+                    "matched_requirements": [],
+                    "transferable_gaps": ["Completely different industry sector requirement."],
+                    "critical_missing": ["Core domain professional degree and industry experience."],
+                    "top_rejection_risks": ["Industry sector mismatch"],
+                    "decision_maker_name": "Talent Acquisition",
+                    "decision_maker_title": "Hiring Team",
+                    "decision_maker_email": "",
+                    "warm_intro_pathway": "Direct Portal",
+                    "outreach_draft": "",
+                    "salary_benchmark": "N/A",
+                    "negotiation_strategy": "",
+                    "cv_variant": profile_content,
+                    "cover_letter_variant": "",
+                    "interview_playbook": json.dumps([]),
+                    "ats_portal_url": sanitize_ats_url(raw_url, role, company),
+                    "embedding": generate_text_embedding(f"{role} {company} {desc}")
+                }
+            # -------------------------------------------------------------
+
             eval_prompt = f"""Evaluate this job for candidate email {email}. 
 Master CV:
 {profile_content}
@@ -1505,8 +1550,9 @@ def verify_api_key_only(x_api_key: str = Header(...), request: Request = None):
         "ip": client_ip
     }
 
-async def isolated_user_job_scouting_worker(user_email: str, requested_count: int, target_locations: str, target_roles: str, min_match_score: int = 40):
+async def isolated_user_job_scouting_worker(user_email: str, requested_count: int, target_locations: str, target_roles: str, min_match_score: int = 60):
     saved_count = 0
+    # Now it dynamically uses whatever score was passed from the UI criterion
     await sse_broker.broadcast("multi_tenant_telemetry", {"user": user_email, "message": f"Executing live infiltration for {user_email} (Minimum Fit Filter: {min_match_score}%)..."})
 
     try:
@@ -1671,7 +1717,7 @@ class CareerCriteriaInput(BaseModel):
     target_roles: str
     locations: str
     job_count: Optional[int] = Field(default=3, ge=1, le=20)
-    min_match_score: Optional[int] = Field(default=40, ge=0, le=100) # Added threshold filter
+    min_match_score: Optional[int] = Field(default=60, ge=0, le=100) # Updated default to match UI preference
 
 class TailorRequest(BaseModel):
     job_description: str
