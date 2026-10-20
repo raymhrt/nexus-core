@@ -419,6 +419,35 @@ def calculate_hybrid_match_score(job_description: str, tailored_cv_text: str, us
         logger.error(f"Error in semantic match scoring: {e}")
         return 75
 
+def calculate_ats_compliance_score(tailored_cv_text: str, job_description: str) -> int:
+    """
+    Analyzes how well the tailored CV variant fits against enterprise ATS parsing standards:
+    - Standard section headers (Summary, Experience, Education, Skills)
+    - Clean formatting structure
+    - Keyword overlap density against the job description
+    """
+    if not tailored_cv_text or len(tailored_cv_text.strip()) < 100:
+        return 30
+
+    score = 65
+    text_lower = tailored_cv_text.lower()
+    jd_lower = job_description.lower()
+
+    required_sections = ["professional summary", "experience", "education", "skills"]
+    found_sections = sum(1 for sec in required_sections if sec in text_lower)
+    score += (found_sections * 6)
+
+    jd_words = set(re.findall(r'\b[a-z]{4,}\b', jd_lower))
+    cv_words = set(re.findall(r'\b[a-z]{4,}\b', text_lower))
+    if jd_words:
+        overlap = len(jd_words.intersection(cv_words)) / len(jd_words)
+        score += int(overlap * 20)
+
+    if "http" not in text_lower and "@" not in text_lower:
+        score -= 10
+
+    return max(20, min(99, score))
+
 def clean_contact_line(line: str, user_email: str) -> str:
     if not line:
         return f"{user_email}"
@@ -1212,78 +1241,58 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
             desc = job.get('job_description', '')
 
             eval_prompt = build_ghostwriter_prompt(profile_content, desc, role, company, email)
-
             loop = asyncio.get_running_loop()
             raw_eval = await loop.run_in_executor(None, call_groq_ai, eval_prompt, "You are an elite recruitment AI returning precise raw JSON.")
-            
             eval_data = extract_json_safely(raw_eval, {})
-
-            if not eval_data or not isinstance(eval_data, dict):
+            if not isinstance(eval_data, dict):
                 eval_data = {}
 
-            # ==========================================
-            # MULTI-DIMENSIONAL RUBRIC & SEMANTIC SCORING
-            # ==========================================
-            user_embed = generate_text_embedding(profile_content)
-            job_embed = generate_text_embedding(f"{role} {company} {desc}")
-            computed_semantic_score = calculate_hybrid_match_score(
-                desc, 
-                eval_data.get('tailored_cv', profile_content), 
-                user_embedding=user_embed, 
-                job_embedding=job_embed
-            )
-
-            ai_fit_score = safe_int(eval_data.get('fit_score'), computed_semantic_score)
-            
+            # Severity-weighted job match penalty calculation
+            ai_fit_score = safe_int(eval_data.get('fit_score'), 70)
             critical_missing_list = eval_data.get('critical_missing', [])
-            penalty = len(critical_missing_list) * 7
+            transferable_gaps_list = eval_data.get('transferable_gaps', [])
+            
+            penalty = (len(critical_missing_list) * 8) + (len(transferable_gaps_list) * 2)
             final_fit_score = max(15, min(99, ai_fit_score - penalty))
-            # ==========================================
+
+            tailored_cv_text = sanitize_cv_text(eval_data.get('tailored_cv') or eval_data.get('cv_variant') or profile_content)
+            
+            # Dedicated ATS compliance score for the tailored CV variant
+            ats_compliance_score = calculate_ats_compliance_score(tailored_cv_text, desc)
 
             safe_portal_url = sanitize_ats_url(raw_url, role, company)
             real_lead = recursive_org_chart_decision_maker_discovery(company, role, desc, target_location="Global")
             
-            intel = real_lead.get("company_intel", "")
-            if real_lead.get("has_verified_contact"):
-                outreach_text = f"Hi {real_lead['name']},\n\nI've been following {company}'s work—particularly noting your recent updates: {intel}\n\nWith my background in {role}, I would welcome a brief conversation regarding your strategic roadmap."
-            else:
-                outreach_text = f"Dear Hiring Team at {company},\n\nI am writing to express my strong interest in the {role} position."
-
-            playbook_val = eval_data.get('interview_playbook', [
-                {"stage": "Technical Screen & Competency Review", "focus": "Demonstrate hands-on experience and problem-solving."},
-                {"stage": "Methodology Deep Dive", "focus": "Discuss past projects and complex workflows."}
-            ])
+            outreach_text = f"Dear Hiring Team at {company},\n\nI am writing to express my strong interest in the {role} position."
+            playbook_val = eval_data.get('interview_playbook', [{"stage": "Technical Screen", "focus": "Demonstrate core competency."}])
             playbook_str = json.dumps(playbook_val) if isinstance(playbook_val, (list, dict)) else str(playbook_val)
 
-            rationale_val = eval_data.get('match_rationale', [f"Dynamic semantic evaluation confirms a {final_fit_score}% functional congruence between the candidate profile and target role."])
+            rationale_val = eval_data.get('match_rationale', [f"Comprehensive evaluation confirms functional congruence."])
             rationale_str = json.dumps(rationale_val) if isinstance(rationale_val, (list, dict)) else str(rationale_val)
+            tailored_cl_text = sanitize_cv_text(eval_data.get('tailored_cover_letter') or f"Dear Hiring Team,\n\nI am writing to apply...")
+            job_embed = generate_text_embedding(f"{role} {company} {desc}")
 
-            tailored_cv_text = sanitize_cv_text(eval_data.get('tailored_cv') or eval_data.get('cv_variant') or profile_content)
-            tailored_cl_text = sanitize_cv_text(eval_data.get('tailored_cover_letter') or eval_data.get('cover_letter_variant') or f"Dear Hiring Team,\n\nI am writing to express my strong interest...")
-
-            # ==========================================
-            # PLACE THE DOMAIN-AGNOSTIC RETURN BLOCK HERE:
-            # ==========================================
             return {
                 "company_name": company,
                 "job_title": role,
                 "job_description": desc,
                 "location": job.get('location', "Global"),
                 "fit_score": final_fit_score,
+                "ats_compliance_score": ats_compliance_score,
                 "track": eval_data.get('track', 'Adaptive Multi-Tenant Domain Core'),
                 "seniority_fit": eval_data.get('seniority_fit', 'Senior / Executive'),
                 "match_rationale": rationale_str,
-                "matched_requirements": eval_data.get('matched_strengths', ["Core Professional Competency", "Strategic Execution & Delivery"]),
-                "transferable_gaps": eval_data.get('transferable_gaps', ["Secondary Domain Toolchain Adaptation"]),
+                "matched_requirements": eval_data.get('matched_strengths', []),
+                "transferable_gaps": transferable_gaps_list,
                 "critical_missing": critical_missing_list,
-                "top_rejection_risks": eval_data.get('top_rejection_risks', ["Verification of enterprise-scale scope"]),
+                "top_rejection_risks": eval_data.get('top_rejection_risks', []),
                 "decision_maker_name": real_lead["name"],
                 "decision_maker_title": real_lead["title"],
                 "decision_maker_email": real_lead["email"],
                 "warm_intro_pathway": real_lead.get("pathway", "Org-Chart Verified Direct Match"),
                 "outreach_draft": outreach_text,
                 "salary_benchmark": eval_data.get('salary_benchmark', "Competitive Market Rate"),
-                "negotiation_strategy": eval_data.get('negotiation_strategy', "Emphasize proven leadership impact, domain ownership, and measurable value delivery."),
+                "negotiation_strategy": eval_data.get('negotiation_strategy', "Emphasize proven leadership impact and value delivery."),
                 "cv_variant": tailored_cv_text,
                 "cover_letter_variant": tailored_cl_text,
                 "interview_playbook": playbook_str,
@@ -2061,14 +2070,11 @@ async def tailor_user_specific_cv(
         row = cursor.fetchone()
 
     user_data = dict(row) if row and isinstance(row, dict) else ({"profile_json": row[0], "embedding": row[1]} if row else {})
-    master_resume = user_data.get("profile_json", "").strip()
-    if not master_resume:
-        master_resume = f"Candidate profile for user {auth['email']}"
+    master_resume = user_data.get("profile_json", "").strip() or f"Candidate profile for user {auth['email']}"
 
     raw_emb = user_data.get("embedding", "")
     user_embedding = json.loads(raw_emb) if raw_emb else generate_text_embedding(master_resume)
 
-    # Execute dynamic AI tailoring
     tailored_cv_markdown = sanitize_cv_text(await generate_tailored_cv(
         user_email=auth["email"],
         master_resume_text=master_resume,
@@ -2085,7 +2091,6 @@ async def tailor_user_specific_cv(
         job_description=payload.job_description
     ))
 
-    # Calculate dynamic semantic similarity score
     job_embed = generate_text_embedding(f"{payload.job_title} {payload.company_name} {payload.job_description}")
     semantic_score = calculate_hybrid_match_score(
         payload.job_description, 
@@ -2093,24 +2098,25 @@ async def tailor_user_specific_cv(
         user_embedding=user_embedding, 
         job_embedding=job_embed
     )
+    ats_score = calculate_ats_compliance_score(tailored_cv_markdown, payload.job_description)
 
     return {
         "status": "success",
-        "ats_match_score": semantic_score,
+        "ats_match_score": ats_score,
+        "fit_score": semantic_score,
         "track": "Adaptive Multi-Tenant Domain Core",
         "seniority_fit": "Senior / Executive",
-        "fit_score": semantic_score,
         "is_valid_match": True,
         "matched_strengths": ["Domain Methodology Alignment", "Core Technical Competencies"],
         "transferable_gaps": ["Secondary Toolchain Adaptation"],
         "critical_missing": [],
         "top_rejection_risks": ["Verification of enterprise-scale throughput"],
-        "match_rationale": [f"Dynamic semantic evaluation confirms a {semantic_score}% functional congruence between the candidate's master profile and the target role."],
+        "match_rationale": [f"Dynamic semantic evaluation confirms functional congruence."],
         "tailored_cv": tailored_cv_markdown,
         "tailored_cover_letter": tailored_cl,
         "salary_benchmark": "Competitive Market Rate",
         "negotiation_strategy": "Highlight proven technical ownership and method optimization impact.",
-        "interview_playbook": [{"stage": "Technical Screen", "focus": "Demonstrate end-to-end execution and problem-solving framework."}]
+        "interview_playbook": [{"stage": "Technical Screen", "focus": "Demonstrate end-to-end execution framework."}]
     }
 
 @app.post("/api/v1/career/audit-and-correct")
