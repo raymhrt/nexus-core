@@ -325,7 +325,7 @@ def call_groq_ai(prompt: str, system_prompt: str = "You are the complete multi-t
 
     headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
     payload = {
-        "model": "llama-3.1-8b-instant",  # Swapped from gpt-oss-120b to higher-TPM model
+        "model": "llama-3.3-70b-versatile",  # Valid, active Groq model ID
         "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}],
         "temperature": 0.2,
         "max_tokens": 4096
