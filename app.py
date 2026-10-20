@@ -939,25 +939,34 @@ async def audit_and_correct_tailored_documents_dynamic(
     return audit_data
 
 def build_ghostwriter_prompt(master_cv_markdown: str, target_job_description: str, target_role: str, company_name: str, user_email: str, tone: str = "executive_leader") -> str:
-    cleaned_cv = sanitize_cv_text(master_cv_markdown) if master_cv_markdown and len(master_cv_markdown.strip()) > 20 else f"Candidate Profile: Professional Technical Researcher ({user_email})."
+    cleaned_cv = sanitize_cv_text(master_cv_markdown) if master_cv_markdown and len(master_cv_markdown.strip()) > 20 else f"Candidate Profile: Professional Technical Researcher ({user_email} )."
     return f"""
-    You are an elite, uncompromised Executive Recruiter and Senior ATS Evaluation Engine.
-    Evaluate the candidate's Master CV against the target job description with absolute rigor and tailor the CV accordingly.
+    You are an elite, uncompromised Executive Recruiter, Senior ATS Evaluation Engine, and Adversarial Critic.
+    Evaluate the candidate's Master CV against the target job description with absolute rigor.
 
     TONE CALIBRATION: {tone}
     CANDIDATE EMAIL: {user_email}
 
+    ADVANCED MULTI-DIMENSIONAL EVALUATION RUBRIC:
+    Deconstruct your evaluation into these four discrete weighted dimensions:
+    1. Technical / Domain Core (30% weight): Direct subject matter expertise.
+    2. Seniority & Leadership Level (25% weight): Matching operational and managerial depth (e.g., distinguishing between hands-on lab execution vs. board-level corporate governance/holding company management).
+    3. Commercial & Business Acumen (25% weight): Evaluating whether the profile includes IP commercialization, financial modeling, technology transfer, or venture development when demanded by the role.
+    4. Regulatory & Compliance Alignment (20% weight): Checking specific legal, ISO, governance (King IV), or statutory frameworks.
+
+    ADVERSARIAL CRITIC & PENALTY HARDENING RULES:
+    - Act as a skeptical recruiter. Look actively for structural mismatches or disqualifiers (e.g., if a role requires 5 years of formal corporate IP commercialization or executive leadership not present in the candidate's operational background, cap the fit score and heavily penalize the commercial dimension).
+    - If mandatory prerequisites or executive management credentials are completely missing, explicitly list them in `critical_missing` and apply a sharp downward adjustment to the final `fit_score`. Never inflate scores based solely on general scientific keyword overlap.
+
     EVALUATION INSTRUCTIONS:
-    1. FIT SCORE (0 to 100): Calculate an objective match score. 90-98 for exceptional domain overlap, 80-89 for strong transferable skills with minor gaps, <78 for major missing core competencies.
-    2. MATCHED STRENGTHS: List 3 to 4 concrete technical or methodological overlaps found in both texts.
-    3. TRANSFERABLE GAPS: Identify secondary tool or scale gaps that the candidate can quickly bridge.
-    4. CRITICAL MISSING: List mandatory compliance, software, or degree requirements from the JD that are completely absent in the Master CV.
+    1. FIT SCORE (0 to 100): Objective multi-dimensional score derived from the rubric above.
+    2. MATCHED STRENGTHS: List concrete technical or methodological overlaps.
+    3. TRANSFERABLE GAPS: Identify secondary tool or scale gaps that can be bridged.
+    4. CRITICAL MISSING: List mandatory executive, commercial, or compliance requirements from the JD that are absent in the Master CV.
 
     ABSOLUTE ANTI-HALLUCINATION RULES:
-    1. ZERO INVENTED PERSONAS: You are strictly forbidden from inventing fake names or altering the candidate's core identity. Always retain email: {user_email}.
+    1. ZERO INVENTED PERSONAS: Always retain email: {user_email}.
     2. STRICT GROUND TRUTH: Use the actual degrees, institutions, and employment history present in the Master CV text below.
-    3. THE X-Y-Z FORMULA: Reframe the candidate's real experience using impact metrics.
-    4. 2-PAGE COMPRESSION: Keep bullets punchy, scannable, and formatted in clean Markdown.
 
     ---
     CANDIDATE MASTER CV:
@@ -972,14 +981,14 @@ def build_ghostwriter_prompt(master_cv_markdown: str, target_job_description: st
     
     RETURN STRICT JSON WITH THESE EXACT KEYS:
     - "track": Choose ONE primary track ("A. Medical Affairs / MSL", "B. Clinical Research / CRA", "C. R&D / Laboratory Science / QC", "D. Commercial / Application Scientist", "E. Leadership / Strategy")
-    - "seniority_fit": "Entry / Mid / Senior"
-    - "fit_score": integer
-    - "is_valid_match": boolean (true)
+    - "seniority_fit": "Entry / Mid / Senior / Executive"
+    - "fit_score": integer (penalized appropriately if commercial/executive requirements are missing)
+    - "is_valid_match": boolean
     - "matched_strengths": ["Strength 1", "Strength 2"]
     - "transferable_gaps": ["Gap 1"]
-    - "critical_missing": ["Missing 1"]
+    - "critical_missing": ["Missing 1", "Missing 2"]
     - "top_rejection_risks": ["Risk 1", "Risk 2"]
-    - "match_rationale": ["Detailed explanation of score"]
+    - "match_rationale": ["Detailed multi-dimensional explanation explaining why structural gaps or strengths impacted the score"]
     - "tailored_cv": "A complete, ATS-optimized 2-page Markdown CV using the candidate's actual background and degrees."
     - "tailored_cover_letter": "A compelling executive cover letter addressed to {company_name}."
     - "salary_benchmark": "Estimated compensation range"
@@ -1213,7 +1222,7 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
                 eval_data = {}
 
             # ==========================================
-            # DYNAMIC SEMANTIC VECTOR SCORING
+            # MULTI-DIMENSIONAL RUBRIC & SEMANTIC SCORING
             # ==========================================
             user_embed = generate_text_embedding(profile_content)
             job_embed = generate_text_embedding(f"{role} {company} {desc}")
@@ -1224,8 +1233,11 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
                 job_embedding=job_embed
             )
 
-            # Robust Fit Score Fallback
-            final_fit_score = safe_int(eval_data.get('fit_score'), computed_semantic_score)
+            ai_fit_score = safe_int(eval_data.get('fit_score'), computed_semantic_score)
+            
+            critical_missing_list = eval_data.get('critical_missing', [])
+            penalty = len(critical_missing_list) * 7
+            final_fit_score = max(15, min(99, ai_fit_score - penalty))
             # ==========================================
 
             safe_portal_url = sanitize_ats_url(raw_url, role, company)
@@ -1249,6 +1261,9 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
             tailored_cv_text = sanitize_cv_text(eval_data.get('tailored_cv') or eval_data.get('cv_variant') or profile_content)
             tailored_cl_text = sanitize_cv_text(eval_data.get('tailored_cover_letter') or eval_data.get('cover_letter_variant') or f"Dear Hiring Team,\n\nI am writing to express my strong interest...")
 
+            # ==========================================
+            # PLACE THE DOMAIN-AGNOSTIC RETURN BLOCK HERE:
+            # ==========================================
             return {
                 "company_name": company,
                 "job_title": role,
@@ -1258,17 +1273,17 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
                 "track": eval_data.get('track', 'Adaptive Multi-Tenant Domain Core'),
                 "seniority_fit": eval_data.get('seniority_fit', 'Senior / Executive'),
                 "match_rationale": rationale_str,
-                "matched_requirements": eval_data.get('matched_strengths', ["Core Domain Technical Competency", "Data Analysis & Stewardship"]),
-                "transferable_gaps": eval_data.get('transferable_gaps', ["Secondary Toolchain Adaptation"]),
-                "critical_missing": eval_data.get('critical_missing', []),
-                "top_rejection_risks": eval_data.get('top_rejection_risks', ["Verification of enterprise-scale throughput"]),
+                "matched_requirements": eval_data.get('matched_strengths', ["Core Professional Competency", "Strategic Execution & Delivery"]),
+                "transferable_gaps": eval_data.get('transferable_gaps', ["Secondary Domain Toolchain Adaptation"]),
+                "critical_missing": critical_missing_list,
+                "top_rejection_risks": eval_data.get('top_rejection_risks', ["Verification of enterprise-scale scope"]),
                 "decision_maker_name": real_lead["name"],
                 "decision_maker_title": real_lead["title"],
                 "decision_maker_email": real_lead["email"],
                 "warm_intro_pathway": real_lead.get("pathway", "Org-Chart Verified Direct Match"),
                 "outreach_draft": outreach_text,
                 "salary_benchmark": eval_data.get('salary_benchmark', "Competitive Market Rate"),
-                "negotiation_strategy": eval_data.get('negotiation_strategy', "Emphasize proven troubleshooting and method development impact."),
+                "negotiation_strategy": eval_data.get('negotiation_strategy', "Emphasize proven leadership impact, domain ownership, and measurable value delivery."),
                 "cv_variant": tailored_cv_text,
                 "cover_letter_variant": tailored_cl_text,
                 "interview_playbook": playbook_str,
