@@ -1299,13 +1299,24 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
             eval_data = extract_json_safely(raw_eval, {})
             
             ai_fit_score = safe_int(eval_data.get('fit_score'), 70)
-            critical_missing_list = eval_data.get('critical_missing', [])
-            transferable_gaps_list = eval_data.get('transferable_gaps', [])
             
-            # Ensure strengths are cleanly extracted and structured as a list
-            matched_strengths_list = eval_data.get('matched_strengths') or eval_data.get('matched_requirements', [])
-            if not isinstance(matched_strengths_list, list):
-                matched_strengths_list = [str(matched_strengths_list)]
+            # Robust list extraction with fallback keys and type normalization
+            def parse_list_field(data_dict, primary_key, fallback_keys):
+                val = data_dict.get(primary_key)
+                for fk in fallback_keys:
+                    if not val:
+                        val = data_dict.get(fk)
+                if not val:
+                    return []
+                if isinstance(val, list):
+                    return [str(item) for item in val if item]
+                if isinstance(val, str):
+                    return [line.strip("- •*").strip() for line in val.split("\n") if line.strip()]
+                return [str(val)]
+
+            matched_strengths_list = parse_list_field(eval_data, 'matched_strengths', ['matched_requirements', 'strengths'])
+            transferable_gaps_list = parse_list_field(eval_data, 'transferable_gaps', ['gaps', 'transferable_requirements'])
+            critical_missing_list = parse_list_field(eval_data, 'critical_missing', ['missing_requirements', 'critical_gaps'])
 
             penalty = (len(critical_missing_list) * 5) + (len(transferable_gaps_list) * 2)
             final_fit_score = max(20, min(99, ai_fit_score - penalty))
@@ -1325,7 +1336,7 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
                 "track": eval_data.get('track', 'Adaptive Domain Core'),
                 "seniority_fit": eval_data.get('seniority_fit', 'Senior'),
                 "match_rationale": json.dumps(eval_data.get('match_rationale', ["Functional congruence confirmed."])),
-                "matched_requirements": matched_strengths_list,  # Stored cleanly as a JSON list array
+                "matched_requirements": matched_strengths_list,
                 "transferable_gaps": transferable_gaps_list,
                 "critical_missing": critical_missing_list,
                 "top_rejection_risks": eval_data.get('top_rejection_risks', []),
@@ -1345,7 +1356,6 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
         except Exception as e:
             logger.error(f"Error in evaluate_job_for_specific_user: {e}", exc_info=True)
             return None
-
 def init_career_database():
     with db_transaction_scope() as (_, cursor):
         if DATABASE_URL:
