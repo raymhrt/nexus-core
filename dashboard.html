@@ -1178,7 +1178,7 @@
                 const parsedSnippet = parseCleanRationale(m.rationale || m.match_rationale);
                 
                 return `
-                    <div id="job-card-${matchId}" onclick="openMatchDrawerByIndex(${idx})" class="bento-card rounded-xl p-5 mb-4 shadow-lg hover:border-sky-500/50 transition-all cursor-pointer flex flex-col justify-between">
+                    <div id="job-card-${matchId}" onclick="openMatchDrawerByIndex(${idx})" class="bento-card rounded-xl p-5 mb-4 shadow-lg hover:border-sky-500/55 transition-all cursor-pointer flex flex-col justify-between">
                         <div>
                             <div class="flex justify-between items-start gap-3 mb-2">
                                 <div class="min-w-0 flex-1">
@@ -1840,7 +1840,7 @@
                             <i class="fa-solid fa-satellite-dish fa-spin"></i>
                         </div>
                         <h4 class="text-sm font-bold text-white">Career Swarm is Actively Scouting...</h4>
-                        <p class="text-xs text-slate-400 max-w-md mx-auto">Autonomous agents are indexing live multi-source feeds concurrently.</p>
+                        <p class="text-xs text-slate-400 max-w-md mx-auto">Autonomous agents are indexing live multi-source feeds concurrently. Telemetry stream connected.</p>
                     </div>
                 `;
             }
@@ -1853,17 +1853,26 @@
                 });
                 const data = await res.json();
                 if (res.ok) {
-                    btn.innerHTML = `✅ Swarm Deployed!`; btn.classList.add('bg-emerald-600');
+                    btn.innerHTML = `⚡ Swarm Deployed!`; 
+                    btn.classList.add('bg-emerald-600');
                     showToast(data.message || "Criteria saved & swarm deployed successfully!");
                     loadCredits();
-                    setTimeout(() => {
-                        loadCareerMatches();
-                        btn.innerHTML = originalText; btn.classList.remove('bg-emerald-600'); btn.disabled = false;
-                    }, 2000);
-                } else { throw new Error(data.detail || 'Failed to update criteria.'); }
+                } else { 
+                    throw new Error(data.detail || 'Failed to update criteria.'); 
+                }
             } catch (err) {
-                btn.innerHTML = `❌ Error`; showToast(err.message || "Network request failed.", true);
-                setTimeout(() => { btn.innerHTML = originalText; btn.disabled = false; }, 3000);
+                btn.innerHTML = `❌ Error`; 
+                showToast(err.message || "Network request failed.", true);
+                setTimeout(() => { 
+                    btn.innerHTML = originalText; 
+                    btn.disabled = false; 
+                }, 3000);
+            } finally {
+                setTimeout(() => {
+                    btn.innerHTML = originalText;
+                    btn.classList.remove('bg-emerald-600');
+                    btn.disabled = false;
+                }, 2000);
             }
         }
 
@@ -1901,7 +1910,7 @@
             }
         }
 
-        // --- UPDATED SSE AUTO-RECONNECTION & HEARTBEAT/PING FILTERING ---
+        // --- UPDATED SSE AUTO-RECONNECTION & TERMINAL COMPLETION LISTENER ---
         function initSSETelemetry() {
             const sseBadge = document.getElementById('sse-status-badge');
             
@@ -1920,19 +1929,38 @@
 
                     sseEventSource.onmessage = function(event) {
                         try {
-                            // Try parsing JSON payload to filter heartbeats/pings
-                            const data = JSON.parse(event.data);
-                            if (data.event === 'ping' || data.type === 'ping' || data.status === 'ping') {
-                                return; // Silently drop heartbeat pings from rendering in the terminal
+                            const payload = JSON.parse(event.data);
+                            
+                            // Filter heartbeat pings
+                            if (payload.event === 'ping' || payload.type === 'ping' || payload.status === 'ping') {
+                                return;
+                            }
+
+                            // Optional: Update live telemetry text on status headers
+                            if (payload.event === 'multi_tenant_telemetry' && payload.data && payload.data.message) {
+                                const statusText = document.getElementById('swarm-status-text');
+                                if (statusText) statusText.innerText = payload.data.message;
+                            }
+
+                            // Handle terminal swarm completion events from backend
+                            if (payload.event === 'career_swarm_update' || payload.status) {
+                                const status = payload.data?.status || payload.status;
+                                const msg = payload.data?.message || payload.message || "Scouting process updated.";
+
+                                if (status === 'scouted' || status === 'completed') {
+                                    showToast("Swarm finished scanning! Refreshing matches...");
+                                    loadCareerMatches(); // Automatically fetches and renders the new jobs
+                                } else if (status === 'no_matches' || status === 'no_jobs') {
+                                    showNotification(msg, 'warning');
+                                    loadCareerMatches();
+                                }
                             }
                         } catch (e) {
-                            // If it's a plain string message or non-JSON, check string content
                             if (typeof event.data === 'string' && event.data.includes('"event":"ping"')) {
                                 return;
                             }
                         }
                         
-                        // Append only meaningful telemetry logs
                         appendTerminalLog(event.data);
                     };
 
@@ -1953,16 +1981,19 @@
             connect();
         }
 
+        function showNotification(message, type = 'success') {
+            showToast(message, type === 'warning');
+        }
+
         function appendTerminalLog(message) {
             const careerLog = document.getElementById('careerTelemetryLog');
             if (!careerLog || isTerminalPaused) return;
             
-            // Clean up message display if it's JSON or a raw string
             let displayMessage = message;
             try {
                 const parsed = JSON.parse(message);
                 if (parsed.message) displayMessage = parsed.message;
-                else if (parsed.event && parsed.event !== 'ping') displayMessage = `Event: ${parsed.event}`;
+                else if (parsed.event && parsed.event !== 'ping') displayMessage = `Event: ${parsed.event} - ${JSON.stringify(parsed.data || {})}`;
             } catch(e) {}
 
             const entry = document.createElement('div');
