@@ -1254,48 +1254,34 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
             raw_url = job.get('ats_portal_url', '#')
             desc = job.get('job_description', '')
 
-            # --- DYNAMIC MULTI-TENANT DOMAIN VALIDATION ---
-            # Retrieve the tenant's specific domain from their profile context or database
             user_domain = "general"
             if user_profile_context and user_profile_context.get("domain"):
                 user_domain = user_profile_context.get("domain").lower()
-            else:
-                # Fallback check from database if not passed explicitly
-                try:
-                    with db_transaction_scope() as (_, cursor):
-                        if DATABASE_URL:
-                            cursor.execute("SELECT domain FROM user_profiles WHERE email = %s", (email,))
-                        else:
-                            cursor.execute("SELECT domain FROM user_profiles WHERE email = ?", (email,))
-                        row = cursor.fetchone()
-                        if row:
-                            user_domain = (row["domain"] if isinstance(row, dict) else row[0]).lower()
-                except Exception:
-                    pass
 
-            # Pass the tenant's specific domain into the AI prompt so it acts as an intelligent domain filter
-            eval_prompt = f"""Evaluate this job for candidate email {email} whose core professional domain is '{user_domain}'. 
+            # --- CRITICAL FIX: FORCE UNIQUE JOB DESCRIPTION PARSING ---
+            eval_prompt = f"""
+            You are an expert executive recruiter and technical hiring manager.
+            Analyze the candidate's Master CV against THIS SPECIFIC JOB POSTING. Do not generate generic summaries. Tailor the strengths, transferable gaps, and rationale strictly based on the provided job description text.
 
-Master CV:
-{profile_content}
+            CANDIDATE MASTER CV:
+            {profile_content}
 
-Job Description:
-{desc}
+            TARGET JOB: {role} at {company}
+            EXACT JOB DESCRIPTION & REQUIREMENTS:
+            {desc}
 
-CRITICAL MULTI-TENANT DOMAIN RULE:
-If this job requires an entirely different core professional industry or distinct professional license/degree (e.g., a mining job for a software engineer, or a clinical medical job for an accountant) that the candidate's master CV fundamentally does not support, you MUST set "fit_score" to 15 and list the sector mismatch in "critical_missing".
-
-Return strict JSON with these exact keys:
-- "fit_score": integer (0 to 100)
-- "match_rationale": ["Detailed sentence 1 explaining exact technical overlap", "Detailed sentence 2 connecting master CV background to job requirements"]
-- "matched_strengths": ["Specific technical skill or publication match 1", "Specific tool or methodology match 2"]
-- "transferable_gaps": ["Specific minor gap 1"]
-- "critical_missing": ["Specific missing requirement if any"]
-- "track": "Primary Track Name"
-- "seniority_fit": "Senior"
-- "tailored_cv": "Markdown CV"
-- "tailored_cover_letter": "Markdown cover letter"
-"""
+            Return strict JSON with these exact keys:
+            - "fit_score": integer (0 to 100)
+            - "match_rationale": ["Detailed sentence 1 explaining exact technical overlap with this specific posting", "Detailed sentence 2 connecting master CV background to job requirements"]
+            - "matched_strengths": ["Specific technical skill or publication from CV matching this JD 1", "Specific tool or methodology matching this JD 2"]
+            - "transferable_gaps": ["Specific gap or missing tool mentioned in this specific JD 1"]
+            - "critical_missing": ["Specific missing requirement from this specific JD if any"]
+            - "track": "Primary Track Name"
+            - "seniority_fit": "Senior"
+            - "tailored_cv": "Tailored Markdown CV for this specific role"
+            - "tailored_cover_letter": "Tailored cover letter for this specific role"
+            """
+            
             loop = asyncio.get_running_loop()
             raw_eval = await loop.run_in_executor(None, call_groq_ai, eval_prompt, "You are an expert recruitment AI returning precise JSON.")
             eval_data = extract_json_safely(raw_eval, {})
@@ -1303,14 +1289,14 @@ Return strict JSON with these exact keys:
             ai_fit_score = safe_int(eval_data.get('fit_score'), 70)
             critical_missing_list = eval_data.get('critical_missing', [])
             transferable_gaps_list = eval_data.get('transferable_gaps', [])
-            matched_strengths_list = eval_data.get('matched_strengths', eval_data.get('matched_requirements', []))
             
-            # Hard rejection if AI detects a fundamental cross-domain mismatch
-            if ai_file_score_is_mismatch := (ai_fit_score < 25):
-                final_fit_score = 15
-            else:
-                penalty = (len(critical_missing_list) * 5) + (len(transferable_gaps_list) * 2)
-                final_fit_score = max(20, min(99, ai_fit_score - penalty))
+            # Ensure unique extraction from LLM response
+            matched_strengths_list = eval_data.get('matched_strengths') or eval_data.get('matched_requirements', [])
+            if not isinstance(matched_strengths_list, list):
+                matched_strengths_list = [str(matched_strengths_list)]
+
+            penalty = (len(critical_missing_list) * 5) + (len(transferable_gaps_list) * 2)
+            final_fit_score = max(20, min(99, ai_fit_score - penalty))
 
             tailored_cv_text = sanitize_cv_text(eval_data.get('tailored_cv') or profile_content)
             ats_score = calculate_ats_compliance_score(tailored_cv_text, desc)
@@ -1808,7 +1794,7 @@ def get_career_matches(min_fit: int = Query(0, ge=0, le=100), user=Depends(verif
                 parsed = json.loads(val)
                 return parsed if isinstance(parsed, list) else fallback
             except Exception:
-                return [val]
+                return [str(val)]
 
         matched_arr = parse_json_array(m.get("matched_requirements"), [])
         transferable_arr = parse_json_array(m.get("transferable_gaps"), [])
