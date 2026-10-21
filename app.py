@@ -1277,23 +1277,25 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
             raw_url = job.get('ats_portal_url', '#')
             desc = job.get('job_description', '')
 
-            user_domain = "general"
-            if user_profile_context and user_profile_context.get("domain"):
-                user_domain = user_profile_context.get("domain").lower()
-
             eval_prompt = f"""
-            You are an expert executive recruiter and technical hiring manager.
-            Analyze the candidate's Master CV against THIS SPECIFIC JOB POSTING. Do not generate generic summaries. Tailor the strengths, transferable gaps, and rationale strictly based on the provided job description text.
+            You are an elite, uncompromised Executive Recruiter and Senior ATS Evaluation Engine.
+            Rigorously analyze the candidate's Master CV against THIS SPECIFIC JOB POSTING. Do not inflate scores.
 
-            CANDIDATE MASTER CV:
+            CANDIDATE MASTER CV (GROUND TRUTH):
             {profile_content}
 
             TARGET JOB: {role} at {company}
             EXACT JOB DESCRIPTION & REQUIREMENTS:
             {desc}
 
+            SCORING RUBRIC:
+            - Start with a base score of 100.
+            - Deduct 15 points for every mandatory technical requirement or tool mentioned in the job description that is completely missing from the Master CV.
+            - Deduct 8 points for seniority level mismatches (e.g., Senior role vs. Entry-level CV).
+            - Add points only for direct, verified experience overlap.
+
             Return strict JSON with these exact keys:
-            - "fit_score": integer (0 to 100)
+            - "fit_score": integer (0 to 100 calculated using the rubric)
             - "match_rationale": [string, string]
             - "matched_strengths": [string, string, ...]
             - "transferable_gaps": [string, ...]
@@ -1309,11 +1311,8 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
             eval_data = extract_json_safely(raw_eval, {})
             
             ai_fit_score = safe_int(eval_data.get('fit_score'), 0)
-            if ai_fit_score == 0:
-                # If AI failed to return a score, calculate a baseline keyword overlap score
-                ai_fit_score = calculate_hybrid_match_score(desc, profile_content)
             
-            # Robust list extraction with fallback keys and type normalization
+            # Robust list extraction
             def parse_list_field(data_dict, primary_key, fallback_keys):
                 val = data_dict.get(primary_key)
                 for fk in fallback_keys:
@@ -1331,8 +1330,9 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
             transferable_gaps_list = parse_list_field(eval_data, 'transferable_gaps', ['gaps', 'transferable_requirements'])
             critical_missing_list = parse_list_field(eval_data, 'critical_missing', ['missing_requirements', 'critical_gaps'])
 
-            penalty = (len(critical_missing_list) * 5) + (len(transferable_gaps_list) * 2)
-            final_fit_score = max(20, min(99, ai_fit_score - penalty))
+            # Mathematical penalty hardening to ensure score integrity
+            penalty = (len(critical_missing_list) * 12) + (len(transferable_gaps_list) * 4)
+            final_fit_score = max(15, min(98, (ai_fit_score if ai_fit_score > 0 else 70) - penalty))
 
             tailored_cv_text = sanitize_cv_text(eval_data.get('tailored_cv') or profile_content)
             ats_score = calculate_ats_compliance_score(tailored_cv_text, desc)
@@ -1369,6 +1369,7 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
         except Exception as e:
             logger.error(f"Error in evaluate_job_for_specific_user: {e}", exc_info=True)
             return None
+
 def init_career_database():
     with db_transaction_scope() as (_, cursor):
         if DATABASE_URL:
@@ -1556,7 +1557,6 @@ def verify_api_key_only(x_api_key: str = Header(...), request: Request = None):
 
 async def isolated_user_job_scouting_worker(user_email: str, requested_count: int, target_locations: str, target_roles: str, min_match_score: int = 60):
     saved_count = 0
-    # FIX: Use the dynamic min_match_score variable instead of hardcoded '60%'
     await sse_broker.broadcast("multi_tenant_telemetry", {"user": user_email, "message": f"Executing live infiltration for {user_email} (Minimum Fit Filter Set To: {min_match_score}%)..."})
 
     try:
@@ -1574,7 +1574,7 @@ async def isolated_user_job_scouting_worker(user_email: str, requested_count: in
         profile_content = u_dict.get('profile_json', '')
 
         await sse_broker.broadcast("multi_tenant_telemetry", {"user": user_email, "message": f"Scraping global multi-source feeds across LinkedIn & Indeed..."})
-        raw_jobs = await multi_tenant_job_infiltration(target_roles, target_locations, requested_count * 15, user_profile_json=profile_content)
+        raw_jobs = await multi_tenant_job_infiltration(target_roles, target_locations, requested_count * 20, user_profile_json=profile_content)
         if not raw_jobs:
             await sse_broker.broadcast("career_swarm_update", {"user": user_email, "status": "no_jobs", "message": "Scouting completed, but zero live positions matched current aggregators."})
             return
@@ -1582,15 +1582,13 @@ async def isolated_user_job_scouting_worker(user_email: str, requested_count: in
         await sse_broker.broadcast("multi_tenant_telemetry", {"user": user_email, "message": f"Discovered {len(raw_jobs)} positions. Running paced AI vector evaluations..."})
         
         valid_results = []
-        for job in raw_jobs[:3]:
+        for job in raw_jobs[:25]:
             evaluated = await evaluate_job_for_specific_user(job, profile_content, user_email, AI_EVAL_SEMAPHORE)
             if evaluated:
                 score = safe_int(evaluated.get('fit_score'), 0)
                 
-                # STRICTLY FILTER TELEMETRY AND MATCHES AGAINST USER'S UI CRITERIA
                 if score >= min_match_score:
                     valid_results.append(evaluated)
-                    # Broadcast live telemetry event only for jobs meeting the active filter threshold
                     await sse_broker.broadcast("multi_tenant_telemetry", {
                         "user": user_email, 
                         "job_title": evaluated["job_title"],
@@ -1598,10 +1596,7 @@ async def isolated_user_job_scouting_worker(user_email: str, requested_count: in
                         "match_score": score,
                         "message": f"Verified match: {evaluated['company_name']} ({score}% match meets {min_match_score}% filter)"
                     })
-                else:
-                    logger.info(f"Dropping job {evaluated['job_title']} at {evaluated['company_name']} ({score}%) below user filter threshold of {min_match_score}%.")
-            
-            await asyncio.sleep(20.0) 
+            await asyncio.sleep(4.0)  
 
         if not valid_results:
             await sse_broker.broadcast("career_swarm_update", {
@@ -1611,6 +1606,7 @@ async def isolated_user_job_scouting_worker(user_email: str, requested_count: in
             })
             return
 
+        # SORT BY HIGHEST SCORE DESCENDING & TAKE EXACT TOP REQUESTED COUNT
         valid_results.sort(key=lambda x: x.get('fit_score', 0), reverse=True)
         evaluated_matches = valid_results[:requested_count]
 
@@ -1674,7 +1670,7 @@ async def isolated_user_job_scouting_worker(user_email: str, requested_count: in
                             ic.execute("UPDATE subscriber_credits SET credits_remaining = credits_remaining - 1 WHERE email = ?", (user_email,))
                         saved_count += 1
 
-        await sse_broker.broadcast("career_swarm_update", {"user": user_email, "status": "scouted", "message": f"Swarm completed. Indexed {saved_count} verified matches meeting the {min_match_score}% threshold."})
+        await sse_broker.broadcast("career_swarm_update", {"user": user_email, "status": "scouted", "message": f"Swarm completed. Indexed top {saved_count} highest-scoring matches meeting the {min_match_score}% threshold."})
     except Exception as e:
         logger.error(f"Error in isolated worker for {user_email}: {str(e)}", exc_info=True)
 
