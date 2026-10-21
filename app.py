@@ -1206,8 +1206,8 @@ async def multi_tenant_job_infiltration(target_roles: str, location: str, count:
     is_sa_search = any(k in loc_lower for k in ["south africa", "johannesburg", "cape town", "pretoria", "durban"])
     active_sites = ["linkedin", "indeed"] if is_sa_search else ["linkedin", "indeed", "glassdoor", "zip_recruiter"]
 
-    # 4. PROGRESSIVE RECENT-JOB WINDOW (Starts with 24h / today, expands daily up to 7 days max)
-    recency_tiers_hours = [24, 48, 72, 96, 120, 144, 168]
+    # 4. PROGRESSIVE RECENT-JOB WINDOW (Starts with 96h / today, expands daily up to 7 days max)
+    recency_tiers_hours = [96, 120, 144, 168]
 
     for hours_window in recency_tiers_hours:
         if len(discovered_jobs) >= count:
