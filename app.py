@@ -1171,25 +1171,33 @@ async def ai_adaptable_role_expansion(target_roles: str, user_profile_json: Opti
     return derived_terms if derived_terms else ["Software Engineer", "Technical Specialist"]
 
 async def multi_tenant_job_infiltration(target_roles: str, location: str, count: int, user_profile_json: Optional[str] = None) -> List[Dict]:
+    # 1. Get AI variations dynamically tailored to the user's uploaded master profile
     ai_variations = await ai_adaptable_role_expansion(target_roles, user_profile_json)
     
-    raw_splits = re.split(r'[-–—:,/]+', target_roles)
-    atomic_user_terms = []
-    for chunk in raw_splits:
-        c_clean = re.sub(r'[^a-zA-Z0-9\s]', ' ', chunk)
-        c_clean = re.sub(r'\s+', ' ', c_clean).strip()
-        if len(c_clean) > 3:
-            atomic_user_terms.append(c_clean)
-            words = c_clean.split()
-            if len(words) > 1:
-                atomic_user_terms.append(words[-1])
+    # 2. Safely parse user-supplied target roles by splitting on commas, semicolons, or pipes
+    raw_role_list = re.split(r'[,;|]+', target_roles)
+    cleaned_user_roles = []
+    
+    for role in raw_role_list:
+        # Remove parentheses and contents inside them for cleaner job board queries (e.g., "Senior Research Scientist (Molecular Biology)" -> "Senior Research Scientist")
+        clean_role = re.sub(r'\([^)]*\)', '', role).strip()
+        clean_role = re.sub(r'\s+', ' ', clean_role)
+        if len(clean_role) > 3:
+            cleaned_user_roles.append(clean_role)
+            # Also extract primary core titles separated by slashes (e.g., "Principal Investigator / Lab Lead" -> "Principal Investigator")
+            sub_splits = re.split(r'[/]+', clean_role)
+            for sub in sub_splits:
+                sub_clean = sub.strip()
+                if len(sub_clean) > 3:
+                    cleaned_user_roles.append(sub_clean)
 
-    search_permutations = ai_variations + atomic_user_terms
+    # 3. Combine AI variations and cleaned user roles, removing duplicates
+    search_permutations = ai_variations + cleaned_user_roles
     seen = set()
     search_permutations = [x for x in search_permutations if not (x.lower() in seen or seen.add(x.lower()))]
     
     if not search_permutations:
-        search_permutations = ["Scientist", "Engineer", "Researcher", "Specialist"]
+        search_permutations = ["Research Scientist", "Biochemist", "Molecular Biologist"]
 
     discovered_jobs = []
     seen_urls = set()
@@ -1199,7 +1207,8 @@ async def multi_tenant_job_infiltration(target_roles: str, location: str, count:
     is_sa_search = any(k in loc_lower for k in ["south africa", "johannesburg", "cape town", "pretoria", "durban"])
     active_sites = ["linkedin", "indeed"] if is_sa_search else ["linkedin", "indeed", "glassdoor", "zip_recruiter"]
 
-    for term in search_permutations[:4]:
+    # 4. Iterate through top optimized search permutations with expanded 14-day window for specialized roles
+    for term in search_permutations[:5]:
         if len(discovered_jobs) >= count * 15:
             break
         try:
@@ -1210,7 +1219,7 @@ async def multi_tenant_job_infiltration(target_roles: str, location: str, count:
                     search_term=term,
                     location=location,
                     results_wanted=20,
-                    hours_old=168,
+                    hours_old=336,  # Expanded window to 14 days (336 hours) to capture specialized research/biotech vacancies
                     country_indeed='South Africa' if is_sa_search else 'USA'
                 )
             )
@@ -1231,6 +1240,7 @@ async def multi_tenant_job_infiltration(target_roles: str, location: str, count:
         except Exception as e:
             logger.error(f"JobSpy scraping exception for term '{term}': {e}")
 
+    # 5. Maintain original Adzuna API fallback search integration
     if len(discovered_jobs) < count:
         countries_to_try = ["za", "us"] if is_sa_search else ["us"]
         primary_term = search_permutations[0]
@@ -1298,7 +1308,10 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
             raw_eval = await loop.run_in_executor(None, call_groq_ai, eval_prompt, "You are an expert recruitment AI returning precise JSON.")
             eval_data = extract_json_safely(raw_eval, {})
             
-            ai_fit_score = safe_int(eval_data.get('fit_score'), 70)
+            ai_fit_score = safe_int(eval_data.get('fit_score'), 0)
+            if ai_fit_score == 0:
+                # If AI failed to return a score, calculate a baseline keyword overlap score
+                ai_fit_score = calculate_hybrid_match_score(desc, profile_content)
             
             # Robust list extraction with fallback keys and type normalization
             def parse_list_field(data_dict, primary_key, fallback_keys):
@@ -1569,7 +1582,7 @@ async def isolated_user_job_scouting_worker(user_email: str, requested_count: in
         await sse_broker.broadcast("multi_tenant_telemetry", {"user": user_email, "message": f"Discovered {len(raw_jobs)} positions. Running paced AI vector evaluations..."})
         
         valid_results = []
-        for job in raw_jobs[:5]:
+        for job in raw_jobs[:3]:
             evaluated = await evaluate_job_for_specific_user(job, profile_content, user_email, AI_EVAL_SEMAPHORE)
             if evaluated:
                 score = safe_int(evaluated.get('fit_score'), 0)
@@ -1588,7 +1601,7 @@ async def isolated_user_job_scouting_worker(user_email: str, requested_count: in
                 else:
                     logger.info(f"Dropping job {evaluated['job_title']} at {evaluated['company_name']} ({score}%) below user filter threshold of {min_match_score}%.")
             
-            await asyncio.sleep(7.0) 
+            await asyncio.sleep(20.0) 
 
         if not valid_results:
             await sse_broker.broadcast("career_swarm_update", {
