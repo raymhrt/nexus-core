@@ -419,47 +419,48 @@ def get_domain_scaling_parameters(user_domain: str) -> tuple:
 
 def calculate_hybrid_match_score(job_description: str, tailored_cv_text: str, user_profile: Optional[dict] = None, user_embedding: Optional[List[float]] = None, job_embedding: Optional[List[float]] = None, candidate_skills: Optional[list] = None) -> int:
     """
-    Computes an accurate match score by blending semantic conceptual fit 
-    with filtered technical skill intersection.
+    Computes a precise match score by enforcing strict domain penalties and 
+    filtering out cross-industry false positives (e.g., electronics manufacturing vs biotechnology).
     """
     try:
-        if not user_embedding:
-            user_embedding = generate_text_embedding(tailored_cv_text)
-        if not job_embedding:
-            job_embedding = generate_text_embedding(job_description)
-
-        vec_u = np.array(user_embedding, dtype=float)
-        vec_j = np.array(job_embedding, dtype=float)
-        
-        dot_product = np.dot(vec_u, vec_j)
-        norm_u = np.linalg.norm(vec_u)
-        norm_j = np.linalg.norm(vec_j)
-        
-        if norm_u == 0 or norm_j == 0:
-            semantic_score = 40.0
-        else:
-            cosine_similarity = float(dot_product / (norm_u * norm_j))
-            semantic_score = max(0.0, min(1.0, cosine_similarity)) * 100.0
-
-        # Filtered Technical Skill Overlap (Excluding Stopwords)
-        stopwords = {"the", "and", "for", "with", "that", "this", "from", "you", "your", "are", "have", "will", "our", "all", "can", "role", "team", "company", "work", "job", "years", "experience", "skills", "ability", "position", "candidate"}
-        
         jd_lower = job_description.lower()
-        jd_words = {w for w in re.findall(r'\b[a-z]{4,}\b', jd_lower) if w not in stopwords}
-        cand_words = {w for w in re.findall(r'\b[a-z]{4,}\b', tailored_cv_text.lower()) if w not in stopwords}
-        
-        if jd_words:
-            overlap = len(jd_words.intersection(cand_words)) / len(jd_words)
-            skill_score = min(100.0, overlap * 300.0)
-        else:
-            skill_score = 50.0
+        cv_lower = tailored_cv_text.lower()
 
-        # Weighted Blend: 50% Semantic Domain Fit + 50% Technical Precision
-        final_score = int(round((0.50 * semantic_score) + (0.50 * skill_score)))
-        return max(15, min(98, final_score))
+        # 1. Cross-Industry Mismatch Penalty Check
+        manufacturing_markers = ["electronics manufacturing", "automotive manufacturing", "machining", "assembly line", "metallurgical", "biometallurgy", "mine effluent"]
+        
+        is_industrial_job = any(m in jd_lower for m in manufacturing_markers)
+        cv_has_industrial = any(m in cv_lower for m in ["manufacturing", "factory floor", "supply chain quality", "iso 9001"])
+        
+        if is_industrial_job and not cv_has_industrial:
+            return max(15, 35)
+
+        # 2. Stopwords & Noise Filter
+        stopwords = {"the", "and", "for", "with", "that", "this", "from", "you", "your", "are", "have", "will", "our", "all", "can", "role", "team", "company", "work", "job", "years", "experience", "skills", "ability", "position", "candidate", "responsibilities"}
+        
+        jd_words = {w for w in re.findall(r'\b[a-z]{3,}\b', jd_lower) if w not in stopwords}
+        cv_words = {w for w in re.findall(r'\b[a-z]{3,}\b', cv_lower) if w not in stopwords}
+
+        if not jd_words:
+            return 40
+
+        # 3. Hard Keyword Intersection Density
+        intersection = jd_words.intersection(cv_words)
+        keyword_density_score = len(intersection) / len(jd_words) * 100.0
+
+        # 4. Explicit Skill Match Boost
+        skill_boost = 0.0
+        if candidate_skills:
+            matched_skills_count = sum(1 for skill in candidate_skills if skill.lower() in cv_lower and skill.lower() in jd_lower)
+            skill_boost = min(20.0, (matched_skills_count / max(1, len(candidate_skills))) * 20.0)
+
+        # 5. Weighted Hybrid Blend with Strict Domain Anchor
+        final_score = int(round((0.55 * keyword_density_score) + skill_boost + 10.0))
+        
+        return max(15, min(95, final_score))
     except Exception as e:
         logger.error(f"Error in hybrid match scoring: {e}")
-        return 50
+        return 40
 
 def calculate_ats_compliance_score(tailored_cv_text: str, job_description: str) -> int:
     """
@@ -1179,12 +1180,10 @@ async def multi_tenant_job_infiltration(target_roles: str, location: str, count:
     cleaned_user_roles = []
     
     for role in raw_role_list:
-        # Remove parentheses and contents inside them for cleaner job board queries (e.g., "Senior Research Scientist (Molecular Biology)" -> "Senior Research Scientist")
         clean_role = re.sub(r'\([^)]*\)', '', role).strip()
         clean_role = re.sub(r'\s+', ' ', clean_role)
         if len(clean_role) > 3:
             cleaned_user_roles.append(clean_role)
-            # Also extract primary core titles separated by slashes (e.g., "Principal Investigator / Lab Lead" -> "Principal Investigator")
             sub_splits = re.split(r'[/]+', clean_role)
             for sub in sub_splits:
                 sub_clean = sub.strip()
@@ -1207,40 +1206,50 @@ async def multi_tenant_job_infiltration(target_roles: str, location: str, count:
     is_sa_search = any(k in loc_lower for k in ["south africa", "johannesburg", "cape town", "pretoria", "durban"])
     active_sites = ["linkedin", "indeed"] if is_sa_search else ["linkedin", "indeed", "glassdoor", "zip_recruiter"]
 
-    # 4. Iterate through top optimized search permutations with expanded 14-day window for specialized roles
-    for term in search_permutations[:5]:
-        if len(discovered_jobs) >= count * 15:
-            break
-        try:
-            df_jobs = await loop.run_in_executor(
-                None, 
-                lambda: scrape_jobs(
-                    site_name=active_sites,
-                    search_term=term,
-                    location=location,
-                    results_wanted=20,
-                    hours_old=336,  # Expanded window to 14 days (336 hours) to capture specialized research/biotech vacancies
-                    country_indeed='South Africa' if is_sa_search else 'USA'
-                )
-            )
-            
-            if df_jobs is not None and not df_jobs.empty:
-                for _, row in df_jobs.iterrows():
-                    raw_title = str(row.get("title", term))
-                    job_item = {
-                        "company_name": str(row.get("company", "Global Enterprise")),
-                        "job_title": sanitize_job_title(raw_title),
-                        "location": str(row.get("location", location)),
-                        "job_description": str(row.get("description", "Full job specs available on direct ATS portal.")),
-                        "ats_portal_url": str(row.get("job_url", ""))
-                    }
-                    if validate_real_world_job(job_item) and job_item["ats_portal_url"] not in seen_urls:
-                        seen_urls.add(job_item["ats_portal_url"])
-                        discovered_jobs.append(job_item)
-        except Exception as e:
-            logger.error(f"JobSpy scraping exception for term '{term}': {e}")
+    # 4. PROGRESSIVE RECENT-JOB WINDOW (Starts with 24h / today, expands daily up to 7 days max)
+    recency_tiers_hours = [24, 48, 72, 96, 120, 144, 168]
 
-    # 5. Maintain original Adzuna API fallback search integration
+    for hours_window in recency_tiers_hours:
+        if len(discovered_jobs) >= count:
+            break  # Stop expanding window once we have enough fresh jobs
+
+        for term in search_permutations[:3]:
+            if len(discovered_jobs) >= count * 15:
+                break
+            try:
+                df_jobs = await loop.run_in_executor(
+                    None, 
+                    lambda: scrape_jobs(
+                        site_name=active_sites,
+                        search_term=term,
+                        location=location,
+                        results_wanted=15,
+                        hours_old=hours_window,  # Dynamically widens from 24h (today) up to 168h (7 days max)
+                        country_indeed='South Africa' if is_sa_search else 'USA'
+                    )
+                )
+                
+                if df_jobs is not None and not df_jobs.empty:
+                    for _, row in df_jobs.iterrows():
+                        raw_title = str(row.get("title", term))
+                        job_item = {
+                            "company_name": str(row.get("company", "Global Enterprise")),
+                            "job_title": sanitize_job_title(raw_title),
+                            "location": str(row.get("location", location)),
+                            "job_description": str(row.get("description", "Full job specs available on direct ATS portal.")),
+                            "ats_portal_url": str(row.get("job_url", ""))
+                        }
+                        if validate_real_world_job(job_item) and job_item["ats_portal_url"] not in seen_urls:
+                            seen_urls.add(job_item["ats_portal_url"])
+                            discovered_jobs.append(job_item)
+            except Exception as e:
+                logger.error(f"JobSpy scraping exception for term '{term}' (window {hours_window}h): {e}")
+
+        # If we found jobs within today's window (24h), we can break early to prioritize absolute recency
+        if discovered_jobs and hours_window == 24:
+            break
+
+    # 5. Maintain Adzuna API fallback search integration if needed
     if len(discovered_jobs) < count:
         countries_to_try = ["za", "us"] if is_sa_search else ["us"]
         primary_term = search_permutations[0]
@@ -1278,7 +1287,7 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
             desc = job.get('job_description', '')
 
             eval_prompt = f"""
-            You are an elite, uncompromised Executive Recruiter and Senior ATS Evaluation Engine.
+            You are an elite, strict Executive Recruiter and Senior ATS Evaluation Engine.
             Rigorously analyze the candidate's Master CV against THIS SPECIFIC JOB POSTING. Do not inflate scores.
 
             CANDIDATE MASTER CV (GROUND TRUTH):
@@ -1288,14 +1297,14 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
             EXACT JOB DESCRIPTION & REQUIREMENTS:
             {desc}
 
-            SCORING RUBRIC:
+            STRICT EVALUATION & PENALTY RUBRIC:
             - Start with a base score of 100.
-            - Deduct 15 points for every mandatory technical requirement or tool mentioned in the job description that is completely missing from the Master CV.
-            - Deduct 8 points for seniority level mismatches (e.g., Senior role vs. Entry-level CV).
-            - Add points only for direct, verified experience overlap.
+            - SECTOR ALIGNMENT CHECK: If the job requires a completely different industry background (e.g., Electronics Manufacturing, Clinical Trial MD/MBChB, Heavy Metallurgy) that is absent from the Master CV, deduct 40 points immediately.
+            - Deduct 15 points for every mandatory technical requirement, degree, or tool mentioned in the job description that is completely missing from the Master CV.
+            - Deduct 10 points for seniority level mismatches.
 
             Return strict JSON with these exact keys:
-            - "fit_score": integer (0 to 100 calculated using the rubric)
+            - "fit_score": integer (0 to 100 calculated using the strict rubric)
             - "match_rationale": [string, string]
             - "matched_strengths": [string, string, ...]
             - "transferable_gaps": [string, ...]
@@ -1312,7 +1321,6 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
             
             ai_fit_score = safe_int(eval_data.get('fit_score'), 0)
             
-            # Robust list extraction
             def parse_list_field(data_dict, primary_key, fallback_keys):
                 val = data_dict.get(primary_key)
                 for fk in fallback_keys:
@@ -1330,9 +1338,8 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
             transferable_gaps_list = parse_list_field(eval_data, 'transferable_gaps', ['gaps', 'transferable_requirements'])
             critical_missing_list = parse_list_field(eval_data, 'critical_missing', ['missing_requirements', 'critical_gaps'])
 
-            # Mathematical penalty hardening to ensure score integrity
-            penalty = (len(critical_missing_list) * 12) + (len(transferable_gaps_list) * 4)
-            final_fit_score = max(15, min(98, (ai_fit_score if ai_fit_score > 0 else 70) - penalty))
+            penalty = (len(critical_missing_list) * 15) + (len(transferable_gaps_list) * 5)
+            final_fit_score = max(10, min(95, (ai_fit_score if ai_fit_score > 0 else 60) - penalty))
 
             tailored_cv_text = sanitize_cv_text(eval_data.get('tailored_cv') or profile_content)
             ats_score = calculate_ats_compliance_score(tailored_cv_text, desc)
@@ -1348,7 +1355,7 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
                 "ats_compliance_score": ats_score,
                 "track": eval_data.get('track', 'Adaptive Domain Core'),
                 "seniority_fit": eval_data.get('seniority_fit', 'Senior'),
-                "match_rationale": json.dumps(eval_data.get('match_rationale', ["Functional congruence confirmed."])),
+                "match_rationale": json.dumps(eval_data.get('match_rationale', ["Functional congruence analyzed."])),
                 "matched_requirements": matched_strengths_list,
                 "transferable_gaps": transferable_gaps_list,
                 "critical_missing": critical_missing_list,
