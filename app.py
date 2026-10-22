@@ -274,7 +274,7 @@ def generate_text_embedding(text: str) -> List[float]:
     except Exception:
         return [0.0] * 256
 
-def validate_real_world_job(job: dict) -> bool:
+def validate_real_world_job(job: dict, user_domain: str = "general") -> bool:
     if not job.get("job_title") or not job.get("company_name"):
         return False
         
@@ -286,6 +286,23 @@ def validate_real_world_job(job: dict) -> bool:
     if any(m in text_blob for m in mock_markers):
         return False
         
+    # Universal low-quality / spam job title filters
+    universal_forbidden = [
+        "retail assistant", "cashier", "waiter", "bartender", "call center operator"
+    ]
+    if any(fk in title_lower for fk in universal_forbidden):
+        return False
+
+    # Universal professional sector mismatch guardrails based on indexed tenant domain
+    domain_lower = user_domain.lower()
+    if any(sci_term in domain_lower for sci_term in ["bio", "medical", "life_sciences", "pharma", "research", "science"]):
+        industrial_mismatches = [
+            "heavy machinery operator", "automotive mechanic", "mining plant supervisor", 
+            "retail store manager", "plant manager", "process manager", "production manager"
+        ]
+        if any(im in title_lower for im in industrial_mismatches):
+            return False
+
     forbidden_keywords = [
         "geology", "geologist", "mining", "packaging", "automotive mechanic", 
         "civil engineer", "accounting", "tax specialist", "nurse", "nursing", 
@@ -1152,13 +1169,13 @@ def recursive_org_chart_decision_maker_discovery(company_name: str, job_title: s
         "company_intel": company_intel
     }
 
-async def ai_adaptable_role_expansion(target_roles: str, user_profile_json: Optional[str] = None) -> List[str]:
+async def ai_adaptable_role_expansion(target_roles: str, user_profile_json: Optional[str] = None, user_domain: str = "general") -> List[str]:
     prompt = f"""
-    You are an expert multi-tenant recruitment strategy engine. Analyze the user's target roles and uploaded Master CV profile to construct precise, high-intent search queries.
+    You are an expert multi-tenant recruitment strategy engine. Analyze the user's target roles, user domain ({user_domain}), and uploaded Master CV profile to construct precise, high-intent search queries.
     Target Roles Provided by User: "{target_roles}"
     User Master Profile / CV Summary: {user_profile_json or 'None Provided'}
 
-    Generate a JSON array of 6 to 8 clean, multi-word search phrases tailored strictly to this specific user's background (e.g., if the user is a molecular biologist, return biological research roles; if a software engineer, return engineering roles). NEVER generate generic or cross-industry mismatch terms.
+    Generate a JSON array of 6 to 8 clean, multi-word search phrases tailored strictly to this specific tenant's core expertise and primary domain (e.g., if the user is a molecular biologist, return biological research roles; if a software engineer, return engineering roles). NEVER generate generic or cross-industry mismatch terms.
     Return ONLY a valid JSON array of strings (raw JSON only, no markdown backticks).
     """
     try:
@@ -1169,7 +1186,7 @@ async def ai_adaptable_role_expansion(target_roles: str, user_profile_json: Opti
             if cleaned:
                 return cleaned
     except Exception as e:
-        logger.warning(f"AI role expansion fallback triggered for tenant: {e}")
+        logger.warning(f"AI role expansion fallback triggered for tenant domain '{user_domain}': {e}")
 
     # Fallback to user-supplied roles
     derived_terms = [r.strip() for r in target_roles.split(',') if len(r.strip()) > 3]
@@ -1276,11 +1293,16 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
             company = job.get('company_name', 'Global Enterprise')
             raw_url = job.get('ats_portal_url', '#')
             desc = job.get('job_description', '')
+            
+            user_domain = "general"
+            if user_profile_context and isinstance(user_profile_context, dict):
+                user_domain = user_profile_context.get("domain", "general")
 
             eval_prompt = f"""
             You are an elite, strict Executive Recruiter and Senior ATS Evaluation Engine.
             Rigorously analyze the candidate's Master CV against THIS SPECIFIC JOB POSTING. Do not inflate scores.
 
+            CANDIDATE PRIMARY DOMAIN: {user_domain}
             CANDIDATE MASTER CV (GROUND TRUTH):
             {profile_content}
 
@@ -1288,9 +1310,9 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
             EXACT JOB DESCRIPTION & REQUIREMENTS:
             {desc}
 
-            STRICT EVALUATION & PENALTY RUBRIC:
+            ADAPTIVE EVALUATION & PENALTY RUBRIC:
             - Start with a base score of 100.
-            - SECTOR ALIGNMENT CHECK: If the job requires a completely different industry background (e.g., Electronics Manufacturing, Clinical Trial MD/MBChB, Heavy Metallurgy) that is absent from the Master CV, deduct 40 points immediately.
+            - CORE ALIGNMENT CHECK: Evaluate whether the job aligns with the candidate's core professional focus and primary domain, or if it inappropriately targets a secondary/legacy background role (such as matching a senior research scientist profile to a heavy industrial plant manager role). Deduct 40 points immediately if there is a severe core-domain mismatch.
             - Deduct 15 points for every mandatory technical requirement, degree, or tool mentioned in the job description that is completely missing from the Master CV.
             - Deduct 10 points for seniority level mismatches.
 
@@ -1330,19 +1352,30 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
             critical_missing_list = parse_list_field(eval_data, 'critical_missing', ['missing_requirements', 'critical_gaps'])
 
             penalty = (len(critical_missing_list) * 15) + (len(transferable_gaps_list) * 5)
-            final_fit_score = max(10, min(95, (ai_fit_score if ai_fit_score > 0 else 60) - penalty))
+            ai_adjusted_score = max(10, min(95, (ai_fit_score if ai_fit_score > 0 else 60) - penalty))
 
             tailored_cv_text = sanitize_cv_text(eval_data.get('tailored_cv') or profile_content)
             ats_score = calculate_ats_compliance_score(tailored_cv_text, desc)
             real_lead = recursive_org_chart_decision_maker_discovery(company, role, desc)
+            
             job_embed = generate_text_embedding(f"{role} {company} {desc}")
+            user_embed = generate_text_embedding(profile_content)
+            
+            hybrid_semantic_score = calculate_hybrid_match_score(
+                job_description=desc,
+                tailored_cv_text=tailored_cv_text,
+                user_embedding=user_embed,
+                job_embedding=job_embed
+            )
+            
+            final_fit_score = int(round((0.50 * ai_adjusted_score) + (0.50 * hybrid_semantic_score)))
 
             return {
                 "company_name": company,
                 "job_title": role,
                 "job_description": desc,
                 "location": job.get('location', "Global"),
-                "fit_score": final_fit_score,
+                "fit_score": max(10, min(98, final_fit_score)),
                 "ats_compliance_score": ats_score,
                 "track": eval_data.get('track', 'Adaptive Domain Core'),
                 "seniority_fit": eval_data.get('seniority_fit', 'Senior'),
