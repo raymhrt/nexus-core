@@ -1186,7 +1186,7 @@ async def ai_adaptable_role_expansion(target_roles: str, user_profile_json: Opti
     Return ONLY a valid JSON array of strings (raw JSON only, no markdown backticks).
     """
     try:
-        raw_ai = call_groq_ai(prompt, system_prompt="You are an expert recruitment data engineer returning raw JSON arrays.")
+        raw_ai = await call_groq_ai(prompt, system_prompt="You are an expert recruitment data engineer returning raw JSON arrays.")
         phrases = extract_json_safely(raw_ai, [])
         if isinstance(phrases, list) and phrases:
             cleaned = [str(p).strip() for p in phrases if len(str(p).strip()) > 3 and len(str(p).strip().split()) >= 1]
@@ -1199,9 +1199,9 @@ async def ai_adaptable_role_expansion(target_roles: str, user_profile_json: Opti
     derived_terms = [r.strip() for r in target_roles.split(',') if len(r.strip()) > 3]
     return derived_terms if derived_terms else ["Research Scientist", "Technical Specialist"]
 
-async def multi_tenant_job_infiltration(target_roles: str, location: str, count: int, user_profile_json: Optional[str] = None) -> List[Dict]:
-    # 1. Get AI role variations tailored specifically to THIS user's uploaded master profile
-    ai_variations = await ai_adaptable_role_expansion(target_roles, user_profile_json)
+async def multi_tenant_job_infiltration(target_roles: str, location: str, count: int, user_profile_json: Optional[str] = None, user_domain: str = "general") -> List[Dict]:
+    # 1. Get AI role variations tailored specifically to THIS user's uploaded master profile and domain
+    ai_variations = await ai_adaptable_role_expansion(target_roles, user_profile_json, user_domain)
     
     # 2. Parse user-supplied target roles
     raw_role_list = re.split(r'[,;|]+', target_roles)
@@ -1229,7 +1229,7 @@ async def multi_tenant_job_infiltration(target_roles: str, location: str, count:
         if len(discovered_jobs) >= count:
             break
 
-        for term in search_permutations[:4]:
+        for term in search_permutations[:8]:
             if len(discovered_jobs) >= count * 15:
                 break
             try:
@@ -1255,14 +1255,14 @@ async def multi_tenant_job_infiltration(target_roles: str, location: str, count:
                             "job_description": str(row.get("description", "Full job specs available on direct ATS portal.")),
                             "ats_portal_url": str(row.get("job_url", ""))
                         }
-                        if validate_real_world_job(job_item) and job_item["ats_portal_url"] not in seen_urls:
+                        if validate_real_world_job(job_item, user_domain=user_domain) and job_item["ats_portal_url"] not in seen_urls:
                             seen_urls.add(job_item["ats_portal_url"])
                             discovered_jobs.append(job_item)
             except Exception as e:
                 logger.error(f"JobSpy scraping exception for tenant search term '{term}': {e}")
 
-        if discovered_jobs and hours_window == 96:
-            break
+        #if discovered_jobs and hours_window == 96:
+        #   break
 
     # 4. Adzuna API Fallback Integration (Fully Restored)
     if len(discovered_jobs) < count:
@@ -1284,7 +1284,7 @@ async def multi_tenant_job_infiltration(target_roles: str, location: str, count:
                                 "job_description": item.get("description", "Full job specs available on direct ATS portal."),
                                 "ats_portal_url": item.get("redirect_url", "")
                             }
-                            if validate_real_world_job(job_item) and job_item["ats_portal_url"] not in seen_urls:
+                            if validate_real_world_job(job_item, user_domain=user_domain) and job_item["ats_portal_url"] not in seen_urls:
                                 seen_urls.add(job_item["ats_portal_url"])
                                 discovered_jobs.append(job_item)
                 except Exception:
@@ -1358,7 +1358,7 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
             critical_missing_list = parse_list_field(eval_data, 'critical_missing', ['missing_requirements', 'critical_gaps'])
 
             # Aggressive penalty multiplier for missing requirements
-            penalty = (len(critical_missing_list) * 20) + (len(transferable_gaps_list) * 8)
+            penalty = min(35, (len(critical_missing_list) * 8) + (len(transferable_gaps_list) * 3))
             ai_adjusted_score = max(5, min(95, (ai_fit_score if ai_fit_score > 0 else 50) - penalty))
 
             tailored_cv_text = sanitize_cv_text(eval_data.get('tailored_cv') or profile_content)
@@ -1615,6 +1615,7 @@ async def isolated_user_job_scouting_worker(user_email: str, requested_count: in
 
         await sse_broker.broadcast("multi_tenant_telemetry", {"user": user_email, "message": f"Scraping global multi-source feeds tuned to user's master profile..."})
         
+        user_domain = u_dict.get('domain', 'general')
         raw_jobs = await multi_tenant_job_infiltration(target_roles, target_locations, requested_count * 20, user_profile_json=profile_content)
         
         if not raw_jobs:
