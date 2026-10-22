@@ -416,50 +416,55 @@ def get_domain_scaling_parameters(user_domain: str) -> tuple:
     }
     return domain_weights.get(user_domain.lower(), (90, 10))
 
-def calculate_hybrid_match_score(job_description: str, tailored_cv_text: str, user_profile: Optional[dict] = None, user_embedding: Optional[List[float]] = None, job_embedding: Optional[List[float]] = None, candidate_skills: Optional[list] = None) -> int:
+def calculate_hybrid_match_score(
+    job_description: str,
+    tailored_cv_text: str,
+    user_profile: Optional[dict] = None,
+    user_embedding: Optional[List[float]] = None,
+    job_embedding: Optional[List[float]] = None,
+    candidate_skills: Optional[list] = None
+) -> int:
     """
-    Computes a precise match score by enforcing strict domain penalties and 
-    filtering out cross-industry false positives (e.g., electronics manufacturing vs biotechnology).
+    Enhanced Hybrid Match Engine: Computes true semantic cosine similarity 
+    combined with strict sector alignment penalties and skill density weights.
     """
     try:
         jd_lower = job_description.lower()
         cv_lower = tailored_cv_text.lower()
 
-        # 1. Cross-Industry Mismatch Penalty Check
-        manufacturing_markers = ["electronics manufacturing", "automotive manufacturing", "machining", "assembly line", "metallurgical", "biometallurgy", "mine effluent"]
-        
-        is_industrial_job = any(m in jd_lower for m in manufacturing_markers)
-        cv_has_industrial = any(m in cv_lower for m in ["manufacturing", "factory floor", "supply chain quality", "iso 9001"])
-        
-        if is_industrial_job and not cv_has_industrial:
-            return max(15, 35)
+        # 1. Strict Cross-Industry Mismatch Penalty
+        mismatch_markers = ["electronics manufacturing", "automotive manufacturing", "machining", "assembly line", "metallurgical"]
+        if any(m in jd_lower for m in mismatch_markers) and not any(m in cv_lower for m in ["manufacturing", "factory floor", "supply chain"]):
+            return max(10, 30)
 
-        # 2. Stopwords & Noise Filter
-        stopwords = {"the", "and", "for", "with", "that", "this", "from", "you", "your", "are", "have", "will", "our", "all", "can", "role", "team", "company", "work", "job", "years", "experience", "skills", "ability", "position", "candidate", "responsibilities"}
-        
+        # 2. Vector Cosine Similarity Calculation
+        vector_similarity_score = 50.0
+        if user_embedding and job_embedding and len(user_embedding) == len(job_embedding):
+            u_arr = np.array(user_embedding)
+            j_arr = np.array(job_embedding)
+            dot_prod = np.dot(u_arr, j_arr)
+            norm_u = np.linalg.norm(u_arr)
+            norm_j = np.linalg.norm(j_arr)
+            if norm_u > 0 and norm_j > 0:
+                cosine_sim = dot_prod / (norm_u * norm_j)
+                vector_similarity_score = float(max(0.0, min(1.0, cosine_sim))) * 100.0
+
+        # 3. Keyword Density & Skill Intersection
+        stopwords = {"the", "and", "for", "with", "that", "this", "from", "you", "your", "are", "have", "will", "our", "all", "can", "role", "team", "company", "work", "job", "years", "experience", "skills"}
         jd_words = {w for w in re.findall(r'\b[a-z]{3,}\b', jd_lower) if w not in stopwords}
         cv_words = {w for w in re.findall(r'\b[a-z]{3,}\b', cv_lower) if w not in stopwords}
-
-        if not jd_words:
-            return 40
-
-        # 3. Hard Keyword Intersection Density
-        intersection = jd_words.intersection(cv_words)
-        keyword_density_score = len(intersection) / len(jd_words) * 100.0
-
-        # 4. Explicit Skill Match Boost
-        skill_boost = 0.0
-        if candidate_skills:
-            matched_skills_count = sum(1 for skill in candidate_skills if skill.lower() in cv_lower and skill.lower() in jd_lower)
-            skill_boost = min(20.0, (matched_skills_count / max(1, len(candidate_skills))) * 20.0)
-
-        # 5. Weighted Hybrid Blend with Strict Domain Anchor
-        final_score = int(round((0.55 * keyword_density_score) + skill_boost + 10.0))
         
-        return max(15, min(95, final_score))
+        keyword_density_score = 40.0
+        if jd_words:
+            intersection = jd_words.intersection(cv_words)
+            keyword_density_score = (len(intersection) / len(jd_words)) * 100.0
+
+        # 4. Weighted Final Blend
+        final_score = int(round((0.60 * vector_similarity_score) + (0.40 * keyword_density_score)))
+        return max(15, min(98, final_score))
     except Exception as e:
         logger.error(f"Error in hybrid match scoring: {e}")
-        return 40
+        return 45
 
 def calculate_ats_compliance_score(tailored_cv_text: str, job_description: str) -> int:
     """
