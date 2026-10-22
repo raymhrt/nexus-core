@@ -2472,7 +2472,8 @@ async def trial_interview_practice(payload: TrialInterviewRequest, auth: dict = 
 @app.post("/api/v1/career/negotiate")
 async def salary_negotiator(payload: NegotiatorRequest, auth: dict = Depends(verify_api_key_only)):
     prompt = f"User: {auth['email']}\nInitial Offer: {payload.offer_details}\nTarget Compensation: {payload.target_compensation}\n\nDraft a professional counter-offer script and negotiation strategy."
-    script = call_groq_ai(prompt, system_prompt="You are the Compensation Economist agent.")
+    # FIX: Added 'await' here
+    script = await call_groq_ai(prompt, system_prompt="You are the Compensation Economist agent.")
     return {"status": "success", "script": script}
 
 @app.post("/create-portal-session")
