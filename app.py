@@ -345,10 +345,10 @@ def set_cached_ai_response(cache_key: str, response_text: str):
     except Exception:
         pass
 
-def call_groq_ai(prompt: str, system_prompt: str = "You are the complete multi-tenant intelligence core returning precise JSON.", cache_salt: str = "") -> str:
+async def call_groq_ai(prompt: str, system_prompt: str = "You are the complete multi-tenant intelligence core returning precise JSON.", cache_salt: str = "") -> str:
     if not GROQ_API_KEY:
         raise HTTPException(status_code=500, detail="GROQ_API_KEY not configured.")
-    
+
     cache_key = hashlib.sha256((prompt + system_prompt + cache_salt).encode("utf-8")).hexdigest()
     cached = get_cached_ai_response(cache_key)
     if cached:
@@ -359,36 +359,43 @@ def call_groq_ai(prompt: str, system_prompt: str = "You are the complete multi-t
         "model": "openai/gpt-oss-120b",
         "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}],
         "temperature": 0.2,
-        "max_tokens": 8192  # Increased from 4096 to prevent truncation of tail sections
+        "max_tokens": 8192
     }
 
-    max_retries = 5
+    max_retries = 6
     endpoint_url = "https://api.groq.com/openai/v1/chat/completions"
 
     for attempt in range(max_retries):
         try:
-            res = requests.post(endpoint_url, json=payload, headers=headers, timeout=25)
+            # Non-blocking execution in threadpool to keep event loop and SSE stream active
+            res = await asyncio.to_thread(
+                requests.post, endpoint_url, json=payload, headers=headers, timeout=30
+            )
+
             if res.status_code == 200:
                 data = res.json()
                 output = data["choices"][0]["message"]["content"]
                 set_cached_ai_response(cache_key, output)
                 return output
+
             elif res.status_code == 429:
-                sleep_time = (3 ** attempt) * 4 + random.uniform(3.0, 7.0)
-                logger.warning(f"Groq API rate limit (429) hit. Waiting {sleep_time:.2f}s for rate window reset (attempt {attempt + 1}/{max_retries})...")
-                time.sleep(sleep_time)
-            elif res.status_code in [502, 503]:
+                sleep_time = (2 ** attempt) * 4 + random.uniform(3.0, 8.0)
+                logger.warning(f"Groq API rate limit (429) hit. Backing off for {sleep_time:.2f}s (attempt {attempt + 1}/{max_retries})...")
+                await asyncio.sleep(sleep_time)
+
+            elif res.status_code in [502, 503, 504]:
                 sleep_time = (2 ** attempt) + random.uniform(1.0, 3.0)
-                logger.warning(f"Groq API server error ({res.status_code}). Retrying in {sleep_time:.2f}s...")
-                time.sleep(sleep_time)
+                logger.warning(f"Groq API gateway error ({res.status_code}). Retrying in {sleep_time:.2f}s...")
+                await asyncio.sleep(sleep_time)
             else:
                 res.raise_for_status()
+
         except Exception as e:
             if attempt == max_retries - 1:
-                raise HTTPException(status_code=502, detail=f"Groq AI inference failed across all retry attempts: {str(e)}")
-            sleep_time = (2 ** attempt) + random.uniform(1.0, 3.0)
-            time.sleep(sleep_time)
-            
+                logger.error(f"Groq AI inference exhausted all {max_retries} retries: {str(e)}")
+                raise HTTPException(status_code=502, detail=f"AI inference failed due to persistent provider rate limits or downtime: {str(e)}")
+            await asyncio.sleep(3.0 * (attempt + 1))
+
     raise HTTPException(status_code=502, detail="Groq AI inference failed across all retry attempts.")
 
 # ==================== TAILORING HELPERS ====================
@@ -1299,7 +1306,7 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
                 user_domain = user_profile_context.get("domain", "general")
 
             eval_prompt = f"""
-            You are an elite, strict Executive Recruiter and Senior ATS Evaluation Engine.
+            You are an elite, merciless Executive Recruiter and Senior ATS Evaluation Engine.
             Rigorously analyze the candidate's Master CV against THIS SPECIFIC JOB POSTING. Do not inflate scores.
 
             CANDIDATE PRIMARY DOMAIN: {user_domain}
@@ -1310,14 +1317,13 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
             EXACT JOB DESCRIPTION & REQUIREMENTS:
             {desc}
 
-            ADAPTIVE EVALUATION & PENALTY RUBRIC:
-            - Start with a base score of 100.
-            - CORE ALIGNMENT CHECK: Evaluate whether the job aligns with the candidate's core professional focus and primary domain, or if it inappropriately targets a secondary/legacy background role (such as matching a senior research scientist profile to a heavy industrial plant manager role). Deduct 40 points immediately if there is a severe core-domain mismatch.
-            - Deduct 15 points for every mandatory technical requirement, degree, or tool mentioned in the job description that is completely missing from the Master CV.
-            - Deduct 10 points for seniority level mismatches.
+            STRICT HARD-GATE & PENALTY RUBRIC:
+            1. CORE FIELD & DEGREE MISMATCH (CRITICAL): Check the required degree or technical field in the job description (e.g., Chemistry, Gold Fire Assay, Civil Engineering, Nursing). If the job demands a specific core discipline or technical background entirely outside the candidate's verified Master CV domain (e.g., a Molecular Biologist applying for a Chemistry/Gold Assay Lab Manager role), cap the maximum possible "fit_score" at 35 immediately and list it in critical_missing.
+            2. INDUSTRIAL vs ACADEMIC/BIOTECH DRIFT: Deduct 40 points if the job requires heavy industrial, mining, or unrelated manufacturing plant operations not present in the candidate's primary scientific track.
+            3. MANDATORY REQUIREMENTS: Deduct 20 points for every mandatory technical tool, certification, or domain requirement missing from the Master CV.
 
             Return strict JSON with these exact keys:
-            - "fit_score": integer (0 to 100 calculated using the strict rubric)
+            - "fit_score": integer (0 to 100 calculated using the strict rubric. Force below 40 if core discipline/degree mismatches occur)
             - "match_rationale": [string, string]
             - "matched_strengths": [string, string, ...]
             - "transferable_gaps": [string, ...]
@@ -1351,8 +1357,9 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
             transferable_gaps_list = parse_list_field(eval_data, 'transferable_gaps', ['gaps', 'transferable_requirements'])
             critical_missing_list = parse_list_field(eval_data, 'critical_missing', ['missing_requirements', 'critical_gaps'])
 
-            penalty = (len(critical_missing_list) * 15) + (len(transferable_gaps_list) * 5)
-            ai_adjusted_score = max(10, min(95, (ai_fit_score if ai_fit_score > 0 else 60) - penalty))
+            # Aggressive penalty multiplier for missing requirements
+            penalty = (len(critical_missing_list) * 20) + (len(transferable_gaps_list) * 8)
+            ai_adjusted_score = max(5, min(95, (ai_fit_score if ai_fit_score > 0 else 50) - penalty))
 
             tailored_cv_text = sanitize_cv_text(eval_data.get('tailored_cv') or profile_content)
             ats_score = calculate_ats_compliance_score(tailored_cv_text, desc)
@@ -1368,14 +1375,15 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
                 job_embedding=job_embed
             )
             
-            final_fit_score = int(round((0.50 * ai_adjusted_score) + (0.50 * hybrid_semantic_score)))
+            # Blend score, but heavily weight AI penalty enforcement
+            final_fit_score = int(round((0.60 * ai_adjusted_score) + (0.40 * hybrid_semantic_score)))
 
             return {
                 "company_name": company,
                 "job_title": role,
                 "job_description": desc,
                 "location": job.get('location', "Global"),
-                "fit_score": max(10, min(98, final_fit_score)),
+                "fit_score": max(5, min(98, final_fit_score)),
                 "ats_compliance_score": ats_score,
                 "track": eval_data.get('track', 'Adaptive Domain Core'),
                 "seniority_fit": eval_data.get('seniority_fit', 'Senior'),
@@ -1607,7 +1615,6 @@ async def isolated_user_job_scouting_worker(user_email: str, requested_count: in
 
         await sse_broker.broadcast("multi_tenant_telemetry", {"user": user_email, "message": f"Scraping global multi-source feeds tuned to user's master profile..."})
         
-        # Pass user_profile_json so role expansion customizes search queries for THIS user
         raw_jobs = await multi_tenant_job_infiltration(target_roles, target_locations, requested_count * 20, user_profile_json=profile_content)
         
         if not raw_jobs:
@@ -1617,8 +1624,13 @@ async def isolated_user_job_scouting_worker(user_email: str, requested_count: in
         await sse_broker.broadcast("multi_tenant_telemetry", {"user": user_email, "message": f"Discovered {len(raw_jobs)} positions. Running paced AI vector evaluations for {user_email}..."})
         
         valid_results = []
-        for job in raw_jobs[:25]:
-            evaluated = await evaluate_job_for_specific_user(job, profile_content, user_email, AI_EVAL_SEMAPHORE)
+        for idx, job in enumerate(raw_jobs[:25], 1):
+            await sse_broker.broadcast("multi_tenant_telemetry", {
+                "user": user_email, 
+                "message": f"Evaluating position {idx}/25: {sanitize_job_title(job.get('job_title', 'Role'))} at {job.get('company_name', 'Company')}..."
+            })
+            
+            evaluated = await evaluate_job_for_specific_user(job, profile_content, user_email, AI_EVAL_SEMAPHORE, user_profile_context=u_dict)
             if evaluated:
                 score = safe_int(evaluated.get('fit_score'), 0)
                 if score >= min_match_score:
@@ -1630,7 +1642,7 @@ async def isolated_user_job_scouting_worker(user_email: str, requested_count: in
                         "match_score": score,
                         "message": f"Verified match: {evaluated['company_name']} ({score}% match)"
                     })
-            await asyncio.sleep(3.0)
+            await asyncio.sleep(2.0)
 
         if not valid_results:
             await sse_broker.broadcast("career_swarm_update", {
@@ -1702,8 +1714,14 @@ async def isolated_user_job_scouting_worker(user_email: str, requested_count: in
                     saved_count += 1
 
         await sse_broker.broadcast("career_swarm_update", {"user": user_email, "status": "scouted", "message": f"Swarm completed for {user_email}. Indexed {saved_count} top matches."})
+        
     except Exception as e:
         logger.error(f"Error in isolated worker for tenant {user_email}: {str(e)}", exc_info=True)
+        await sse_broker.broadcast("career_swarm_update", {
+            "user": user_email,
+            "status": "error",
+            "message": f"Scouting swarm halted due to an unexpected error: {str(e)}"
+        })
 
 async def run_autonomous_ats_autopilot_worker(match_id: int, user_email: str, ats_url: str):
     steps = [
