@@ -1335,7 +1335,7 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
             """
             
             loop = asyncio.get_running_loop()
-            raw_eval = await loop.run_in_executor(None, call_groq_ai, eval_prompt, "You are an expert recruitment AI returning precise JSON.")
+            raw_eval = await call_groq_ai(eval_prompt, system_prompt="You are an expert recruitment AI returning precise JSON.")
             eval_data = extract_json_safely(raw_eval, {})
             
             ai_fit_score = safe_int(eval_data.get('fit_score'), 0)
