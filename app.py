@@ -97,12 +97,10 @@ sse_broker = SSETelemetryBroker()
 
 @contextmanager
 def db_transaction_scope():
-    if DATABASE_URL:
-        conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
-    else:
-        conn = sqlite3.connect("quantcode_career_monetized.db")
-        conn.row_factory = sqlite3.Row
-        
+    if not DATABASE_URL:
+        raise RuntimeError("DATABASE_URL environment variable is not set. PostgreSQL is strictly required.")
+    
+    conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
     cursor = conn.cursor()
     try:
         yield conn, cursor
@@ -1411,151 +1409,79 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
 
 def init_career_database():
     with db_transaction_scope() as (_, cursor):
-        if DATABASE_URL:
-            cursor.execute("CREATE TABLE IF NOT EXISTS ai_response_cache (cache_key TEXT PRIMARY KEY, response_text TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS subscribers (
-                    email TEXT PRIMARY KEY,
-                    active INT DEFAULT 1,
-                    tier TEXT DEFAULT 'starter',
-                    stripe_customer_id TEXT,
-                    reset_token TEXT,
-                    reset_expires_at TIMESTAMP
-                )
-            """)
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS subscriber_credits (
-                    email TEXT PRIMARY KEY REFERENCES subscribers(email),
-                    credits_remaining INT DEFAULT 100,
-                    credits_limit INT DEFAULT 100,
-                    last_refill_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS api_keys (
-                    id SERIAL PRIMARY KEY,
-                    email TEXT REFERENCES subscribers(email),
-                    key_hash TEXT UNIQUE,
-                    key_name TEXT DEFAULT 'Default',
-                    scope TEXT DEFAULT 'full',
-                    role TEXT DEFAULT 'admin',
-                    active INT DEFAULT 1,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS user_profiles (
-                    email TEXT PRIMARY KEY,
-                    profile_json TEXT,
-                    embedding TEXT,
-                    domain TEXT DEFAULT 'general',
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
+        cursor.execute("CREATE TABLE IF NOT EXISTS ai_response_cache (cache_key TEXT PRIMARY KEY, response_text TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS subscribers (
+                email TEXT PRIMARY KEY,
+                active INT DEFAULT 1,
+                tier TEXT DEFAULT 'starter',
+                stripe_customer_id TEXT,
+                reset_token TEXT,
+                reset_expires_at TIMESTAMP
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS subscriber_credits (
+                email TEXT PRIMARY KEY REFERENCES subscribers(email),
+                credits_remaining INT DEFAULT 100,
+                credits_limit INT DEFAULT 100,
+                last_refill_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS api_keys (
+                id SERIAL PRIMARY KEY,
+                email TEXT REFERENCES subscribers(email),
+                key_hash TEXT UNIQUE,
+                key_name TEXT DEFAULT 'Default',
+                scope TEXT DEFAULT 'full',
+                role TEXT DEFAULT 'admin',
+                active INT DEFAULT 1,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS user_profiles (
+                email TEXT PRIMARY KEY,
+                profile_json TEXT,
+                embedding TEXT,
+                domain TEXT DEFAULT 'general',
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
 
-            cursor.execute("ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS domain TEXT DEFAULT 'general';")
+        cursor.execute("ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS domain TEXT DEFAULT 'general';")
 
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS job_matches (
-                    id SERIAL PRIMARY KEY,
-                    user_email TEXT,
-                    company_name TEXT,
-                    job_title TEXT,
-                    job_description TEXT,
-                    location TEXT,
-                    fit_score INT,
-                    match_rationale TEXT,
-                    matched_requirements TEXT,
-                    transferable_gaps TEXT,
-                    critical_missing TEXT,
-                    status TEXT DEFAULT 'discovered',
-                    decision_maker_name TEXT,
-                    decision_maker_title TEXT,
-                    decision_maker_email TEXT,
-                    warm_intro_pathway TEXT DEFAULT '',
-                    outreach_draft TEXT,
-                    salary_benchmark TEXT DEFAULT 'Competitive Market Rate',
-                    recruiter_verified INT DEFAULT 1,
-                    negotiation_strategy TEXT DEFAULT '',
-                    cv_variant TEXT,
-                    cover_letter_variant TEXT,
-                    interview_playbook TEXT DEFAULT '',
-                    ats_portal_url TEXT,
-                    embedding TEXT,
-                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-        else:
-            cursor.execute("CREATE TABLE IF NOT EXISTS ai_response_cache (cache_key TEXT PRIMARY KEY, response_text TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS subscribers (
-                    email TEXT PRIMARY KEY,
-                    active INT DEFAULT 1,
-                    tier TEXT DEFAULT 'starter',
-                    stripe_customer_id TEXT,
-                    reset_token TEXT,
-                    reset_expires_at DATETIME
-                )
-            """)
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS subscriber_credits (
-                    email TEXT PRIMARY KEY REFERENCES subscribers(email),
-                    credits_remaining INT DEFAULT 100,
-                    credits_limit INT DEFAULT 100,
-                    last_refill_date DATETIME DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS api_keys (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    email TEXT REFERENCES subscribers(email),
-                    key_hash TEXT UNIQUE,
-                    key_name TEXT DEFAULT 'Default',
-                    scope TEXT DEFAULT 'full',
-                    role TEXT DEFAULT 'admin',
-                    active INT DEFAULT 1,
-                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS user_profiles (
-                    email TEXT PRIMARY KEY,
-                    profile_json TEXT,
-                    embedding TEXT,
-                    domain TEXT DEFAULT 'general',
-                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            cursor.execute("""
-    CREATE TABLE IF NOT EXISTS job_matches (
-        id SERIAL PRIMARY KEY,
-        user_email TEXT,
-        company_name TEXT,
-        job_title TEXT,
-        job_description TEXT,
-        location TEXT,
-        fit_score INT,
-        match_rationale TEXT,
-        matched_requirements TEXT,
-        transferable_gaps TEXT,
-        critical_missing TEXT,
-        status TEXT DEFAULT 'discovered',
-        decision_maker_name TEXT,
-        decision_maker_title TEXT,
-        decision_maker_email TEXT,
-        warm_intro_pathway TEXT DEFAULT '',
-        outreach_draft TEXT,
-        salary_benchmark TEXT DEFAULT 'Competitive Market Rate',
-        recruiter_verified INT DEFAULT 1,
-        negotiation_strategy TEXT DEFAULT '',
-        cv_variant TEXT,
-        cover_letter_variant TEXT,
-        interview_playbook TEXT DEFAULT '',
-        ats_portal_url TEXT,
-        embedding TEXT,
-        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-""")
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS job_matches (
+                id SERIAL PRIMARY KEY,
+                user_email TEXT,
+                company_name TEXT,
+                job_title TEXT,
+                job_description TEXT,
+                location TEXT,
+                fit_score INT,
+                match_rationale TEXT,
+                matched_requirements TEXT,
+                transferable_gaps TEXT,
+                critical_missing TEXT,
+                status TEXT DEFAULT 'discovered',
+                decision_maker_name TEXT,
+                decision_maker_title TEXT,
+                decision_maker_email TEXT,
+                warm_intro_pathway TEXT DEFAULT '',
+                outreach_draft TEXT,
+                salary_benchmark TEXT DEFAULT 'Competitive Market Rate',
+                recruiter_verified INT DEFAULT 1,
+                negotiation_strategy TEXT DEFAULT '',
+                cv_variant TEXT,
+                cover_letter_variant TEXT,
+                interview_playbook TEXT DEFAULT '',
+                ats_portal_url TEXT,
+                embedding TEXT,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
 
 def verify_api_key_only(x_api_key: str = Header(...), request: Request = None):
     incoming_hash = hash_api_key(x_api_key)
@@ -2359,16 +2285,16 @@ async def save_career_resume(payload: ResumeInput, auth: dict = Depends(verify_a
     domain = str(parsed_profile.get("domain", "general")).lower()
     recommended_roles = parsed_profile.get("recommended_roles", [])
     
-    # Filter out any accidental name contamination in recommended roles
+    # Clean and validate roles without hardcoded personal name tokens
     sanitized_roles = [
         str(role).strip() for role in recommended_roles 
-        if role and not any(name_token in str(role).lower() for name_token in ["ray", "hartman", "mhrt"])
+        if role and len(str(role).strip()) > 2
     ]
     
     if not sanitized_roles:
         raise HTTPException(
             status_code=422,
-            detail="Extracted roles contained invalid tenant references. Please re-upload a clean professional CV."
+            detail="Extracted roles were invalid or empty. Please ensure your resume text contains professional titles."
         )
     
     parsed_profile["recommended_roles"] = sanitized_roles
