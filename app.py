@@ -286,7 +286,6 @@ def validate_real_world_job(job: dict) -> bool:
     if any(m in text_blob for m in mock_markers):
         return False
         
-    # Expanded negative keyword filter to block completely unrelated sectors
     forbidden_keywords = [
         "geology", "geologist", "mining", "packaging", "automotive mechanic", 
         "civil engineer", "accounting", "tax specialist", "nurse", "nursing", 
@@ -1150,53 +1149,42 @@ def recursive_org_chart_decision_maker_discovery(company_name: str, job_title: s
 
 async def ai_adaptable_role_expansion(target_roles: str, user_profile_json: Optional[str] = None) -> List[str]:
     prompt = f"""
-    You are Agent 1 (Senior Search Strategist). Analyze the user's target roles and master CV profile to construct precise, high-intent search queries.
-    Target Roles: "{target_roles}"
-    User Master Profile / CV: {user_profile_json or 'None Provided'}
+    You are an expert multi-tenant recruitment strategy engine. Analyze the user's target roles and uploaded Master CV profile to construct precise, high-intent search queries.
+    Target Roles Provided by User: "{target_roles}"
+    User Master Profile / CV Summary: {user_profile_json or 'None Provided'}
 
-    Generate a JSON array of 6 to 8 clean, multi-word search phrases (e.g., "Senior Python Developer", "Backend Software Engineer", "Data Scientist"). NEVER generate overly broad single-word terms like "Developer" or "Engineer".
-    Return ONLY a valid JSON array of strings (no markdown backticks, raw JSON only).
+    Generate a JSON array of 6 to 8 clean, multi-word search phrases tailored strictly to this specific user's background (e.g., if the user is a molecular biologist, return biological research roles; if a software engineer, return engineering roles). NEVER generate generic or cross-industry mismatch terms.
+    Return ONLY a valid JSON array of strings (raw JSON only, no markdown backticks).
     """
     try:
         raw_ai = call_groq_ai(prompt, system_prompt="You are an expert recruitment data engineer returning raw JSON arrays.")
         phrases = extract_json_safely(raw_ai, [])
         if isinstance(phrases, list) and phrases:
-            cleaned = [str(p).strip() for p in phrases if len(str(p).strip()) > 4 and len(str(p).strip().split()) >= 2]
+            cleaned = [str(p).strip() for p in phrases if len(str(p).strip()) > 3 and len(str(p).strip().split()) >= 1]
             if cleaned:
                 return cleaned
     except Exception as e:
-        logger.warning(f"AI role expansion fallback triggered due to: {e}")
+        logger.warning(f"AI role expansion fallback triggered for tenant: {e}")
 
-    # Fallback: keep multi-word phrases only, discarding single-word explosions
-    derived_terms = [r.strip() for r in target_roles.split(',') if len(r.strip()) > 3 and len(r.strip().split()) >= 2]
-    return derived_terms if derived_terms else ["Software Engineer", "Technical Specialist"]
+    # Fallback to user-supplied roles
+    derived_terms = [r.strip() for r in target_roles.split(',') if len(r.strip()) > 3]
+    return derived_terms if derived_terms else ["Research Scientist", "Technical Specialist"]
 
 async def multi_tenant_job_infiltration(target_roles: str, location: str, count: int, user_profile_json: Optional[str] = None) -> List[Dict]:
-    # 1. Get AI variations dynamically tailored to the user's uploaded master profile
+    # 1. Get AI role variations tailored specifically to THIS user's uploaded master profile
     ai_variations = await ai_adaptable_role_expansion(target_roles, user_profile_json)
     
-    # 2. Safely parse user-supplied target roles by splitting on commas, semicolons, or pipes
+    # 2. Parse user-supplied target roles
     raw_role_list = re.split(r'[,;|]+', target_roles)
-    cleaned_user_roles = []
-    
-    for role in raw_role_list:
-        clean_role = re.sub(r'\([^)]*\)', '', role).strip()
-        clean_role = re.sub(r'\s+', ' ', clean_role)
-        if len(clean_role) > 3:
-            cleaned_user_roles.append(clean_role)
-            sub_splits = re.split(r'[/]+', clean_role)
-            for sub in sub_splits:
-                sub_clean = sub.strip()
-                if len(sub_clean) > 3:
-                    cleaned_user_roles.append(sub_clean)
+    cleaned_user_roles = [r.strip() for r in raw_role_list if len(r.strip()) > 3]
 
-    # 3. Combine AI variations and cleaned user roles, removing duplicates
+    # 3. Combine and deduplicate search permutations for this specific user session
     search_permutations = ai_variations + cleaned_user_roles
     seen = set()
     search_permutations = [x for x in search_permutations if not (x.lower() in seen or seen.add(x.lower()))]
-    
+
     if not search_permutations:
-        search_permutations = ["Research Scientist", "Biochemist", "Molecular Biologist"]
+        search_permutations = ["Research Scientist", "Technical Specialist"]
 
     discovered_jobs = []
     seen_urls = set()
@@ -1204,16 +1192,15 @@ async def multi_tenant_job_infiltration(target_roles: str, location: str, count:
 
     loc_lower = location.lower()
     is_sa_search = any(k in loc_lower for k in ["south africa", "johannesburg", "cape town", "pretoria", "durban"])
-    active_sites = ["linkedin", "indeed"] if is_sa_search else ["linkedin", "indeed", "glassdoor", "zip_recruiter"]
+    active_sites = ["linkedin", "indeed"] if is_sa_search else ["linkedin", "indeed", "glassdoor"]
 
-    # 4. PROGRESSIVE RECENT-JOB WINDOW (Starts with 96h / today, expands daily up to 7 days max)
-    recency_tiers_hours = [96, 120, 144, 168]
+    recency_tiers_hours = [96, 120, 168]
 
     for hours_window in recency_tiers_hours:
         if len(discovered_jobs) >= count:
-            break  # Stop expanding window once we have enough fresh jobs
+            break
 
-        for term in search_permutations[:3]:
+        for term in search_permutations[:4]:
             if len(discovered_jobs) >= count * 15:
                 break
             try:
@@ -1224,7 +1211,7 @@ async def multi_tenant_job_infiltration(target_roles: str, location: str, count:
                         search_term=term,
                         location=location,
                         results_wanted=15,
-                        hours_old=hours_window,  # Dynamically widens from 24h (today) up to 168h (7 days max)
+                        hours_old=hours_window,
                         country_indeed='South Africa' if is_sa_search else 'USA'
                     )
                 )
@@ -1243,16 +1230,15 @@ async def multi_tenant_job_infiltration(target_roles: str, location: str, count:
                             seen_urls.add(job_item["ats_portal_url"])
                             discovered_jobs.append(job_item)
             except Exception as e:
-                logger.error(f"JobSpy scraping exception for term '{term}' (window {hours_window}h): {e}")
+                logger.error(f"JobSpy scraping exception for tenant search term '{term}': {e}")
 
-        # If we found jobs within today's window (24h), we can break early to prioritize absolute recency
-        if discovered_jobs and hours_window == 24:
+        if discovered_jobs and hours_window == 96:
             break
 
-    # 5. Maintain Adzuna API fallback search integration if needed
+    # 4. Adzuna API Fallback Integration (Fully Restored)
     if len(discovered_jobs) < count:
         countries_to_try = ["za", "us"] if is_sa_search else ["us"]
-        primary_term = search_permutations[0]
+        primary_term = search_permutations[0] if search_permutations else target_roles
 
         for country in countries_to_try:
             if ADZUNA_APP_ID and ADZUNA_APP_KEY:
@@ -1564,36 +1550,39 @@ def verify_api_key_only(x_api_key: str = Header(...), request: Request = None):
 
 async def isolated_user_job_scouting_worker(user_email: str, requested_count: int, target_locations: str, target_roles: str, min_match_score: int = 60):
     saved_count = 0
-    await sse_broker.broadcast("multi_tenant_telemetry", {"user": user_email, "message": f"Executing live infiltration for {user_email} (Minimum Fit Filter Set To: {min_match_score}%)..."})
+    await sse_broker.broadcast("multi_tenant_telemetry", {"user": user_email, "message": f"Initializing tenant infiltration for {user_email} (Min Fit Filter: {min_match_score}%)..."})
 
     try:
         with db_transaction_scope() as (_, cursor):
             if DATABASE_URL:
-                cursor.execute("SELECT email, profile_json FROM user_profiles WHERE email = %s", (user_email,))
+                cursor.execute("SELECT email, profile_json, domain FROM user_profiles WHERE email = %s", (user_email,))
             else:
-                cursor.execute("SELECT email, profile_json FROM user_profiles WHERE email = ?", (user_email,))
+                cursor.execute("SELECT email, profile_json, domain FROM user_profiles WHERE email = ?", (user_email,))
             user_row = cursor.fetchone()
 
         if not user_row:
+            await sse_broker.broadcast("career_swarm_update", {"user": user_email, "status": "error", "message": "No Master CV found. Please upload your CV before scouting."})
             return
 
         u_dict = dict(user_row) if not isinstance(user_row, dict) else user_row
         profile_content = u_dict.get('profile_json', '')
 
-        await sse_broker.broadcast("multi_tenant_telemetry", {"user": user_email, "message": f"Scraping global multi-source feeds across LinkedIn & Indeed..."})
+        await sse_broker.broadcast("multi_tenant_telemetry", {"user": user_email, "message": f"Scraping global multi-source feeds tuned to user's master profile..."})
+        
+        # Pass user_profile_json so role expansion customizes search queries for THIS user
         raw_jobs = await multi_tenant_job_infiltration(target_roles, target_locations, requested_count * 20, user_profile_json=profile_content)
+        
         if not raw_jobs:
             await sse_broker.broadcast("career_swarm_update", {"user": user_email, "status": "no_jobs", "message": "Scouting completed, but zero live positions matched current aggregators."})
             return
         
-        await sse_broker.broadcast("multi_tenant_telemetry", {"user": user_email, "message": f"Discovered {len(raw_jobs)} positions. Running paced AI vector evaluations..."})
+        await sse_broker.broadcast("multi_tenant_telemetry", {"user": user_email, "message": f"Discovered {len(raw_jobs)} positions. Running paced AI vector evaluations for {user_email}..."})
         
         valid_results = []
         for job in raw_jobs[:25]:
             evaluated = await evaluate_job_for_specific_user(job, profile_content, user_email, AI_EVAL_SEMAPHORE)
             if evaluated:
                 score = safe_int(evaluated.get('fit_score'), 0)
-                
                 if score >= min_match_score:
                     valid_results.append(evaluated)
                     await sse_broker.broadcast("multi_tenant_telemetry", {
@@ -1601,19 +1590,18 @@ async def isolated_user_job_scouting_worker(user_email: str, requested_count: in
                         "job_title": evaluated["job_title"],
                         "company_name": evaluated["company_name"],
                         "match_score": score,
-                        "message": f"Verified match: {evaluated['company_name']} ({score}% match meets {min_match_score}% filter)"
+                        "message": f"Verified match: {evaluated['company_name']} ({score}% match)"
                     })
-            await asyncio.sleep(4.0)  
+            await asyncio.sleep(3.0)
 
         if not valid_results:
             await sse_broker.broadcast("career_swarm_update", {
                 "user": user_email, 
                 "status": "no_matches", 
-                "message": f"Scouting complete. No jobs met or exceeded your configured {min_match_score}% match filter threshold."
+                "message": f"Scouting complete. No jobs met your configured {min_match_score}% threshold."
             })
             return
 
-        # SORT BY HIGHEST SCORE DESCENDING & TAKE EXACT TOP REQUESTED COUNT
         valid_results.sort(key=lambda x: x.get('fit_score', 0), reverse=True)
         evaluated_matches = valid_results[:requested_count]
 
@@ -1626,7 +1614,7 @@ async def isolated_user_job_scouting_worker(user_email: str, requested_count: in
                 sub_row = ic.fetchone()
                 user_tier = sub_row["tier"] if isinstance(sub_row, dict) else sub_row[0]
 
-                job_embedding_list = match_item.get('embedding', [0.0] * 768)
+                job_embedding_list = match_item.get('embedding', [0.0] * 256)
                 vector_str = json.dumps(job_embedding_list)
 
                 matched_reqs_json = json.dumps(match_item.get('matched_requirements', []))
@@ -1667,19 +1655,17 @@ async def isolated_user_job_scouting_worker(user_email: str, requested_count: in
                     safe_str(match_item.get('ats_portal_url')),
                     vector_str
                 ))
-                inserted = (ic.rowcount > 0)
+                
+                if ic.rowcount > 0 and user_tier != "enterprise":
+                    if DATABASE_URL:
+                        ic.execute("UPDATE subscriber_credits SET credits_remaining = credits_remaining - 1 WHERE email = %s", (user_email,))
+                    else:
+                        ic.execute("UPDATE subscriber_credits SET credits_remaining = credits_remaining - 1 WHERE email = ?", (user_email,))
+                    saved_count += 1
 
-                if inserted:
-                    if user_tier != "enterprise":
-                        if DATABASE_URL:
-                            ic.execute("UPDATE subscriber_credits SET credits_remaining = credits_remaining - 1 WHERE email = %s", (user_email,))
-                        else:
-                            ic.execute("UPDATE subscriber_credits SET credits_remaining = credits_remaining - 1 WHERE email = ?", (user_email,))
-                        saved_count += 1
-
-        await sse_broker.broadcast("career_swarm_update", {"user": user_email, "status": "scouted", "message": f"Swarm completed. Indexed top {saved_count} highest-scoring matches meeting the {min_match_score}% threshold."})
+        await sse_broker.broadcast("career_swarm_update", {"user": user_email, "status": "scouted", "message": f"Swarm completed for {user_email}. Indexed {saved_count} top matches."})
     except Exception as e:
-        logger.error(f"Error in isolated worker for {user_email}: {str(e)}", exc_info=True)
+        logger.error(f"Error in isolated worker for tenant {user_email}: {str(e)}", exc_info=True)
 
 async def run_autonomous_ats_autopilot_worker(match_id: int, user_email: str, ats_url: str):
     steps = [
