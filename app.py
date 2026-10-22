@@ -2348,25 +2348,29 @@ async def save_career_resume(payload: ResumeInput, auth: dict = Depends(verify_a
     except Exception:
         pass
 
-    domain = parsed_profile.get("domain", "backend_engineering").lower()
+    if not parsed_profile or not isinstance(parsed_profile, dict) or not parsed_profile.get("recommended_roles"):
+        logger.error(f"Failed to parse domain profile for tenant {auth['email']}. Raw AI output was invalid or empty.")
+        raise HTTPException(
+            status_code=422,
+            detail="AI profile extraction failed to validate professional domain and roles from the provided resume. Please ensure your resume text is detailed and formatted correctly."
+        )
 
-    if not parsed_profile or not parsed_profile.get("recommended_roles"):
-        stopwords = {"resume", "cv", "profile", "summary", "experience", "education", "skills", "raymond", "john", "jane", "email", "phone"}
-        words = [w.strip(".,;:()") for w in payload.resume_content.split() if len(w) > 4 and w.lower() not in stopwords]
-        
-        sample_domain = words[0].capitalize() if words else "Technical"
-        parsed_profile = {
-            "domain": "backend_engineering",
-            " seniority": "Senior Professional",
-            "primary_domain": f"{sample_domain} & Systems Engineering",
-            "skills": words[:8] if words else ["Technical Execution", "System Architecture"],
-            "recommended_roles": [
-                f"Senior {sample_domain} Engineer",
-                f"Principal {sample_domain} Architect",
-                "Lead Technical Specialist",
-                "Senior Solutions Developer"
-            ]
-        }
+    domain = str(parsed_profile.get("domain", "general")).lower()
+    recommended_roles = parsed_profile.get("recommended_roles", [])
+    
+    # Filter out any accidental name contamination in recommended roles
+    sanitized_roles = [
+        str(role).strip() for role in recommended_roles 
+        if role and not any(name_token in str(role).lower() for name_token in ["ray", "hartman", "mhrt"])
+    ]
+    
+    if not sanitized_roles:
+        raise HTTPException(
+            status_code=422,
+            detail="Extracted roles contained invalid tenant references. Please re-upload a clean professional CV."
+        )
+    
+    parsed_profile["recommended_roles"] = sanitized_roles
 
     embedding_vector = generate_text_embedding(payload.resume_content)
     vector_str = json.dumps(embedding_vector)
