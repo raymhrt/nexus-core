@@ -2343,7 +2343,7 @@ async def save_career_resume(payload: ResumeInput, auth: dict = Depends(verify_a
     """
     parsed_profile = {}
     try:
-        raw_ai = call_groq_ai(prompt, system_prompt="You are an expert recruitment JSON parser. Return valid raw JSON.")
+        raw_ai = await call_groq_ai(prompt, system_prompt="You are an expert recruitment JSON parser. Return valid raw JSON.")
         parsed_profile = extract_json_safely(raw_ai, {})
     except Exception:
         pass
