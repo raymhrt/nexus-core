@@ -97,10 +97,12 @@ sse_broker = SSETelemetryBroker()
 
 @contextmanager
 def db_transaction_scope():
-    if not DATABASE_URL:
-        raise RuntimeError("DATABASE_URL environment variable is not set. PostgreSQL is strictly required.")
-    
-    conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+    if DATABASE_URL:
+        conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+    else:
+        conn = sqlite3.connect("quantcode_career_monetized.db")
+        conn.row_factory = sqlite3.Row
+        
     cursor = conn.cursor()
     try:
         yield conn, cursor
@@ -867,9 +869,9 @@ async def generate_tailored_cv(user_email: str, master_resume_text: str, job_tit
     3. HEADER & SUBTITLE: Line 1 must be the candidate's exact name in uppercase. Line 2 must be their location. Line 3 must be their clean LinkedIn profile URL text. Line 4 must be their phone number and verified email ({user_email}) separated by ' | '. Line 5 must be a precise 3-part professional subtitle dynamically synthesized from the candidate's uploaded Master CV content and tailored specifically to match the core domain, technical competencies, and exact action keywords of the target job description ({job_description}), separated strictly by pipe delimiters (' | ').
     4. PROFESSIONAL SUMMARY (FLUID EXECUTIVE PARAGRAPH): Write the Professional Summary strictly as ONE single, continuous, highly detailed, uninterrupted block of text forming a comprehensive executive narrative paragraph. Do NOT format it as a list of sentences or line breaks. It must be substantially expanded using *only* existing authentic details from the Master CV to occupy at least 6 to 8 full lines of text.
     5. CORE COMPETENCIES, TECHNICAL SKILLS & AWARDS FORMATTING (INLINE FLOW):
-        - CORE COMPETENCIES: Present competencies strictly as 4 to 5 rich, inline-flowing thematic bullet lines where related skills follow consecutively separated by commas or pipes (e.g., `• Research Planning, Hypothesis Development, Assay Optimization & Method Design`). Never generate isolated single-word bullet lines.
-        - TECHNICAL SKILLS: Present technical skills STRICTLY grouped by category into 4 to 5 rich, inline-flowing bullet lines (e.g., `- Molecular Biology & Biochemistry: PCR, DNA/RNA Extraction, Molecular Cloning, Protein Purification, SDS-PAGE | Biophysics & Structural Biology: SPR, ITC, X-ray Crystallography | Data & Software: Python, GraphPad Prism, SigmaPlot | Laboratory Operations: Quality Assurance, Protocol Development, Safety Audits`). NEVER generate single-item vertical lists or isolated skills per line. Pull skills exclusively from the Master CV.
-        - AWARDS & SCHOLARSHIPS: Format every award consistently as: Award Name - Institution | Year (e.g., PhD Merit Award - University of the Witwatersrand | 2025).
+        - CORE COMPETENCIES: Present competencies strictly as 4 to 5 rich, inline-flowing thematic bullet lines where related skills follow consecutively separated by commas or pipes.
+        - TECHNICAL SKILLS: Present technical skills STRICTLY grouped by category into 4 to 5 rich, inline-flowing bullet lines. Pull skills exclusively from the Master CV.
+        - AWARDS & SCHOLARSHIPS: Format every award consistently as: Award Name - Institution | Year.
     6. MAXIMUM CANVAS UTILIZATION (VIA DEEP ELABORATION ONLY):
         - 2-PAGE CANVAS TARGET: Maximize the 2-page PDF canvas right down to the bottom margin with zero trailing white space and zero spillover onto page 3 by richly expanding, detailing, and contextualizing the *existing* responsibilities and methodologies found in the Master CV into multi-clause descriptions.
         - STRICT CONSTRAINT: Never add fake roles or fabricate non-existent duties. Expand only what is genuinely present in the source text.
@@ -884,7 +886,6 @@ async def generate_tailored_cv(user_email: str, master_resume_text: str, job_tit
         ## AWARDS & SCHOLARSHIPS
         If unique custom sections (such as Additional Information, Projects, or Languages) exist in the Master CV, include them cleanly right before Publications.
         ## PUBLICATIONS
-        Never scramble the core order, combine sections, or create unrequested ad-hoc subheadings.
     8. BULLET POINTS & PARAGRAPHS: Use standard bullet points ('- ' or '* ') for every single item inside Core Competencies, Technical Skills, Professional Experience, Awards, and Certifications. List publications and education entries as clean text paragraphs with proper formatting.
     """
 
@@ -900,10 +901,10 @@ async def generate_tailored_cv(user_email: str, master_resume_text: str, job_tit
     Generate the complete, strictly grounded, tailored Markdown CV variant now. Expand the text depth using ONLY verified facts from the Master CV to maximize the 2-page canvas without hallucinations.
     """
 
-    loop = asyncio.get_running_loop()
-    raw_response = await loop.run_in_executor(
-        None, 
-        lambda: call_groq_ai(user_prompt, system_prompt=system_prompt, cache_salt=f"{company_name}_{job_title}")
+    raw_response = await call_groq_ai(
+        user_prompt, 
+        system_prompt=system_prompt, 
+        cache_salt=f"{company_name}_{job_title}"
     )
     
     eval_data = extract_json_safely(raw_response, {})
@@ -920,7 +921,7 @@ async def generate_tailored_cover_letter(user_email: str, master_resume_text: st
     You are an elite executive career strategist, senior technical writer, and corporate communication architect.
     Write a formal, deeply comprehensive, high-impact executive cover letter for the user ({user_email}) applying for the target role: {job_title} at {company_name}.
 
-    STRICT FORMATTING RULE: Return ONLY the raw executive cover letter text starting with the candidate name header and ending with the signature block. Do NOT include any closing remarks, explanations, notes, or meta-commentary like "Prepared in markdown format..." at the bottom.
+    STRICT FORMATTING RULE: Return ONLY the raw executive cover letter text starting with the candidate name header and ending with the signature block. Do NOT include any closing remarks, explanations, notes, or meta-commentary at the bottom.
 
     DEEP CONTENT EXPANSION & FULL-PAGE OCCUPANCY RULES:
     1. HEADER & CONTACT BLOCK: 
@@ -932,11 +933,11 @@ async def generate_tailored_cover_letter(user_email: str, master_resume_text: st
         - Date: {current_date}
         - Re: {job_title} at {company_name}
     3. SALUTATION: Dear Hiring Committee and Executive Leadership at {company_name},
-    4. FOUR SUBSTANTIAL, RICHLY DETAILED PARAGRAPHS (FULL-PAGE CANVAS TARGET):
-        - Paragraph 1 (Strategic Hook & Value Alignment): Write a comprehensive opening paragraph establishing your primary terminal credential, connecting your core domain expertise directly to {company_name}'s market trajectory or recent initiatives ({company_intel}), and positioning yourself as an immediate operational catalyst.
-        - Paragraph 2 (Comprehensive Technical Execution & Data Mastery): Write an extensive, highly detailed paragraph deeply articulating your analytical workflows, software pipelines (Python, statistical modeling, data visualization), and complex experimental methodologies from the Master CV that directly solve the specific technical challenges outlined in the job description ({job_description}). Emphasize data integrity, reproducibility, and rigorous validation frameworks.
-        - Paragraph 3 (Operational Discipline, Quality Assurance & Leadership): Write a robust paragraph bridging technical execution with leadership maturity. Detail your experience managing multidisciplinary projects, authoring strict Standard Operating Procedures (SOPs), enforcing quality assurance, and streamlining workflows to prove zero onboarding friction.
-        - Paragraph 4 (Enterprise Value Proposition & Closing): Write a substantial closing paragraph synthesizing your dual expertise (deep technical execution + operational leadership), outlining how your onboarding accelerates their immediate roadmap, and concluding with a confident, professional call to action and integration plan reference.
+    4. FOUR SUBSTANTIAL, RICHLY DETAILED PARAGRAPHS:
+        - Paragraph 1 (Strategic Hook & Value Alignment)
+        - Paragraph 2 (Comprehensive Technical Execution & Data Mastery)
+        - Paragraph 3 (Operational Discipline, Quality Assurance & Leadership)
+        - Paragraph 4 (Enterprise Value Proposition & Closing)
     5. STRICT GROUND TRUTH: Use ONLY verified facts, degrees, tools, and roles from the Master CV text. Never invent false metrics, financial budgets, or unearned credentials.
     """
 
@@ -952,13 +953,12 @@ async def generate_tailored_cover_letter(user_email: str, master_resume_text: st
     Generate the complete, highly detailed, strictly grounded executive cover letter in clean Markdown.
     """
 
-    # Generate a dynamic salt if force_refresh is True to guarantee a brand new generation bypass
     cache_salt = f"cl_{company_name}_{job_title}_{time.time()}" if force_refresh else f"cl_{company_name}_{job_title}"
 
-    loop = asyncio.get_running_loop()
-    cover_letter_output = await loop.run_in_executor(
-        None,
-        lambda: call_groq_ai(user_prompt, system_prompt=system_prompt, cache_salt=cache_salt)
+    cover_letter_output = await call_groq_ai(
+        user_prompt, 
+        system_prompt=system_prompt, 
+        cache_salt=cache_salt
     )
     
     guarded_cl = enforce_ground_truth_guardrails(user_email, master_resume_text, cover_letter_output.strip())
