@@ -1735,7 +1735,7 @@ class CareerCriteriaInput(BaseModel):
     target_roles: str
     locations: str
     job_count: Optional[int] = Field(default=3, ge=1, le=20)
-    min_match_score: Optional[int] = Field(default=60, ge=0, le=100)
+    min_match_score: Optional[int] = Field(default=60, alias="min_fit", ge=0, le=100)
 
 class JobEvaluationResponse(BaseModel):
     fit_score: int
