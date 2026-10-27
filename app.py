@@ -2253,15 +2253,15 @@ async def tailor_saved_match(match_id: int, auth: dict = Depends(verify_api_key_
         if DATABASE_URL:
             cursor.execute("""
                 UPDATE job_matches 
-                SET fit_score = %s, cv_variant = %s, cover_letter_variant = %s, embedding = %s, timestamp = NOW() 
+                SET tailored_fit_score = %s, fit_score = %s, cv_variant = %s, cover_letter_variant = %s, embedding = %s, timestamp = NOW() 
                 WHERE id = %s AND user_email = %s
-            """, (hybrid_score, tailored_cv_text, tailored_cl, json.dumps(job_embed), match_id, auth["email"]))
+            """, (hybrid_score, hybrid_score, tailored_cv_text, tailored_cl, json.dumps(job_embed), match_id, auth["email"]))
         else:
             cursor.execute("""
                 UPDATE job_matches 
-                SET fit_score = ?, cv_variant = ?, cover_letter_variant = ?, embedding = ?, timestamp = datetime('now') 
+                SET tailored_fit_score = ?, fit_score = ?, cv_variant = ?, cover_letter_variant = ?, embedding = ?, timestamp = datetime('now') 
                 WHERE id = ? AND user_email = ?
-            """, (hybrid_score, tailored_cv_text, tailored_cl, json.dumps(job_embed), match_id, auth["email"]))
+            """, (hybrid_score, hybrid_score, tailored_cv_text, tailored_cl, json.dumps(job_embed), match_id, auth["email"]))
 
     return {
         "status": "success",
