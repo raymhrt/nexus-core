@@ -973,18 +973,19 @@ async def generate_tailored_cv(user_email: str, master_resume_text: str, job_tit
 
     CRITICAL REFINEMENT & SPATIAL INTELLIGENCE RULES:
     1. ZERO HALLUCINATION & STRICT GROUND TRUTH POLICY (ABSOLUTE): You must use ONLY the exact facts, dates, institutions, software, tools, and responsibilities explicitly present in the Master CV. Under NO circumstances should you invent, estimate, or fabricate metrics, numbers, budgets, data volumes, or unmentioned tools/technologies to fill space.
-    2. THIRD-PERSON VOICE: Write the Professional Summary strictly in an authoritative executive narrative style. NEVER use the candidate's name or third-person pronouns like "He", "His", "Him", "I", "my", or "me". Start directly with the professional credential or domain expertise.
-    3. HEADER & SUBTITLE: Line 1 must be the candidate's exact name in uppercase. Line 2 must be their location. Line 3 must be their clean LinkedIn profile URL text. Line 4 must be their phone number and verified email ({user_email}) separated by ' | '. Line 5 must be a precise 3-part professional subtitle dynamically synthesized from the candidate's uploaded Master CV content and tailored specifically to match the core domain, technical competencies, and exact action keywords of the target job description ({job_description}), separated strictly by pipe delimiters (' | ').
-    4. PROFESSIONAL SUMMARY (FLUID EXECUTIVE PARAGRAPH): Write the Professional Summary strictly as ONE single, continuous, highly detailed, uninterrupted block of text forming a comprehensive executive narrative paragraph. Do NOT format it as a list of sentences or line breaks. It must be substantially expanded using *only* existing authentic details from the Master CV to occupy at least 6 to 8 full lines of text.
-    5. CORE COMPETENCIES, TECHNICAL SKILLS & AWARDS FORMATTING (INLINE FLOW):
+    2. TRANSFERABLE COMPETENCY BRIDGE: Where the candidate's background involves adjacent or transferable domains (e.g., mapping industrial production management, quality controls, SOP documentation, instrument calibration, or root-cause troubleshooting to validation, quality, or leadership requirements), explicitly reframe and elevate those verifiable achievements to map directly onto the target job description's core operational and compliance keywords without inventing false experience.
+    3. THIRD-PERSON VOICE: Write the Professional Summary strictly in an authoritative executive narrative style. NEVER use the candidate's name or third-person pronouns like "He", "His", "Him", "I", "my", or "me". Start directly with the professional credential or domain expertise.
+    4. HEADER & SUBTITLE: Line 1 must be the candidate's exact name in uppercase. Line 2 must be their location. Line 3 must be their clean LinkedIn profile URL text. Line 4 must be their phone number and verified email ({user_email}) separated by ' | '. Line 5 must be a precise 3-part professional subtitle dynamically synthesized from the candidate's uploaded Master CV content and tailored specifically to match the core domain, technical competencies, and exact action keywords of the target job description ({job_description}), separated strictly by pipe delimiters (' | ').
+    5. PROFESSIONAL SUMMARY (FLUID EXECUTIVE PARAGRAPH): Write the Professional Summary strictly as ONE single, continuous, highly detailed, uninterrupted block of text forming a comprehensive executive narrative paragraph. Do NOT format it as a list of sentences or line breaks. It must be substantially expanded using *only* existing authentic details from the Master CV to occupy at least 6 to 8 full lines of text.
+    6. CORE COMPETENCIES, TECHNICAL SKILLS & AWARDS FORMATTING (INLINE FLOW):
         - CORE COMPETENCIES: Present competencies strictly as 4 to 5 rich, inline-flowing thematic bullet lines where related skills follow consecutively separated by commas or pipes.
         - TECHNICAL SKILLS: Present technical skills STRICTLY grouped by category into 4 to 5 rich, inline-flowing bullet lines. Pull skills exclusively from the Master CV.
         - AWARDS & SCHOLARSHIPS: Format every award consistently as: Award Name - Institution | Year.
-    6. MAXIMUM CANVAS UTILIZATION (VIA DEEP ELABORATION ONLY):
+    7. MAXIMUM CANVAS UTILIZATION (VIA DEEP ELABORATION ONLY):
         - 2-PAGE CANVAS TARGET: Maximize the 2-page PDF canvas right down to the bottom margin with zero trailing white space and zero spillover onto page 3 by richly expanding, detailing, and contextualizing the *existing* responsibilities and methodologies found in the Master CV into multi-clause descriptions.
         - STRICT CONSTRAINT: Never add fake roles or fabricate non-existent duties. Expand only what is genuinely present in the source text.
         - SECTION COMPLETENESS: Ensure all sections—including Professional Summary, Core Competencies, Technical Skills, Professional Experience, Education, Certifications, Awards & Scholarships, and Publications—are fully expanded using only true source data with zero omissions.
-    7. SECTION ORDER & HEADINGS: Structure the CV with these core section headers in this exact chronological order using '## ':
+    8. SECTION ORDER & HEADINGS: Structure the CV with these core section headers in this exact chronological order using '## ':
         ## PROFESSIONAL SUMMARY
         ## CORE COMPETENCIES
         ## TECHNICAL SKILLS
@@ -994,7 +995,7 @@ async def generate_tailored_cv(user_email: str, master_resume_text: str, job_tit
         ## AWARDS & SCHOLARSHIPS
         If unique custom sections (such as Additional Information, Projects, or Languages) exist in the Master CV, include them cleanly right before Publications.
         ## PUBLICATIONS
-    8. BULLET POINTS & PARAGRAPHS: Use standard bullet points ('- ' or '* ') for every single item inside Core Competencies, Technical Skills, Professional Experience, Awards, and Certifications. List publications and education entries as clean text paragraphs with proper formatting.
+    9. BULLET POINTS & PARAGRAPHS: Use standard bullet points ('- ' or '* ') for every single item inside Core Competencies, Technical Skills, Professional Experience, Awards, and Certifications. List publications and education entries as clean text paragraphs with proper formatting.
     """
 
     user_prompt = f"""
@@ -1032,7 +1033,7 @@ async def generate_tailored_cover_letter(user_email: str, master_resume_text: st
 
     STRICT FORMATTING RULE: Return ONLY the raw executive cover letter text starting with the candidate name header and ending with the signature block. Do NOT include any closing remarks, explanations, notes, or meta-commentary at the bottom.
 
-    DEEP CONTENT EXPANSION & FULL-PAGE OCCUPANCY RULES:
+    DEEP CONTENT EXPANSION, TRANSFERABLE BRIDGE & FULL-PAGE OCCUPANCY RULES:
     1. HEADER & CONTACT BLOCK: 
         - Line 1: Candidate's exact name in uppercase.
         - Line 2: Location.
@@ -1043,10 +1044,10 @@ async def generate_tailored_cover_letter(user_email: str, master_resume_text: st
         - Re: {job_title} at {company_name}
     3. SALUTATION: Dear Hiring Committee and Executive Leadership at {company_name},
     4. FOUR SUBSTANTIAL, RICHLY DETAILED PARAGRAPHS:
-        - Paragraph 1 (Strategic Hook & Value Alignment)
-        - Paragraph 2 (Comprehensive Technical Execution & Data Mastery)
-        - Paragraph 3 (Operational Discipline, Quality Assurance & Leadership)
-        - Paragraph 4 (Enterprise Value Proposition & Closing)
+        - Paragraph 1 (Strategic Hook & Value Alignment): Hook the reader by connecting the candidate's verified background and foundational expertise to {company_name}'s mission.
+        - Paragraph 2 (Comprehensive Technical Execution & Data Mastery): Articulate concrete experimental, technical, or analytical achievements from the Master CV that prove technical rigor.
+        - Paragraph 3 (Transferable Competency & Operational Discipline): Articulate a persuasive transfer narrative arc—explicitly bridging operational leadership, standard operating procedures (SOPs), quality control, root-cause investigations, and compliance from their background directly to the demands of the target role.
+        - Paragraph 4 (Enterprise Value Proposition & Closing): Synthesize how their combined expertise delivers immediate impact, closing with readiness for strategic engagement.
     5. STRICT GROUND TRUTH: Use ONLY verified facts, degrees, tools, and roles from the Master CV text. Never invent false metrics, financial budgets, or unearned credentials.
     """
 
@@ -1286,32 +1287,27 @@ def recursive_org_chart_decision_maker_discovery(company_name: str, job_title: s
         "company_intel": company_intel
     }
 
-async def ai_adaptable_role_expansion(target_roles: str, user_profile_json: Optional[str] = None, user_domain: str = "general") -> List[str]:
+async def ai_adaptable_role_expansion_advanced(target_roles: str, user_profile_json: Optional[str] = None, user_domain: str = "general") -> List[str]:
     prompt = f"""
-    You are an expert multi-tenant recruitment strategy engine. Analyze the user's target roles, user domain ({user_domain}), and uploaded Master CV profile to construct precise, high-intent search queries.
-    Target Roles Provided by User: "{target_roles}"
-    User Master Profile / CV Summary: {user_profile_json or 'None Provided'}
-
-    Generate a JSON array of 6 to 8 clean, multi-word search phrases tailored strictly to this specific tenant's core expertise and primary domain (e.g., if the user is a molecular biologist, return biological research roles; if a software engineer, return engineering roles). NEVER generate generic or cross-industry mismatch terms.
+    You are an expert recruitment ontology engine. Analyze the user's target roles ('{target_roles}'), domain ({user_domain}), and Master CV.
+    Generate 12 to 15 exact semantic variations, industry equivalents, senior synonyms, and lateral role titles across global markets to ensure zero missed opportunities.
     Return ONLY a valid JSON array of strings (raw JSON only, no markdown backticks).
     """
     try:
-        raw_ai = await call_groq_ai(prompt, system_prompt="You are an expert recruitment data engineer returning raw JSON arrays.")
+        raw_ai = await call_groq_ai(prompt, system_prompt="You are an expert ontology engine returning raw JSON arrays.")
         phrases = extract_json_safely(raw_ai, [])
         if isinstance(phrases, list) and phrases:
-            cleaned = [str(p).strip() for p in phrases if len(str(p).strip()) > 3 and len(str(p).strip().split()) >= 1]
+            cleaned = [str(p).strip() for p in phrases if len(str(p).strip()) > 2]
             if cleaned:
                 return cleaned
     except Exception as e:
-        logger.warning(f"AI role expansion fallback triggered for tenant domain '{user_domain}': {e}")
-
-    # Fallback to user-supplied roles
-    derived_terms = [r.strip() for r in target_roles.split(',') if len(r.strip()) > 3]
+        logger.warning(f"AI role expansion advanced fallback triggered: {e}")
+    derived_terms = [r.strip() for r in target_roles.split(',') if len(r.strip()) > 2]
     return derived_terms if derived_terms else ["Research Scientist", "Technical Specialist"]
 
 async def multi_tenant_job_infiltration(target_roles: str, location: str, count: int, user_profile_json: Optional[str] = None, user_domain: str = "general") -> List[Dict]:
-    # 1. Get AI role variations tailored specifically to THIS user's uploaded master profile and domain
-    ai_variations = await ai_adaptable_role_expansion(target_roles, user_profile_json, user_domain)
+    # 1. Get AI role variations tailored specifically to THIS user's uploaded master profile and domain using advanced ontology expansion
+    ai_variations = await ai_adaptable_role_expansion_advanced(target_roles, user_profile_json, user_domain)
     
     # 2. Parse user-supplied target roles
     raw_role_list = re.split(r'[,;|]+', target_roles)
@@ -1331,50 +1327,50 @@ async def multi_tenant_job_infiltration(target_roles: str, location: str, count:
 
     loc_lower = location.lower()
     is_sa_search = any(k in loc_lower for k in ["south africa", "johannesburg", "cape town", "pretoria", "durban"])
-    active_sites = ["linkedin", "indeed"] if is_sa_search else ["linkedin", "indeed", "glassdoor"]
+    
+    # Universal multi-platform expansion across all major job boards
+    active_platforms = ["linkedin", "indeed", "glassdoor", "ziprecruiter"] if not is_sa_search else ["linkedin", "indeed", "glassdoor"]
 
     recency_tiers_hours = [96, 120, 168]
 
     for hours_window in recency_tiers_hours:
-        if len(discovered_jobs) >= count:
+        if len(discovered_jobs) >= count * 15:
             break
 
-        for term in search_permutations[:8]:
+        for term in search_permutations[:10]:
             if len(discovered_jobs) >= count * 15:
                 break
-            try:
-                df_jobs = await loop.run_in_executor(
-                    None, 
-                    lambda: scrape_jobs(
-                        site_name=active_sites,
-                        search_term=term,
-                        location=location,
-                        results_wanted=15,
-                        hours_old=hours_window,
-                        country_indeed='South Africa' if is_sa_search else 'USA'
+            for site in active_platforms:
+                try:
+                    df_jobs = await loop.run_in_executor(
+                        None, 
+                        lambda: scrape_jobs(
+                            site_name=[site],
+                            search_term=term,
+                            location=location,
+                            results_wanted=15,
+                            hours_old=hours_window,
+                            country_indeed='South Africa' if is_sa_search else 'USA'
+                        )
                     )
-                )
-                
-                if df_jobs is not None and not df_jobs.empty:
-                    for _, row in df_jobs.iterrows():
-                        raw_title = str(row.get("title", term))
-                        job_item = {
-                            "company_name": str(row.get("company", "Global Enterprise")),
-                            "job_title": sanitize_job_title(raw_title),
-                            "location": str(row.get("location", location)),
-                            "job_description": str(row.get("description", "Full job specs available on direct ATS portal.")),
-                            "ats_portal_url": str(row.get("job_url", ""))
-                        }
-                        if validate_real_world_job(job_item, user_domain=user_domain) and job_item["ats_portal_url"] not in seen_urls:
-                            seen_urls.add(job_item["ats_portal_url"])
-                            discovered_jobs.append(job_item)
-            except Exception as e:
-                logger.error(f"JobSpy scraping exception for tenant search term '{term}': {e}")
+                    
+                    if df_jobs is not None and not df_jobs.empty:
+                        for _, row in df_jobs.iterrows():
+                            raw_title = str(row.get("title", term))
+                            job_item = {
+                                "company_name": str(row.get("company", "Global Enterprise")),
+                                "job_title": sanitize_job_title(raw_title),
+                                "location": str(row.get("location", location)),
+                                "job_description": str(row.get("description", "Full job specs available on direct ATS portal.")),
+                                "ats_portal_url": str(row.get("job_url", ""))
+                            }
+                            if validate_real_world_job(job_item, user_domain=user_domain) and job_item["ats_portal_url"] not in seen_urls:
+                                seen_urls.add(job_item["ats_portal_url"])
+                                discovered_jobs.append(job_item)
+                except Exception as e:
+                    logger.warning(f"JobSpy scraping exception for site '{site}' and term '{term}': {e}")
 
-        #if discovered_jobs and hours_window == 96:
-        #   break
-
-    # 4. Adzuna API Fallback Integration (Fully Restored)
+    # 4. Adzuna API Fallback Integration (Fully Restored & Preserved)
     if len(discovered_jobs) < count:
         countries_to_try = ["za", "us"] if is_sa_search else ["us"]
         primary_term = search_permutations[0] if search_permutations else target_roles
@@ -1415,10 +1411,19 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
             if user_profile_context and isinstance(user_profile_context, dict):
                 user_domain = user_profile_context.get("domain", "general")
 
-            eval_prompt = f"""
-            You are an elite, merciless Executive Recruiter and Senior ATS Evaluation Engine.
-            Rigorously analyze the candidate's Master CV against THIS SPECIFIC JOB POSTING. Do not inflate scores.
+            # Fetch adaptive success feedback telemetry for prompt fine-tuning
+            success_context = await get_adaptive_success_context(email)
 
+            # STAGE 1: THE 5-AGENT SWARM COMMITTEE EVALUATION & TRANSFER BRIDGING
+            committee_prompt = f"""
+            You are an elite, uncompromised 5-Agent Career Infiltration Swarm consisting of:
+            1. The Gap-Bridger Agent (translates adjacent verifiable experience to meet every required skill honestly without fabrication).
+            2. The ATS Destroyer Agent (optimizes keyword density and structural compliance to bypass 99% of enterprise filters).
+            3. The Hiring Manager Magnet (crafts an irresistible value narrative highlighting the candidate as an indispensable daily operational solution).
+            4. The Compensation Economist (benchmarks competitive executive pay).
+            5. The Adversarial Critic (scrutinizes against hallucinations).
+
+            {success_context}
             CANDIDATE PRIMARY DOMAIN: {user_domain}
             CANDIDATE MASTER CV (GROUND TRUTH):
             {profile_content}
@@ -1427,13 +1432,13 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
             EXACT JOB DESCRIPTION & REQUIREMENTS:
             {desc}
 
-            STRICT HARD-GATE & PENALTY RUBRIC:
-            1. CORE FIELD & DEGREE MISMATCH (CRITICAL): Check the required degree or technical field in the job description (e.g., Chemistry, Gold Fire Assay, Civil Engineering, Nursing). If the job demands a specific core discipline or technical background entirely outside the candidate's verified Master CV domain (e.g., a Molecular Biologist applying for a Chemistry/Gold Assay Lab Manager role), cap the maximum possible "fit_score" at 35 immediately and list it in critical_missing.
-            2. INDUSTRIAL vs ACADEMIC/BIOTECH DRIFT: Deduct 40 points if the job requires heavy industrial, mining, or unrelated manufacturing plant operations not present in the candidate's primary scientific track.
-            3. MANDATORY REQUIREMENTS: Deduct 20 points for every mandatory technical tool, certification, or domain requirement missing from the Master CV.
+            EXHAUSTIVE EVALUATION & ENHANCEMENT RULES:
+            - TRANSFERABLE COMPETENCY BRIDGING: For every required skill, tool, or SOP in the job description that is not explicitly named in the Master CV, examine the candidate's actual work history (e.g., quality controls, operational compliance, data analysis) and build a bulletproof, honest transfer bridge.
+            - ZERO HALLUCINATION: Never invent fake degrees, unearned titles, or non-existent tech stacks.
+            - DESPERATION HOOK: Tailor the CV and cover letter so the hiring manager immediately recognizes the candidate as an elite, high-impact asset.
 
             Return strict JSON with these exact keys:
-            - "fit_score": integer (0 to 100 calculated using the strict rubric. Force below 40 if core discipline/degree mismatches occur)
+            - "fit_score": integer (0 to 100 calculated using rigorous evaluation)
             - "match_rationale": [string, string]
             - "matched_strengths": [string, string, ...]
             - "transferable_gaps": [string, ...]
@@ -1445,7 +1450,7 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
             """
             
             loop = asyncio.get_running_loop()
-            raw_eval = await call_groq_ai(eval_prompt, system_prompt="You are an expert recruitment AI returning precise JSON.")
+            raw_eval = await call_groq_ai(committee_prompt, system_prompt="You are the elite 5-Agent Swarm Committee returning precise JSON.")
             eval_data = extract_json_safely(raw_eval, {})
             
             ai_fit_score = safe_int(eval_data.get('fit_score'), 0)
@@ -1491,8 +1496,8 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
                 master_cv_text=profile_content
             )
             
-            # Decoupled: Keep fit_score pure (AI adjustment + Hybrid Semantic Score only)
-            final_fit_score = int(round((0.60 * ai_adjusted_score) + (0.40 * hybrid_semantic_score)))
+            # Weighted hybrid score blending AI Committee, Semantic Similarity, and Enterprise ATS Audit
+            final_fit_score = int(round((0.50 * ai_adjusted_score) + (0.35 * hybrid_semantic_score) + (0.15 * enterprise_audit["ats_score"])))
 
             # PROGRAMMATIC DOMAIN DRIFT HARD-GATE
             role_lower = role.lower()
@@ -1522,9 +1527,9 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
                 "enterprise_ats_score": enterprise_audit["ats_score"],
                 "enterprise_ats_penalties": enterprise_audit["penalties"],
                 "ats_compliance_score": ats_score,
-                "track": eval_data.get('track', 'Adaptive Domain Core'),
-                "seniority_fit": eval_data.get('seniority_fit', 'Senior'),
-                "match_rationale": json.dumps(eval_data.get('match_rationale', ["Functional congruence analyzed."])),
+                "track": eval_data.get('track', '5-Agent Swarm Adaptive Core'),
+                "seniority_fit": eval_data.get('seniority_fit', 'Senior / Executive'),
+                "match_rationale": json.dumps(eval_data.get('match_rationale', ["Multi-agent functional congruence analyzed."])),
                 "matched_requirements": matched_strengths_list,
                 "transferable_gaps": transferable_gaps_list,
                 "critical_missing": critical_missing_list,
@@ -1532,13 +1537,13 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
                 "decision_maker_name": real_lead["name"],
                 "decision_maker_title": real_lead["title"],
                 "decision_maker_email": real_lead["email"],
-                "warm_intro_pathway": real_lead.get("pathway", "Direct ATS Portal Match"),
-                "outreach_draft": f"Dear Hiring Team at {company},\n\nInterested in the {role} position.",
-                "salary_benchmark": "Competitive Market Rate",
-                "negotiation_strategy": "Highlight core technical execution.",
+                "warm_intro_pathway": real_lead.get("pathway", "Direct Enterprise Portal Match"),
+                "outreach_draft": f"Dear {real_lead['name']},\n\nI reviewed the {role} opening at {company} and identified immediate operational alignment...",
+                "salary_benchmark": "Competitive Executive Rate",
+                "negotiation_strategy": "Leverage multi-domain execution and rigorous problem-solving impact.",
                 "cv_variant": tailored_cv_text,
-                "cover_letter_variant": sanitize_cv_text(eval_data.get('tailored_cover_letter') or "Dear Hiring Team..."),
-                "interview_playbook": json.dumps([{"stage": "Technical Screen", "focus": "Core competencies"}]),
+                "cover_letter_variant": sanitize_cv_text(eval_data.get('tailored_cover_letter') or "Dear Hiring Committee..."),
+                "interview_playbook": json.dumps([{"stage": "Technical Screen", "focus": "Demonstrate transferable methodology mastery."}]),
                 "ats_portal_url": sanitize_ats_url(raw_url, role, company),
                 "embedding": job_embed
             }
@@ -1546,7 +1551,37 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
             logger.error(f"Error in evaluate_job_for_specific_user: {e}", exc_info=True)
             return None
 
+def init_self_learning_database():
+    with db_transaction_scope() as (_, cursor):
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS system_learning_metrics (
+                id SERIAL PRIMARY KEY,
+                user_email TEXT,
+                company_name TEXT,
+                job_title TEXT,
+                fit_score INT,
+                outcome_status TEXT DEFAULT 'pending',
+                feedback_notes TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+async def get_adaptive_success_context(user_email: str) -> str:
+    """Retrieves patterns from previously successful applications to adapt prompts dynamically per user."""
+    try:
+        with db_transaction_scope() as (_, cursor):
+            sql = "SELECT job_title, company_name, fit_score FROM system_learning_metrics WHERE user_email = %s AND outcome_status IN ('interview_secured', 'offer') ORDER BY created_at DESC LIMIT 3" if DATABASE_URL else "SELECT job_title, company_name, fit_score FROM system_learning_metrics WHERE user_email = ? AND outcome_status IN ('interview_secured', 'offer') ORDER BY created_at DESC LIMIT 3"
+            cursor.execute(sql, (user_email,))
+            rows = cursor.fetchall()
+            if not rows:
+                return "Adaptive Learning Baseline: Maintain rigorous executive compliance and precise transferable competency bridging."
+            summaries = [f"Successful verified match: {r['job_title']} at {r['company_name']} ({r['fit_score']}% fit)" for r in rows]
+            return "Adaptive User Success Patterns:\n" + "\n".join(summaries)
+    except Exception:
+        return ""
+
 def init_career_database():
+    init_self_learning_database() # <--- Add this call here
     with db_transaction_scope() as (_, cursor):
         cursor.execute("CREATE TABLE IF NOT EXISTS ai_response_cache (cache_key TEXT PRIMARY KEY, response_text TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("""
@@ -1752,6 +1787,13 @@ async def isolated_user_job_scouting_worker(user_email: str, requested_count: in
                 
                 if ic.fetchone():
                     continue  # Skip duplicate entry
+
+                # --- ADDED: Log to system learning metrics table for continuous adaptation ---
+                if DATABASE_URL:
+                    ic.execute("INSERT INTO system_learning_metrics (user_email, company_name, job_title, fit_score, outcome_status) VALUES (%s, %s, %s, %s, 'pending')", (user_email, company_val, title_val, safe_int(match_item.get('fit_score'), 50)))
+                else:
+                    ic.execute("INSERT INTO system_learning_metrics (user_email, company_name, job_title, fit_score, outcome_status) VALUES (?, ?, ?, ?, 'pending')", (user_email, company_val, title_val, safe_int(match_item.get('fit_score'), 50)))
+                # --------------------------------------------------------------------------
 
                 if DATABASE_URL:
                     ic.execute("SELECT tier, credits_remaining FROM subscribers s JOIN subscriber_credits c ON s.email = c.email WHERE s.email = %s", (user_email,))
