@@ -1465,24 +1465,42 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
                 job_embedding=job_embed
             )
             
-            # 1. Run the enterprise audit as a standalone compliance metric
             enterprise_audit = calculate_enterprise_ats_score(
                 job_description=desc,
                 tailored_cv_text=tailored_cv_text,
                 master_cv_text=profile_content
             )
             
-            # 2. RESTORED ORIGINAL BLEND (AI judgment + Hybrid Semantic Score only)
+            # Decoupled: Keep fit_score pure (AI adjustment + Hybrid Semantic Score only)
             final_fit_score = int(round((0.60 * ai_adjusted_score) + (0.40 * hybrid_semantic_score)))
+
+            # PROGRAMMATIC DOMAIN DRIFT HARD-GATE
+            role_lower = role.lower()
+            desc_lower = desc.lower()
+            company_lower = company.lower()
+            profile_lower = profile_content.lower()
+
+            is_scientific_profile = any(term in profile_lower for term in ["ph.d", "molecular", "biology", "biochem", "research scientist"])
+            if is_scientific_profile:
+                mismatch_triggers = [
+                    "engineering lead", "mechanical engineer", "civil engineer", "electrical engineer",
+                    "actuarial", "portfolio manager", "insurance", "retail store manager"
+                ]
+                is_mismatched_role = any(trig in role_lower for trig in mismatch_triggers)
+                is_mismatched_company = any(c in company_lower for c in ["tfg", "foschini", "discovery limited", "ncr", "ncin"])
+                
+                if is_mismatched_role or is_mismatched_company:
+                    final_fit_score = min(final_fit_score, 32)
+                    critical_missing_list.append("Critical Domain Mismatch: Job requires industrial/financial/retail engineering outside candidate's biological research track.")
 
             return {
                 "company_name": company,
                 "job_title": role,
                 "job_description": desc,
                 "location": job.get('location', "Global"),
-                "fit_score": max(5, min(98, final_fit_score)),  # Your original pure match %
-                "enterprise_ats_score": enterprise_audit["ats_score"],  # Standalone audit score
-                "enterprise_ats_penalties": enterprise_audit["penalties"], # Audit feedback
+                "fit_score": max(5, min(98, final_fit_score)),
+                "enterprise_ats_score": enterprise_audit["ats_score"],
+                "enterprise_ats_penalties": enterprise_audit["penalties"],
                 "ats_compliance_score": ats_score,
                 "track": eval_data.get('track', 'Adaptive Domain Core'),
                 "seniority_fit": eval_data.get('seniority_fit', 'Senior'),
@@ -1696,6 +1714,18 @@ async def isolated_user_job_scouting_worker(user_email: str, requested_count: in
 
         with db_transaction_scope() as (_, ic):
             for match_item in evaluated_matches:
+                company_val = safe_str(match_item.get('company_name'))
+                title_val = safe_str(match_item.get('job_title'))
+
+                # CHECK FOR EXISTING DUPLICATE IN DB
+                if DATABASE_URL:
+                    ic.execute("SELECT id FROM job_matches WHERE user_email = %s AND LOWER(company_name) = LOWER(%s) AND LOWER(job_title) = LOWER(%s)", (user_email, company_val, title_val))
+                else:
+                    ic.execute("SELECT id FROM job_matches WHERE user_email = ? AND LOWER(company_name) = LOWER(?) AND LOWER(job_title) = LOWER(?)", (user_email, company_val, title_val))
+                
+                if ic.fetchone():
+                    continue  # Skip duplicate entry
+
                 if DATABASE_URL:
                     ic.execute("SELECT tier, credits_remaining FROM subscribers s JOIN subscriber_credits c ON s.email = c.email WHERE s.email = %s", (user_email,))
                 else:
@@ -1722,8 +1752,8 @@ async def isolated_user_job_scouting_worker(user_email: str, requested_count: in
                     """
                 ic.execute(sql, (
                     user_email,
-                    safe_str(match_item.get('company_name')),
-                    safe_str(match_item.get('job_title')),
+                    company_val,
+                    title_val,
                     safe_str(match_item.get('job_description')),
                     safe_str(match_item.get('location')),
                     safe_int(match_item.get('fit_score'), 50),
