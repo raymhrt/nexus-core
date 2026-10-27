@@ -510,6 +510,71 @@ def calculate_hybrid_match_score(
         logger.error(f"Error in hybrid match scoring: {e}")
         return 45
 
+def calculate_enterprise_ats_score(
+    job_description: str,
+    tailored_cv_text: str,
+    master_cv_text: str
+) -> dict:
+    """
+    Simulates real-world enterprise ATS parsing (Workday/Greenhouse algorithms).
+    Calculates score across Knockout Gates, Mandatory Skills, and Formatting.
+    """
+    jd_lower = job_description.lower()
+    cv_lower = tailored_cv_text.lower()
+    master_lower = master_cv_text.lower()
+
+    score = 100
+    penalty_breakdown = []
+
+    # 1. KNOCKOUT GATE: Minimum Years of Experience Check
+    exp_matches = re.findall(r'(\d+)\+?\s*(?:years?|yrs)', jd_lower)
+    if exp_matches:
+        required_yrs = max([int(x) for x in exp_matches])
+        cv_exp_matches = re.findall(r'(\d+)\+?\s*(?:years?|yrs)\s*(?:of)?\s*(?:experience|exp)', master_lower)
+        candidate_yrs = max([int(x) for x in cv_exp_matches]) if cv_exp_matches else 3
+        if candidate_yrs < required_yrs:
+            penalty = (required_yrs - candidate_yrs) * 12
+            score -= penalty
+            penalty_breakdown.append(f"Experience gap: JD requires {required_yrs}y, profile indicates ~{candidate_yrs}y (-{penalty} pts)")
+
+    # 2. MANDATORY SKILLS & TOOLS INTERSECTION
+    stopwords = {"the", "and", "for", "with", "that", "this", "from", "you", "your", "are", "have", "will", "our", "all", "can", "role", "team", "company", "work", "job", "years", "experience", "skills", "ability", "must", "strong", "preferred"}
+    
+    jd_words = {w for w in re.findall(r'\b[a-z\#\+\.]{3,}\b', jd_lower) if w not in stopwords}
+    cv_words = {w for w in re.findall(r'\b[a-z\#\+\.]{3,}\b', cv_lower) if w not in stopwords}
+
+    keyword_match_ratio = 0.5
+    if jd_words:
+        matched_keywords = jd_words.intersection(cv_words)
+        keyword_match_ratio = len(matched_keywords) / len(jd_words)
+        keyword_score_impact = int(keyword_match_ratio * 40)
+        score = int(score * 0.60) + keyword_score_impact
+
+    # 3. DEGREE & CREDENTIAL COMPLIANCE GATE
+    degree_markers = ["bachelor", "master", "ph.d", "doctorate", "bsc", "msc", "b.sc", "m.sc", "mba", "degre"]
+    jd_requires_degree = any(marker in jd_lower for marker in degree_markers)
+    if jd_requires_degree:
+        has_degree = any(marker in master_lower for marker in degree_markers)
+        if not has_degree:
+            score -= 25
+            penalty_breakdown.append("Mandatory degree requirement missing in master profile (-25 pts)")
+
+    # 4. ATS STRUCTURAL PARSING COMPLIANCE
+    required_headers = ["experience", "education", "skills", "summary"]
+    found_headers = sum(1 for h in required_headers if h in cv_lower)
+    if found_headers < len(required_headers):
+        missing_h = len(required_headers) - found_headers
+        penalty = missing_h * 5
+        score -= penalty
+        penalty_breakdown.append(f"Missing standard ATS section headers (-{penalty} pts)")
+
+    final_score = max(10, min(99, score))
+    return {
+        "ats_score": final_score,
+        "penalties": penalty_breakdown,
+        "keyword_match_percentage": int(keyword_match_ratio * 100)
+    }
+
 def calculate_ats_compliance_score(tailored_cv_text: str, job_description: str) -> int:
     """
     Analyzes how well the tailored CV variant fits against enterprise ATS parsing standards:
@@ -1400,7 +1465,14 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
                 job_embedding=job_embed
             )
             
-            # Blend score, but heavily weight AI penalty enforcement
+            # 1. Run the enterprise audit as a standalone compliance metric
+            enterprise_audit = calculate_enterprise_ats_score(
+                job_description=desc,
+                tailored_cv_text=tailored_cv_text,
+                master_cv_text=profile_content
+            )
+            
+            # 2. RESTORED ORIGINAL BLEND (AI judgment + Hybrid Semantic Score only)
             final_fit_score = int(round((0.60 * ai_adjusted_score) + (0.40 * hybrid_semantic_score)))
 
             return {
@@ -1408,7 +1480,9 @@ async def evaluate_job_for_specific_user(job: Dict, profile_content: str, email:
                 "job_title": role,
                 "job_description": desc,
                 "location": job.get('location', "Global"),
-                "fit_score": max(5, min(98, final_fit_score)),
+                "fit_score": max(5, min(98, final_fit_score)),  # Your original pure match %
+                "enterprise_ats_score": enterprise_audit["ats_score"],  # Standalone audit score
+                "enterprise_ats_penalties": enterprise_audit["penalties"], # Audit feedback
                 "ats_compliance_score": ats_score,
                 "track": eval_data.get('track', 'Adaptive Domain Core'),
                 "seniority_fit": eval_data.get('seniority_fit', 'Senior'),
@@ -1575,28 +1649,39 @@ async def isolated_user_job_scouting_worker(user_email: str, requested_count: in
             await sse_broker.broadcast("career_swarm_update", {"user": user_email, "status": "no_jobs", "message": "Scouting completed, but zero live positions matched current aggregators."})
             return
         
-        await sse_broker.broadcast("multi_tenant_telemetry", {"user": user_email, "message": f"Discovered {len(raw_jobs)} positions. Running paced AI vector evaluations for {user_email}..."})
+        await sse_broker.broadcast("multi_tenant_telemetry", {"user": user_email, "message": f"Discovered {len(raw_jobs)} positions. Running full AI evaluation in controlled batches..."})
         
         valid_results = []
-        for idx, job in enumerate(raw_jobs[:25], 1):
-            await sse_broker.broadcast("multi_tenant_telemetry", {
-                "user": user_email, 
-                "message": f"Evaluating position {idx}/25: {sanitize_job_title(job.get('job_title', 'Role'))} at {job.get('company_name', 'Company')}..."
-            })
+        batch_size = 5  # Process 5 jobs at a time to respect Groq rate limits while evaluating all discovered jobs
+        
+        for i in range(0, len(raw_jobs), batch_size):
+            batch = raw_jobs[i:i + batch_size]
+            batch_tasks = []
             
-            evaluated = await evaluate_job_for_specific_user(job, profile_content, user_email, AI_EVAL_SEMAPHORE, user_profile_context=u_dict)
-            if evaluated:
-                score = safe_int(evaluated.get('fit_score'), 0)
-                if score >= min_match_score:
-                    valid_results.append(evaluated)
-                    await sse_broker.broadcast("multi_tenant_telemetry", {
-                        "user": user_email, 
-                        "job_title": evaluated["job_title"],
-                        "company_name": evaluated["company_name"],
-                        "match_score": score,
-                        "message": f"Verified match: {evaluated['company_name']} ({score}% match)"
-                    })
-            await asyncio.sleep(2.0)
+            for job in batch:
+                batch_tasks.append(
+                    evaluate_job_for_specific_user(job, profile_content, user_email, AI_EVAL_SEMAPHORE, user_profile_context=u_dict)
+                )
+            
+            # Execute current batch concurrently (governed by semaphore)
+            batch_results = await asyncio.gather(*batch_tasks)
+            
+            for evaluated in batch_results:
+                if evaluated:
+                    score = safe_int(evaluated.get('fit_score'), 0)
+                    if score >= min_match_score:
+                        valid_results.append(evaluated)
+                        await sse_broker.broadcast("multi_tenant_telemetry", {
+                            "user": user_email, 
+                            "job_title": evaluated["job_title"],
+                            "company_name": evaluated["company_name"],
+                            "match_score": score,
+                            "message": f"Verified match: {evaluated['company_name']} ({score}% match)"
+                        })
+            
+            # Brief pacing pause between batches to protect Groq rate limits
+            if i + batch_size < len(raw_jobs):
+                await asyncio.sleep(4.0)
 
         if not valid_results:
             await sse_broker.broadcast("career_swarm_update", {
