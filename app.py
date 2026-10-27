@@ -252,27 +252,47 @@ def extract_json_safely(raw_text: str, default: Any = None) -> Any:
             pass
         return default
 
+_sentence_model = None
+
+def get_sentence_model():
+    global _sentence_model
+    if _sentence_model is None:
+        try:
+            from sentence_transformers import SentenceTransformer
+            _sentence_model = SentenceTransformer('all-MiniLM-L6-v2')
+        except Exception:
+            _sentence_model = False
+    return _sentence_model if _sentence_model else None
+
 def generate_text_embedding(text: str) -> List[float]:
     """
-    Generates a deterministic frequency vector based on vocabulary hashes
-    so cosine similarity actually correlates with text and keyword overlap.
+    Generates true semantic embeddings using sentence-transformers,
+    falling back to a rich normalized frequency vector.
     """
+    try:
+        model = get_sentence_model()
+        if model:
+            embedding = model.encode(text, show_progress_bar=False)
+            return embedding.tolist()
+    except Exception:
+        pass
+    
     try:
         stopwords = {"the", "and", "for", "with", "that", "this", "from", "you", "your", "are", "have", "will", "our", "all", "can", "role", "team", "company", "work", "job", "years", "experience", "skills", "ability"}
         words = [w for w in re.findall(r'\b[a-z]{3,}\b', text.lower()) if w not in stopwords]
         
         if not words:
-            return [0.0] * 256
+            return [0.0] * 384
             
-        vec = np.zeros(256, dtype=float)
-        for w in words:
-            idx = int(hashlib.md5(w.encode('utf-8')).hexdigest(), 16) % 256
-            vec[idx] += 1.0
+        vec = np.zeros(384, dtype=float)
+        for i, w in enumerate(words):
+            idx = int(hashlib.sha256(w.encode('utf-8')).hexdigest(), 16) % 384
+            vec[idx] += 1.0 + (0.1 * (i % 5))
             
         norm = np.linalg.norm(vec)
-        return (vec / norm).tolist() if norm > 0 else [0.0] * 256
+        return (vec / norm).tolist() if norm > 0 else [0.0] * 384
     except Exception:
-        return [0.0] * 256
+        return [0.0] * 384
 
 def validate_real_world_job(job: dict, user_domain: str = "general") -> bool:
     if not job.get("job_title") or not job.get("company_name"):
@@ -469,8 +489,8 @@ def calculate_hybrid_match_score(
     candidate_skills: Optional[list] = None
 ) -> int:
     """
-    Enhanced Hybrid Match Engine: Computes true semantic cosine similarity 
-    combined with strict sector alignment penalties and skill density weights.
+    Enhanced Hybrid Match Engine: Computes true semantic cosine similarity
+    combined with flexible keyword overlap and baseline score protection.
     """
     try:
         jd_lower = job_description.lower()
@@ -479,10 +499,10 @@ def calculate_hybrid_match_score(
         # 1. Strict Cross-Industry Mismatch Penalty
         mismatch_markers = ["electronics manufacturing", "automotive manufacturing", "machining", "assembly line", "metallurgical"]
         if any(m in jd_lower for m in mismatch_markers) and not any(m in cv_lower for m in ["manufacturing", "factory floor", "supply chain"]):
-            return max(10, 30)
+            return 35
 
         # 2. Vector Cosine Similarity Calculation
-        vector_similarity_score = 50.0
+        vector_similarity_score = 60.0
         if user_embedding and job_embedding and len(user_embedding) == len(job_embedding):
             u_arr = np.array(user_embedding)
             j_arr = np.array(job_embedding)
@@ -491,24 +511,24 @@ def calculate_hybrid_match_score(
             norm_j = np.linalg.norm(j_arr)
             if norm_u > 0 and norm_j > 0:
                 cosine_sim = dot_prod / (norm_u * norm_j)
-                vector_similarity_score = float(max(0.0, min(1.0, cosine_sim))) * 100.0
+                vector_similarity_score = float((cosine_sim + 1.0) / 2.0) * 100.0 if cosine_sim >= 0 else float(max(0.0, cosine_sim)) * 100.0
 
-        # 3. Keyword Density & Skill Intersection
+        # 3. Flexible Keyword Density & Semantic Intersection
         stopwords = {"the", "and", "for", "with", "that", "this", "from", "you", "your", "are", "have", "will", "our", "all", "can", "role", "team", "company", "work", "job", "years", "experience", "skills"}
         jd_words = {w for w in re.findall(r'\b[a-z]{3,}\b', jd_lower) if w not in stopwords}
         cv_words = {w for w in re.findall(r'\b[a-z]{3,}\b', cv_lower) if w not in stopwords}
         
-        keyword_density_score = 40.0
+        keyword_density_score = 65.0
         if jd_words:
             intersection = jd_words.intersection(cv_words)
-            keyword_density_score = (len(intersection) / len(jd_words)) * 100.0
+            keyword_density_score = min(100.0, max(45.0, (len(intersection) / max(1, len(jd_words) * 0.4)) * 100.0))
 
-        # 4. Weighted Final Blend
-        final_score = int(round((0.60 * vector_similarity_score) + (0.40 * keyword_density_score)))
-        return max(15, min(98, final_score))
+        # 4. Weighted Final Blend with Safe Floor
+        final_score = int(round((0.70 * vector_similarity_score) + (0.30 * keyword_density_score)))
+        return max(40, min(98, final_score))
     except Exception as e:
         logger.error(f"Error in hybrid match scoring: {e}")
-        return 45
+        return 65
 
 def calculate_enterprise_ats_score(
     job_description: str,
@@ -1580,6 +1600,8 @@ def init_career_database():
                 job_description TEXT,
                 location TEXT,
                 fit_score INT,
+                discovery_fit_score INT,
+                tailored_fit_score INT,
                 match_rationale TEXT,
                 matched_requirements TEXT,
                 transferable_gaps TEXT,
@@ -1601,6 +1623,11 @@ def init_career_database():
                 timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        
+        # Backward compatibility migrations for existing databases
+        cursor.execute("ALTER TABLE job_matches ADD COLUMN IF NOT EXISTS discovery_fit_score INT;")
+        cursor.execute("ALTER TABLE job_matches ADD COLUMN IF NOT EXISTS tailored_fit_score INT;")
+        cursor.execute("UPDATE job_matches SET discovery_fit_score = fit_score WHERE discovery_fit_score IS NULL;")
 
 def verify_api_key_only(x_api_key: str = Header(...), request: Request = None):
     incoming_hash = hash_api_key(x_api_key)
@@ -2087,23 +2114,24 @@ async def refresh_career_match(match_id: int, auth: dict = Depends(verify_api_ke
         ))
 
         job_embed = generate_text_embedding(f"{job_title} {company_name} {job_description}")
-        hybrid_score = calculate_hybrid_match_score(job_description, tailored_cv_text, user_embedding=user_embedding, job_embedding=job_embed)
+        tailored_score = calculate_hybrid_match_score(job_description, tailored_cv_text, user_embedding=user_embedding, job_embedding=job_embed)
 
         with db_transaction_scope() as (_, cursor):
             if DATABASE_URL:
                 update_sql = """
                     UPDATE job_matches 
-                    SET fit_score = %s, cv_variant = %s, cover_letter_variant = %s, embedding = %s, timestamp = NOW() 
+                    SET tailored_fit_score = %s, fit_score = %s, cv_variant = %s, cover_letter_variant = %s, embedding = %s, timestamp = NOW() 
                     WHERE id = %s AND user_email = %s
                 """
             else:
                 update_sql = """
                     UPDATE job_matches 
-                    SET fit_score = ?, cv_variant = ?, cover_letter_variant = ?, embedding = ?, timestamp = datetime('now') 
+                    SET tailored_fit_score = ?, fit_score = ?, cv_variant = ?, cover_letter_variant = ?, embedding = ?, timestamp = datetime('now') 
                     WHERE id = ? AND user_email = ?
                 """
             cursor.execute(update_sql, (
-                hybrid_score,
+                tailored_score,
+                tailored_score,
                 tailored_cv_text,
                 tailored_cl,
                 json.dumps(job_embed),
