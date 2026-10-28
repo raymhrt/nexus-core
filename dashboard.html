@@ -263,6 +263,19 @@
                                         <input type="hidden" id="selected-job-count" value="5">
                                     </div>
                                 </div>
+                                <div class="pt-2">
+                                    <label class="block text-[11px] font-semibold text-slate-300 mb-1">Job Freshness Horizon: <span id="searchDaysLabel" class="text-sky-400 font-bold">3 Days</span></label>
+                                    <div class="grid grid-cols-7 gap-1">
+                                        <button type="button" onclick="setSearchDays(1, this)" class="search-days-btn py-1.5 bg-slate-800 border border-slate-700 text-white rounded-lg text-[11px] font-medium transition-all">1d</button>
+                                        <button type="button" onclick="setSearchDays(2, this)" class="search-days-btn py-1.5 bg-slate-800 border border-slate-700 text-white rounded-lg text-[11px] font-medium transition-all">2d</button>
+                                        <button type="button" onclick="setSearchDays(3, this)" class="search-days-btn py-1.5 bg-sky-600/20 border border-sky-500 text-white rounded-lg text-[11px] font-medium transition-all active">3d</button>
+                                        <button type="button" onclick="setSearchDays(4, this)" class="search-days-btn py-1.5 bg-slate-800 border border-slate-700 text-white rounded-lg text-[11px] font-medium transition-all">4d</button>
+                                        <button type="button" onclick="setSearchDays(5, this)" class="search-days-btn py-1.5 bg-slate-800 border border-slate-700 text-white rounded-lg text-[11px] font-medium transition-all">5d</button>
+                                        <button type="button" onclick="setSearchDays(6, this)" class="search-days-btn py-1.5 bg-slate-800 border border-slate-700 text-white rounded-lg text-[11px] font-medium transition-all">6d</button>
+                                        <button type="button" onclick="setSearchDays(7, this)" class="search-days-btn py-1.5 bg-slate-800 border border-slate-700 text-white rounded-lg text-[11px] font-medium transition-all">7d</button>
+                                    </div>
+                                    <input type="hidden" id="selected-search-days" value="3">
+                                </div>
                                 <!-- Adjustable Match Percentage Filter Slider Control -->
                                 <div class="pt-1">
                                     <label class="block text-[11px] font-semibold text-slate-300 mb-1">Min Match Fit Filter: <span id="minFitLabel" class="text-sky-400 font-bold">50%</span></label>
@@ -1834,6 +1847,19 @@
             }
         }
 
+        // Search Days Selector Helper
+        function setSearchDays(days, element) {
+            document.getElementById('selected-search-days').value = days;
+            document.getElementById('searchDaysLabel').innerText = `${days} Day${days > 1 ? 's' : ''}`;
+            
+            document.querySelectorAll('.search-days-btn').forEach(btn => {
+                btn.className = "search-days-btn py-1.5 bg-slate-800 border border-slate-700 text-white rounded-lg text-[11px] font-medium transition-all";
+            });
+            if (element) {
+                element.className = "search-days-btn py-1.5 bg-sky-600/20 border border-sky-500 text-white rounded-lg text-[11px] font-medium transition-all active";
+            }
+        }
+
         async function saveCareerCriteria() {
             const btn = document.getElementById('save-criteria-btn');
             const originalText = btn.innerHTML;
@@ -1844,9 +1870,9 @@
             const target_roles = document.getElementById('targetJobRoles').value.trim();
             const locations = document.getElementById('targetJobLocations').value.trim();
             const job_count = parseInt(document.getElementById('selected-job-count').value) || 5;
-            
             const min_fit = parseInt(document.getElementById('minMatchFitSlider')?.value || 70, 10);
-            
+            const search_days = parseInt(document.getElementById('selected-search-days').value) || 3;
+
             localStorage.setItem('nexus_target_roles', target_roles);
             localStorage.setItem('nexus_target_locations', locations);
 
@@ -1857,7 +1883,7 @@
             if (banner) {
                 banner.style.display = "flex";
                 if (statusTitle) statusTitle.textContent = "Swarm Active: Scouting In Progress...";
-                if (statusMsg) statusMsg.textContent = "Connecting to global multi-source feeds and running AI vector evaluations.";
+                if (statusMsg) statusMsg.textContent = `Connecting to global multi-source feeds (Freshness: Past ${search_days} days)...`;
             }
 
             const container = document.getElementById('jobMatchesContainer');
@@ -1877,7 +1903,7 @@
                 const res = await fetch('/api/v1/career/criteria', {
                     method: 'POST',
                     headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ target_roles, locations, job_count, min_fit })
+                    body: JSON.stringify({ target_roles, locations, job_count, min_fit, search_days })
                 });
                 const data = await res.json();
                 if (res.ok) {
@@ -1975,53 +2001,45 @@
                         if (statusMsg) statusMsg.textContent = data.message;
                     });
 
-                    // Unified Completion Handler to Hide Banner and Render New Jobs
-                    const handleSwarmCompletion = (event) => {
-                        try {
-                            const data = JSON.parse(event.data);
-                            if (statusTitle) statusTitle.textContent = "Swarm Operation Complete";
-                            if (statusMsg) statusMsg.textContent = data.message || "Swarm completed successfully.";
-                        } catch(e) {}
-
-                        // HIDE THE BANNER WHEN NEW JOBS ARE FOUND
-                        if (banner) banner.style.display = "none";
-                        
-                        // RELOAD MATCHES TO DISPLAY THE NEWLY FOUND JOBS
-                        if (typeof loadCareerMatches === 'function') {
-                            loadCareerMatches();
-                        }
-                        showToast("Swarm scouting complete! New matches loaded.");
-                    };
-
-                    // Bind all potential completion event names sent by backend workers
-                    sseEventSource.addEventListener("career_swarm_update", handleSwarmCompletion);
-                    sseEventSource.addEventListener("swarm_completed", handleSwarmCompletion);
-                    sseEventSource.addEventListener("complete", handleSwarmCompletion);
-
                     sseEventSource.onmessage = function(event) {
+                        const packet = JSON.parse(event.data);
+                        
+                        // Handle explicit status change events from the backend
+                        if (packet.event === 'swarm_status_change') {
+                            const state = packet.data.swarm_state; // "active", "paused", "completed", "error"
+                            const message = packet.data.message;
+                            
+                            const badge = document.getElementById('swarm-status-badge');
+                            const textElement = document.getElementById('swarm-status-text');
+                            
+                            if (badge && textElement) {
+                                textElement.innerText = message;
+                                if (state === 'active') {
+                                    badge.className = "badge-success";
+                                    badge.innerText = "Swarm Active";
+                                } else if (state === 'paused') {
+                                    badge.className = "badge-warning";
+                                    badge.innerText = "Swarm Paused / Retrying";
+                                } else if (state === 'completed') {
+                                    badge.className = "badge-info";
+                                    badge.innerText = "Swarm Completed";
+                                } else {
+                                    badge.className = "badge-danger";
+                                    badge.innerText = "Swarm Error / Stalled";
+                                }
+                            }
+                        }
+
+                        // Existing fallback message handling
                         try {
                             const payload = JSON.parse(event.data);
-                            
-                            if (payload.event === 'ping' || payload.type === 'ping' || payload.status === 'ping') {
-                                return;
-                            }
-
-                            // Catch completion events sent over default message stream
-                            if (payload.event === 'swarm_completed' || payload.event === 'career_swarm_update' || payload.status === 'completed') {
+                            if (payload.event === 'ping' || payload.type === 'ping') return;
+                            if (payload.event === 'swarm_completed' || payload.status === 'completed') {
                                 handleSwarmCompletion(event);
                                 return;
                             }
+                        } catch (e) {}
 
-                            if (payload.event === 'multi_tenant_telemetry' && payload.data && payload.data.message) {
-                                const statusText = document.getElementById('swarm-status-text');
-                                if (statusText) statusText.innerText = payload.data.message;
-                            }
-                        } catch (e) {
-                            if (typeof event.data === 'string' && event.data.includes('"event":"ping"')) {
-                                return;
-                            }
-                        }
-                        
                         appendTerminalLog(event.data);
                     };
 
