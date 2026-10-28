@@ -2589,7 +2589,7 @@ async def save_career_criteria(payload: CareerCriteriaInput, background_tasks: B
         requested_count=payload.job_count,
         target_locations=payload.locations,
         target_roles=payload.target_roles,
-        min_match_score=payload.min_match_score  # <--- Passes the exact filter from UI
+        min_match_score=payload.min_match_score,  # <--- Passes the exact filter from UI
         search_days=payload.search_days  # <--- Passed search_days to worker
     )
     
