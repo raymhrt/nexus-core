@@ -95,7 +95,7 @@
             <div class="flex items-center space-x-3">
                 <div class="flex items-center space-x-2">
                     <div class="h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse"></div>
-                    <span class="text-xs font-bold uppercase tracking-wider text-emerald-400">Swarm Active</span>
+                    <span id="swarm-status-badge" class="text-xs font-bold uppercase tracking-wider text-emerald-400">Swarm Active</span>
                 </div>
                 <div class="h-4 w-[1px] bg-slate-800 hidden sm:block"></div>
                 <p id="swarm-status-text" class="text-xs text-slate-400 font-medium hidden sm:block">Autonomous spatial agents indexing global multi-source vectors...</p>
@@ -1999,6 +1999,23 @@
                         if (banner) banner.style.display = "flex";
                         if (statusTitle) statusTitle.textContent = "Swarm Infiltration Active...";
                         if (statusMsg) statusMsg.textContent = data.message;
+                    });
+
+                    // ==========================================
+                    // ADDED: Explicit swarm_status_change listener
+                    // ==========================================
+                    sseEventSource.addEventListener("swarm_status_change", function (e) {
+                        const data = JSON.parse(e.data);
+                        // Check if current user matches or unlock directly if multi-tenant scoped event
+                        if (data.swarm_state === "completed" || data.swarm_state === "paused" || data.swarm_state === "error") {
+                            // Hide loading banner & unlock UI elements
+                            if (banner) banner.style.display = "none";
+                            const statusText = document.getElementById("swarm-status-text");
+                            if (statusText) statusText.innerText = data.message || "Swarm Standby";
+                            
+                            // Trigger a refresh of the career matches & Kanban board to load saved matches
+                            loadCareerMatches();
+                        }
                     });
 
                     sseEventSource.onmessage = function(event) {

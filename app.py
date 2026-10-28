@@ -1767,6 +1767,10 @@ async def isolated_user_job_scouting_worker(user_email: str, requested_count: in
         batch_size = 5 
         
         for i in range(0, len(filtered_jobs), batch_size):
+            # Respect requested_count limit if already fulfilled
+            if total_discovered_so_far >= requested_count:
+                break
+
             batch = filtered_jobs[i:i + batch_size]
             batch_tasks = []
             
@@ -1797,6 +1801,9 @@ async def isolated_user_job_scouting_worker(user_email: str, requested_count: in
             if valid_batch_matches:
                 with db_transaction_scope() as (_, ic):
                     for match_item in valid_batch_matches:
+                        if total_discovered_so_far >= requested_count:
+                            break
+
                         company_val = safe_str(match_item.get('company_name'))
                         title_val = safe_str(match_item.get('job_title'))
 
@@ -1864,13 +1871,24 @@ async def isolated_user_job_scouting_worker(user_email: str, requested_count: in
                             saved_count += 1
                             total_discovered_so_far += 1
 
-            if i + batch_size < len(filtered_jobs):
+            if i + batch_size < len(filtered_jobs) and total_discovered_so_far < requested_count:
                 await sse_broker.broadcast_status(user_email, "paused", "Batch rate-limit cooldown active...")
                 await asyncio.sleep(4.0)
                 await sse_broker.broadcast_status(user_email, "active", "Resuming evaluation batch...")
 
-        await sse_broker.broadcast_status(user_email, "completed", f"Swarm completed. Indexed {saved_count} matches.")
-        await sse_broker.broadcast("career_swarm_update", {"user": user_email, "status": "scouted", "message": f"Swarm completed for {user_email}. Indexed {saved_count} top matches."})
+        # At normal completion:
+        await sse_broker.broadcast_status(user_email, "completed", f"Swarm completed. Indexed {total_discovered_so_far} matches.")
+        await sse_broker.broadcast("career_swarm_update", {
+            "user": user_email, 
+            "status": "scouted", 
+            "message": f"Swarm completed for {user_email}. Indexed {total_discovered_so_far} top matches."
+        })
+        # Force an explicit swarm state release event so the UI unlocks
+        await sse_broker.broadcast("swarm_status_change", {
+            "user": user_email,
+            "swarm_state": "completed",
+            "message": f"Swarm finished with {total_discovered_so_far} matches."
+        })
         
     except Exception as e:
         logger.error(f"Error in isolated worker for tenant {user_email}: {str(e)}", exc_info=True)
@@ -1879,7 +1897,13 @@ async def isolated_user_job_scouting_worker(user_email: str, requested_count: in
             await sse_broker.broadcast("career_swarm_update", {
                 "user": user_email,
                 "status": "scouted",
-                "message": f"Swarm encountered a minor disruption, but successfully preserved {total_discovered_so_far} discovered matches."
+                "message": f"Swarm encountered a rate limit or disruption, but successfully preserved {total_discovered_so_far} qualified matches meeting your criteria."
+            })
+            # CRITICAL: Force the UI out of the active scouting loop even on crash if matches exist
+            await sse_broker.broadcast("swarm_status_change", {
+                "user": user_email,
+                "swarm_state": "completed",
+                "message": f"Swarm preserved {total_discovered_so_far} matches."
             })
         else:
             await sse_broker.broadcast_status(user_email, "error", f"Swarm halted: {str(e)}")
@@ -1887,6 +1911,12 @@ async def isolated_user_job_scouting_worker(user_email: str, requested_count: in
                 "user": user_email,
                 "status": "error",
                 "message": f"Scouting swarm halted due to an unexpected error: {str(e)}"
+            })
+            # Unlock UI on fatal error with zero matches
+            await sse_broker.broadcast("swarm_status_change", {
+                "user": user_email,
+                "swarm_state": "error",
+                "message": f"Swarm halted: {str(e)}"
             })
 
 async def run_autonomous_ats_autopilot_worker(match_id: int, user_email: str, ats_url: str):
