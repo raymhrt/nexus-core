@@ -1588,7 +1588,7 @@ async def get_adaptive_success_context(user_email: str) -> str:
         return ""
 
 def init_career_database():
-    init_self_learning_database() # <--- Add this call here
+    init_self_learning_database()
     with db_transaction_scope() as (_, cursor):
         cursor.execute("CREATE TABLE IF NOT EXISTS ai_response_cache (cache_key TEXT PRIMARY KEY, response_text TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
         cursor.execute("""
@@ -1663,8 +1663,10 @@ def init_career_database():
                 ats_portal_url TEXT,
                 embedding TEXT,
                 timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
 
-         cursor.execute("""
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS swarm_sessions (
                 user_email TEXT PRIMARY KEY,
                 status TEXT DEFAULT 'running',
@@ -2660,8 +2662,7 @@ async def audit_and_correct_tenant_documents(
 
 @app.post("/api/v1/career/resume")
 async def save_career_resume(payload: ResumeInput, auth: dict = Depends(verify_api_key_only)):
-    prompt = f"""
-Analyze this master CV / resume text for user {auth['email']}.
+    prompt = f"""Analyze this master CV / resume text for user {auth['email']}.
 Extract core technical skills, seniority, primary professional domain (e.g. backend_engineering, frontend_engineering, product_management, general), and generate 4 to 6 highly accurate professional job titles / recommended roles based strictly on this text.
 CRITICAL: Do not use the candidate's personal name in the domain or recommended roles. Focus purely on their technical field.
 
@@ -2672,8 +2673,8 @@ Return strict JSON with these exact keys:
 - "skills": ["Skill1", "Skill2"]
 - "recommended_roles": ["Role 1", "Role 2", "Role 3"]
 
-CV Text: {payload.resume_content}
-"""
+CV Text: {payload.resume_content}"""
+
     parsed_profile = {}
     try:
         raw_ai = await call_groq_ai(prompt, system_prompt="You are an expert recruitment JSON parser. Return valid raw JSON.")
