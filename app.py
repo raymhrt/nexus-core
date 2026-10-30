@@ -2661,19 +2661,19 @@ async def audit_and_correct_tenant_documents(
 @app.post("/api/v1/career/resume")
 async def save_career_resume(payload: ResumeInput, auth: dict = Depends(verify_api_key_only)):
     prompt = f"""
-    Analyze this master CV / resume text for user {auth['email']}.
-    Extract core technical skills, seniority, primary professional domain (e.g. backend_engineering, frontend_engineering, product_management, general), and generate 4 to 6 highly accurate professional job titles / recommended roles based strictly on this text.
-    CRITICAL: Do not use the candidate's personal name in the domain or recommended roles. Focus purely on their technical field.
-    
-    Return strict JSON with these exact keys:
-    - "domain": "backend_engineering" (or frontend_engineering, product_management, general)
-    - "seniority": "Senior / Executive"
-    - "primary_domain": "Extracted Domain"
-    - "skills": ["Skill1", "Skill2"]
-    - "recommended_roles": ["Role 1", "Role 2", "Role 3"]
+Analyze this master CV / resume text for user {auth['email']}.
+Extract core technical skills, seniority, primary professional domain (e.g. backend_engineering, frontend_engineering, product_management, general), and generate 4 to 6 highly accurate professional job titles / recommended roles based strictly on this text.
+CRITICAL: Do not use the candidate's personal name in the domain or recommended roles. Focus purely on their technical field.
 
-    CV Text: {payload.resume_content}
-    """
+Return strict JSON with these exact keys:
+- "domain": "backend_engineering" (or frontend_engineering, product_management, general)
+- "seniority": "Senior / Executive"
+- "primary_domain": "Extracted Domain"
+- "skills": ["Skill1", "Skill2"]
+- "recommended_roles": ["Role 1", "Role 2", "Role 3"]
+
+CV Text: {payload.resume_content}
+"""
     parsed_profile = {}
     try:
         raw_ai = await call_groq_ai(prompt, system_prompt="You are an expert recruitment JSON parser. Return valid raw JSON.")
@@ -2691,7 +2691,6 @@ async def save_career_resume(payload: ResumeInput, auth: dict = Depends(verify_a
     domain = str(parsed_profile.get("domain", "general")).lower()
     recommended_roles = parsed_profile.get("recommended_roles", [])
     
-    # Clean and validate roles without hardcoded personal name tokens
     sanitized_roles = [
         str(role).strip() for role in recommended_roles 
         if role and len(str(role).strip()) > 2
