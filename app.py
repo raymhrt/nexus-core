@@ -1663,6 +1663,20 @@ def init_career_database():
                 ats_portal_url TEXT,
                 embedding TEXT,
                 timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+
+         cursor.execute("""
+            CREATE TABLE IF NOT EXISTS swarm_sessions (
+                user_email TEXT PRIMARY KEY,
+                status TEXT DEFAULT 'running',
+                requested_count INT,
+                target_locations TEXT,
+                target_roles TEXT,
+                min_match_score INT,
+                search_days INT,
+                job_queue TEXT,
+                processed_job_ids TEXT,
+                total_discovered INT DEFAULT 0,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
         
@@ -1708,66 +1722,102 @@ def verify_api_key_only(x_api_key: str = Header(...), request: Request = None):
         "ip": client_ip
     }
 
-async def isolated_user_job_scouting_worker(user_email: str, requested_count: int, target_locations: str, target_roles: str, min_match_score: int = 60, search_days: int = 3):
+async def isolated_user_job_scouting_worker(
+    user_email: str, 
+    requested_count: int, 
+    target_locations: str, 
+    target_roles: str, 
+    min_match_score: int = 60, 
+    search_days: int = 3,
+    resumed_state: Optional[dict] = None
+):
     saved_count = 0
-    total_discovered_so_far = 0
-    
-    # Calculate cutoff threshold date based on search_days
+    total_discovered_so_far = resumed_state.get("total_discovered", 0) if resumed_state else 0
     cutoff_date = datetime.now(timezone.utc) - timedelta(days=search_days)
     
-    await sse_broker.broadcast_status(user_email, "active", f"Initializing tenant infiltration for {user_email} (Past {search_days} days)...")
-    await sse_broker.broadcast("multi_tenant_telemetry", {"user": user_email, "message": f"Initializing tenant infiltration for {user_email} (Min Fit Filter: {min_match_score}%, Horizon: {search_days} days)..."})
+    processed_ids = set()
+    filtered_jobs = []
+
+    if resumed_state and resumed_state.get("job_queue"):
+        try:
+            filtered_jobs = json.loads(resumed_state["job_queue"])
+            processed_ids = set(json.loads(resumed_state["processed_job_ids"]))
+            await sse_broker.broadcast_status(user_email, "active", f"Resuming workflow for {user_email} ({len(processed_ids)} jobs already processed)...")
+        except Exception:
+            filtered_jobs = []
 
     try:
+        # If not resuming from checkpoint, perform initial fetch & save session state
+        if not filtered_jobs:
+            await sse_broker.broadcast_status(user_email, "active", f"Initializing tenant infiltration for {user_email} (Past {search_days} days)...")
+            await sse_broker.broadcast("multi_tenant_telemetry", {"user": user_email, "message": f"Initializing tenant infiltration for {user_email} (Min Fit Filter: {min_match_score}%, Horizon: {search_days} days)..."})
+
+            with db_transaction_scope() as (_, cursor):
+                if DATABASE_URL:
+                    cursor.execute("SELECT email, profile_json, domain FROM user_profiles WHERE email = %s", (user_email,))
+                else:
+                    cursor.execute("SELECT email, profile_json, domain FROM user_profiles WHERE email = ?", (user_email,))
+                user_row = cursor.fetchone()
+
+            if not user_row:
+                await sse_broker.broadcast_status(user_email, "error", "No Master CV found.")
+                await sse_broker.broadcast("career_swarm_update", {"user": user_email, "status": "error", "message": "No Master CV found. Please upload your CV before scouting."})
+                return
+
+            u_dict = dict(user_row) if not isinstance(user_row, dict) else user_row
+            profile_content = u_dict.get('profile_json', '')
+
+            raw_jobs = await multi_tenant_job_infiltration(target_roles, target_locations, requested_count * 20, user_profile_json=profile_content)
+            
+            if not raw_jobs:
+                await sse_broker.broadcast_status(user_email, "paused", "Scouting completed, zero positions matched.")
+                await sse_broker.broadcast("career_swarm_update", {"user": user_email, "status": "no_jobs", "message": "Scouting completed, but zero live positions matched current aggregators."})
+                return
+
+            for job in raw_jobs:
+                job_date_str = job.get('publication_date') or job.get('date_posted')
+                if job_date_str:
+                    try:
+                        job_date = datetime.fromisoformat(job_date_str.replace('Z', '+00:00'))
+                        if job_date >= cutoff_date:
+                            filtered_jobs.append(job)
+                        continue
+                    except Exception:
+                        pass
+                filtered_jobs.append(job)
+
+            if not filtered_jobs:
+                filtered_jobs = raw_jobs[:requested_count * 5]
+
+            # Save initial session state to DB for resume support
+            with db_transaction_scope() as (_, cursor):
+                q_str = json.dumps(filtered_jobs)
+                p_str = json.dumps([])
+                if DATABASE_URL:
+                    cursor.execute("""
+                        INSERT INTO swarm_sessions (user_email, status, requested_count, target_locations, target_roles, min_match_score, search_days, job_queue, processed_job_ids, total_discovered, updated_at)
+                        VALUES (%s, 'running', %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                        ON CONFLICT (user_email) DO UPDATE SET status = 'running', job_queue = EXCLUDED.job_queue, processed_job_ids = EXCLUDED.processed_job_ids, updated_at = NOW()
+                    """, (user_email, requested_count, target_locations, target_roles, min_match_score, search_days, q_str, p_str, total_discovered_so_far))
+                else:
+                    cursor.execute("""
+                        INSERT OR REPLACE INTO swarm_sessions (user_email, status, requested_count, target_locations, target_roles, min_match_score, search_days, job_queue, processed_job_ids, total_discovered, updated_at)
+                        VALUES (?, 'running', ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                    """, (user_email, requested_count, target_locations, target_roles, min_match_score, search_days, q_str, p_str, total_discovered_so_far))
+
+        # Get user profile context again for evaluation
         with db_transaction_scope() as (_, cursor):
             if DATABASE_URL:
                 cursor.execute("SELECT email, profile_json, domain FROM user_profiles WHERE email = %s", (user_email,))
             else:
                 cursor.execute("SELECT email, profile_json, domain FROM user_profiles WHERE email = ?", (user_email,))
             user_row = cursor.fetchone()
-
-        if not user_row:
-            await sse_broker.broadcast_status(user_email, "error", "No Master CV found.")
-            await sse_broker.broadcast("career_swarm_update", {"user": user_email, "status": "error", "message": "No Master CV found. Please upload your CV before scouting."})
-            return
-
         u_dict = dict(user_row) if not isinstance(user_row, dict) else user_row
         profile_content = u_dict.get('profile_json', '')
-        user_domain = u_dict.get('domain', 'general')
 
-        await sse_broker.broadcast("multi_tenant_telemetry", {"user": user_email, "message": f"Scraping global multi-source feeds tuned to user's master profile..."})
-        
-        raw_jobs = await multi_tenant_job_infiltration(target_roles, target_locations, requested_count * 20, user_profile_json=profile_content)
-        
-        if not raw_jobs:
-            await sse_broker.broadcast_status(user_email, "paused", "Scouting completed, zero positions matched.")
-            await sse_broker.broadcast("career_swarm_update", {"user": user_email, "status": "no_jobs", "message": "Scouting completed, but zero live positions matched current aggregators."})
-            return
-
-        # Filter raw jobs by freshness date horizon
-        filtered_jobs = []
-        for job in raw_jobs:
-            job_date_str = job.get('publication_date') or job.get('date_posted')
-            if job_date_str:
-                try:
-                    job_date = datetime.fromisoformat(job_date_str.replace('Z', '+00:00'))
-                    if job_date >= cutoff_date:
-                        filtered_jobs.append(job)
-                    continue
-                except Exception:
-                    pass
-            # Fallback to keep job if explicit timestamp is missing from aggregator payload
-            filtered_jobs.append(job)
-
-        if not filtered_jobs:
-            filtered_jobs = raw_jobs[:requested_count * 5]  # Fallback subset if strict filter trims all
-        
-        await sse_broker.broadcast("multi_tenant_telemetry", {"user": user_email, "message": f"Discovered {len(raw_jobs)} positions ({len(filtered_jobs)} within {search_days}-day window). Running full AI evaluation..."})
-        
-        batch_size = 5 
+        batch_size = 3  # Reduced slightly to prevent rate limits & make checkpoints frequent
         
         for i in range(0, len(filtered_jobs), batch_size):
-            # Respect requested_count limit if already fulfilled
             if total_discovered_so_far >= requested_count:
                 break
 
@@ -1775,16 +1825,26 @@ async def isolated_user_job_scouting_worker(user_email: str, requested_count: in
             batch_tasks = []
             
             for job in batch:
+                job_id = job.get('ats_portal_url') or job.get('job_title')
+                if job_id in processed_ids:
+                    continue
                 batch_tasks.append(
                     evaluate_job_for_specific_user(job, profile_content, user_email, AI_EVAL_SEMAPHORE, user_profile_context=u_dict)
                 )
             
+            if not batch_tasks:
+                continue
+
             batch_results = await asyncio.gather(*batch_tasks, return_exceptions=True)
             valid_batch_matches = []
             
-            for evaluated in batch_results:
+            for idx, evaluated in enumerate(batch_results):
+                job = batch[idx]
+                job_id = job.get('ats_portal_url') or job.get('job_title')
+                processed_ids.add(job_id)
+
                 if isinstance(evaluated, Exception):
-                    logger.warning(f"Skipping failed job evaluation due to error: {str(evaluated)}")
+                    logger.warning(f"Skipping failed job evaluation: {str(evaluated)}")
                     continue
                 if evaluated:
                     score = safe_int(evaluated.get('fit_score'), 0)
@@ -1871,19 +1931,32 @@ async def isolated_user_job_scouting_worker(user_email: str, requested_count: in
                             saved_count += 1
                             total_discovered_so_far += 1
 
+            # Update Checkpoint State in DB after every batch
+            with db_transaction_scope() as (_, cursor):
+                p_str = json.dumps(list(processed_ids))
+                if DATABASE_URL:
+                    cursor.execute("UPDATE swarm_sessions SET processed_job_ids = %s, total_discovered = %s, updated_at = NOW() WHERE user_email = %s", (p_str, total_discovered_so_far, user_email))
+                else:
+                    cursor.execute("UPDATE swarm_sessions SET processed_job_ids = ?, total_discovered = ?, updated_at = datetime('now') WHERE user_email = ?", (p_str, total_discovered_so_far, user_email))
+
             if i + batch_size < len(filtered_jobs) and total_discovered_so_far < requested_count:
                 await sse_broker.broadcast_status(user_email, "paused", "Batch rate-limit cooldown active...")
-                await asyncio.sleep(4.0)
+                await asyncio.sleep(6.0)
                 await sse_broker.broadcast_status(user_email, "active", "Resuming evaluation batch...")
 
-        # At normal completion:
+        # Clean up session state on successful completion
+        with db_transaction_scope() as (_, cursor):
+            if DATABASE_URL:
+                cursor.execute("UPDATE swarm_sessions SET status = 'completed' WHERE user_email = %s", (user_email,))
+            else:
+                cursor.execute("UPDATE swarm_sessions SET status = 'completed' WHERE user_email = ?", (user_email,))
+
         await sse_broker.broadcast_status(user_email, "completed", f"Swarm completed. Indexed {total_discovered_so_far} matches.")
         await sse_broker.broadcast("career_swarm_update", {
             "user": user_email, 
             "status": "scouted", 
             "message": f"Swarm completed for {user_email}. Indexed {total_discovered_so_far} top matches."
         })
-        # Force an explicit swarm state release event so the UI unlocks
         await sse_broker.broadcast("swarm_status_change", {
             "user": user_email,
             "swarm_state": "completed",
@@ -1892,14 +1965,24 @@ async def isolated_user_job_scouting_worker(user_email: str, requested_count: in
         
     except Exception as e:
         logger.error(f"Error in isolated worker for tenant {user_email}: {str(e)}", exc_info=True)
+        
+        # Mark session as interrupted so startup recovery can pick it back up if needed
+        try:
+            with db_transaction_scope() as (_, cursor):
+                if DATABASE_URL:
+                    cursor.execute("UPDATE swarm_sessions SET status = 'interrupted' WHERE user_email = %s", (user_email,))
+                else:
+                    cursor.execute("UPDATE swarm_sessions SET status = 'interrupted' WHERE user_email = ?", (user_email,))
+        except Exception:
+            pass
+
         if total_discovered_so_far > 0:
             await sse_broker.broadcast_status(user_email, "completed", f"Swarm halted mid-stream, but saved {total_discovered_so_far} matches.")
             await sse_broker.broadcast("career_swarm_update", {
                 "user": user_email,
                 "status": "scouted",
-                "message": f"Swarm encountered a rate limit or disruption, but successfully preserved {total_discovered_so_far} qualified matches meeting your criteria."
+                "message": f"Swarm encountered a disruption, but successfully preserved {total_discovered_so_far} qualified matches."
             })
-            # CRITICAL: Force the UI out of the active scouting loop even on crash if matches exist
             await sse_broker.broadcast("swarm_status_change", {
                 "user": user_email,
                 "swarm_state": "completed",
@@ -1912,7 +1995,6 @@ async def isolated_user_job_scouting_worker(user_email: str, requested_count: in
                 "status": "error",
                 "message": f"Scouting swarm halted due to an unexpected error: {str(e)}"
             })
-            # Unlock UI on fatal error with zero matches
             await sse_broker.broadcast("swarm_status_change", {
                 "user": user_email,
                 "swarm_state": "error",
@@ -1954,6 +2036,42 @@ scheduler = AsyncIOScheduler()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_career_database()
+    
+    # ---> ADD RECOVERY SCAN HERE <---
+    try:
+        with db_transaction_scope() as (_, cursor):
+            if DATABASE_URL:
+                cursor.execute("SELECT user_email, requested_count, target_locations, target_roles, min_match_score, search_days, job_queue, processed_job_ids, total_discovered FROM swarm_sessions WHERE status IN ('running', 'interrupted')")
+            else:
+                cursor.execute("SELECT user_email, requested_count, target_locations, target_roles, min_match_score, search_days, job_queue, processed_job_ids, total_discovered FROM swarm_sessions WHERE status IN ('running', 'interrupted')")
+            
+            interrupted_runs = [dict(r) for r in cursor.fetchall()]
+            
+            for run in interrupted_runs:
+                user_email = run["user_email"]
+                logger.info(f"Resuming interrupted career swarm for {user_email}...")
+                
+                # Mark status back to running
+                if DATABASE_URL:
+                    cursor.execute("UPDATE swarm_sessions SET status = 'running' WHERE user_email = %s", (user_email,))
+                else:
+                    cursor.execute("UPDATE swarm_sessions SET status = 'running' WHERE user_email = ?", (user_email,))
+                
+                # Relaunch the background task
+                asyncio.create_task(
+                    isolated_user_job_scouting_worker(
+                        user_email=user_email,
+                        requested_count=run["requested_count"],
+                        target_locations=run["target_locations"],
+                        target_roles=run["target_roles"],
+                        min_match_score=run["min_match_score"],
+                        search_days=run["search_days"],
+                        resumed_state=run  # Pass checkpoint data
+                    )
+                )
+    except Exception as e:
+        logger.error(f"Failed to recover interrupted swarms on startup: {e}")
+
     if not scheduler.running:
         scheduler.start()
     yield
