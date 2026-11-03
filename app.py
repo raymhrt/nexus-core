@@ -670,6 +670,18 @@ def enforce_two_stage_page_budget(markdown_cv: str) -> str:
         return "\n".join(filtered_lines)
     return markdown_cv
 
+def markdown_to_reportlab_html(text: str) -> str:
+    """Safely converts markdown text into ReportLab-compatible XML markup with entity escaping."""
+    if not text:
+        return ""
+    # CRITICAL FIX: Escape special XML characters first to prevent ReportLab crashes on '&', '<', '>'
+    safe = html.escape(text)
+    # Convert bold
+    safe = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', safe)
+    # Convert italic
+    safe = re.sub(r'\*(.*?)\*', r'<i>\1</i>', safe)
+    return safe
+
 def generate_pdf_cv(markdown_text: str) -> bytes:
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -679,11 +691,12 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         topMargin=20, bottomMargin=20  # Tighter margins to maximize vertical canvas
     )
     
+    # Use your original text sanitization
     cleaned_text = sanitize_cv_text(markdown_text)
     lines = cleaned_text.split('\n')
     total_content_lines = len([l for l in lines if l.strip()])
     
-    # Adjusted threshold to ensure full vertical occupancy
+    # Preserve your exact sparse layout multiplier logic
     is_sparse = total_content_lines < 110
     spacing_multiplier = 1.15 if is_sparse else 1.0
     
@@ -823,7 +836,9 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
             
         cleaned_line = markdown_to_reportlab_html(raw_line)
         
-        if (" - " in raw_line or " – " in raw_line) and re.search(r'(20\d{2}|19\d{2})\s*[\–\-\—]\s*(Present|20\d{2}|19\d{2})', raw_line, re.IGNORECASE):
+        # Enhanced date regex pattern for precise job title matching
+        date_pattern = r'(20\d{2}|19\d{2})\s*[\–\-\—]\s*(Present|Current|20\d{2}|19\d{2})'
+        if (" - " in raw_line or " – " in raw_line or " — " in raw_line) and re.search(date_pattern, raw_line, re.IGNORECASE):
             current_section = "professional experience"
             story.append(Paragraph(cleaned_line, job_title_style))
             
@@ -846,7 +861,7 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
             if bullet_cleaned:
                 story.append(Paragraph(f"• {bullet_cleaned}", bullet_style))
             
-        elif any(sec in current_section for sec in ["professional experience", "experience", "competencies", "skills", "awards", "certifications"]):
+        elif any(sec in current_section for sec in ["professional experience", "experience", "competencies", "skills", "certifications"]):
             bullet_cleaned = re.sub(r'^[\-\*\•]\s*', '', cleaned_line).strip()
             if bullet_cleaned:
                 story.append(Paragraph(f"• {bullet_cleaned}", bullet_style))
