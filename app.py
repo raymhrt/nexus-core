@@ -1340,7 +1340,7 @@ async def ai_adaptable_role_expansion_advanced(target_roles: str, user_profile_j
     derived_terms = [r.strip() for r in target_roles.split(',') if len(r.strip()) > 2]
     return derived_terms if derived_terms else ["Research Scientist", "Technical Specialist"]
 
-async def multi_tenant_job_infiltration(target_roles: str, location: str, count: int, user_profile_json: Optional[str] = None, user_domain: str = "general") -> List[Dict]:
+async def multi_tenant_job_infiltration(target_roles: str, location: str, count: int, user_profile_json: Optional[str] = None, user_domain: str = "general", search_days: int = 3) -> List[Dict]:
     # 1. Get AI role variations tailored specifically to THIS user's uploaded master profile and domain using advanced ontology expansion
     ai_variations = await ai_adaptable_role_expansion_advanced(target_roles, user_profile_json, user_domain)
     
@@ -1366,7 +1366,9 @@ async def multi_tenant_job_infiltration(target_roles: str, location: str, count:
     # Universal multi-platform expansion across all major job boards
     active_platforms = ["linkedin", "indeed", "glassdoor", "ziprecruiter"] if not is_sa_search else ["linkedin", "indeed", "glassdoor"]
 
-    recency_tiers_hours = [96, 120, 168]
+    # FIX: Dynamically base search hours on user's search_days setting instead of hardcoding multi-day tiers
+    target_hours = max(24, search_days * 24)
+    recency_tiers_hours = [target_hours, target_hours + 24]
 
     for hours_window in recency_tiers_hours:
         if len(discovered_jobs) >= count * 15:
@@ -1397,7 +1399,8 @@ async def multi_tenant_job_infiltration(target_roles: str, location: str, count:
                                 "job_title": sanitize_job_title(raw_title),
                                 "location": str(row.get("location", location)),
                                 "job_description": str(row.get("description", "Full job specs available on direct ATS portal.")),
-                                "ats_portal_url": str(row.get("job_url", ""))
+                                "ats_portal_url": str(row.get("job_url", "")),
+                                "publication_date": str(row.get("date_posted", ""))
                             }
                             if validate_real_world_job(job_item, user_domain=user_domain) and job_item["ats_portal_url"] not in seen_urls:
                                 seen_urls.add(job_item["ats_portal_url"])
@@ -1423,7 +1426,8 @@ async def multi_tenant_job_infiltration(target_roles: str, location: str, count:
                                 "job_title": sanitize_job_title(raw_title),
                                 "location": item.get("location", {}).get("display_name", location),
                                 "job_description": item.get("description", "Full job specs available on direct ATS portal."),
-                                "ats_portal_url": item.get("redirect_url", "")
+                                "ats_portal_url": item.get("redirect_url", ""),
+                                "publication_date": item.get("created", "")
                             }
                             if validate_real_world_job(job_item, user_domain=user_domain) and job_item["ats_portal_url"] not in seen_urls:
                                 seen_urls.add(job_item["ats_portal_url"])
@@ -1780,7 +1784,7 @@ async def isolated_user_job_scouting_worker(
         # If not resuming from checkpoint, perform initial fetch & save session state
         if not filtered_jobs:
             await sse_broker.broadcast_status(user_email, "active", f"Initializing tenant infiltration for {user_email} (Past {search_days} days)...")
-            await sse_broker.broadcast("multi_tenant_telemetry", {"user": user_email, "message": f"Initializing tenant infiltration for {user_email} (Min Fit Filter: {min_match_score}%, Horizon: {search_days} days)..."})
+            await sse_broker.broadcast("multi_tenant_telemetry", {"user": user_email, "total_found": total_discovered_so_far, "message": f"Initializing tenant infiltration for {user_email} (Min Fit Filter: {min_match_score}%, Horizon: {search_days} days)..."})
 
             with db_transaction_scope() as (_, cursor):
                 if DATABASE_URL:
@@ -1791,19 +1795,21 @@ async def isolated_user_job_scouting_worker(
 
             if not user_row:
                 await sse_broker.broadcast_status(user_email, "error", "No Master CV found.")
-                await sse_broker.broadcast("career_swarm_update", {"user": user_email, "status": "error", "message": "No Master CV found. Please upload your CV before scouting."})
+                await sse_broker.broadcast("career_swarm_update", {"user": user_email, "status": "error", "total_found": 0, "message": "No Master CV found. Please upload your CV before scouting."})
                 return
 
             u_dict = dict(user_row) if not isinstance(user_row, dict) else user_row
             profile_content = u_dict.get('profile_json', '')
 
-            raw_jobs = await multi_tenant_job_infiltration(target_roles, target_locations, requested_count * 20, user_profile_json=profile_content)
+            # FIX: Pass search_days down to multi_tenant_job_infiltration
+            raw_jobs = await multi_tenant_job_infiltration(target_roles, target_locations, requested_count * 20, user_profile_json=profile_content, search_days=search_days)
             
             if not raw_jobs:
                 await sse_broker.broadcast_status(user_email, "paused", "Scouting completed, zero positions matched.")
-                await sse_broker.broadcast("career_swarm_update", {"user": user_email, "status": "no_jobs", "message": "Scouting completed, but zero live positions matched current aggregators."})
+                await sse_broker.broadcast("career_swarm_update", {"user": user_email, "status": "no_jobs", "total_found": 0, "message": "Scouting completed, but zero live positions matched current aggregators."})
                 return
 
+            # FIX: Strict date filtering enforcing the horizon threshold
             for job in raw_jobs:
                 job_date_str = job.get('publication_date') or job.get('date_posted')
                 if job_date_str:
@@ -1811,7 +1817,7 @@ async def isolated_user_job_scouting_worker(
                         job_date = datetime.fromisoformat(job_date_str.replace('Z', '+00:00'))
                         if job_date >= cutoff_date:
                             filtered_jobs.append(job)
-                        continue
+                        continue  # Skip jobs older than the user's search horizon
                     except Exception:
                         pass
                 filtered_jobs.append(job)
@@ -1845,7 +1851,7 @@ async def isolated_user_job_scouting_worker(
         u_dict = dict(user_row) if not isinstance(user_row, dict) else user_row
         profile_content = u_dict.get('profile_json', '')
 
-        batch_size = 3  # Reduced slightly to prevent rate limits & make checkpoints frequent
+        batch_size = 3  
         
         for i in range(0, len(filtered_jobs), batch_size):
             if total_discovered_so_far >= requested_count:
@@ -1880,12 +1886,14 @@ async def isolated_user_job_scouting_worker(
                     score = safe_int(evaluated.get('fit_score'), 0)
                     if score >= min_match_score:
                         valid_batch_matches.append(evaluated)
+                        # FIX: Include total count in live telemetry stream
                         await sse_broker.broadcast("multi_tenant_telemetry", {
                             "user": user_email, 
                             "job_title": evaluated["job_title"],
                             "company_name": evaluated["company_name"],
                             "match_score": score,
-                            "message": f"Verified match: {evaluated['company_name']} ({score}% match)"
+                            "total_found": total_discovered_so_far + 1,
+                            "message": f"Verified match: {evaluated['company_name']} ({score}% match) [Total Found: {total_discovered_so_far + 1}]"
                         })
 
             if valid_batch_matches:
@@ -1981,22 +1989,25 @@ async def isolated_user_job_scouting_worker(
             else:
                 cursor.execute("UPDATE swarm_sessions SET status = 'completed' WHERE user_email = ?", (user_email,))
 
+        # FIX: Include exact total counts and a dedicated refresh action flag to automatically update the frontend UI
         await sse_broker.broadcast_status(user_email, "completed", f"Swarm completed. Indexed {total_discovered_so_far} matches.")
         await sse_broker.broadcast("career_swarm_update", {
             "user": user_email, 
             "status": "scouted", 
+            "total_found": total_discovered_so_far,
+            "action": "refresh_matches",
             "message": f"Swarm completed for {user_email}. Indexed {total_discovered_so_far} top matches."
         })
         await sse_broker.broadcast("swarm_status_change", {
             "user": user_email,
             "swarm_state": "completed",
+            "total_found": total_discovered_so_far,
             "message": f"Swarm finished with {total_discovered_so_far} matches."
         })
         
     except Exception as e:
         logger.error(f"Error in isolated worker for tenant {user_email}: {str(e)}", exc_info=True)
         
-        # Mark session as interrupted so startup recovery can pick it back up if needed
         try:
             with db_transaction_scope() as (_, cursor):
                 if DATABASE_URL:
@@ -2011,11 +2022,14 @@ async def isolated_user_job_scouting_worker(
             await sse_broker.broadcast("career_swarm_update", {
                 "user": user_email,
                 "status": "scouted",
-                "message": f"Swarm encountered a disruption, but successfully preserved {total_discovered_so_far} qualified matches."
+                "total_found": total_discovered_so_far,
+                "action": "refresh_matches",
+                "message": f"Swarm preserved {total_discovered_so_far} matches."
             })
             await sse_broker.broadcast("swarm_status_change", {
                 "user": user_email,
                 "swarm_state": "completed",
+                "total_found": total_discovered_so_far,
                 "message": f"Swarm preserved {total_discovered_so_far} matches."
             })
         else:
@@ -2023,11 +2037,13 @@ async def isolated_user_job_scouting_worker(
             await sse_broker.broadcast("career_swarm_update", {
                 "user": user_email,
                 "status": "error",
+                "total_found": 0,
                 "message": f"Scouting swarm halted due to an unexpected error: {str(e)}"
             })
             await sse_broker.broadcast("swarm_status_change", {
                 "user": user_email,
                 "swarm_state": "error",
+                "total_found": 0,
                 "message": f"Swarm halted: {str(e)}"
             })
 
