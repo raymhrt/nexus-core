@@ -185,9 +185,10 @@ def sanitize_cv_text(text: str) -> str:
     text = '\n'.join(cleaned_lines)
     
     # AGGRESSIVE ASTERISK & MARKDOWN CLEANUP:
-    # Remove lingering standalone asterisks or bold tags that weren't parsed
-    text = text.replace('***', '').replace('**', '')
+    # Retains your original cleanup rules while fully scrubbing stray asterisks and rogue quotes
+    text = text.replace('***', '').replace('**', '').replace('__', '')
     text = re.sub(r'(?<!\S)\*(?!\S)', '', text) # Removes stray single floating asterisks
+    text = re.sub(r'[\*\"]+', '', text)          # Strip rogue quotes and asterisks entirely from raw text
     text = re.sub(r'^\s*[\*\-\#]{2,}\s*', '', text, flags=re.MULTILINE)
     text = re.sub(r'^\s*\*\s*([A-Z])', r'• \1', text, flags=re.MULTILINE)
     
@@ -839,22 +840,28 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
             ))
             continue
             
+        # Clean markdown formatting for standard html tags and strip remaining artifacts
         cleaned_line = markdown_to_reportlab_html(raw_line)
+        cleaned_line = cleaned_line.replace('*', '').replace('"', '').strip()
         
         # 1. Strict Date Pattern Check for Job Titles & Companies
         date_pattern = r'(20\d{2}|19\d{2})\s*[\–\-\—]\s*(Present|Current|20\d{2}|19\d{2})'
         has_date = bool(re.search(date_pattern, raw_line, re.IGNORECASE))
         
-        # Identify company/role standalone lines even if date format varies slightly
+        # Comprehensive check for known company names, dates, or role identifiers
         is_job_header = has_date or any(comp in raw_line for comp in [
             "Prominent Fluid Controls", "Craigcor Distribution", "Extech Safety Systems", 
             "COENG Consulting Engineers", "Industrial Control Repair Services", "Pinnacle Instruments", 
             "Senet (Pty) Ltd", "Xstrata Alloys", "Endress and Hauser", "Royal Caribbean", 
             "Anglo-Gold Ashanti", "Anglo-American"
-        ])
+        ]) or (raw_line.strip().startswith("- ") and any(title_word in raw_line.lower() for title_word in [
+            "engineer", "specialist", "manager", "technician"
+        ]))
 
         if is_job_header and current_section in ["professional experience", "experience"]:
-            story.append(Paragraph(cleaned_line, job_title_style))
+            # Strip leading bullets or hyphens completely from job headers so they never get a bullet point
+            title_text = re.sub(r'^[\-\*\•\s]+', '', cleaned_line).strip()
+            story.append(Paragraph(title_text, job_title_style))
             
         elif any(sec in current_section for sec in ["core competencies"]):
             bullet_cleaned = re.sub(r'^[\-\*\•\d\.\s]+\s*', '', cleaned_line).strip()
