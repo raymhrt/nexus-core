@@ -183,9 +183,14 @@ def sanitize_cv_text(text: str) -> str:
         skipped_first = True
         
     text = '\n'.join(cleaned_lines)
-    text = text.replace('**', '').replace('***', '')
+    
+    # AGGRESSIVE ASTERISK & MARKDOWN CLEANUP:
+    # Remove lingering standalone asterisks or bold tags that weren't parsed
+    text = text.replace('***', '').replace('**', '')
+    text = re.sub(r'(?<!\S)\*(?!\S)', '', text) # Removes stray single floating asterisks
     text = re.sub(r'^\s*[\*\-\#]{2,}\s*', '', text, flags=re.MULTILINE)
     text = re.sub(r'^\s*\*\s*([A-Z])', r'• \1', text, flags=re.MULTILINE)
+    
     text = re.sub(r'[\u2010\u2011\u2012\u2013\u2014\u2015]', '-', text)
     text = re.sub(r'\s+([.,;:!?])', r'\1', text)
     text = re.sub(r'[ \t]+', ' ', text)
@@ -836,10 +841,19 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
             
         cleaned_line = markdown_to_reportlab_html(raw_line)
         
-        # Enhanced date regex pattern for precise job title matching
+        # 1. Strict Date Pattern Check for Job Titles & Companies
         date_pattern = r'(20\d{2}|19\d{2})\s*[\–\-\—]\s*(Present|Current|20\d{2}|19\d{2})'
-        if re.search(date_pattern, raw_line, re.IGNORECASE):
-            current_section = "professional experience"
+        has_date = bool(re.search(date_pattern, raw_line, re.IGNORECASE))
+        
+        # Identify company/role standalone lines even if date format varies slightly
+        is_job_header = has_date or any(comp in raw_line for comp in [
+            "Prominent Fluid Controls", "Craigcor Distribution", "Extech Safety Systems", 
+            "COENG Consulting Engineers", "Industrial Control Repair Services", "Pinnacle Instruments", 
+            "Senet (Pty) Ltd", "Xstrata Alloys", "Endress and Hauser", "Royal Caribbean", 
+            "Anglo-Gold Ashanti", "Anglo-American"
+        ])
+
+        if is_job_header and current_section in ["professional experience", "experience"]:
             story.append(Paragraph(cleaned_line, job_title_style))
             
         elif any(sec in current_section for sec in ["core competencies"]):
@@ -850,7 +864,7 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         elif any(p in current_section for p in ["publication", "selected publications", "publications"]):
             pub_text = re.sub(r'^[\-\*\•]\s*', '', cleaned_line)
             story.append(Paragraph(pub_text, body_style))
-            story.append(Spacer(1, 2))  # Micro-spacing to fill canvas naturally
+            story.append(Spacer(1, 2))
             
         elif any(sec in current_section for sec in ["education"]):
             edu_text = re.sub(r'^[\-\*\•]\s*', '', cleaned_line).strip()
@@ -861,7 +875,13 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
             if bullet_cleaned:
                 story.append(Paragraph(f"• {bullet_cleaned}", bullet_style))
             
-        elif any(sec in current_section for sec in ["professional experience", "experience", "competencies", "skills", "certifications"]):
+        elif any(sec in current_section for sec in ["technical skills", "skills"]):
+            # Guarantee that every technical skill category starts cleanly with a bullet point
+            skill_cleaned = re.sub(r'^[\-\*\•]\s*', '', cleaned_line).strip()
+            if skill_cleaned:
+                story.append(Paragraph(f"• {skill_cleaned}", bullet_style))
+            
+        elif any(sec in current_section for sec in ["professional experience", "experience"]):
             bullet_cleaned = re.sub(r'^[\-\*\•]\s*', '', cleaned_line).strip()
             if bullet_cleaned:
                 story.append(Paragraph(f"• {bullet_cleaned}", bullet_style))
