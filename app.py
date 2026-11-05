@@ -1784,7 +1784,12 @@ async def isolated_user_job_scouting_worker(
         # If not resuming from checkpoint, perform initial fetch & save session state
         if not filtered_jobs:
             await sse_broker.broadcast_status(user_email, "active", f"Initializing tenant infiltration for {user_email} (Past {search_days} days)...")
-            await sse_broker.broadcast("multi_tenant_telemetry", {"user": user_email, "total_found": total_discovered_so_far, "message": f"Initializing tenant infiltration for {user_email} (Min Fit Filter: {min_match_score}%, Horizon: {search_days} days)..."})
+            await sse_broker.broadcast("multi_tenant_telemetry", {
+                "user": user_email, 
+                "total_discovered": 0, 
+                "total_found": 0, 
+                "message": f"Initializing tenant infiltration for {user_email} (Min Fit Filter: {min_match_score}%, Horizon: {search_days} days)..."
+            })
 
             with db_transaction_scope() as (_, cursor):
                 if DATABASE_URL:
@@ -1892,8 +1897,9 @@ async def isolated_user_job_scouting_worker(
                             "job_title": evaluated["job_title"],
                             "company_name": evaluated["company_name"],
                             "match_score": score,
-                            "total_found": total_discovered_so_far + 1,
-                            "message": f"Verified match: {evaluated['company_name']} ({score}% match) [Total Found: {total_discovered_so_far + 1}]"
+                            "total_discovered": total_discovered_so_far + 1,  # <--- Added explicit count
+                            "total_found": total_discovered_so_far + 1,       # <--- Added explicit count
+                            "message": f"Verified match: {evaluated['company_name']} ({score}% match) [Discovered Jobs: {total_discovered_so_far + 1}]"
                         })
 
             if valid_batch_matches:

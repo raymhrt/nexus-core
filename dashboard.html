@@ -1965,17 +1965,22 @@
             }
         }
 
-        // --- UPDATED SSE AUTO-RECONNECTION & TELEMETRY LISTENER INTEGRATION ---
+        // --- FULLY ADAPTED & INDENTED SSE AUTO-RECONNECTION & TELEMETRY LISTENER ---
         function initSSETelemetry() {
             const sseBadge = document.getElementById('sse-status-badge');
             const banner = document.getElementById("swarm-loading-banner");
             const statusMsg = document.getElementById("swarm-status-msg");
             const statusTitle = document.getElementById("swarm-status-title");
             
+            if (window.sseEventSource) {
+                window.sseEventSource.close();
+            }
+
             function connect() {
                 if (isTerminalPaused) return;
                 try {
                     sseEventSource = new EventSource("/api/v1/stream/telemetry");
+                    window.sseEventSource = sseEventSource;
                     
                     sseEventSource.onopen = function() {
                         reconnectAttempts = 0;
@@ -1987,77 +1992,64 @@
 
                     // Triggered when criteria is submitted & swarm launches
                     sseEventSource.addEventListener("multi_tenant_launched", (event) => {
+                        if (isTerminalPaused) return;
                         const data = JSON.parse(event.data);
                         if (banner) banner.style.display = "flex";
                         if (statusTitle) statusTitle.textContent = "Swarm Deployed 🚀";
                         if (statusMsg) statusMsg.textContent = `Target roles initialized for ${data.roles || 'target roles'} in ${data.locations || 'target locations'}.`;
+                        
+                        appendTelemetryLog(`[${getTimeStr()}] swarm_agent: Event: multi_tenant_launched - Target roles initialized.`);
                     });
 
                     // Triggered during live scraping & evaluation steps
                     sseEventSource.addEventListener("multi_tenant_telemetry", (event) => {
+                        if (isTerminalPaused) return;
                         const data = JSON.parse(event.data);
                         if (banner) banner.style.display = "flex";
                         if (statusTitle) statusTitle.textContent = "Swarm Infiltration Active...";
                         if (statusMsg) statusMsg.textContent = data.message;
+
+                        // Extract and track discovered job count
+                        const discoveredCount = data.total_discovered !== undefined ? data.total_discovered : (data.total_found !== undefined ? data.total_found : '--');
+                        
+                        // Update UI KPI Counter for total discovered/scanned jobs live
+                        const scannedKpi = document.getElementById('kpiTotalScanned');
+                        if (scannedKpi && discoveredCount !== '--') {
+                            scannedKpi.innerText = discoveredCount;
+                        }
+
+                        const logText = `[${getTimeStr()}] swarm_agent: Event: multi_tenant_telemetry - Discovered Jobs: ${discoveredCount} | ${data.message || JSON.stringify(data)}`;
+                        appendTelemetryLog(logText);
                     });
 
-                    // ==========================================
-                    // ADDED: Explicit swarm_status_change listener
-                    // ==========================================
+                    // Explicit swarm_status_change listener
                     sseEventSource.addEventListener("swarm_status_change", function (e) {
+                        if (isTerminalPaused) return;
                         const data = JSON.parse(e.data);
-                        // Check if current user matches or unlock directly if multi-tenant scoped event
+                        const discoveredCount = data.total_found !== undefined ? data.total_found : '';
+                        
                         if (data.swarm_state === "completed" || data.swarm_state === "paused" || data.swarm_state === "error") {
-                            // Hide loading banner & unlock UI elements
                             if (banner) banner.style.display = "none";
                             const statusText = document.getElementById("swarm-status-text");
                             if (statusText) statusText.innerText = data.message || "Swarm Standby";
-                            
-                            // Trigger a refresh of the career matches & Kanban board to load saved matches
                             loadCareerMatches();
                         }
+                        
+                        const logText = `[${getTimeStr()}] swarm_agent: Event: swarm_status_change - State: ${data.swarm_state} | ${data.message}`;
+                        appendTelemetryLog(logText);
                     });
 
                     sseEventSource.onmessage = function(event) {
-                        const packet = JSON.parse(event.data);
-                        
-                        // Handle explicit status change events from the backend
-                        if (packet.event === 'swarm_status_change') {
-                            const state = packet.data.swarm_state; // "active", "paused", "completed", "error"
-                            const message = packet.data.message;
-                            
-                            const badge = document.getElementById('swarm-status-badge');
-                            const textElement = document.getElementById('swarm-status-text');
-                            
-                            if (badge && textElement) {
-                                textElement.innerText = message;
-                                if (state === 'active') {
-                                    badge.className = "badge-success";
-                                    badge.innerText = "Swarm Active";
-                                } else if (state === 'paused') {
-                                    badge.className = "badge-warning";
-                                    badge.innerText = "Swarm Paused / Retrying";
-                                } else if (state === 'completed') {
-                                    badge.className = "badge-info";
-                                    badge.innerText = "Swarm Completed";
-                                } else {
-                                    badge.className = "badge-danger";
-                                    badge.innerText = "Swarm Error / Stalled";
-                                }
-                            }
-                        }
-
-                        // Existing fallback message handling
+                        if (isTerminalPaused) return;
                         try {
                             const payload = JSON.parse(event.data);
                             if (payload.event === 'ping' || payload.type === 'ping') return;
-                            if (payload.event === 'swarm_completed' || payload.status === 'completed') {
-                                handleSwarmCompletion(event);
-                                return;
-                            }
-                        } catch (e) {}
-
-                        appendTerminalLog(event.data);
+                            
+                            const logText = `[${getTimeStr()}] ${payload.event || 'message'}: ${JSON.stringify(payload.data || payload)}`;
+                            appendTelemetryLog(logText);
+                        } catch (e) {
+                            appendTelemetryLog(event.data);
+                        }
                     };
 
                     sseEventSource.onerror = function(err) {
@@ -2077,32 +2069,38 @@
             connect();
         }
 
-        function showNotification(message, type = 'success') {
-            showToast(message, type === 'warning');
+        // Helper utility for timestamps
+        function getTimeStr() {
+            return new Date().toTimeString().split(' ')[0];
         }
 
-        function appendTerminalLog(message) {
-            const careerLog = document.getElementById('careerTelemetryLog');
-            if (!careerLog || isTerminalPaused) return;
+        // Helper utility to append and trim terminal logs safely
+        function appendTelemetryLog(logText) {
+            const logContainer = document.getElementById('careerTelemetryLog');
+            if (!logContainer || isTerminalPaused) return;
             
-            let displayMessage = message;
+            let displayMessage = logText;
             try {
-                const parsed = JSON.parse(message);
+                const parsed = JSON.parse(logText);
                 if (parsed.message) displayMessage = parsed.message;
                 else if (parsed.event && parsed.event !== 'ping') displayMessage = `Event: ${parsed.event} - ${JSON.stringify(parsed.data || {})}`;
             } catch(e) {}
 
-            const entry = document.createElement('div');
-            entry.className = "border-b border-cyan-950/40 pb-1 leading-snug animate-fade-in";
-            entry.innerHTML = `<span class="text-slate-500">[${new Date().toLocaleTimeString()}]</span> <strong class="text-cyan-300">swarm_agent:</strong> <span class="text-slate-300">${escapeHtml(displayMessage)}</span>`;
+            const p = document.createElement('p');
+            p.className = "font-mono text-[11px] text-cyan-400 leading-tight animate-fade-in border-b border-cyan-950/40 pb-1";
+            p.innerHTML = `<span class="text-slate-500">[${getTimeStr()}]</span> <strong class="text-cyan-300">swarm_agent:</strong> <span class="text-slate-300">${escapeHtml(displayMessage)}</span>`;
             
-            if (careerLog.firstChild) {
-                careerLog.insertBefore(entry, careerLog.firstChild);
-            } else {
-                careerLog.appendChild(entry);
+            logContainer.appendChild(p);
+            logContainer.scrollTop = logContainer.scrollHeight;
+
+            // Keep log size manageable (max 100 entries)
+            if (logContainer.children.length > 100) {
+                logContainer.removeChild(logContainer.firstChild);
             }
-            
-            careerLog.scrollTop = 0;
+        }
+
+        function showNotification(message, type = 'success') {
+            showToast(message, type === 'warning');
         }
 
         function runFallbackTelemetrySimulation() {
@@ -2115,7 +2113,7 @@
                     "APScheduler task heartbeat received: 0 errors.",
                     "Uvicorn telemetry endpoint active at /api/v1/stream/telemetry."
                 ];
-                appendTerminalLog(events[Math.floor(Math.random() * events.length)]);
+                appendTelemetryLog(events[Math.floor(Math.random() * events.length)]);
             }, 8000);
         }
     </script>
