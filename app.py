@@ -840,7 +840,6 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
             ))
             continue
             
-        # Clean markdown formatting for standard html tags and strip remaining artifacts
         cleaned_line = markdown_to_reportlab_html(raw_line)
         cleaned_line = cleaned_line.replace('*', '').replace('"', '').strip()
         
@@ -848,18 +847,22 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         date_pattern = r'(20\d{2}|19\d{2})\s*[\–\-\—]\s*(Present|Current|20\d{2}|19\d{2})'
         has_date = bool(re.search(date_pattern, raw_line, re.IGNORECASE))
         
-        # Comprehensive check for known company names, dates, or role identifiers
+        # Identify company or role header lines
         is_job_header = has_date or any(comp in raw_line for comp in [
             "Prominent Fluid Controls", "Craigcor Distribution", "Extech Safety Systems", 
             "COENG Consulting Engineers", "Industrial Control Repair Services", "Pinnacle Instruments", 
             "Senet (Pty) Ltd", "Xstrata Alloys", "Endress and Hauser", "Royal Caribbean", 
             "Anglo-Gold Ashanti", "Anglo-American"
-        ]) or (raw_line.strip().startswith("- ") and any(title_word in raw_line.lower() for title_word in [
-            "engineer", "specialist", "manager", "technician"
-        ]))
+        ]) or any(title_word in raw_line.lower() for title_word in [
+            "external sales engineer", "national product specialist", "sales application engineer",
+            "control & instrumentation engineer", "control and instrumentation engineer", 
+            "regional accounts manager", "account manager", "senior instrumentation technician",
+            "customer support technician", "electronic technician", "control & instrument technician",
+            "learner engineer"
+        ])
 
         if is_job_header and current_section in ["professional experience", "experience"]:
-            # Strip leading bullets or hyphens completely from job headers so they never get a bullet point
+            # Completely strip leading bullets, dashes, and whitespace from job headers
             title_text = re.sub(r'^[\-\*\•\s]+', '', cleaned_line).strip()
             story.append(Paragraph(title_text, job_title_style))
             
@@ -883,23 +886,21 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
                 story.append(Paragraph(f"• {bullet_cleaned}", bullet_style))
             
         elif any(sec in current_section for sec in ["technical skills", "skills"]):
-            # Guarantee that every technical skill category starts cleanly with a bullet point
             skill_cleaned = re.sub(r'^[\-\*\•]\s*', '', cleaned_line).strip()
             if skill_cleaned:
                 story.append(Paragraph(f"• {skill_cleaned}", bullet_style))
             
         elif any(sec in current_section for sec in ["professional experience", "experience"]):
-            bullet_cleaned = re.sub(r'^[\-\*\•]\s*', '', cleaned_line).strip()
-            if bullet_cleaned:
-                story.append(Paragraph(f"• {bullet_cleaned}", bullet_style))
-                
-        elif raw_line.startswith('- ') or raw_line.startswith('* ') or raw_line.startswith('• ') or raw_line.startswith('•'):
-            bullet_cleaned = re.sub(r'^[\-\*\•]\s*', '', cleaned_line).strip()
+            # FORCE ALL experience description lines to become clean bullet points, 
+            # even if the raw text line omitted the leading hyphen or bullet symbol.
+            bullet_cleaned = re.sub(r'^[\-\*\•\s]+', '', cleaned_line).strip()
             if bullet_cleaned:
                 story.append(Paragraph(f"• {bullet_cleaned}", bullet_style))
                 
         else:
-            story.append(Paragraph(cleaned_line, body_style))
+            bullet_cleaned = re.sub(r'^[\-\*\•\s]+', '', cleaned_line).strip()
+            if bullet_cleaned:
+                story.append(Paragraph(f"• {bullet_cleaned}" if current_section in ["professional experience", "experience"] else bullet_cleaned, bullet_style if current_section in ["professional experience", "experience"] else body_style))
 
     doc.build(story)
     buffer.seek(0)
