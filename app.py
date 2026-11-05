@@ -838,7 +838,7 @@ def generate_pdf_cv(markdown_text: str) -> bytes:
         
         # Enhanced date regex pattern for precise job title matching
         date_pattern = r'(20\d{2}|19\d{2})\s*[\–\-\—]\s*(Present|Current|20\d{2}|19\d{2})'
-        if (" - " in raw_line or " – " in raw_line or " — " in raw_line) and re.search(date_pattern, raw_line, re.IGNORECASE):
+        if re.search(date_pattern, raw_line, re.IGNORECASE):
             current_section = "professional experience"
             story.append(Paragraph(cleaned_line, job_title_style))
             
