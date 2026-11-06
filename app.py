@@ -1368,7 +1368,7 @@ async def multi_tenant_job_infiltration(target_roles: str, location: str, count:
 
     # FIX: Dynamically base search hours on user's search_days setting instead of hardcoding multi-day tiers
     target_hours = max(24, search_days * 24)
-    recency_tiers_hours = [target_hours, target_hours + 24]
+    recency_tiers_hours = [target_hours] # Restricts search strictly to your specified window
 
     for hours_window in recency_tiers_hours:
         if len(discovered_jobs) >= count * 15:
