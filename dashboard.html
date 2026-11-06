@@ -2090,12 +2090,12 @@
             p.className = "font-mono text-[11px] text-cyan-400 leading-tight animate-fade-in border-b border-cyan-950/40 pb-1";
             p.innerHTML = `<span class="text-slate-500">[${getTimeStr()}]</span> <strong class="text-cyan-300">swarm_agent:</strong> <span class="text-slate-300">${escapeHtml(displayMessage)}</span>`;
             
-            logContainer.appendChild(p);
-            logContainer.scrollTop = logContainer.scrollHeight;
+            // ---> CHANGED FROM appendChild TO prepend TO KEEP LATEST ON TOP <---
+            logContainer.prepend(p);
 
-            // Keep log size manageable (max 100 entries)
+            // Keep log size manageable (max 100 entries) by removing from the bottom
             if (logContainer.children.length > 100) {
-                logContainer.removeChild(logContainer.firstChild);
+                logContainer.removeChild(logContainer.lastChild);
             }
         }
 

@@ -1809,6 +1809,15 @@ async def isolated_user_job_scouting_worker(
             # FIX: Pass search_days down to multi_tenant_job_infiltration
             raw_jobs = await multi_tenant_job_infiltration(target_roles, target_locations, requested_count * 20, user_profile_json=profile_content, search_days=search_days)
             
+            total_raw_found = len(raw_jobs) if raw_jobs else 0
+
+            # ---> BROADCAST POTENTIAL JOBS FOUND BEFORE EVALUATION <---
+            await sse_broker.broadcast("multi_tenant_telemetry", {
+                "user": user_email,
+                "total_potential_found": total_raw_found,
+                "message": f"Scraped {total_raw_found} potential jobs before evaluation for {user_email}."
+            })
+
             if not raw_jobs:
                 await sse_broker.broadcast_status(user_email, "paused", "Scouting completed, zero positions matched.")
                 await sse_broker.broadcast("career_swarm_update", {"user": user_email, "status": "no_jobs", "total_found": 0, "message": "Scouting completed, but zero live positions matched current aggregators."})
@@ -1897,9 +1906,10 @@ async def isolated_user_job_scouting_worker(
                             "job_title": evaluated["job_title"],
                             "company_name": evaluated["company_name"],
                             "match_score": score,
-                            "total_discovered": total_discovered_so_far + 1,  # <--- Added explicit count
-                            "total_found": total_discovered_so_far + 1,       # <--- Added explicit count
-                            "message": f"Verified match: {evaluated['company_name']} ({score}% match) [Discovered Jobs: {total_discovered_so_far + 1}]"
+                            "total_potential_found": total_raw_found,          # <--- Total found before evaluation
+                            "total_discovered": total_discovered_so_far + 1, 
+                            "total_found": total_discovered_so_far + 1,        
+                            "message": f"Verified match: {evaluated['company_name']} ({score}% match) [Potential Found: {total_raw_found}]"
                         })
 
             if valid_batch_matches:
