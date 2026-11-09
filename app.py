@@ -128,6 +128,21 @@ AI_EVAL_SEMAPHORE = asyncio.Semaphore(1)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=["nexus-core-yfou.onrender.com", "localhost", "127.0.0.1", "testserver"])
 app.add_middleware(CORSMiddleware, allow_origins=TRUSTED_ORIGINS, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
+@app.post("/api/v1/career/swarm/stop")
+async def stop_career_swarm(auth: dict = Depends(verify_api_key_only)):
+    """
+    Manually halts an active scouting swarm session by updating its status
+    to 'stopped' in the swarm_sessions table.
+    """
+    with db_transaction_scope() as (_, cursor):
+        if DATABASE_URL:
+            cursor.execute("UPDATE swarm_sessions SET status = 'stopped', updated_at = NOW() WHERE user_email = %s", (auth["email"],))
+        else:
+            cursor.execute("UPDATE swarm_sessions SET status = 'stopped', updated_at = datetime('now') WHERE user_email = ?", (auth["email"],))
+    
+    await sse_broker.broadcast_status(auth["email"], "stopped", "Swarm manually stopped by user. Processing collected matches...")
+    return {"status": "success", "message": "Scouting swarm halted successfully."}
+
 # ==================== BACKLOG PIPELINE & FILTER FINGERPRINTING ====================
 def generate_filter_hash(user_filters: Dict[str, Any]) -> str:
     """
@@ -1950,22 +1965,6 @@ def verify_api_key_only(x_api_key: str = Header(...), request: Request = None):
         "limit": credits_limit if credits_limit is not None else 100, 
         "ip": client_ip
     }
-
-@app.post("/api/v1/career/swarm/stop")
-async def stop_career_swarm(auth: dict = Depends(verify_api_key_only)):
-    """
-    Manually halts an active scouting swarm session by updating its status
-    to 'stopped' in the swarm_sessions table.
-    """
-    with db_transaction_scope() as (_, cursor):
-        if DATABASE_URL:
-            cursor.execute("UPDATE swarm_sessions SET status = 'stopped', updated_at = NOW() WHERE user_email = %s", (auth["email"],))
-        else:
-            cursor.execute("UPDATE swarm_sessions SET status = 'stopped', updated_at = datetime('now') WHERE user_email = ?", (auth["email"],))
-    
-    await sse_broker.broadcast_status(auth["email"], "stopped", "Swarm manually stopped by user. Processing collected matches...")
-    return {"status": "success", "message": "Scouting swarm halted successfully."}
-
 
 async def isolated_user_job_scouting_worker(
     user_email: str, 
