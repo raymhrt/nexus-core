@@ -356,23 +356,6 @@ class SSETelemetryBroker:
 sse_broker = SSETelemetryBroker()
 scheduler = AsyncIOScheduler()
         
-    cursor = conn.cursor()
-    try:
-        yield conn, cursor
-        conn.commit()
-    except Exception as e:
-        conn.rollback()
-        raise e
-    finally:
-        try:
-            cursor.close()
-        except Exception:
-            pass
-        try:
-            conn.close()
-        except Exception:
-            pass
-
 def safe_str(val: Any) -> str:
     if val is None:
         return ""
@@ -2399,11 +2382,6 @@ async def run_autonomous_ats_autopilot_worker(match_id: int, user_email: str, at
         "match_id": match_id,
         "message": f"Autonomous application successfully submitted via ATS Auto-Pilot to {ats_url}!"
     })
-
-scheduler = AsyncIOScheduler()
-
-app.add_middleware(TrustedHostMiddleware, allowed_hosts=["nexus-core-yfou.onrender.com", "localhost", "127.0.0.1", "testserver"])
-app.add_middleware(CORSMiddleware, allow_origins=TRUSTED_ORIGINS, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 class ResumeInput(BaseModel):
     resume_content: str
