@@ -103,7 +103,7 @@ async def verify_api_key_only(api_key_header: str = Security(API_KEY_HEADER)) ->
     
     with db_transaction_scope() as (_, cursor):
         if DATABASE_URL:
-            cursor.execute("SELECT user_email, role FROM api_keys WHERE key_hash = %s", (hashed_key,))
+            cursor.execute("SELECT email, role FROM api_keys WHERE key_hash = %s", (hashed_key,))
         else:
             cursor.execute("SELECT user_email, role FROM api_keys WHERE key_hash = ?", (hashed_key,))
         row = cursor.fetchone()
@@ -115,8 +115,7 @@ async def verify_api_key_only(api_key_header: str = Security(API_KEY_HEADER)) ->
             )
         
         row_dict = dict(row)
-        return {"email": row_dict.get("user_email"), "role": row_dict.get("role", "user")}
-
+        return {"email": row_dict.get("email"), "role": row_dict.get("role", "user")}
 
 # =====================================================================
 # LIFESPAN & FASTAPI APP INITIALIZATION
