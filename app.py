@@ -49,6 +49,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger("nexus-complete-civilization")
 
+# =====================================================================
+# EXACT LOCATION: Paste app = FastAPI() right here, before any routes or middleware
+# =====================================================================
+app = FastAPI(title="NexusCore API")
+
 SENTRY_DSN = os.getenv("SENTRY_DSN")
 if SENTRY_DSN:
     sentry_sdk.init(dsn=SENTRY_DSN, integrations=[FastApiIntegration()], traces_sample_rate=1.0)
