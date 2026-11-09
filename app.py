@@ -349,11 +349,12 @@ class SSETelemetryBroker:
     async def broadcast_status(self, user_email: str, status_state: str, message: str):
         await self.broadcast("swarm_status_change", {
             "user": user_email,
-            "swarm_state": status_state, # e.g. "active", "paused", "error", "completed"
+            "swarm_state": status_state,
             "message": message
         })
 
 sse_broker = SSETelemetryBroker()
+scheduler = AsyncIOScheduler()
         
     cursor = conn.cursor()
     try:
