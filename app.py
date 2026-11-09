@@ -24,7 +24,8 @@ import numpy as np
 import requests
 import sentry_sdk
 from sentry_sdk.integrations.fastapi import FastApiIntegration
-from fastapi import APIRouter, FastAPI, BackgroundTasks, HTTPException, Request, Response, status, Header, Depends, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, FastAPI, BackgroundTasks, HTTPException, Request, Response, status, Header, Depends, Query, WebSocket, WebSocketDisconnect, Security
+from fastapi.security import APIKeyHeader
 from fastapi.responses import FileResponse, JSONResponse, HTMLResponse, Response as FastAPIResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
@@ -49,14 +50,82 @@ logging.basicConfig(
 )
 logger = logging.getLogger("nexus-complete-civilization")
 
+DATABASE_URL = os.getenv("DATABASE_URL")
+
 # =====================================================================
-# FIX APPLIED HERE: Initialize app = FastAPI() before any routes or decorators
+# SECURITY & DATABASE HELPERS (Must be declared BEFORE routes/lifespan)
+# =====================================================================
+
+API_KEY_HEADER = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+def hash_api_key(api_key: str) -> str:
+    """Hash API key for secure lookup against database records."""
+    return hashlib.sha256(api_key.encode("utf-8")).hexdigest()
+
+@contextmanager
+def db_transaction_scope():
+    """Provides a transactional scope around database operations for Postgres or SQLite."""
+    if DATABASE_URL:
+        conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+    else:
+        conn = sqlite3.connect("nexus_career.db")
+        conn.row_factory = sqlite3.Row
+    
+    cursor = conn.cursor()
+    try:
+        yield conn, cursor
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        try:
+            cursor.close()
+        except Exception:
+            pass
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+async def verify_api_key_only(api_key_header: str = Security(API_KEY_HEADER)) -> dict:
+    """
+    Validates the API key header against persistent storage / database.
+    Raises 401 Unauthorized if invalid or missing.
+    """
+    if not api_key_header:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing API Key header (X-API-Key)"
+        )
+    
+    hashed_key = hash_api_key(api_key_header)
+    
+    with db_transaction_scope() as (_, cursor):
+        if DATABASE_URL:
+            cursor.execute("SELECT user_email, role FROM api_keys WHERE key_hash = %s", (hashed_key,))
+        else:
+            cursor.execute("SELECT user_email, role FROM api_keys WHERE key_hash = ?", (hashed_key,))
+        row = cursor.fetchone()
+        
+        if not row:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired API Key"
+            )
+        
+        row_dict = dict(row)
+        return {"email": row_dict.get("user_email"), "role": row_dict.get("role", "user")}
+
+
+# =====================================================================
+# LIFESPAN & FASTAPI APP INITIALIZATION
 # =====================================================================
 scheduler = AsyncIOScheduler()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    init_career_database()
+    # init_career_database() if defined elsewhere
     try:
         with db_transaction_scope() as (_, cursor):
             if DATABASE_URL:
@@ -105,8 +174,6 @@ app = FastAPI(
 SENTRY_DSN = os.getenv("SENTRY_DSN")
 if SENTRY_DSN:
     sentry_sdk.init(dsn=SENTRY_DSN, integrations=[FastApiIntegration()], traces_sample_rate=1.0)
-
-DATABASE_URL = os.getenv("DATABASE_URL")
 
 stripe.api_key = os.getenv("STRIPE_API_KEY", "your_stripe_key_here")
 WEBHOOK_SIGNING_SECRET = os.getenv("WEBHOOK_SIGNING_SECRET", "fallback_insecure_secret_for_dev_mode")
@@ -287,14 +354,6 @@ class SSETelemetryBroker:
         })
 
 sse_broker = SSETelemetryBroker()
-
-@contextmanager
-def db_transaction_scope():
-    if DATABASE_URL:
-        conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
-    else:
-        conn = sqlite3.connect("quantcode_career_monetized.db")
-        conn.row_factory = sqlite3.Row
         
     cursor = conn.cursor()
     try:
@@ -2341,58 +2400,6 @@ async def run_autonomous_ats_autopilot_worker(match_id: int, user_email: str, at
     })
 
 scheduler = AsyncIOScheduler()
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    init_career_database()
-    
-    # ---> ADD RECOVERY SCAN HERE <---
-    try:
-        with db_transaction_scope() as (_, cursor):
-            if DATABASE_URL:
-                cursor.execute("SELECT user_email, requested_count, target_locations, target_roles, min_match_score, search_days, job_queue, processed_job_ids, total_discovered FROM swarm_sessions WHERE status IN ('running', 'interrupted')")
-            else:
-                cursor.execute("SELECT user_email, requested_count, target_locations, target_roles, min_match_score, search_days, job_queue, processed_job_ids, total_discovered FROM swarm_sessions WHERE status IN ('running', 'interrupted')")
-            
-            interrupted_runs = [dict(r) for r in cursor.fetchall()]
-            
-            for run in interrupted_runs:
-                user_email = run["user_email"]
-                logger.info(f"Resuming interrupted career swarm for {user_email}...")
-                
-                # Mark status back to running
-                if DATABASE_URL:
-                    cursor.execute("UPDATE swarm_sessions SET status = 'running' WHERE user_email = %s", (user_email,))
-                else:
-                    cursor.execute("UPDATE swarm_sessions SET status = 'running' WHERE user_email = ?", (user_email,))
-                
-                # Relaunch the background task
-                asyncio.create_task(
-                    isolated_user_job_scouting_worker(
-                        user_email=user_email,
-                        requested_count=run["requested_count"],
-                        target_locations=run["target_locations"],
-                        target_roles=run["target_roles"],
-                        min_match_score=run["min_match_score"],
-                        search_days=run["search_days"],
-                        resumed_state=run  # Pass checkpoint data
-                    )
-                )
-    except Exception as e:
-        logger.error(f"Failed to recover interrupted swarms on startup: {e}")
-
-    if not scheduler.running:
-        scheduler.start()
-    yield
-    if scheduler.running:
-        scheduler.shutdown()
-
-app = FastAPI(
-    title="QuantCode Nexus Enterprise Apex API",
-    version="16.30.1",
-    description="Live Multi-Tenant Career Infiltration Engine with Advanced AI Ghostwriter & Cover Letter Engine.",
-    lifespan=lifespan
-)
 
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=["nexus-core-yfou.onrender.com", "localhost", "127.0.0.1", "testserver"])
 app.add_middleware(CORSMiddleware, allow_origins=TRUSTED_ORIGINS, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
