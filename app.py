@@ -1895,6 +1895,22 @@ def verify_api_key_only(x_api_key: str = Header(...), request: Request = None):
         "ip": client_ip
     }
 
+@app.post("/api/v1/career/swarm/stop")
+async def stop_career_swarm(auth: dict = Depends(verify_api_key_only)):
+    """
+    Manually halts an active scouting swarm session by updating its status
+    to 'stopped' in the swarm_sessions table.
+    """
+    with db_transaction_scope() as (_, cursor):
+        if DATABASE_URL:
+            cursor.execute("UPDATE swarm_sessions SET status = 'stopped', updated_at = NOW() WHERE user_email = %s", (auth["email"],))
+        else:
+            cursor.execute("UPDATE swarm_sessions SET status = 'stopped', updated_at = datetime('now') WHERE user_email = ?", (auth["email"],))
+    
+    await sse_broker.broadcast_status(auth["email"], "stopped", "Swarm manually stopped by user. Processing collected matches...")
+    return {"status": "success", "message": "Scouting swarm halted successfully."}
+
+
 async def isolated_user_job_scouting_worker(
     user_email: str, 
     requested_count: int, 
@@ -1908,9 +1924,7 @@ async def isolated_user_job_scouting_worker(
     total_discovered_so_far = resumed_state.get("total_discovered", 0) if resumed_state else 0
     cutoff_date = datetime.now(timezone.utc) - timedelta(days=search_days)
     
-    # FIX: Initialize total_raw_found safely at the top of scope to prevent UnboundLocalError
     total_raw_found = 0
-    
     processed_ids = set()
     filtered_jobs = []
 
@@ -1923,7 +1937,6 @@ async def isolated_user_job_scouting_worker(
             filtered_jobs = []
 
     try:
-        # If not resuming from checkpoint, perform initial fetch, filtering & save session state
         if not filtered_jobs:
             await sse_broker.broadcast_status(user_email, "active", f"Initializing tenant infiltration for {user_email} (Past {search_days} days)...")
             await sse_broker.broadcast("multi_tenant_telemetry", {
@@ -1948,11 +1961,9 @@ async def isolated_user_job_scouting_worker(
             u_dict = dict(user_row) if not isinstance(user_row, dict) else user_row
             profile_content = u_dict.get('profile_json', '')
 
-            # 1. Pass search_days down to multi_tenant_job_infiltration
             raw_jobs = await multi_tenant_job_infiltration(target_roles, target_locations, requested_count * 20, user_profile_json=profile_content, search_days=search_days)
             total_raw_found = len(raw_jobs) if raw_jobs else 0
 
-            # ---> BROADCAST RAW POTENTIAL JOBS FOUND BEFORE EVALUATION <---
             await sse_broker.broadcast("multi_tenant_telemetry", {
                 "user": user_email,
                 "total_potential_found": total_raw_found,
@@ -1964,7 +1975,6 @@ async def isolated_user_job_scouting_worker(
                 await sse_broker.broadcast("career_swarm_update", {"user": user_email, "status": "no_jobs", "total_found": 0, "message": "Scouting completed, but zero live positions matched current aggregators."})
                 return
 
-            # 2. Strict date filtering enforcing the horizon threshold & evaluating drop counters
             seen_urls = set()
             date_filtered_dropped = 0
             already_evaluated_dropped = 0
@@ -1976,19 +1986,16 @@ async def isolated_user_job_scouting_worker(
                 j_title = job.get("job_title", "")
                 j_url = job.get("ats_portal_url", "")
                 
-                # Check if already evaluated previously for this user
                 if job_already_evaluated(user_email, c_name, j_title, j_url):
                     already_evaluated_dropped += 1
                     continue
 
-                # Check URL deduplication
                 if j_url and j_url in seen_urls:
                     duplicates_dropped += 1
                     continue
                 if j_url:
                     seen_urls.add(j_url)
 
-                # Check date horizon filter
                 job_date_str = job.get('publication_date') or job.get('date_posted')
                 if job_date_str:
                     try:
@@ -2008,7 +2015,6 @@ async def isolated_user_job_scouting_worker(
             total_evaluating = len(candidate_filtered_jobs)
             filtered_jobs = candidate_filtered_jobs
 
-            # ---> STREAM EXACT TELEMETRY BREAKDOWN SHOWING RAW, DROPPED, AND PASSING TO AI <---
             await sse_broker.broadcast("multi_tenant_telemetry", {
                 "user": user_email,
                 "total_potential_found": total_raw_found,
@@ -2020,7 +2026,6 @@ async def isolated_user_job_scouting_worker(
                 "message": f"Discovered {total_raw_found} raw jobs. Dropped {total_dropped} (Duplicates: {duplicates_dropped}, Expired: {date_filtered_dropped}, Prior: {already_evaluated_dropped}). Passing {total_evaluating} jobs to AI evaluation."
             })
 
-            # Save initial session state to DB for resume support
             with db_transaction_scope() as (_, cursor):
                 q_str = json.dumps(filtered_jobs)
                 p_str = json.dumps([])
@@ -2036,7 +2041,6 @@ async def isolated_user_job_scouting_worker(
                         VALUES (?, 'running', ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
                     """, (user_email, requested_count, target_locations, target_roles, min_match_score, search_days, q_str, p_str, total_discovered_so_far))
 
-        # Get user profile context again for evaluation
         with db_transaction_scope() as (_, cursor):
             if DATABASE_URL:
                 cursor.execute("SELECT email, profile_json, domain FROM user_profiles WHERE email = %s", (user_email,))
@@ -2049,8 +2053,19 @@ async def isolated_user_job_scouting_worker(
         batch_size = 3  
         all_evaluated_matches = []
         
-        # Evaluate ALL filtered jobs through the multi-agent committee without early breaking
         for i in range(0, len(filtered_jobs), batch_size):
+            with db_transaction_scope() as (_, cursor):
+                if DATABASE_URL:
+                    cursor.execute("SELECT status FROM swarm_sessions WHERE user_email = %s", (user_email,))
+                else:
+                    cursor.execute("SELECT status FROM swarm_sessions WHERE user_email = ?", (user_email,))
+                session_row = cursor.fetchone()
+                if session_row:
+                    s_status = session_row["status"] if isinstance(session_row, dict) else session_row[0]
+                    if s_status == 'stopped':
+                        logger.info(f"Swarm manually stopped for {user_email}. Finalizing collected matches...")
+                        break
+
             batch = filtered_jobs[i:i + batch_size]
             batch_tasks = []
             
@@ -2079,19 +2094,17 @@ async def isolated_user_job_scouting_worker(
                     score = safe_int(evaluated.get('fit_score'), 0)
                     if score >= min_match_score:
                         all_evaluated_matches.append(evaluated)
-                        # FIX: Include total count in live telemetry stream
                         await sse_broker.broadcast("multi_tenant_telemetry", {
                             "user": user_email, 
                             "job_title": evaluated["job_title"],
                             "company_name": evaluated["company_name"],
                             "match_score": score,
-                            "total_potential_found": total_raw_found,         # <--- Total found before evaluation
+                            "total_potential_found": total_raw_found,       
                             "total_discovered": len(all_evaluated_matches), 
                             "total_found": len(all_evaluated_matches),        
                             "message": f"Verified match: {evaluated['company_name']} ({score}% match) [Potential Found: {total_raw_found}]"
                         })
 
-            # Update Checkpoint State in DB after every batch
             with db_transaction_scope() as (_, cursor):
                 p_str = json.dumps(list(processed_ids))
                 if DATABASE_URL:
@@ -2104,11 +2117,9 @@ async def isolated_user_job_scouting_worker(
                 await asyncio.sleep(6.0)
                 await sse_broker.broadcast_status(user_email, "active", "Resuming evaluation batch...")
 
-        # Sort all evaluated matches by fit_score descending and select only the top requested_count
         all_evaluated_matches.sort(key=lambda x: safe_int(x.get('fit_score'), 0), reverse=True)
         top_matches = all_evaluated_matches[:requested_count]
 
-        # Save the top ranked matches to the database
         if top_matches:
             with db_transaction_scope() as (_, ic):
                 for match_item in top_matches:
@@ -2180,7 +2191,6 @@ async def isolated_user_job_scouting_worker(
 
         total_discovered_so_far = len(top_matches)
 
-        # Clean up session state on successful completion
         with db_transaction_scope() as (_, cursor):
             p_str = json.dumps(list(processed_ids))
             if DATABASE_URL:
@@ -2188,7 +2198,6 @@ async def isolated_user_job_scouting_worker(
             else:
                 cursor.execute("UPDATE swarm_sessions SET processed_job_ids = ?, total_discovered = ?, status = 'completed', updated_at = datetime('now') WHERE user_email = ?", (p_str, total_discovered_so_far, user_email))
 
-        # FIX: Include exact total counts and a dedicated refresh action flag to automatically update the frontend UI
         await sse_broker.broadcast_status(user_email, "completed", f"Swarm completed. Indexed {total_discovered_so_far} matches.")
         await sse_broker.broadcast("career_swarm_update", {
             "user": user_email, 
