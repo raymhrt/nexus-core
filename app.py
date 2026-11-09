@@ -1908,6 +1908,9 @@ async def isolated_user_job_scouting_worker(
     total_discovered_so_far = resumed_state.get("total_discovered", 0) if resumed_state else 0
     cutoff_date = datetime.now(timezone.utc) - timedelta(days=search_days)
     
+    # FIX: Initialize total_raw_found safely at the top of scope to prevent UnboundLocalError
+    total_raw_found = 0
+    
     processed_ids = set()
     filtered_jobs = []
 
@@ -2082,7 +2085,7 @@ async def isolated_user_job_scouting_worker(
                             "job_title": evaluated["job_title"],
                             "company_name": evaluated["company_name"],
                             "match_score": score,
-                            "total_potential_found": total_raw_found,          # <--- Total found before evaluation
+                            "total_potential_found": total_raw_found,         # <--- Total found before evaluation
                             "total_discovered": len(all_evaluated_matches), 
                             "total_found": len(all_evaluated_matches),        
                             "message": f"Verified match: {evaluated['company_name']} ({score}% match) [Potential Found: {total_raw_found}]"
