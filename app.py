@@ -1920,7 +1920,7 @@ async def isolated_user_job_scouting_worker(
             filtered_jobs = []
 
     try:
-        # If not resuming from checkpoint, perform initial fetch & save session state
+        # If not resuming from checkpoint, perform initial fetch, filtering & save session state
         if not filtered_jobs:
             await sse_broker.broadcast_status(user_email, "active", f"Initializing tenant infiltration for {user_email} (Past {search_days} days)...")
             await sse_broker.broadcast("multi_tenant_telemetry", {
@@ -1945,12 +1945,11 @@ async def isolated_user_job_scouting_worker(
             u_dict = dict(user_row) if not isinstance(user_row, dict) else user_row
             profile_content = u_dict.get('profile_json', '')
 
-            # FIX: Pass search_days down to multi_tenant_job_infiltration
+            # 1. Pass search_days down to multi_tenant_job_infiltration
             raw_jobs = await multi_tenant_job_infiltration(target_roles, target_locations, requested_count * 20, user_profile_json=profile_content, search_days=search_days)
-            
             total_raw_found = len(raw_jobs) if raw_jobs else 0
 
-            # ---> BROADCAST POTENTIAL JOBS FOUND BEFORE EVALUATION <---
+            # ---> BROADCAST RAW POTENTIAL JOBS FOUND BEFORE EVALUATION <---
             await sse_broker.broadcast("multi_tenant_telemetry", {
                 "user": user_email,
                 "total_potential_found": total_raw_found,
@@ -1962,35 +1961,61 @@ async def isolated_user_job_scouting_worker(
                 await sse_broker.broadcast("career_swarm_update", {"user": user_email, "status": "no_jobs", "total_found": 0, "message": "Scouting completed, but zero live positions matched current aggregators."})
                 return
 
-            # FIX: Strict date filtering enforcing the horizon threshold
+            # 2. Strict date filtering enforcing the horizon threshold & evaluating drop counters
+            seen_urls = set()
+            date_filtered_dropped = 0
+            already_evaluated_dropped = 0
+            duplicates_dropped = 0
+            candidate_filtered_jobs = []
+
             for job in raw_jobs:
-                job_date_str = job.get('publication_date') or job.get('date_posted')
-                if job_date_str:
-                    try:
-                        job_date = datetime.fromisoformat(job_date_str.replace('Z', '+00:00'))
-                        if job_date >= cutoff_date:
-                            filtered_jobs.append(job)
-                        continue  # Skip jobs older than the user's search horizon
-                    except Exception:
-                        pass
-                filtered_jobs.append(job)
-
-            if not filtered_jobs:
-                filtered_jobs = raw_jobs[:requested_count * 5]
-
-            # Filter out jobs that have already been evaluated previously for this user
-            fresh_filtered_jobs = []
-            for job in filtered_jobs:
                 c_name = job.get("company_name", "")
                 j_title = job.get("job_title", "")
                 j_url = job.get("ats_portal_url", "")
                 
+                # Check if already evaluated previously for this user
                 if job_already_evaluated(user_email, c_name, j_title, j_url):
-                    logger.info(f"Skipping already evaluated job: {j_title} at {c_name}")
+                    already_evaluated_dropped += 1
                     continue
-                fresh_filtered_jobs.append(job)
-            
-            filtered_jobs = fresh_filtered_jobs
+
+                # Check URL deduplication
+                if j_url and j_url in seen_urls:
+                    duplicates_dropped += 1
+                    continue
+                if j_url:
+                    seen_urls.add(j_url)
+
+                # Check date horizon filter
+                job_date_str = job.get('publication_date') or job.get('date_posted')
+                if job_date_str:
+                    try:
+                        job_date = datetime.fromisoformat(job_date_str.replace('Z', '+00:00'))
+                        if job_date < cutoff_date:
+                            date_filtered_dropped += 1
+                            continue
+                    except Exception:
+                        pass
+                
+                candidate_filtered_jobs.append(job)
+
+            if not candidate_filtered_jobs:
+                candidate_filtered_jobs = raw_jobs[:requested_count * 5]
+
+            total_dropped = duplicates_dropped + date_filtered_dropped + already_evaluated_dropped
+            total_evaluating = len(candidate_filtered_jobs)
+            filtered_jobs = candidate_filtered_jobs
+
+            # ---> STREAM EXACT TELEMETRY BREAKDOWN SHOWING RAW, DROPPED, AND PASSING TO AI <---
+            await sse_broker.broadcast("multi_tenant_telemetry", {
+                "user": user_email,
+                "total_potential_found": total_raw_found,
+                "duplicates_dropped": duplicates_dropped,
+                "date_filtered_dropped": date_filtered_dropped,
+                "already_evaluated_dropped": already_evaluated_dropped,
+                "total_dropped": total_dropped,
+                "jobs_passing_to_evaluation": total_evaluating,
+                "message": f"Discovered {total_raw_found} raw jobs. Dropped {total_dropped} (Duplicates: {duplicates_dropped}, Expired: {date_filtered_dropped}, Prior: {already_evaluated_dropped}). Passing {total_evaluating} jobs to AI evaluation."
+            })
 
             # Save initial session state to DB for resume support
             with db_transaction_scope() as (_, cursor):
@@ -2057,7 +2082,7 @@ async def isolated_user_job_scouting_worker(
                             "job_title": evaluated["job_title"],
                             "company_name": evaluated["company_name"],
                             "match_score": score,
-                            "total_potential_found": total_raw_found,         # <--- Total found before evaluation
+                            "total_potential_found": total_raw_found,          # <--- Total found before evaluation
                             "total_discovered": len(all_evaluated_matches), 
                             "total_found": len(all_evaluated_matches),        
                             "message": f"Verified match: {evaluated['company_name']} ({score}% match) [Potential Found: {total_raw_found}]"

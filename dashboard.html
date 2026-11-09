@@ -1965,7 +1965,7 @@
             }
         }
 
-        // --- FULLY ADAPTED & INDENTED SSE AUTO-RECONNECTION & TELEMETRY LISTENER ---
+        // --- HARDENED SSE TELEMETRY & EVENT STREAM LISTENER ---
         function initSSETelemetry() {
             const sseBadge = document.getElementById('sse-status-badge');
             const banner = document.getElementById("swarm-loading-banner");
@@ -2009,10 +2009,8 @@
                         if (statusTitle) statusTitle.textContent = "Swarm Infiltration Active...";
                         if (statusMsg) statusMsg.textContent = data.message;
 
-                        // Extract and track discovered job count
                         const discoveredCount = data.total_discovered !== undefined ? data.total_discovered : (data.total_found !== undefined ? data.total_found : '--');
                         
-                        // Update UI KPI Counter for total discovered/scanned jobs live
                         const scannedKpi = document.getElementById('kpiTotalScanned');
                         if (scannedKpi && discoveredCount !== '--') {
                             scannedKpi.innerText = discoveredCount;
@@ -2026,7 +2024,6 @@
                     sseEventSource.addEventListener("swarm_status_change", function (e) {
                         if (isTerminalPaused) return;
                         const data = JSON.parse(e.data);
-                        const discoveredCount = data.total_found !== undefined ? data.total_found : '';
                         
                         if (data.swarm_state === "completed" || data.swarm_state === "paused" || data.swarm_state === "error") {
                             if (banner) banner.style.display = "none";
@@ -2074,7 +2071,7 @@
             return new Date().toTimeString().split(' ')[0];
         }
 
-        // Helper utility to append and trim terminal logs safely
+        // Terminal Log Appender (prepends newest logs to the top)
         function appendTelemetryLog(logText) {
             const logContainer = document.getElementById('careerTelemetryLog');
             if (!logContainer || isTerminalPaused) return;
@@ -2090,10 +2087,9 @@
             p.className = "font-mono text-[11px] text-cyan-400 leading-tight animate-fade-in border-b border-cyan-950/40 pb-1";
             p.innerHTML = `<span class="text-slate-500">[${getTimeStr()}]</span> <strong class="text-cyan-300">swarm_agent:</strong> <span class="text-slate-300">${escapeHtml(displayMessage)}</span>`;
             
-            // ---> CHANGED FROM appendChild TO prepend TO KEEP LATEST ON TOP <---
+            // Prepends new entries to top of log terminal
             logContainer.prepend(p);
 
-            // Keep log size manageable (max 100 entries) by removing from the bottom
             if (logContainer.children.length > 100) {
                 logContainer.removeChild(logContainer.lastChild);
             }
