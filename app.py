@@ -2363,8 +2363,7 @@ class JobEvaluationResponse(BaseModel):
     tailored_cv: str
     tailored_cover_letter: str
 
-    class Config:
-        populate_by_name = True
+    model_config = {"populate_by_name": True} # <--- Updated for Pydantic v2
 
 class TailorRequest(BaseModel):
     job_description: str
@@ -3051,15 +3050,13 @@ async def trigger_ats_autopilot(match_id: int, background_tasks: BackgroundTasks
 @app.post("/api/v1/career/interview/practice")
 async def trial_interview_practice(payload: TrialInterviewRequest, auth: dict = Depends(verify_api_key_only)):
     prompt = f"Evaluate this interview response for user {auth['email']} targeting role '{payload.role}':\n\n{payload.answer}\n\nProvide a score out of 100 and constructive feedback."
-    # FIX: Added 'await' here
-    feedback = await call_groq_ai(prompt, system_prompt="You are the Lead Interview Coach.")
+    feedback = await call_groq_ai(prompt, system_prompt="You are the Lead Interview Coach.") # <--- Added await
     return {"status": "success", "score": "88/100", "feedback": feedback}
 
 @app.post("/api/v1/career/negotiate")
 async def salary_negotiator(payload: NegotiatorRequest, auth: dict = Depends(verify_api_key_only)):
     prompt = f"User: {auth['email']}\nInitial Offer: {payload.offer_details}\nTarget Compensation: {payload.target_compensation}\n\nDraft a professional counter-offer script and negotiation strategy."
-    # FIX: Added 'await' here
-    script = await call_groq_ai(prompt, system_prompt="You are the Compensation Economist agent.")
+    script = await call_groq_ai(prompt, system_prompt="You are the Compensation Economist agent.") # <--- Added await
     return {"status": "success", "script": script}
 
 @app.post("/create-portal-session")
