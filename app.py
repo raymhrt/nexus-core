@@ -50,9 +50,57 @@ logging.basicConfig(
 logger = logging.getLogger("nexus-complete-civilization")
 
 # =====================================================================
-# EXACT LOCATION: Paste app = FastAPI() right here, before any routes or middleware
+# FIX APPLIED HERE: Initialize app = FastAPI() before any routes or decorators
 # =====================================================================
-app = FastAPI(title="NexusCore API")
+scheduler = AsyncIOScheduler()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_career_database()
+    try:
+        with db_transaction_scope() as (_, cursor):
+            if DATABASE_URL:
+                cursor.execute("SELECT user_email, requested_count, target_locations, target_roles, min_match_score, search_days, job_queue, processed_job_ids, total_discovered FROM swarm_sessions WHERE status IN ('running', 'interrupted')")
+            else:
+                cursor.execute("SELECT user_email, requested_count, target_locations, target_roles, min_match_score, search_days, job_queue, processed_job_ids, total_discovered FROM swarm_sessions WHERE status IN ('running', 'interrupted')")
+            
+            interrupted_runs = [dict(r) for r in cursor.fetchall()]
+            
+            for run in interrupted_runs:
+                user_email = run["user_email"]
+                logger.info(f"Resuming interrupted career swarm for {user_email}...")
+                
+                if DATABASE_URL:
+                    cursor.execute("UPDATE swarm_sessions SET status = 'running' WHERE user_email = %s", (user_email,))
+                else:
+                    cursor.execute("UPDATE swarm_sessions SET status = 'running' WHERE user_email = ?", (user_email,))
+                
+                asyncio.create_task(
+                    isolated_user_job_scouting_worker(
+                        user_email=user_email,
+                        requested_count=run["requested_count"],
+                        target_locations=run["target_locations"],
+                        target_roles=run["target_roles"],
+                        min_match_score=run["min_match_score"],
+                        search_days=run["search_days"],
+                        resumed_state=run
+                    )
+                )
+    except Exception as e:
+        logger.error(f"Failed to recover interrupted swarms on startup: {e}")
+
+    if not scheduler.running:
+        scheduler.start()
+    yield
+    if scheduler.running:
+        scheduler.shutdown()
+
+app = FastAPI(
+    title="QuantCode Nexus Enterprise Apex API",
+    version="16.30.1",
+    description="Live Multi-Tenant Career Infiltration Engine with Advanced AI Ghostwriter & Cover Letter Engine.",
+    lifespan=lifespan
+)
 
 SENTRY_DSN = os.getenv("SENTRY_DSN")
 if SENTRY_DSN:
@@ -76,6 +124,9 @@ ADZUNA_APP_KEY = os.getenv("ADZUNA_APP_KEY")
 TRUSTED_ORIGINS = [origin.strip() for origin in os.getenv("TRUSTED_ORIGINS", "https://nexus-core-yfou.onrender.com,http://localhost:3000,http://127.0.0.1:8000").split(",") if origin.strip()]
 
 AI_EVAL_SEMAPHORE = asyncio.Semaphore(1)
+
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=["nexus-core-yfou.onrender.com", "localhost", "127.0.0.1", "testserver"])
+app.add_middleware(CORSMiddleware, allow_origins=TRUSTED_ORIGINS, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 # ==================== BACKLOG PIPELINE & FILTER FINGERPRINTING ====================
 def generate_filter_hash(user_filters: Dict[str, Any]) -> str:
