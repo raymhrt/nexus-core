@@ -606,25 +606,19 @@ def set_cached_ai_response(cache_key: str, response_text: str):
     except Exception:
         pass
 
-def job_already_evaluated(user_email: str, company_name: str, job_title: str, ats_portal_url: str) -> bool:
-    """Checks if a job has already been evaluated or saved for this user."""
+def job_already_evaluated(user_email: str, company_name: str, job_title: str) -> bool:
+    """Simplified, robust check using only company name and job title."""
     try:
         with db_transaction_scope() as (_, cursor):
             if DATABASE_URL:
                 cursor.execute(
-                    """SELECT id FROM job_matches 
-                       WHERE user_email = %s 
-                       AND ((LOWER(company_name) = LOWER(%s) AND LOWER(job_title) = LOWER(%s)) 
-                       OR (ats_portal_url = %s AND ats_portal_url != ''))""",
-                    (user_email, company_name.strip(), job_title.strip(), ats_portal_url)
+                    "SELECT id FROM job_matches WHERE user_email = %s AND LOWER(company_name) = LOWER(%s) AND LOWER(job_title) = LOWER(%s)",
+                    (user_email, company_name.strip(), job_title.strip())
                 )
             else:
                 cursor.execute(
-                    """SELECT id FROM job_matches 
-                       WHERE user_email = ? 
-                       AND ((LOWER(company_name) = LOWER(?) AND LOWER(job_title) = LOWER(?)) 
-                       OR (ats_portal_url = ? AND ats_portal_url != ''))""",
-                    (user_email, company_name.strip(), job_title.strip(), ats_portal_url)
+                    "SELECT id FROM job_matches WHERE user_email = ? AND LOWER(company_name) = LOWER(?) AND LOWER(job_title) = LOWER(?)",
+                    (user_email, company_name.strip(), job_title.strip())
                 )
             return cursor.fetchone() is not None
     except Exception:
@@ -2222,49 +2216,76 @@ async def isolated_user_job_scouting_worker(
                 for match_item in top_matches:
                     company_val = safe_str(match_item.get('company_name'))
                     title_val = safe_str(match_item.get('job_title'))
+                    fit_score_val = safe_int(match_item.get('fit_score'), 50)
 
+                    # Check if match already exists for this user to avoid duplicates
                     if DATABASE_URL:
-                        ic.execute("SELECT id FROM job_matches WHERE user_email = %s AND LOWER(company_name) = LOWER(%s) AND LOWER(job_title) = LOWER(%s)", (user_email, company_val, title_val))
+                        ic.execute(
+                            "SELECT id FROM job_matches WHERE user_email = %s AND LOWER(company_name) = LOWER(%s) AND LOWER(job_title) = LOWER(%s)", 
+                            (user_email, company_val, title_val)
+                        )
                     else:
-                        ic.execute("SELECT id FROM job_matches WHERE user_email = ? AND LOWER(company_name) = LOWER(?) AND LOWER(job_title) = LOWER(?)", (user_email, company_val, title_val))
+                        ic.execute(
+                            "SELECT id FROM job_matches WHERE user_email = ? AND LOWER(company_name) = LOWER(?) AND LOWER(job_title) = LOWER(?)", 
+                            (user_email, company_val, title_val)
+                        )
                     
-                    if ic.fetchone():
-                        continue 
+                    existing_row = ic.fetchone()
+                    if existing_row:
+                        logger.info(f"Match already exists for {user_email} at {company_val} - {title_val}. Skipping duplicate insert.")
+                        continue
 
+                    # Insert learning metrics
                     if DATABASE_URL:
-                        ic.execute("INSERT INTO system_learning_metrics (user_email, company_name, job_title, fit_score, outcome_status) VALUES (%s, %s, %s, %s, 'pending')", (user_email, company_val, title_val, safe_int(match_item.get('fit_score'), 50)))
-                    else:
-                        ic.execute("INSERT INTO system_learning_metrics (user_email, company_name, job_title, fit_score, outcome_status) VALUES (?, ?, ?, ?, 'pending')", (user_email, company_val, title_val, safe_int(match_item.get('fit_score'), 50)))
-
-                    if DATABASE_URL:
+                        ic.execute("INSERT INTO system_learning_metrics (user_email, company_name, job_title, fit_score, outcome_status) VALUES (%s, %s, %s, %s, 'pending')", (user_email, company_val, title_val, fit_score_val))
                         ic.execute("SELECT tier, credits_remaining FROM subscribers s JOIN subscriber_credits c ON s.email = c.email WHERE s.email = %s", (user_email,))
                     else:
+                        ic.execute("INSERT INTO system_learning_metrics (user_email, company_name, job_title, fit_score, outcome_status) VALUES (?, ?, ?, ?, 'pending')", (user_email, company_val, title_val, fit_score_val))
                         ic.execute("SELECT tier, credits_remaining FROM subscribers s JOIN subscriber_credits c ON s.email = c.email WHERE s.email = ?", (user_email,))
+                    
                     sub_row = ic.fetchone()
-                    user_tier = sub_row["tier"] if isinstance(sub_row, dict) else sub_row[0]
+                    user_tier = (sub_row["tier"] if isinstance(sub_row, dict) else sub_row[0]) if sub_row else "starter"
 
                     vector_str = json.dumps(match_item.get('embedding', [0.0] * 256))
                     matched_reqs_json = json.dumps(match_item.get('matched_requirements', []))
                     transferable_json = json.dumps(match_item.get('transferable_gaps', []))
                     critical_json = json.dumps(match_item.get('critical_missing', []))
 
+                    # Safe insertion query ensuring all required fields are bound correctly
                     if DATABASE_URL:
                         sql = """
-                            INSERT INTO job_matches (user_email, company_name, job_title, job_description, location, fit_score, match_rationale, matched_requirements, transferable_gaps, critical_missing, decision_maker_name, decision_maker_title, decision_maker_email, warm_intro_pathway, outreach_draft, salary_benchmark, negotiation_strategy, cv_variant, cover_letter_variant, interview_playbook, ats_portal_url, embedding, status)
+                            INSERT INTO job_matches (
+                                user_email, company_name, job_title, job_description, location, 
+                                fit_score, match_rationale, matched_requirements, transferable_gaps, critical_missing, 
+                                decision_maker_name, decision_maker_title, decision_maker_email, warm_intro_pathway, 
+                                outreach_draft, salary_benchmark, negotiation_strategy, cv_variant, cover_letter_variant, 
+                                interview_playbook, ats_portal_url, embedding, status
+                            )
                             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'discovered')
                         """
                     else:
                         sql = """
-                            INSERT OR IGNORE INTO job_matches (user_email, company_name, job_title, job_description, location, fit_score, match_rationale, matched_requirements, transferable_gaps, critical_missing, decision_maker_name, decision_maker_title, decision_maker_email, warm_intro_pathway, outreach_draft, salary_benchmark, negotiation_strategy, cv_variant, cover_letter_variant, interview_playbook, ats_portal_url, embedding, status)
+                            INSERT INTO job_matches (
+                                user_email, company_name, job_title, job_description, location, 
+                                fit_score, match_rationale, matched_requirements, transferable_gaps, critical_missing, 
+                                decision_maker_name, decision_maker_title, decision_maker_email, warm_intro_pathway, 
+                                outreach_draft, salary_benchmark, negotiation_strategy, cv_variant, cover_letter_variant, 
+                                interview_playbook, ats_portal_url, embedding, status
+                            )
                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'discovered')
                         """
+                    
                     ic.execute(sql, (
-                        user_email, company_val, title_val,
+                        user_email, 
+                        company_val, 
+                        title_val,
                         safe_str(match_item.get('job_description')),
                         safe_str(match_item.get('location')),
-                        safe_int(match_item.get('fit_score'), 50),
+                        fit_score_val,
                         safe_str(match_item.get('match_rationale')),
-                        matched_reqs_json, transferable_json, critical_json,
+                        matched_reqs_json, 
+                        transferable_json, 
+                        critical_json,
                         safe_str(match_item.get('decision_maker_name')),
                         safe_str(match_item.get('decision_maker_title')),
                         safe_str(match_item.get('decision_maker_email')),
