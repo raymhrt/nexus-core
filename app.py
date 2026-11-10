@@ -606,20 +606,32 @@ def set_cached_ai_response(cache_key: str, response_text: str):
     except Exception:
         pass
 
-def job_already_evaluated(user_email: str, company_name: str, job_title: str) -> bool:
-    """Simplified, robust check using only company name and job title."""
+def job_already_evaluated(user_email: str, company_name: str, job_title: str, job_url: Optional[str] = None) -> bool:
+    """Robust check using company name, job title, and optional URL."""
     try:
         with db_transaction_scope() as (_, cursor):
             if DATABASE_URL:
-                cursor.execute(
-                    "SELECT id FROM job_matches WHERE user_email = %s AND LOWER(company_name) = LOWER(%s) AND LOWER(job_title) = LOWER(%s)",
-                    (user_email, company_name.strip(), job_title.strip())
-                )
+                if job_url:
+                    cursor.execute(
+                        "SELECT id FROM job_matches WHERE user_email = %s AND (LOWER(ats_portal_url) = LOWER(%s) OR (LOWER(company_name) = LOWER(%s) AND LOWER(job_title) = LOWER(%s)))",
+                        (user_email, job_url, company_name.strip(), job_title.strip())
+                    )
+                else:
+                    cursor.execute(
+                        "SELECT id FROM job_matches WHERE user_email = %s AND LOWER(company_name) = LOWER(%s) AND LOWER(job_title) = LOWER(%s)",
+                        (user_email, company_name.strip(), job_title.strip())
+                    )
             else:
-                cursor.execute(
-                    "SELECT id FROM job_matches WHERE user_email = ? AND LOWER(company_name) = LOWER(?) AND LOWER(job_title) = LOWER(?)",
-                    (user_email, company_name.strip(), job_title.strip())
-                )
+                if job_url:
+                    cursor.execute(
+                        "SELECT id FROM job_matches WHERE user_email = ? AND (LOWER(ats_portal_url) = LOWER(?) OR (LOWER(company_name) = LOWER(?) AND LOWER(job_title) = LOWER(?)))",
+                        (user_email, job_url, company_name.strip(), job_title.strip())
+                    )
+                else:
+                    cursor.execute(
+                        "SELECT id FROM job_matches WHERE user_email = ? AND LOWER(company_name) = LOWER(?) AND LOWER(job_title) = LOWER(?)",
+                        (user_email, company_name.strip(), job_title.strip())
+                    )
             return cursor.fetchone() is not None
     except Exception:
         return False
