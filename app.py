@@ -2263,7 +2263,7 @@ async def isolated_user_job_scouting_worker(
 
         all_evaluated_matches.sort(key=lambda x: safe_int(x.get('fit_score'), 0), reverse=True)
         
-        # Split into UI Winners (top requested count) and Backlog Passing Matches (jobs 4, 5, 6...)
+        # FIX: Ensure all evaluated matches populating the grid are also correctly indexed into the Kanban board state ('discovered' column)
         top_matches = all_evaluated_matches[:requested_count]
         backlog_passing_matches = all_evaluated_matches[requested_count:]
 
@@ -2296,7 +2296,7 @@ async def isolated_user_job_scouting_worker(
                             (user_email, company_val, title_val, url_val, fit_score_val, outcome_status)
                         )
 
-                    # 2. Save ONLY the top requested count matches to the active UI Kanban table
+                    # 2. Save matches to the active UI Kanban / Grid table with initial status 'discovered'
                     if is_top_match and fit_score_val >= min_match_score:
                         if DATABASE_URL:
                             ic.execute(
@@ -2338,7 +2338,7 @@ async def isolated_user_job_scouting_worker(
                                     outreach_draft, salary_benchmark, negotiation_strategy, cv_variant, cover_letter_variant, 
                                     interview_playbook, ats_portal_url, embedding, status
                                 )
-                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'evaluated')
+                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'discovered')
                             """
                         else:
                             sql = """
@@ -2349,7 +2349,7 @@ async def isolated_user_job_scouting_worker(
                                     outreach_draft, salary_benchmark, negotiation_strategy, cv_variant, cover_letter_variant, 
                                     interview_playbook, ats_portal_url, embedding, status
                                 )
-                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'evaluated')
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'discovered')
                             """
                         
                         ic.execute(sql, (
