@@ -2166,8 +2166,8 @@ async def isolated_user_job_scouting_worker(
                 if session_row:
                     s_status = session_row["status"] if isinstance(session_row, dict) else session_row[0]
                     if s_status == 'stopped':
-                        logger.info(f"Swarm manually stopped for {user_email}. Finalizing collected matches...")
-                        break
+                        logger.info(f"Swarm manually stopped for {user_email}. Saving collected matches so far...")
+                        break  # Exit loop, but now proceed to save all_evaluated_matches below!
 
             batch = filtered_jobs[i:i + batch_size]
             batch_tasks = []
@@ -2328,13 +2328,13 @@ async def isolated_user_job_scouting_worker(
             else:
                 cursor.execute("UPDATE swarm_sessions SET processed_job_ids = ?, total_discovered = ?, status = 'completed', updated_at = datetime('now') WHERE user_email = ?", (p_str, total_discovered_so_far, user_email))
 
-        await sse_broker.broadcast_status(user_email, "completed", f"Swarm completed. Indexed {total_discovered_so_far} matches.")
+        await sse_broker.broadcast_status(user_email, "completed", f"Swarm finished. Indexed {total_discovered_so_far} matches.")
         await sse_broker.broadcast("career_swarm_update", {
             "user": user_email, 
             "status": "scouted", 
             "total_found": total_discovered_so_far,
             "action": "refresh_matches",
-            "message": f"Swarm completed for {user_email}. Indexed {total_discovered_so_far} top matches."
+            "message": f"Swarm completed. Indexed {total_discovered_so_far} matches."
         })
         await sse_broker.broadcast("swarm_status_change", {
             "user": user_email,
