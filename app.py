@@ -2263,7 +2263,7 @@ async def isolated_user_job_scouting_worker(
                     transferable_json = json.dumps(match_item.get('transferable_gaps', []))
                     critical_json = json.dumps(match_item.get('critical_missing', []))
 
-                    # Safe insertion query ensuring all required fields are bound correctly
+                    # Safe insertion query ensuring status is set to 'evaluated'
                     if DATABASE_URL:
                         sql = """
                             INSERT INTO job_matches (
@@ -2273,7 +2273,7 @@ async def isolated_user_job_scouting_worker(
                                 outreach_draft, salary_benchmark, negotiation_strategy, cv_variant, cover_letter_variant, 
                                 interview_playbook, ats_portal_url, embedding, status
                             )
-                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'discovered')
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'evaluated')
                         """
                     else:
                         sql = """
@@ -2284,7 +2284,7 @@ async def isolated_user_job_scouting_worker(
                                 outreach_draft, salary_benchmark, negotiation_strategy, cv_variant, cover_letter_variant, 
                                 interview_playbook, ats_portal_url, embedding, status
                             )
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'discovered')
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'evaluated')
                         """
                     
                     ic.execute(sql, (
@@ -2507,7 +2507,7 @@ def get_career_matches(min_fit: int = Query(0, ge=0, le=100), user=Depends(verif
                        salary_benchmark, recruiter_verified, negotiation_strategy, cv_variant, cover_letter_variant, interview_playbook, 
                        ats_portal_url, status 
                 FROM job_matches 
-                WHERE user_email = %s AND fit_score >= %s
+                WHERE user_email = %s AND fit_score >= %s AND status = 'evaluated'
                 ORDER BY fit_score DESC, timestamp DESC
             """
             cursor.execute(sql, (user["email"], min_fit))
@@ -2520,7 +2520,7 @@ def get_career_matches(min_fit: int = Query(0, ge=0, le=100), user=Depends(verif
                        salary_benchmark, recruiter_verified, negotiation_strategy, cv_variant, cover_letter_variant, interview_playbook, 
                        ats_portal_url, status 
                 FROM job_matches 
-                WHERE user_email = ? AND fit_score >= ?
+                WHERE user_email = ? AND fit_score >= ? AND status = 'evaluated'
                 ORDER BY fit_score DESC, timestamp DESC
             """
             cursor.execute(sql, (user["email"], min_fit))
@@ -2544,7 +2544,7 @@ def get_career_matches(min_fit: int = Query(0, ge=0, le=100), user=Depends(verif
                 parsed = json.loads(val)
                 return parsed if isinstance(parsed, list) else fallback
             except Exception:
-                return [str(val)]
+                return [str(val)] if val else fallback
 
         matched_arr = parse_json_array(m.get("matched_requirements"), [])
         transferable_arr = parse_json_array(m.get("transferable_gaps"), [])
@@ -2560,7 +2560,7 @@ def get_career_matches(min_fit: int = Query(0, ge=0, le=100), user=Depends(verif
             "rationale": rat,
             "match_rationale": rat,
             "matched_requirements": matched_arr,
-            "matched_strengths": matched_arr,  # Aliased for frontend UI compatibility
+            "matched_strengths": matched_arr,
             "transferable_gaps": transferable_arr,
             "critical_missing": critical_arr,
             "networking_target_name": dm_name,
@@ -2578,7 +2578,7 @@ def get_career_matches(min_fit: int = Query(0, ge=0, le=100), user=Depends(verif
             "cover_letter_variant": sanitize_cv_text(m.get("cover_letter_variant", "")),
             "interview_playbook": m.get("interview_playbook", ""),
             "ats_portal_url": m.get("ats_portal_url", ""),
-            "status": m.get("status", "discovered")
+            "status": m.get("status", "evaluated")
         })
 
     return {
