@@ -124,14 +124,10 @@ scheduler = AsyncIOScheduler()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # init_career_database() if defined elsewhere
+    init_career_database()
     try:
         with db_transaction_scope() as (_, cursor):
-            if DATABASE_URL:
-                cursor.execute("SELECT user_email, requested_count, target_locations, target_roles, min_match_score, search_days, job_queue, processed_job_ids, total_discovered FROM swarm_sessions WHERE status IN ('running', 'interrupted')")
-            else:
-                cursor.execute("SELECT user_email, requested_count, target_locations, target_roles, min_match_score, search_days, job_queue, processed_job_ids, total_discovered FROM swarm_sessions WHERE status IN ('running', 'interrupted')")
-            
+            cursor.execute("SELECT user_email, requested_count, target_locations, target_roles, min_match_score, search_days, job_queue, processed_job_ids, total_discovered FROM swarm_sessions WHERE status IN ('running', 'interrupted')")
             interrupted_runs = [dict(r) for r in cursor.fetchall()]
             
             for run in interrupted_runs:
@@ -2167,7 +2163,7 @@ async def isolated_user_job_scouting_worker(
                     s_status = session_row["status"] if isinstance(session_row, dict) else session_row[0]
                     if s_status == 'stopped':
                         logger.info(f"Swarm manually stopped for {user_email}. Saving collected matches so far...")
-                        break  # Exit loop, but now proceed to save all_evaluated_matches below!
+                        break
 
             batch = filtered_jobs[i:i + batch_size]
             batch_tasks = []
@@ -2230,7 +2226,6 @@ async def isolated_user_job_scouting_worker(
                     title_val = safe_str(match_item.get('job_title'))
                     fit_score_val = safe_int(match_item.get('fit_score'), 50)
 
-                    # Check if match already exists for this user to avoid duplicates
                     if DATABASE_URL:
                         ic.execute(
                             "SELECT id FROM job_matches WHERE user_email = %s AND LOWER(company_name) = LOWER(%s) AND LOWER(job_title) = LOWER(%s)", 
@@ -2247,7 +2242,6 @@ async def isolated_user_job_scouting_worker(
                         logger.info(f"Match already exists for {user_email} at {company_val} - {title_val}. Skipping duplicate insert.")
                         continue
 
-                    # Insert learning metrics
                     if DATABASE_URL:
                         ic.execute("INSERT INTO system_learning_metrics (user_email, company_name, job_title, fit_score, outcome_status) VALUES (%s, %s, %s, %s, 'pending')", (user_email, company_val, title_val, fit_score_val))
                         ic.execute("SELECT tier, credits_remaining FROM subscribers s JOIN subscriber_credits c ON s.email = c.email WHERE s.email = %s", (user_email,))
@@ -2263,7 +2257,7 @@ async def isolated_user_job_scouting_worker(
                     transferable_json = json.dumps(match_item.get('transferable_gaps', []))
                     critical_json = json.dumps(match_item.get('critical_missing', []))
 
-                    # Safe insertion query ensuring status is set to 'evaluated'
+                    # Explicitly inserted with status = 'evaluated' to ensure Kanban compatibility
                     if DATABASE_URL:
                         sql = """
                             INSERT INTO job_matches (
@@ -2507,7 +2501,7 @@ def get_career_matches(min_fit: int = Query(0, ge=0, le=100), user=Depends(verif
                        salary_benchmark, recruiter_verified, negotiation_strategy, cv_variant, cover_letter_variant, interview_playbook, 
                        ats_portal_url, status 
                 FROM job_matches 
-                WHERE user_email = %s AND fit_score >= %s AND status = 'evaluated'
+                WHERE user_email = %s AND fit_score >= %s
                 ORDER BY fit_score DESC, timestamp DESC
             """
             cursor.execute(sql, (user["email"], min_fit))
@@ -2520,7 +2514,7 @@ def get_career_matches(min_fit: int = Query(0, ge=0, le=100), user=Depends(verif
                        salary_benchmark, recruiter_verified, negotiation_strategy, cv_variant, cover_letter_variant, interview_playbook, 
                        ats_portal_url, status 
                 FROM job_matches 
-                WHERE user_email = ? AND fit_score >= ? AND status = 'evaluated'
+                WHERE user_email = ? AND fit_score >= ?
                 ORDER BY fit_score DESC, timestamp DESC
             """
             cursor.execute(sql, (user["email"], min_fit))
