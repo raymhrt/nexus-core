@@ -2183,6 +2183,7 @@ async def isolated_user_job_scouting_worker(
         all_evaluated_matches = []
         
         for i in range(0, len(filtered_jobs), batch_size):
+            # 1. Check for manual stop signal from UI
             with db_transaction_scope() as (_, cursor):
                 if DATABASE_URL:
                     cursor.execute("SELECT status FROM swarm_sessions WHERE user_email = %s", (user_email,))
