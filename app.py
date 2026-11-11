@@ -1984,7 +1984,7 @@ def init_career_database():
             )
         """)
 
-        # NEW: Evaluated Job History Table to permanently track and drop sub-threshold / backlog jobs
+        # Evaluated Job History Table to permanently track and drop sub-threshold / backlog jobs
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS evaluated_job_history (
                 id SERIAL PRIMARY KEY,
@@ -1995,6 +1995,20 @@ def init_career_database():
                 fit_score INT,
                 outcome TEXT,
                 evaluated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
+        # Granular Job Evaluations Table for candidate evaluation data and filter hashes
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS job_evaluations (
+                id SERIAL PRIMARY KEY,
+                user_id TEXT,
+                job_id TEXT UNIQUE,
+                match_score INT,
+                evaluation_data TEXT,
+                filter_hash TEXT,
+                status TEXT DEFAULT 'pending',
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
         
