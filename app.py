@@ -2357,13 +2357,15 @@ async def isolated_user_job_scouting_worker(
                 if session_row:
                     s_status = session_row["status"] if isinstance(session_row, dict) else session_row[0]
                     if s_status == 'stopped':
-                logger.info(f"Swarm manually stopped for {user_email}. Finalizing collected matches...")
-                # Fetch actual saved matches count from db to prevent zeroing out
-                with db_transaction_scope() as (_, cur):
-                    cur.execute("SELECT COUNT(*) FROM job_matches WHERE user_email = %s AND fit_score >= %s", (user_email, min_match_score))
-                    res_row = cur.fetchone()
-                    total_discovered_so_far = res_row['count'] if isinstance(res_row, dict) else res_row[0]
-                break
+                        logger.info(f"Swarm manually stopped for {user_email}. Finalizing collected matches...")
+                        # Fetch actual saved matches count using the existing cursor & parameters
+                        if DATABASE_URL:
+                            cursor.execute("SELECT COUNT(*) FROM job_matches WHERE user_email = %s AND fit_score >= %s", (user_email, min_match_score))
+                        else:
+                            cursor.execute("SELECT COUNT(*) FROM job_matches WHERE user_email = ? AND fit_score >= ?", (user_email, min_match_score))
+                        res_row = cursor.fetchone()
+                        total_discovered_so_far = res_row['count'] if isinstance(res_row, dict) else res_row[0]
+                        break
 
             batch = filtered_jobs[i:i + batch_size]
             batch_tasks = []
