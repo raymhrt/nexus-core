@@ -569,7 +569,7 @@ async def index_and_vectorize_candidate_resume(user_email: str, resume_content: 
         raw_ai = await call_groq_ai(prompt, system_prompt="You are an expert recruitment ontology indexer returning precise JSON.")
         parsed_profile = extract_json_safely(raw_ai, {})
     except Exception as e:
-        logger.warning(f>Error during ontological resume indexing: {e}<)
+        logger.warning(f"Error during ontological resume indexing: {e}")
 
     # Fallback parsing if JSON extraction is partial
     if not parsed_profile or not isinstance(parsed_profile, dict):
