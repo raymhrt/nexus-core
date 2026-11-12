@@ -205,6 +205,21 @@ async def stop_career_swarm(auth: dict = Depends(verify_api_key_only)):
     await sse_broker.broadcast_status(auth["email"], "stopped", "Swarm manually stopped by user. Processing collected matches...")
     return {"status": "success", "message": "Scouting swarm halted successfully."}
 
+@app.post("/api/v1/career/swarm/stop")
+async def stop_career_swarm(auth: dict = Depends(verify_api_key_only)):
+    """
+    Manually halts an active scouting swarm session by updating its status
+    to 'stopped' in the swarm_sessions table.
+    """
+    with db_transaction_scope() as (_, cursor):
+        if DATABASE_URL:
+            cursor.execute("UPDATE swarm_sessions SET status = 'stopped', updated_at = NOW() WHERE user_email = %s", (auth["email"],))
+        else:
+            cursor.execute("UPDATE swarm_sessions SET status = 'stopped', updated_at = datetime('now') WHERE user_email = ?", (auth["email"],))
+    
+    await sse_broker.broadcast_status(auth["email"], "stopped", "Swarm manually stopped by user. Processing collected matches...")
+    return {"status": "success", "message": "Scouting swarm halted successfully."}
+
 # ==================== BACKLOG PIPELINE & FILTER FINGERPRINTING ====================
 def generate_filter_hash(user_filters: Dict[str, Any]) -> str:
     """
@@ -2636,6 +2651,14 @@ async def run_autonomous_ats_autopilot_worker(match_id: int, user_email: str, at
         "match_id": match_id,
         "message": f"Autonomous application successfully submitted via ATS Auto-Pilot to {ats_url}!"
     })
+
+class SwarmWorkerTask(BaseModel):
+    task_id: str = Field(..., description="Unique identifier for the worker task")
+    job_query: str = Field(..., description="Target job title or keywords")
+    location: str = Field(..., description="Target location or remote")
+    max_results: int = Field(default=10, ge=1, le=50)
+
+    model_config = {"populate_by_name": True}
 
 class ResumeInput(BaseModel):
     resume_content: str
