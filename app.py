@@ -2206,22 +2206,37 @@ async def isolated_user_job_scouting_worker(
     total_raw_found = 0
     processed_ids = set()
     filtered_jobs = []
+    all_evaluated_matches = []
 
     if resumed_state and resumed_state.get("job_queue"):
         try:
             filtered_jobs = json.loads(resumed_state["job_queue"])
             processed_ids = set(json.loads(resumed_state["processed_job_ids"]))
-            await sse_broker.broadcast_status(user_email, "active", f"Resuming workflow for {user_email} ({len(processed_ids)} jobs already processed)...")
+            
+            # FIX: Fetch already evaluated matches from the database to preserve counter state across reconnects
+            with db_transaction_scope() as (_, cursor):
+                if DATABASE_URL:
+                    cursor.execute("SELECT company_name, job_title, fit_score, ats_portal_url FROM job_matches WHERE user_email = %s", (user_email,))
+                else:
+                    cursor.execute("SELECT company_name, job_title, fit_score, ats_portal_url FROM job_matches WHERE user_email = ?", (user_email,))
+                all_evaluated_matches = [dict(r) for r in cursor.fetchall()]
+
+            await sse_broker.broadcast_status(
+                user_email, 
+                "active", 
+                f"Resuming workflow for {user_email} ({len(processed_ids)} jobs processed, {len(all_evaluated_matches)} matches kept)..."
+            )
         except Exception:
             filtered_jobs = []
+            all_evaluated_matches = []
 
     try:
         if not filtered_jobs:
             await sse_broker.broadcast_status(user_email, "active", f"Initializing tenant infiltration for {user_email} (Past {search_days} days)...")
             await sse_broker.broadcast("multi_tenant_telemetry", {
                 "user": user_email, 
-                "total_discovered": 0, 
-                "total_found": 0, 
+                "total_discovered": len([m for m in all_evaluated_matches if safe_int(m.get('fit_score'), 0) >= min_match_score]), 
+                "total_found": len([m for m in all_evaluated_matches if safe_int(m.get('fit_score'), 0) >= min_match_score]), 
                 "message": f"Initializing tenant infiltration for {user_email} (Min Fit Filter: {min_match_score}%, Horizon: {search_days} days)..."
             })
 
@@ -2330,7 +2345,6 @@ async def isolated_user_job_scouting_worker(
         profile_content = u_dict.get('profile_json', '')
 
         batch_size = 3  
-        all_evaluated_matches = []
         
         for i in range(0, len(filtered_jobs), batch_size):
             # 1. Check for manual stop signal from UI
@@ -2343,8 +2357,13 @@ async def isolated_user_job_scouting_worker(
                 if session_row:
                     s_status = session_row["status"] if isinstance(session_row, dict) else session_row[0]
                     if s_status == 'stopped':
-                        logger.info(f"Swarm manually stopped for {user_email}. Saving collected matches so far...")
-                        break
+                logger.info(f"Swarm manually stopped for {user_email}. Finalizing collected matches...")
+                # Fetch actual saved matches count from db to prevent zeroing out
+                with db_transaction_scope() as (_, cur):
+                    cur.execute("SELECT COUNT(*) FROM job_matches WHERE user_email = %s AND fit_score >= %s", (user_email, min_match_score))
+                    res_row = cur.fetchone()
+                    total_discovered_so_far = res_row['count'] if isinstance(res_row, dict) else res_row[0]
+                break
 
             batch = filtered_jobs[i:i + batch_size]
             batch_tasks = []
@@ -2387,10 +2406,11 @@ async def isolated_user_job_scouting_worker(
 
             with db_transaction_scope() as (_, cursor):
                 p_str = json.dumps(list(processed_ids))
+                current_valid_count = len([m for m in all_evaluated_matches if safe_int(m.get('fit_score'), 0) >= min_match_score])
                 if DATABASE_URL:
-                    cursor.execute("UPDATE swarm_sessions SET processed_job_ids = %s, total_discovered = %s, updated_at = NOW() WHERE user_email = %s", (p_str, len(all_evaluated_matches), user_email))
+                    cursor.execute("UPDATE swarm_sessions SET processed_job_ids = %s, total_discovered = %s, updated_at = NOW() WHERE user_email = %s", (p_str, current_valid_count, user_email))
                 else:
-                    cursor.execute("UPDATE swarm_sessions SET processed_job_ids = ?, total_discovered = ?, updated_at = datetime('now') WHERE user_email = ?", (p_str, len(all_evaluated_matches), user_email))
+                    cursor.execute("UPDATE swarm_sessions SET processed_job_ids = ?, total_discovered = ?, updated_at = datetime('now') WHERE user_email = ?", (p_str, current_valid_count, user_email))
 
             if i + batch_size < len(filtered_jobs):
                 await sse_broker.broadcast_status(user_email, "paused", "Batch rate-limit cooldown active...")
@@ -2399,7 +2419,6 @@ async def isolated_user_job_scouting_worker(
 
         all_evaluated_matches.sort(key=lambda x: safe_int(x.get('fit_score'), 0), reverse=True)
         
-        # FIX: Ensure all evaluated matches populating the grid are also correctly indexed into the Kanban board state ('discovered' column)
         top_matches = all_evaluated_matches[:requested_count]
         backlog_passing_matches = all_evaluated_matches[requested_count:]
 
@@ -2414,7 +2433,7 @@ async def isolated_user_job_scouting_worker(
                     is_top_match = match_item in top_matches
                     outcome_status = 'saved_to_ui' if is_top_match and fit_score_val >= min_match_score else 'sub_threshold_or_backlog'
 
-                    # 1. Log EVERY evaluated job into evaluated_job_history so future searches drop it permanently
+                    # 1. Log EVERY evaluated job into evaluated_job_history
                     if DATABASE_URL:
                         ic.execute(
                             """
@@ -2432,7 +2451,7 @@ async def isolated_user_job_scouting_worker(
                             (user_email, company_val, title_val, url_val, fit_score_val, outcome_status)
                         )
 
-                    # 2. Save matches to the active UI Kanban / Grid table with initial status 'discovered'
+                    # 2. Save matches to the active UI Kanban / Grid table
                     if is_top_match and fit_score_val >= min_match_score:
                         if DATABASE_URL:
                             ic.execute(
@@ -2520,7 +2539,7 @@ async def isolated_user_job_scouting_worker(
                                 ic.execute("UPDATE subscriber_credits SET credits_remaining = credits_remaining - 1 WHERE email = ?", (user_email,))
                             saved_count += 1
 
-        total_discovered_so_far = saved_count
+        total_discovered_so_far = len([m for m in all_evaluated_matches if safe_int(m.get('fit_score'), 0) >= min_match_score])
 
         with db_transaction_scope() as (_, cursor):
             p_str = json.dumps(list(processed_ids))
