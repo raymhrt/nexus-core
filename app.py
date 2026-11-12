@@ -205,21 +205,6 @@ async def stop_career_swarm(auth: dict = Depends(verify_api_key_only)):
     await sse_broker.broadcast_status(auth["email"], "stopped", "Swarm manually stopped by user. Processing collected matches...")
     return {"status": "success", "message": "Scouting swarm halted successfully."}
 
-@app.post("/api/v1/career/swarm/stop")
-async def stop_career_swarm(auth: dict = Depends(verify_api_key_only)):
-    """
-    Manually halts an active scouting swarm session by updating its status
-    to 'stopped' in the swarm_sessions table.
-    """
-    with db_transaction_scope() as (_, cursor):
-        if DATABASE_URL:
-            cursor.execute("UPDATE swarm_sessions SET status = 'stopped', updated_at = NOW() WHERE user_email = %s", (auth["email"],))
-        else:
-            cursor.execute("UPDATE swarm_sessions SET status = 'stopped', updated_at = datetime('now') WHERE user_email = ?", (auth["email"],))
-    
-    await sse_broker.broadcast_status(auth["email"], "stopped", "Swarm manually stopped by user. Processing collected matches...")
-    return {"status": "success", "message": "Scouting swarm halted successfully."}
-
 # ==================== BACKLOG PIPELINE & FILTER FINGERPRINTING ====================
 def generate_filter_hash(user_filters: Dict[str, Any]) -> str:
     """
@@ -2228,7 +2213,7 @@ async def isolated_user_job_scouting_worker(
             filtered_jobs = json.loads(resumed_state["job_queue"])
             processed_ids = set(json.loads(resumed_state["processed_job_ids"]))
             
-            # FIX: Fetch already evaluated matches from the database to preserve counter state across reconnects
+            # ✅ FIX: Re-hydrate already evaluated matches from the database on resume
             with db_transaction_scope() as (_, cursor):
                 if DATABASE_URL:
                     cursor.execute("SELECT company_name, job_title, fit_score, ats_portal_url FROM job_matches WHERE user_email = %s", (user_email,))
@@ -2239,7 +2224,7 @@ async def isolated_user_job_scouting_worker(
             await sse_broker.broadcast_status(
                 user_email, 
                 "active", 
-                f"Resuming workflow for {user_email} ({len(processed_ids)} jobs processed, {len(all_evaluated_matches)} matches kept)..."
+                f"Resumed workflow for {user_email} ({len(processed_ids)} jobs processed, {len(all_evaluated_matches)} matches kept)..."
             )
         except Exception:
             filtered_jobs = []
@@ -2372,14 +2357,8 @@ async def isolated_user_job_scouting_worker(
                 if session_row:
                     s_status = session_row["status"] if isinstance(session_row, dict) else session_row[0]
                     if s_status == 'stopped':
-                        logger.info(f"Swarm manually stopped for {user_email}. Finalizing collected matches...")
-                        # Fetch actual saved matches count using the existing cursor & parameters
-                        if DATABASE_URL:
-                            cursor.execute("SELECT COUNT(*) FROM job_matches WHERE user_email = %s AND fit_score >= %s", (user_email, min_match_score))
-                        else:
-                            cursor.execute("SELECT COUNT(*) FROM job_matches WHERE user_email = ? AND fit_score >= ?", (user_email, min_match_score))
-                        res_row = cursor.fetchone()
-                        total_discovered_so_far = res_row['count'] if isinstance(res_row, dict) else res_row[0]
+                        logger.info(f"Swarm manually stopped for {user_email}. Saving pending matches before halting...")
+                        # Process remaining evaluated matches in the current batch before breaking
                         break
 
             batch = filtered_jobs[i:i + batch_size]
