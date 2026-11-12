@@ -745,15 +745,16 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ email: emailInput, tier: tier })
                 });
-                
+
                 const data = await response.json();
-                if (data.url) {
-                    window.location.href = data.url;
+                if (response.ok && (data.url || data.checkout_url)) {
+                    window.location.href = data.url || data.checkout_url;
                 } else {
-                    alert('Error initializing checkout: ' + (data.detail || 'Unknown error'));
+                    showToast(data.detail || 'Failed to create checkout session.', true);
                 }
             } catch (err) {
-                alert('Network error connecting to billing service.');
+                console.error('Checkout error:', err);
+                showToast('Network error during checkout initialization.', true);
             }
         }
 

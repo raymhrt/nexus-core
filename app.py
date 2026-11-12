@@ -1636,15 +1636,15 @@ async def multi_tenant_job_infiltration(target_roles: str, location: str, count:
     # Universal multi-platform expansion across all major job boards
     active_platforms = ["linkedin", "indeed", "glassdoor", "ziprecruiter"] if not is_sa_search else ["linkedin", "indeed", "glassdoor"]
 
-    # FIX: Dynamically base search hours on user's search_days setting instead of hardcoding multi-day tiers
     target_hours = max(24, search_days * 24)
-    recency_tiers_hours = [target_hours] # Restricts search strictly to your specified window
+    recency_tiers_hours = [target_hours]
 
     for hours_window in recency_tiers_hours:
         if len(discovered_jobs) >= count * 15:
             break
 
-        for term in search_permutations[:10]:
+        # Iterate strictly through the dynamically expanded tenant role variations
+        for term in search_permutations:
             if len(discovered_jobs) >= count * 15:
                 break
             for site in active_platforms:
@@ -1678,32 +1678,32 @@ async def multi_tenant_job_infiltration(target_roles: str, location: str, count:
                 except Exception as e:
                     logger.warning(f"JobSpy scraping exception for site '{site}' and term '{term}': {e}")
 
-    # 4. Adzuna API Fallback Integration (Fully Restored & Preserved)
+    # 4. Adzuna API Fallback Integration (Iterates over all AI-selected search roles without hardcoded fallbacks)
     if len(discovered_jobs) < count:
         countries_to_try = ["za", "us"] if is_sa_search else ["us"]
-        primary_term = search_permutations[0] if search_permutations else target_roles
 
         for country in countries_to_try:
             if ADZUNA_APP_ID and ADZUNA_APP_KEY:
-                try:
-                    adzuna_url = f"https://api.adzuna.com/v1/api/jobs/{country}/search/1?app_id={ADZUNA_APP_ID}&app_key={ADZUNA_APP_KEY}&what={urllib.parse.quote(primary_term)}&content-type=application/json"
-                    res = requests.get(adzuna_url, timeout=6)
-                    if res.status_code == 200:
-                        for item in res.json().get("results", []):
-                            raw_title = item.get("title", primary_term)
-                            job_item = {
-                                "company_name": item.get("company", {}).get("display_name", "Global Enterprise"),
-                                "job_title": sanitize_job_title(raw_title),
-                                "location": item.get("location", {}).get("display_name", location),
-                                "job_description": item.get("description", "Full job specs available on direct ATS portal."),
-                                "ats_portal_url": item.get("redirect_url", ""),
-                                "publication_date": item.get("created", "")
-                            }
-                            if validate_real_world_job(job_item, user_domain=user_domain) and job_item["ats_portal_url"] not in seen_urls:
-                                seen_urls.add(job_item["ats_portal_url"])
-                                discovered_jobs.append(job_item)
-                except Exception:
-                    pass
+                for term in search_permutations[:5]:  # Query across top dynamic role permutations
+                    try:
+                        adzuna_url = f"https://api.adzuna.com/v1/api/jobs/{country}/search/1?app_id={ADZUNA_APP_ID}&app_key={ADZUNA_APP_KEY}&what={urllib.parse.quote(term)}&content-type=application/json"
+                        res = requests.get(adzuna_url, timeout=6)
+                        if res.status_code == 200:
+                            for item in res.json().get("results", []):
+                                raw_title = item.get("title", term)
+                                job_item = {
+                                    "company_name": item.get("company", {}).get("display_name", "Global Enterprise"),
+                                    "job_title": sanitize_job_title(raw_title),
+                                    "location": item.get("location", {}).get("display_name", location),
+                                    "job_description": item.get("description", "Full job specs available on direct ATS portal."),
+                                    "ats_portal_url": item.get("redirect_url", ""),
+                                    "publication_date": item.get("created", "")
+                                }
+                                if validate_real_world_job(job_item, user_domain=user_domain) and job_item["ats_portal_url"] not in seen_urls:
+                                    seen_urls.add(job_item["ats_portal_url"])
+                                    discovered_jobs.append(job_item)
+                    except Exception:
+                        pass
 
     return discovered_jobs[:max(count * 8, 40)]
 
