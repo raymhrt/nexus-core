@@ -623,7 +623,7 @@
         </div>
     </div>
 
-    <!-- Frontend Controller Script (Complete & Fully Mapped with Kanban Synchronization Fix) -->
+    <!-- Frontend Controller Script (Complete & Fully Mapped with Reconnection & Kanban Sync Fixes) -->
     <script>
         lucide.createIcons();
 
@@ -2031,7 +2031,7 @@
             const btn = document.getElementById('terminalToggleBtn');
             if (btn) {
                 btn.innerText = isTerminalPaused ? 'Resume' : 'Pause';
-                btn.className = isTerminalPaused ? "px-2.5 py-1 bg-amber-500/10 border border-amber-500/30 text-amber-300 rounded-lg text-[10px] font-mono transition" : "px-2.5 py-1 bg-cyan-500/10 border border-cyan-500/20 text-cyan-300 rounded-lg text-[10px] font-mono transition";
+                btn.className = isTerminalPaused ? "px-2.5 py-1 bg-amber-500/10 border border-amber-500/30 text-amber-300 rounded-lg text-[10px] font-mono transition" : "px-2.5 py-1 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/20 text-cyan-300 rounded-lg text-[10px] font-mono transition";
             }
         }
 
@@ -2057,6 +2057,15 @@
                             sseBadge.className = "flex items-center space-x-1.5 bg-emerald-500/10 border border-emerald-500/30 px-2.5 py-1 rounded-full text-[11px] font-semibold text-emerald-400";
                             sseBadge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span><span>Telemetry Connected</span>`;
                         }
+                        
+                        // Re-fetch latest matches and apply current filter on reconnect
+                        if (typeof loadCareerMatches === 'function') {
+                            loadCareerMatches().then(() => {
+                                if (typeof applyMatchFilter === 'function') {
+                                    applyMatchFilter();
+                                }
+                            });
+                        }
                     };
 
                     sseEventSource.addEventListener("multi_tenant_launched", (event) => {
@@ -2071,20 +2080,31 @@
 
                     sseEventSource.addEventListener("multi_tenant_telemetry", (event) => {
                         if (isTerminalPaused) return;
-                        const data = JSON.parse(event.data);
-                        if (banner) banner.style.display = "flex";
-                        if (statusTitle) statusTitle.textContent = "Swarm Infiltration Active...";
-                        if (statusMsg) statusMsg.textContent = data.message;
+                        try {
+                            const data = JSON.parse(event.data);
+                            if (banner) banner.style.display = "flex";
+                            if (statusTitle) statusTitle.textContent = "Swarm Infiltration Active...";
+                            if (statusMsg) statusMsg.textContent = data.message;
 
-                        const discoveredCount = data.total_discovered !== undefined ? data.total_discovered : (data.total_found !== undefined ? data.total_found : '--');
-                        
-                        const scannedKpi = document.getElementById('kpiTotalScanned');
-                        if (scannedKpi && discoveredCount !== '--') {
-                            scannedKpi.innerText = discoveredCount;
+                            const discoveredCount = data.total_discovered !== undefined ? data.total_discovered : (data.total_found !== undefined ? data.total_found : '--');
+                            
+                            const scannedKpi = document.getElementById('kpiTotalScanned');
+                            if (scannedKpi && discoveredCount !== '--') {
+                                scannedKpi.innerText = discoveredCount;
+                            }
+
+                            // If a batch completed or new matches were found, refresh grid/kanban
+                            if (data.status === 'completed' || data.new_matches_discovered > 0 || (data.total_discovered !== undefined && data.total_discovered > 0)) {
+                                if (typeof loadCareerMatches === 'function') {
+                                    loadCareerMatches();
+                                }
+                            }
+
+                            const logText = `[${getTimeStr()}] swarm_agent: Event: multi_tenant_telemetry - Discovered Jobs: ${discoveredCount} | ${data.message || JSON.stringify(data)}`;
+                            appendTelemetryLog(logText);
+                        } catch (err) {
+                            console.error("[SSE] Failed to parse telemetry event:", err);
                         }
-
-                        const logText = `[${getTimeStr()}] swarm_agent: Event: multi_tenant_telemetry - Discovered Jobs: ${discoveredCount} | ${data.message || JSON.stringify(data)}`;
-                        appendTelemetryLog(logText);
                     });
 
                     sseEventSource.addEventListener("swarm_status_change", function (e) {

@@ -2190,6 +2190,12 @@ def verify_api_key_only(x_api_key: str = Header(...), request: Request = None):
         "ip": client_ip
     }
 
+logger = logging.getLogger(__name__)
+
+# Track active user scouting tasks in memory to prevent duplicate coroutine spawns
+_ACTIVE_SCOUTING_TASKS: Set[str] = set()
+_TASK_LOCK = asyncio.Lock()
+
 async def isolated_user_job_scouting_worker(
     user_email: str, 
     requested_count: int, 
@@ -2199,6 +2205,13 @@ async def isolated_user_job_scouting_worker(
     search_days: int = 3,
     resumed_state: Optional[dict] = None
 ):
+    # 1. Acquire concurrency lock to prevent duplicate worker spawns for the same user email
+    async with _TASK_LOCK:
+        if user_email in _ACTIVE_SCOUTING_TASKS:
+            logger.warning(f"Scouting worker for {user_email} is already running. Skipping duplicate spawn.")
+            return
+        _ACTIVE_SCOUTING_TASKS.add(user_email)
+
     saved_count = 0
     total_discovered_so_far = resumed_state.get("total_discovered", 0) if resumed_state else 0
     cutoff_date = datetime.now(timezone.utc) - timedelta(days=search_days)
@@ -2208,29 +2221,29 @@ async def isolated_user_job_scouting_worker(
     filtered_jobs = []
     all_evaluated_matches = []
 
-    if resumed_state and resumed_state.get("job_queue"):
-        try:
-            filtered_jobs = json.loads(resumed_state["job_queue"])
-            processed_ids = set(json.loads(resumed_state["processed_job_ids"]))
-            
-            # ✅ FIX: Re-hydrate already evaluated matches from the database on resume
-            with db_transaction_scope() as (_, cursor):
-                if DATABASE_URL:
-                    cursor.execute("SELECT company_name, job_title, fit_score, ats_portal_url FROM job_matches WHERE user_email = %s", (user_email,))
-                else:
-                    cursor.execute("SELECT company_name, job_title, fit_score, ats_portal_url FROM job_matches WHERE user_email = ?", (user_email,))
-                all_evaluated_matches = [dict(r) for r in cursor.fetchall()]
-
-            await sse_broker.broadcast_status(
-                user_email, 
-                "active", 
-                f"Resumed workflow for {user_email} ({len(processed_ids)} jobs processed, {len(all_evaluated_matches)} matches kept)..."
-            )
-        except Exception:
-            filtered_jobs = []
-            all_evaluated_matches = []
-
     try:
+        if resumed_state and resumed_state.get("job_queue"):
+            try:
+                filtered_jobs = json.loads(resumed_state["job_queue"])
+                processed_ids = set(json.loads(resumed_state["processed_job_ids"]))
+                
+                # Re-hydrate already evaluated matches from the database on resume
+                with db_transaction_scope() as (_, cursor):
+                    if DATABASE_URL:
+                        cursor.execute("SELECT company_name, job_title, fit_score, ats_portal_url FROM job_matches WHERE user_email = %s", (user_email,))
+                    else:
+                        cursor.execute("SELECT company_name, job_title, fit_score, ats_portal_url FROM job_matches WHERE user_email = ?", (user_email,))
+                    all_evaluated_matches = [dict(r) for r in cursor.fetchall()]
+
+                await sse_broker.broadcast_status(
+                    user_email, 
+                    "active", 
+                    f"Resumed workflow for {user_email} ({len(processed_ids)} jobs processed, {len(all_evaluated_matches)} matches kept)..."
+                )
+            except Exception:
+                filtered_jobs = []
+                all_evaluated_matches = []
+
         if not filtered_jobs:
             await sse_broker.broadcast_status(user_email, "active", f"Initializing tenant infiltration for {user_email} (Past {search_days} days)...")
             await sse_broker.broadcast("multi_tenant_telemetry", {
@@ -2347,7 +2360,7 @@ async def isolated_user_job_scouting_worker(
         batch_size = 3  
         
         for i in range(0, len(filtered_jobs), batch_size):
-            # 1. Check for manual stop signal from UI
+            # Check for manual stop signal from UI
             with db_transaction_scope() as (_, cursor):
                 if DATABASE_URL:
                     cursor.execute("SELECT status FROM swarm_sessions WHERE user_email = %s", (user_email,))
@@ -2358,7 +2371,6 @@ async def isolated_user_job_scouting_worker(
                     s_status = session_row["status"] if isinstance(session_row, dict) else session_row[0]
                     if s_status == 'stopped':
                         logger.info(f"Swarm manually stopped for {user_email}. Saving pending matches before halting...")
-                        # Process remaining evaluated matches in the current batch before breaking
                         break
 
             batch = filtered_jobs[i:i + batch_size]
@@ -2429,7 +2441,7 @@ async def isolated_user_job_scouting_worker(
                     is_top_match = match_item in top_matches
                     outcome_status = 'saved_to_ui' if is_top_match and fit_score_val >= min_match_score else 'sub_threshold_or_backlog'
 
-                    # 1. Log EVERY evaluated job into evaluated_job_history
+                    # Log EVERY evaluated job into evaluated_job_history
                     if DATABASE_URL:
                         ic.execute(
                             """
@@ -2447,7 +2459,7 @@ async def isolated_user_job_scouting_worker(
                             (user_email, company_val, title_val, url_val, fit_score_val, outcome_status)
                         )
 
-                    # 2. Save matches to the active UI Kanban / Grid table
+                    # Save matches to the active UI Kanban / Grid table
                     if is_top_match and fit_score_val >= min_match_score:
                         if DATABASE_URL:
                             ic.execute(
@@ -2600,6 +2612,11 @@ async def isolated_user_job_scouting_worker(
                 "total_found": 0,
                 "message": f"Swarm halted: {str(e)}"
             })
+    finally:
+        # Guarantee lock release and cleanup when task finishes or cancels
+        async with _TASK_LOCK:
+            _ACTIVE_SCOUTING_TASKS.discard(user_email)
+        logger.info(f"Released scouting worker lock for {user_email}")
 
 async def run_autonomous_ats_autopilot_worker(match_id: int, user_email: str, ats_url: str):
     steps = [
