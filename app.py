@@ -205,7 +205,7 @@ async def stop_career_swarm(auth: dict = Depends(verify_api_key_only)):
     await sse_broker.broadcast_status(auth["email"], "stopped", "Swarm manually stopped by user. Processing collected matches...")
     return {"status": "success", "message": "Scouting swarm halted successfully."}
 
-@router.get("/career/stream")
+@app.get("/api/v1/career/stream")
 async def career_sse_stream(user: str = "user@quantcodenexus.com"):
     async def event_generator():
         yield f"data: {json.dumps({'event': 'ping', 'message': 'connected'})}\n\n"
