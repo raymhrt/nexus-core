@@ -205,6 +205,16 @@ async def stop_career_swarm(auth: dict = Depends(verify_api_key_only)):
     await sse_broker.broadcast_status(auth["email"], "stopped", "Swarm manually stopped by user. Processing collected matches...")
     return {"status": "success", "message": "Scouting swarm halted successfully."}
 
+@router.get("/career/stream")
+async def career_sse_stream(user: str = "user@quantcodenexus.com"):
+    async def event_generator():
+        yield f"data: {json.dumps({'event': 'ping', 'message': 'connected'})}\n\n"
+        while True:
+            await asyncio.sleep(15)
+            yield f"data: {json.dumps({'event': 'telemetry', 'message': 'Swarm operational'})}\n\n"
+    
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
 # ==================== BACKLOG PIPELINE & FILTER FINGERPRINTING ====================
 def generate_filter_hash(user_filters: Dict[str, Any]) -> str:
     """
