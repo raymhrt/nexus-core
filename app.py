@@ -2464,7 +2464,8 @@ async def isolated_user_job_scouting_worker(
         # Sort evaluated matches by fit score descending
         all_evaluated_matches.sort(key=lambda x: safe_int(x.get('fit_score'), 0), reverse=True)
         
-        top_matches = all_evaluated_matches[:requested_count]
+        # NOTE: Removed 'top_matches = all_evaluated_matches[:requested_count]' cap 
+        # so all discovered jobs meeting criteria are processed and saved.
 
         if all_evaluated_matches:
             with db_transaction_scope() as (_, ic):
@@ -2474,8 +2475,9 @@ async def isolated_user_job_scouting_worker(
                     fit_score_val = safe_int(match_item.get('fit_score'), 50)
                     url_val = safe_str(match_item.get('ats_portal_url'))
                     
-                    is_top_match = match_item in top_matches
-                    outcome_status = 'saved_to_ui' if is_top_match and fit_score_val >= min_match_score else 'sub_threshold_or_backlog'
+                    # Every evaluated job meeting the min match score is saved to the UI Kanban/Grid table.
+                    is_qualified_match = fit_score_val >= min_match_score
+                    outcome_status = 'saved_to_ui' if is_qualified_match else 'sub_threshold_or_backlog'
 
                     # Log EVERY evaluated job into evaluated_job_history
                     if DATABASE_URL:
@@ -2496,7 +2498,7 @@ async def isolated_user_job_scouting_worker(
                         )
 
                     # Save qualified matches to the active UI Kanban / Grid table
-                    if is_top_match and fit_score_val >= min_match_score:
+                    if is_qualified_match:
                         if DATABASE_URL:
                             ic.execute(
                                 "SELECT id FROM job_matches WHERE user_email = %s AND (LOWER(ats_portal_url) = LOWER(%s) OR (LOWER(company_name) = LOWER(%s) AND LOWER(job_title) = LOWER(%s)))", 
