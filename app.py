@@ -206,13 +206,38 @@ async def stop_career_swarm(auth: dict = Depends(verify_api_key_only)):
     return {"status": "success", "message": "Scouting swarm halted successfully."}
 
 @app.get("/api/v1/career/stream")
-async def career_sse_stream(user: str = "user@quantcodenexus.com"):
+@app.get("/api/v1/stream/telemetry")
+@app.get("/api/v1/career/telemetry/stream")
+async def career_sse_stream(request: Request, user: str = "user@quantcodenexus.com"):
+    """
+    Subscribes to the live sse_broker queue to stream granular telemetry:
+    - Raw jobs discovered
+    - Duplicate/expired drops
+    - Active AI evaluation progress
+    - Verified matches and match scores
+    """
+    queue = await sse_broker.subscribe()
     async def event_generator():
-        yield f"data: {json.dumps({'event': 'ping', 'message': 'connected'})}\n\n"
-        while True:
-            await asyncio.sleep(15)
-            yield f"data: {json.dumps({'event': 'telemetry', 'message': 'Swarm operational'})}\n\n"
-    
+        try:
+            # Initial connection message confirming active telemetry stream
+            yield f"data: {json.dumps({'event': 'connected', 'message': 'Subscribed to live swarm telemetry pipeline'})}\n\n"
+            
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    # Wait for real-time telemetry events pushed by the scouting worker
+                    msg = await asyncio.wait_for(queue.get(), timeout=25.0)
+                    yield f"data: {json.dumps(msg)}\n\n"
+                except asyncio.TimeoutError:
+                    # Quiet idle timeout check without cluttering logs/console with spam
+                    if await request.is_disconnected():
+                        break
+        except asyncio.CancelledError:
+            pass
+        finally:
+            sse_broker.unsubscribe(queue)
+            
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 # ==================== BACKLOG PIPELINE & FILTER FINGERPRINTING ====================

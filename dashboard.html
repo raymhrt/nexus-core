@@ -623,7 +623,7 @@
         </div>
     </div>
 
-    <!-- Frontend Controller Script (Complete & Fully Mapped with Reconnection & Kanban Sync Fixes) -->
+    <!-- Frontend Controller Script (Complete & Fully Mapped with SSE Telemetry & Reconnection) -->
     <script>
         lucide.createIcons();
 
@@ -2033,7 +2033,7 @@
             }
         }
 
-        // --- ADAPTED & INTEGRATED SSE EVENTSOURCE STREAMING TELEMETRY ---
+        // --- FULLY INTEGRATED & ADAPTED SSE EVENTSOURCE STREAMING TELEMETRY ---
         function initSSETelemetry() {
             const sseBadge = document.getElementById('sse-status-badge');
             const banner = document.getElementById("swarm-loading-banner");
@@ -2049,12 +2049,14 @@
             function connect() {
                 if (isTerminalPaused) return;
                 try {
-                    // Adapted EventSource connection string with user parameter encoding
+                    // Connect to FastAPI SSE telemetry endpoint
                     sseEventSource = new EventSource(`/api/v1/career/stream?user=${encodeURIComponent(userEmail)}`);
                     window.sseEventSource = sseEventSource;
                     
-                    sseEventSource.onopen = function() {
+                    // Optional: Handle successful connection open
+                    sseEventSource.onopen = (event) => {
                         reconnectAttempts = 0;
+                        console.log("Connected to live swarm telemetry pipeline.");
                         if (sseBadge) {
                             sseBadge.className = "flex items-center space-x-1.5 bg-emerald-500/10 border border-emerald-500/30 px-2.5 py-1 rounded-full text-[11px] font-semibold text-emerald-400";
                             sseBadge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span><span>Telemetry Connected</span>`;
@@ -2069,26 +2071,19 @@
                         }
                     };
 
-                    // Integrated career_swarm_update event listener
+                    // Listen for custom multi-agent career update events
                     sseEventSource.addEventListener("career_swarm_update", function(event) {
                         if (isTerminalPaused) return;
                         try {
                             const data = JSON.parse(event.data);
                             
-                            // Update badge counters or telemetry UI if present
                             if (data.total_found !== undefined || data.total_discovered !== undefined) {
                                 const total = data.total_found !== undefined ? data.total_found : data.total_discovered;
                                 updateBadgeCount(total);
                             }
 
-                            // Check if the swarm has completed or triggered a refresh action
                             if (data.action === "refresh_matches" || data.status === "scouted" || data.status === "completed") {
-                                console.log("Swarm completed. Refreshing career matches grid...");
-                                
-                                // Call API function to fetch latest matches and re-render grid/kanban UI
                                 loadCareerMatches();
-                                
-                                // Show toast notification
                                 showToast(data.message || "Career matches successfully updated!");
                                 if (banner) banner.style.display = "none";
                             }
@@ -2109,6 +2104,7 @@
                         appendTelemetryLog(`[${getTimeStr()}] swarm_agent: Event: multi_tenant_launched - Target roles initialized.`);
                     });
 
+                    // Listen for incoming telemetry events sent by the swarm worker
                     sseEventSource.addEventListener("multi_tenant_telemetry", (event) => {
                         if (isTerminalPaused) return;
                         try {
@@ -2152,26 +2148,48 @@
                         appendTelemetryLog(logText);
                     });
 
-                    sseEventSource.onmessage = function(event) {
+                    // Listen for general incoming messages from the backend generator
+                    sseEventSource.onmessage = (event) => {
                         if (isTerminalPaused) return;
                         try {
-                            const payload = JSON.parse(event.data);
-                            if (payload.event === 'ping' || payload.type === 'ping') return;
+                            const data = JSON.parse(event.data);
                             
-                            const logText = `[${getTimeStr()}] ${payload.event || 'message'}: ${JSON.stringify(payload.data || payload)}`;
+                            // Handle different event types sent by the swarm worker
+                            if (data.event === 'connected') {
+                                updateStatusBadge("Connected", "bg-green-500");
+                            } 
+                            else if (data.event === 'telemetry' || data.type === 'telemetry') {
+                                // Update your UI with granular metrics
+                                updateTelemetryUI({
+                                    rawFound: data.raw_jobs_found || 0,
+                                    duplicatesDropped: data.duplicates_dropped || 0,
+                                    expiredDropped: data.expired_dropped || 0,
+                                    activeEvaluations: data.active_evaluations || 0,
+                                    verifiedMatches: data.verified_matches || []
+                                });
+                            } else if (data.event === 'ping' || data.type === 'ping') {
+                                return;
+                            }
+
+                            const logText = `[${getTimeStr()}] ${data.event || 'message'}: ${JSON.stringify(data.data || data)}`;
                             appendTelemetryLog(logText);
-                        } catch (e) {
+                        } catch (err) {
+                            console.error("Failed to parse incoming SSE telemetry payload:", err);
                             appendTelemetryLog(event.data);
                         }
                     };
 
-                    sseEventSource.onerror = function(err) {
-                        console.warn("SSE connection error or closed. Attempting reconnect...", err);
+                    // Handle connection drops or network interruptions automatically with exponential backoff
+                    sseEventSource.onerror = (error) => {
+                        console.warn("SSE connection lost. Reconnecting...", error);
+                        updateStatusBadge("Reconnecting...", "bg-yellow-500");
+                        
                         sseEventSource.close();
                         if (sseBadge) {
                             sseBadge.className = "flex items-center space-x-1.5 bg-amber-500/10 border border-amber-500/30 px-2.5 py-1 rounded-full text-[11px] font-semibold text-amber-400";
                             sseBadge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span><span>Reconnecting...</span>`;
                         }
+                        
                         const timeout = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000);
                         reconnectAttempts++;
                         setTimeout(connect, timeout);
@@ -2181,6 +2199,39 @@
                 }
             }
             connect();
+        }
+
+        // Helper function to update status indicators on your dashboard
+        function updateStatusBadge(text, colorClass) {
+            const badge = document.getElementById('swarm-status-badge');
+            if (badge) {
+                badge.textContent = text;
+                badge.className = `px-3 py-1 rounded-full text-white text-xs ${colorClass}`;
+            }
+        }
+
+        // Helper function to render granular metrics into your HTML elements
+        function updateTelemetryUI(metrics) {
+            const metricRaw = document.getElementById('metric-raw');
+            const metricDuplicates = document.getElementById('metric-duplicates');
+            const metricExpired = document.getElementById('metric-expired');
+            const metricEvaluating = document.getElementById('metric-evaluating');
+
+            if (metricRaw) metricRaw.textContent = metrics.rawFound;
+            if (metricDuplicates) metricDuplicates.textContent = metrics.duplicatesDropped;
+            if (metricExpired) metricExpired.textContent = metrics.expiredDropped;
+            if (metricEvaluating) metricEvaluating.textContent = metrics.activeEvaluations;
+            
+            // Render recent verified matches list if container exists
+            const matchListContainer = document.getElementById('recent-matches-list');
+            if (matchListContainer && metrics.verifiedMatches.length > 0) {
+                matchListContainer.innerHTML = metrics.verifiedMatches.map(job => `
+                    <div class="p-3 border rounded mb-2 bg-gray-50">
+                        <h4 class="font-bold text-sm">${job.title} at ${job.company}</h4>
+                        <span class="text-xs text-green-600 font-semibold">Match Score: ${job.score}%</span>
+                    </div>
+                `).join('');
+            }
         }
 
         function updateBadgeCount(count) {
