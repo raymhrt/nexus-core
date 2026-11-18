@@ -2461,10 +2461,10 @@ async def isolated_user_job_scouting_worker(
                 await asyncio.sleep(6.0)
                 await sse_broker.broadcast_status(user_email, "active", "Resuming evaluation batch...")
 
+        # Sort evaluated matches by fit score descending
         all_evaluated_matches.sort(key=lambda x: safe_int(x.get('fit_score'), 0), reverse=True)
         
         top_matches = all_evaluated_matches[:requested_count]
-        backlog_passing_matches = all_evaluated_matches[requested_count:]
 
         if all_evaluated_matches:
             with db_transaction_scope() as (_, ic):
@@ -2495,7 +2495,7 @@ async def isolated_user_job_scouting_worker(
                             (user_email, company_val, title_val, url_val, fit_score_val, outcome_status)
                         )
 
-                    # Save matches to the active UI Kanban / Grid table with explicit commit visibility
+                    # Save qualified matches to the active UI Kanban / Grid table
                     if is_top_match and fit_score_val >= min_match_score:
                         if DATABASE_URL:
                             ic.execute(

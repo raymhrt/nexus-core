@@ -2033,7 +2033,7 @@
             }
         }
 
-        // --- FULLY INTEGRATED & ADAPTED SSE EVENTSOURCE STREAMING TELEMETRY ---
+        // --- ADAPTED & FULLY INTEGRATED SSE EVENTSOURCE STREAMING TELEMETRY (FIXED REFRESH BUG) ---
         function initSSETelemetry() {
             const sseBadge = document.getElementById('sse-status-badge');
             const banner = document.getElementById("swarm-loading-banner");
@@ -2053,7 +2053,6 @@
                     sseEventSource = new EventSource(`/api/v1/career/stream?user=${encodeURIComponent(userEmail)}`);
                     window.sseEventSource = sseEventSource;
                     
-                    // Optional: Handle successful connection open
                     sseEventSource.onopen = (event) => {
                         reconnectAttempts = 0;
                         console.log("Connected to live swarm telemetry pipeline.");
@@ -2071,7 +2070,7 @@
                         }
                     };
 
-                    // Listen for custom multi-agent career update events
+                    // Listen for custom multi-agent career update events & refresh matches when swarm completes
                     sseEventSource.addEventListener("career_swarm_update", function(event) {
                         if (isTerminalPaused) return;
                         try {
@@ -2082,8 +2081,17 @@
                                 updateBadgeCount(total);
                             }
 
+                            // Force immediate refresh and UI render when swarm completes
                             if (data.action === "refresh_matches" || data.status === "scouted" || data.status === "completed") {
-                                loadCareerMatches();
+                                console.log("Swarm completed or action received. Refreshing UI matches...");
+                                loadCareerMatches().then(() => {
+                                    if (typeof applyMatchFilter === 'function') {
+                                        applyMatchFilter();
+                                    }
+                                    if (typeof currentViewMode !== 'undefined' && currentViewMode === 'kanban' && typeof cachedCareerMatches !== 'undefined') {
+                                        renderKanbanBoard(cachedCareerMatches);
+                                    }
+                                });
                                 showToast(data.message || "Career matches successfully updated!");
                                 if (banner) banner.style.display = "none";
                             }
@@ -2137,11 +2145,20 @@
                         if (isTerminalPaused) return;
                         const data = JSON.parse(e.data);
                         
-                        if (data.swarm_state === "completed" || data.swarm_state === "paused" || data.swarm_state === "error" || data.swarm_state === "stopped") {
+                        if (data.swarm_state === "completed" || data.swarm_state === "stopped") {
+                            console.log(`Swarm state changed to: ${data.swarm_state}. Refreshing matches...`);
                             if (banner) banner.style.display = "none";
                             const statusText = document.getElementById("swarm-status-text");
                             if (statusText) statusText.innerText = data.message || "Swarm Standby";
-                            loadCareerMatches();
+                            loadCareerMatches().then(() => {
+                                if (typeof applyMatchFilter === 'function') applyMatchFilter();
+                                if (typeof currentViewMode !== 'undefined' && currentViewMode === 'kanban' && typeof cachedCareerMatches !== 'undefined') {
+                                    renderKanbanBoard(cachedCareerMatches);
+                                }
+                            });
+                        } else if (data.swarm_state === "active") {
+                            const statusText = document.getElementById("swarm-status-text");
+                            if (statusText) statusText.innerText = data.message;
                         }
                         
                         const logText = `[${getTimeStr()}] swarm_agent: Event: swarm_status_change - State: ${data.swarm_state} | ${data.message}`;
@@ -2152,26 +2169,29 @@
                     sseEventSource.onmessage = (event) => {
                         if (isTerminalPaused) return;
                         try {
-                            const data = JSON.parse(event.data);
-                            
-                            // Handle different event types sent by the swarm worker
-                            if (data.event === 'connected') {
+                            const payload = JSON.parse(event.data);
+                            const eventType = payload.event;
+                            const data = payload.data || {};
+
+                            if (eventType === 'connected') {
                                 updateStatusBadge("Connected", "bg-green-500");
                             } 
-                            else if (data.event === 'telemetry' || data.type === 'telemetry') {
-                                // Update your UI with granular metrics
-                                updateTelemetryUI({
-                                    rawFound: data.raw_jobs_found || 0,
-                                    duplicatesDropped: data.duplicates_dropped || 0,
-                                    expiredDropped: data.expired_dropped || 0,
-                                    activeEvaluations: data.active_evaluations || 0,
-                                    verifiedMatches: data.verified_matches || []
+                            else if (eventType === 'career_swarm_update' && data.action === 'refresh_matches') {
+                                console.log("Swarm completed via general message. Refreshing UI matches...");
+                                loadCareerMatches().then(() => {
+                                    if (typeof applyMatchFilter === 'function') applyMatchFilter();
                                 });
-                            } else if (data.event === 'ping' || data.type === 'ping') {
-                                return;
+                            } 
+                            else if (eventType === 'swarm_status_change') {
+                                if (data.swarm_state === 'completed' || data.swarm_state === 'stopped') {
+                                    console.log(`Swarm state changed to: ${data.swarm_state}`);
+                                    loadCareerMatches().then(() => {
+                                        if (typeof applyMatchFilter === 'function') applyMatchFilter();
+                                    });
+                                }
                             }
 
-                            const logText = `[${getTimeStr()}] ${data.event || 'message'}: ${JSON.stringify(data.data || data)}`;
+                            const logText = `[${getTimeStr()}] ${eventType || 'message'}: ${JSON.stringify(data)}`;
                             appendTelemetryLog(logText);
                         } catch (err) {
                             console.error("Failed to parse incoming SSE telemetry payload:", err);
@@ -2201,36 +2221,11 @@
             connect();
         }
 
-        // Helper function to update status indicators on your dashboard
         function updateStatusBadge(text, colorClass) {
             const badge = document.getElementById('swarm-status-badge');
             if (badge) {
                 badge.textContent = text;
                 badge.className = `px-3 py-1 rounded-full text-white text-xs ${colorClass}`;
-            }
-        }
-
-        // Helper function to render granular metrics into your HTML elements
-        function updateTelemetryUI(metrics) {
-            const metricRaw = document.getElementById('metric-raw');
-            const metricDuplicates = document.getElementById('metric-duplicates');
-            const metricExpired = document.getElementById('metric-expired');
-            const metricEvaluating = document.getElementById('metric-evaluating');
-
-            if (metricRaw) metricRaw.textContent = metrics.rawFound;
-            if (metricDuplicates) metricDuplicates.textContent = metrics.duplicatesDropped;
-            if (metricExpired) metricExpired.textContent = metrics.expiredDropped;
-            if (metricEvaluating) metricEvaluating.textContent = metrics.activeEvaluations;
-            
-            // Render recent verified matches list if container exists
-            const matchListContainer = document.getElementById('recent-matches-list');
-            if (matchListContainer && metrics.verifiedMatches.length > 0) {
-                matchListContainer.innerHTML = metrics.verifiedMatches.map(job => `
-                    <div class="p-3 border rounded mb-2 bg-gray-50">
-                        <h4 class="font-bold text-sm">${job.title} at ${job.company}</h4>
-                        <span class="text-xs text-green-600 font-semibold">Match Score: ${job.score}%</span>
-                    </div>
-                `).join('');
             }
         }
 
