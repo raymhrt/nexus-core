@@ -2412,6 +2412,7 @@ async def isolated_user_job_scouting_worker(
                             "message": f"Verified match: {evaluated['company_name']} ({score}% match) [Potential Found: {total_raw_found}]"
                         })
 
+            # Checkpoint processed IDs and counts immediately after each batch
             with db_transaction_scope() as (_, cursor):
                 p_str = json.dumps(list(processed_ids))
                 current_valid_count = len([m for m in all_evaluated_matches if safe_int(m.get('fit_score'), 0) >= min_match_score])
@@ -2459,7 +2460,7 @@ async def isolated_user_job_scouting_worker(
                             (user_email, company_val, title_val, url_val, fit_score_val, outcome_status)
                         )
 
-                    # Save matches to the active UI Kanban / Grid table
+                    # Save matches to the active UI Kanban / Grid table with explicit commit visibility
                     if is_top_match and fit_score_val >= min_match_score:
                         if DATABASE_URL:
                             ic.execute(

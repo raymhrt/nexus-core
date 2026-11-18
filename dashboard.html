@@ -977,7 +977,6 @@
             }, 4000);
         }
 
-        // --- FIXED KANBAN DRAG & DROP & STATUS SYNCHRONIZATION ---
         function allowDrop(ev) {
             ev.preventDefault();
             const col = ev.currentTarget.closest('.kanban-column') || ev.currentTarget;
@@ -1309,7 +1308,6 @@
             } catch (err) { alert("Network error while refreshing match."); }
         }
 
-        // --- ENHANCED KANBAN BOARD RENDERER WITH ROBUST STATUS FALLBACKS ---
         function renderKanbanBoard(matches) {
             const colDiscovered = document.getElementById('kanbanColDiscovered');
             const colAutopilot = document.getElementById('kanbanColAutopilot');
@@ -1339,7 +1337,7 @@
                 } else if (status === 'offer' || status === 'interview' || status === 'interview_secured') {
                     offer.push(m);
                 } else {
-                    discovered.push(m); // Fallback so new jobs never vanish
+                    discovered.push(m);
                 }
             });
 
@@ -2035,6 +2033,7 @@
             }
         }
 
+        // --- ADAPTED & INTEGRATED SSE EVENTSOURCE STREAMING TELEMETRY ---
         function initSSETelemetry() {
             const sseBadge = document.getElementById('sse-status-badge');
             const banner = document.getElementById("swarm-loading-banner");
@@ -2045,10 +2044,13 @@
                 window.sseEventSource.close();
             }
 
+            const userEmail = localStorage.getItem('nexus_user_email') || 'user@quantcodenexus.com';
+
             function connect() {
                 if (isTerminalPaused) return;
                 try {
-                    sseEventSource = new EventSource("/api/v1/stream/telemetry");
+                    // Adapted EventSource connection string with user parameter encoding
+                    sseEventSource = new EventSource(`/api/v1/career/stream?user=${encodeURIComponent(userEmail)}`);
                     window.sseEventSource = sseEventSource;
                     
                     sseEventSource.onopen = function() {
@@ -2058,7 +2060,6 @@
                             sseBadge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span><span>Telemetry Connected</span>`;
                         }
                         
-                        // Re-fetch latest matches and apply current filter on reconnect
                         if (typeof loadCareerMatches === 'function') {
                             loadCareerMatches().then(() => {
                                 if (typeof applyMatchFilter === 'function') {
@@ -2067,6 +2068,36 @@
                             });
                         }
                     };
+
+                    // Integrated career_swarm_update event listener
+                    sseEventSource.addEventListener("career_swarm_update", function(event) {
+                        if (isTerminalPaused) return;
+                        try {
+                            const data = JSON.parse(event.data);
+                            
+                            // Update badge counters or telemetry UI if present
+                            if (data.total_found !== undefined || data.total_discovered !== undefined) {
+                                const total = data.total_found !== undefined ? data.total_found : data.total_discovered;
+                                updateBadgeCount(total);
+                            }
+
+                            // Check if the swarm has completed or triggered a refresh action
+                            if (data.action === "refresh_matches" || data.status === "scouted" || data.status === "completed") {
+                                console.log("Swarm completed. Refreshing career matches grid...");
+                                
+                                // Call API function to fetch latest matches and re-render grid/kanban UI
+                                loadCareerMatches();
+                                
+                                // Show toast notification
+                                showToast(data.message || "Career matches successfully updated!");
+                                if (banner) banner.style.display = "none";
+                            }
+
+                            appendTelemetryLog(`[${getTimeStr()}] career_swarm_update: ${data.message || JSON.stringify(data)}`);
+                        } catch (err) {
+                            console.error("Error parsing SSE career_swarm_update payload:", err);
+                        }
+                    });
 
                     sseEventSource.addEventListener("multi_tenant_launched", (event) => {
                         if (isTerminalPaused) return;
@@ -2093,7 +2124,6 @@
                                 scannedKpi.innerText = discoveredCount;
                             }
 
-                            // If a batch completed or new matches were found, refresh grid/kanban
                             if (data.status === 'completed' || data.new_matches_discovered > 0 || (data.total_discovered !== undefined && data.total_discovered > 0)) {
                                 if (typeof loadCareerMatches === 'function') {
                                     loadCareerMatches();
@@ -2136,6 +2166,7 @@
                     };
 
                     sseEventSource.onerror = function(err) {
+                        console.warn("SSE connection error or closed. Attempting reconnect...", err);
                         sseEventSource.close();
                         if (sseBadge) {
                             sseBadge.className = "flex items-center space-x-1.5 bg-amber-500/10 border border-amber-500/30 px-2.5 py-1 rounded-full text-[11px] font-semibold text-amber-400";
@@ -2150,6 +2181,11 @@
                 }
             }
             connect();
+        }
+
+        function updateBadgeCount(count) {
+            const kpi = document.getElementById('kpiTotalScanned');
+            if (kpi) kpi.innerText = count;
         }
 
         function getTimeStr() {
@@ -2178,10 +2214,6 @@
             }
         }
 
-        function showNotification(message, type = 'success') {
-            showToast(message, type === 'warning');
-        }
-
         function runFallbackTelemetrySimulation() {
             const careerLog = document.getElementById('careerTelemetryLog');
             setInterval(() => {
@@ -2190,7 +2222,7 @@
                     "Indexing LinkedIn vector search results...",
                     "Evaluating fit score across matched competencies...",
                     "APScheduler task heartbeat received: 0 errors.",
-                    "Uvicorn telemetry endpoint active at /api/v1/stream/telemetry."
+                    "Uvicorn telemetry endpoint active at /api/v1/career/stream."
                 ];
                 appendTelemetryLog(events[Math.floor(Math.random() * events.length)]);
             }, 8000);
