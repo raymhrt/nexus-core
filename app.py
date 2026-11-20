@@ -2248,11 +2248,13 @@ async def isolated_user_job_scouting_worker(
         _ACTIVE_SCOUTING_TASKS.add(user_email)
 
     saved_count = 0
-    total_discovered_so_far = resumed_state.get("total_discovered", 0) if resumed_state else 0
+    # Monotonic counter carried forward from resumed session if available
+    qualified_discovered_count = safe_int(resumed_state.get("total_discovered"), 0) if resumed_state else 0
     cutoff_date = datetime.now(timezone.utc) - timedelta(days=search_days)
     
     total_raw_found = 0
     processed_ids = set()
+    counted_job_ids = set()
     filtered_jobs = []
     all_evaluated_matches = []
 
@@ -2260,22 +2262,43 @@ async def isolated_user_job_scouting_worker(
         if resumed_state and resumed_state.get("job_queue"):
             try:
                 filtered_jobs = json.loads(resumed_state["job_queue"])
-                processed_ids = set(json.loads(resumed_state["processed_job_ids"]))
-                
-                # Re-hydrate already evaluated matches from the database on resume
+                raw_processed = json.loads(resumed_state.get("processed_job_ids") or "[]")
+                processed_ids = set(raw_processed)
+                counted_job_ids = set(raw_processed)
+
+                # Hydrate previously saved matches from DB so final sorting/reporting has full context,
+                # while keeping qualified_discovered_count strictly anchored to the checkpointed counter.
                 with db_transaction_scope() as (_, cursor):
                     if DATABASE_URL:
-                        cursor.execute("SELECT company_name, job_title, fit_score, ats_portal_url FROM job_matches WHERE user_email = %s", (user_email,))
+                        cursor.execute(
+                            "SELECT company_name, job_title, fit_score, ats_portal_url FROM job_matches WHERE user_email = %s",
+                            (user_email,)
+                        )
                     else:
-                        cursor.execute("SELECT company_name, job_title, fit_score, ats_portal_url FROM job_matches WHERE user_email = ?", (user_email,))
-                    all_evaluated_matches = [dict(r) for r in cursor.fetchall()]
+                        cursor.execute(
+                            "SELECT company_name, job_title, fit_score, ats_portal_url FROM job_matches WHERE user_email = ?",
+                            (user_email,)
+                        )
+                    db_existing = [dict(r) for r in cursor.fetchall()]
+
+                qualified_discovered_count = max(
+                    qualified_discovered_count,
+                    len([m for m in db_existing if safe_int(m.get("fit_score"), 0) >= min_match_score])
+                )
 
                 await sse_broker.broadcast_status(
                     user_email, 
                     "active", 
-                    f"Resumed workflow for {user_email} ({len(processed_ids)} jobs processed, {len(all_evaluated_matches)} matches kept)..."
+                    f"Resumed workflow for {user_email} ({len(processed_ids)} jobs processed, {qualified_discovered_count} matches kept)..."
                 )
-            except Exception:
+                await sse_broker.broadcast("multi_tenant_telemetry", {
+                    "user": user_email,
+                    "total_discovered": qualified_discovered_count,
+                    "total_found": qualified_discovered_count,
+                    "message": f"Resumed from checkpoint: {qualified_discovered_count} verified matches carried forward ({len(processed_ids)} jobs already processed)."
+                })
+            except Exception as e:
+                logger.warning(f"Failed to hydrate resumed swarm state cleanly for {user_email}: {e}")
                 filtered_jobs = []
                 all_evaluated_matches = []
 
@@ -2283,8 +2306,8 @@ async def isolated_user_job_scouting_worker(
             await sse_broker.broadcast_status(user_email, "active", f"Initializing tenant infiltration for {user_email} (Past {search_days} days)...")
             await sse_broker.broadcast("multi_tenant_telemetry", {
                 "user": user_email, 
-                "total_discovered": len([m for m in all_evaluated_matches if safe_int(m.get('fit_score'), 0) >= min_match_score]), 
-                "total_found": len([m for m in all_evaluated_matches if safe_int(m.get('fit_score'), 0) >= min_match_score]), 
+                "total_discovered": qualified_discovered_count, 
+                "total_found": qualified_discovered_count, 
                 "message": f"Initializing tenant infiltration for {user_email} (Min Fit Filter: {min_match_score}%, Horizon: {search_days} days)..."
             })
 
@@ -2302,19 +2325,29 @@ async def isolated_user_job_scouting_worker(
 
             u_dict = dict(user_row) if not isinstance(user_row, dict) else user_row
             profile_content = u_dict.get('profile_json', '')
+            user_domain = u_dict.get('domain', 'general')
 
-            raw_jobs = await multi_tenant_job_infiltration(target_roles, target_locations, requested_count * 20, user_profile_json=profile_content, search_days=search_days)
+            raw_jobs = await multi_tenant_job_infiltration(
+                target_roles,
+                target_locations,
+                requested_count * 20,
+                user_profile_json=profile_content,
+                user_domain=user_domain,
+                search_days=search_days
+            )
             total_raw_found = len(raw_jobs) if raw_jobs else 0
 
             await sse_broker.broadcast("multi_tenant_telemetry", {
                 "user": user_email,
                 "total_potential_found": total_raw_found,
+                "total_discovered": qualified_discovered_count,
+                "total_found": qualified_discovered_count,
                 "message": f"Scraped {total_raw_found} potential jobs before evaluation for {user_email}."
             })
 
             if not raw_jobs:
                 await sse_broker.broadcast_status(user_email, "paused", "Scouting completed, zero positions matched.")
-                await sse_broker.broadcast("career_swarm_update", {"user": user_email, "status": "no_jobs", "total_found": 0, "message": "Scouting completed, but zero live positions matched current aggregators."})
+                await sse_broker.broadcast("career_swarm_update", {"user": user_email, "status": "no_jobs", "total_found": qualified_discovered_count, "message": "Scouting completed, but zero live positions matched current aggregators."})
                 return
 
             seen_urls = set()
@@ -2365,23 +2398,25 @@ async def isolated_user_job_scouting_worker(
                 "already_evaluated_dropped": already_evaluated_dropped,
                 "total_dropped": total_dropped,
                 "jobs_passing_to_evaluation": total_evaluating,
+                "total_discovered": qualified_discovered_count,
+                "total_found": qualified_discovered_count,
                 "message": f"Discovered {total_raw_found} raw jobs. Dropped {total_dropped} (Duplicates: {duplicates_dropped}, Expired: {date_filtered_dropped}, Prior: {already_evaluated_dropped}). Passing {total_evaluating} jobs to AI evaluation."
             })
 
             with db_transaction_scope() as (_, cursor):
                 q_str = json.dumps(filtered_jobs)
-                p_str = json.dumps([])
+                p_str = json.dumps(list(processed_ids))
                 if DATABASE_URL:
                     cursor.execute("""
                         INSERT INTO swarm_sessions (user_email, status, requested_count, target_locations, target_roles, min_match_score, search_days, job_queue, processed_job_ids, total_discovered, updated_at)
                         VALUES (%s, 'running', %s, %s, %s, %s, %s, %s, %s, %s, NOW())
-                        ON CONFLICT (user_email) DO UPDATE SET status = 'running', job_queue = EXCLUDED.job_queue, processed_job_ids = EXCLUDED.processed_job_ids, updated_at = NOW()
-                    """, (user_email, requested_count, target_locations, target_roles, min_match_score, search_days, q_str, p_str, total_discovered_so_far))
+                        ON CONFLICT (user_email) DO UPDATE SET status = 'running', job_queue = EXCLUDED.job_queue, processed_job_ids = EXCLUDED.processed_job_ids, total_discovered = EXCLUDED.total_discovered, updated_at = NOW()
+                    """, (user_email, requested_count, target_locations, target_roles, min_match_score, search_days, q_str, p_str, qualified_discovered_count))
                 else:
                     cursor.execute("""
                         INSERT OR REPLACE INTO swarm_sessions (user_email, status, requested_count, target_locations, target_roles, min_match_score, search_days, job_queue, processed_job_ids, total_discovered, updated_at)
                         VALUES (?, 'running', ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-                    """, (user_email, requested_count, target_locations, target_roles, min_match_score, search_days, q_str, p_str, total_discovered_so_far))
+                    """, (user_email, requested_count, target_locations, target_roles, min_match_score, search_days, q_str, p_str, qualified_discovered_count))
 
         with db_transaction_scope() as (_, cursor):
             if DATABASE_URL:
@@ -2391,6 +2426,151 @@ async def isolated_user_job_scouting_worker(
             user_row = cursor.fetchone()
         u_dict = dict(user_row) if not isinstance(user_row, dict) else user_row
         profile_content = u_dict.get('profile_json', '')
+
+        # Helper to persist a single evaluated job immediately (above OR below threshold)
+        def _persist_evaluated_job(cursor, match_item: dict, user_tier_val: str) -> bool:
+            company_val = safe_str(match_item.get("company_name"))
+            title_val = safe_str(match_item.get("job_title"))
+            fit_score_val = safe_int(match_item.get("fit_score"), 50)
+            url_val = safe_str(match_item.get("ats_portal_url"))
+
+            is_qualified_match = fit_score_val >= min_match_score
+            outcome_status = "saved_to_ui" if is_qualified_match else "sub_threshold_or_backlog"
+
+            # 1. Always record in evaluated_job_history so future runs drop it as "Prior"
+            #    regardless of whether it met min_match_score.
+            already_in_history = job_already_evaluated(user_email, company_val, title_val, url_val)
+            if not already_in_history:
+                if DATABASE_URL:
+                    cursor.execute(
+                        """
+                        INSERT INTO evaluated_job_history (user_email, company_name, job_title, ats_portal_url, fit_score, outcome)
+                        VALUES (%s, %s, %s, %s, %s, %s)
+                        """,
+                        (user_email, company_val, title_val, url_val, fit_score_val, outcome_status),
+                    )
+                else:
+                    cursor.execute(
+                        """
+                        INSERT INTO evaluated_job_history (user_email, company_name, job_title, ats_portal_url, fit_score, outcome)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                        """,
+                        (user_email, company_val, title_val, url_val, fit_score_val, outcome_status),
+                    )
+
+            # 2. If qualified, also save to job_matches immediately so it appears in the UI
+            #    even if the worker disconnects or halts later.
+            inserted_new_match = False
+            if is_qualified_match:
+                if DATABASE_URL:
+                    cursor.execute(
+                        """
+                        SELECT id FROM job_matches
+                        WHERE user_email = %s
+                          AND (
+                              LOWER(ats_portal_url) = LOWER(%s)
+                              OR (LOWER(company_name) = LOWER(%s) AND LOWER(job_title) = LOWER(%s))
+                          )
+                        """,
+                        (user_email, url_val, company_val, title_val),
+                    )
+                else:
+                    cursor.execute(
+                        """
+                        SELECT id FROM job_matches
+                        WHERE user_email = ?
+                          AND (
+                              LOWER(ats_portal_url) = LOWER(?)
+                              OR (LOWER(company_name) = LOWER(?) AND LOWER(job_title) = LOWER(?))
+                          )
+                        """,
+                        (user_email, url_val, company_val, title_val),
+                    )
+
+                if not cursor.fetchone():
+                    if DATABASE_URL:
+                        cursor.execute(
+                            "INSERT INTO system_learning_metrics (user_email, company_name, job_title, fit_score, outcome_status) VALUES (%s, %s, %s, %s, 'pending')",
+                            (user_email, company_val, title_val, fit_score_val),
+                        )
+                    else:
+                        cursor.execute(
+                            "INSERT INTO system_learning_metrics (user_email, company_name, job_title, fit_score, outcome_status) VALUES (?, ?, ?, ?, 'pending')",
+                            (user_email, company_val, title_val, fit_score_val),
+                        )
+
+                    vector_str = json.dumps(match_item.get("embedding", [0.0] * 256))
+                    matched_reqs_json = json.dumps(match_item.get("matched_requirements", []))
+                    transferable_json = json.dumps(match_item.get("transferable_gaps", []))
+                    critical_json = json.dumps(match_item.get("critical_missing", []))
+
+                    if DATABASE_URL:
+                        sql = """
+                            INSERT INTO job_matches (
+                                user_email, company_name, job_title, job_description, location,
+                                fit_score, discovery_fit_score, match_rationale, matched_requirements, transferable_gaps, critical_missing,
+                                decision_maker_name, decision_maker_title, decision_maker_email, warm_intro_pathway,
+                                outreach_draft, salary_benchmark, negotiation_strategy, cv_variant, cover_letter_variant,
+                                interview_playbook, ats_portal_url, embedding, status
+                            )
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'discovered')
+                        """
+                    else:
+                        sql = """
+                            INSERT INTO job_matches (
+                                user_email, company_name, job_title, job_description, location,
+                                fit_score, discovery_fit_score, match_rationale, matched_requirements, transferable_gaps, critical_missing,
+                                decision_maker_name, decision_maker_title, decision_maker_email, warm_intro_pathway,
+                                outreach_draft, salary_benchmark, negotiation_strategy, cv_variant, cover_letter_variant,
+                                interview_playbook, ats_portal_url, embedding, status
+                            )
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'discovered')
+                        """
+
+                    cursor.execute(
+                        sql,
+                        (
+                            user_email,
+                            company_val,
+                            title_val,
+                            safe_str(match_item.get("job_description")),
+                            safe_str(match_item.get("location")),
+                            fit_score_val,
+                            fit_score_val,
+                            safe_str(match_item.get("match_rationale")),
+                            matched_reqs_json,
+                            transferable_json,
+                            critical_json,
+                            safe_str(match_item.get("decision_maker_name")),
+                            safe_str(match_item.get("decision_maker_title")),
+                            safe_str(match_item.get("decision_maker_email")),
+                            safe_str(match_item.get("warm_intro_pathway")),
+                            safe_str(match_item.get("outreach_draft")),
+                            safe_str(match_item.get("salary_benchmark")),
+                            safe_str(match_item.get("negotiation_strategy")),
+                            safe_str(match_item.get("cv_variant")),
+                            safe_str(match_item.get("cover_letter_variant")),
+                            safe_str(match_item.get("interview_playbook")),
+                            url_val,
+                            vector_str,
+                        ),
+                    )
+
+                    if cursor.rowcount > 0:
+                        inserted_new_match = True
+                        if user_tier_val != "enterprise":
+                            if DATABASE_URL:
+                                cursor.execute(
+                                    "UPDATE subscriber_credits SET credits_remaining = credits_remaining - 1 WHERE email = %s",
+                                    (user_email,),
+                                )
+                            else:
+                                cursor.execute(
+                                    "UPDATE subscriber_credits SET credits_remaining = credits_remaining - 1 WHERE email = ?",
+                                    (user_email,),
+                                )
+
+            return inserted_new_match
 
         batch_size = 3  
         
@@ -2410,11 +2590,13 @@ async def isolated_user_job_scouting_worker(
 
             batch = filtered_jobs[i:i + batch_size]
             batch_tasks = []
+            batch_job_refs = []
             
             for job in batch:
                 job_id = job.get('ats_portal_url') or job.get('job_title')
                 if job_id in processed_ids:
                     continue
+                batch_job_refs.append((job, job_id))
                 batch_tasks.append(
                     evaluate_job_for_specific_user(job, profile_content, user_email, AI_EVAL_SEMAPHORE, user_profile_context=u_dict)
                 )
@@ -2423,10 +2605,10 @@ async def isolated_user_job_scouting_worker(
                 continue
 
             batch_results = await asyncio.gather(*batch_tasks, return_exceptions=True)
+            batch_evaluated_items = []
             
             for idx, evaluated in enumerate(batch_results):
-                job = batch[idx]
-                job_id = job.get('ats_portal_url') or job.get('job_title')
+                job, job_id = batch_job_refs[idx]
                 processed_ids.add(job_id)
 
                 if isinstance(evaluated, Exception):
@@ -2435,178 +2617,80 @@ async def isolated_user_job_scouting_worker(
                 if evaluated:
                     score = safe_int(evaluated.get('fit_score'), 0)
                     all_evaluated_matches.append(evaluated)
-                    if score >= min_match_score:
+                    batch_evaluated_items.append(evaluated)
+                    if score >= min_match_score and job_id not in counted_job_ids:
+                        counted_job_ids.add(job_id)
+                        qualified_discovered_count += 1
                         await sse_broker.broadcast("multi_tenant_telemetry", {
                             "user": user_email, 
                             "job_title": evaluated["job_title"],
                             "company_name": evaluated["company_name"],
                             "match_score": score,
                             "total_potential_found": total_raw_found,       
-                            "total_discovered": len([m for m in all_evaluated_matches if safe_int(m.get('fit_score'), 0) >= min_match_score]), 
-                            "total_found": len([m for m in all_evaluated_matches if safe_int(m.get('fit_score'), 0) >= min_match_score]),        
+                            "total_discovered": qualified_discovered_count, 
+                            "total_found": qualified_discovered_count,        
                             "message": f"Verified match: {evaluated['company_name']} ({score}% match) [Potential Found: {total_raw_found}]"
                         })
 
-            # Checkpoint processed IDs and counts immediately after each batch
+            # Commit ALL evaluated jobs in this batch (qualified + sub-threshold) and checkpoint session state
             with db_transaction_scope() as (_, cursor):
-                p_str = json.dumps(list(processed_ids))
-                current_valid_count = len([m for m in all_evaluated_matches if safe_int(m.get('fit_score'), 0) >= min_match_score])
                 if DATABASE_URL:
-                    cursor.execute("UPDATE swarm_sessions SET processed_job_ids = %s, total_discovered = %s, updated_at = NOW() WHERE user_email = %s", (p_str, current_valid_count, user_email))
+                    cursor.execute(
+                        "SELECT tier FROM subscribers s JOIN subscriber_credits c ON s.email = c.email WHERE s.email = %s",
+                        (user_email,),
+                    )
                 else:
-                    cursor.execute("UPDATE swarm_sessions SET processed_job_ids = ?, total_discovered = ?, updated_at = datetime('now') WHERE user_email = ?", (p_str, current_valid_count, user_email))
+                    cursor.execute(
+                        "SELECT tier FROM subscribers s JOIN subscriber_credits c ON s.email = c.email WHERE s.email = ?",
+                        (user_email,),
+                    )
+                sub_row = cursor.fetchone()
+                user_tier = (sub_row["tier"] if isinstance(sub_row, dict) else sub_row[0]) if sub_row else "starter"
+
+                for item in batch_evaluated_items:
+                    if _persist_evaluated_job(cursor, item, user_tier):
+                        saved_count += 1
+
+                p_str = json.dumps(list(processed_ids))
+                if DATABASE_URL:
+                    cursor.execute(
+                        "UPDATE swarm_sessions SET processed_job_ids = %s, total_discovered = %s, updated_at = NOW() WHERE user_email = %s",
+                        (p_str, qualified_discovered_count, user_email)
+                    )
+                else:
+                    cursor.execute(
+                        "UPDATE swarm_sessions SET processed_job_ids = ?, total_discovered = ?, updated_at = datetime('now') WHERE user_email = ?",
+                        (p_str, qualified_discovered_count, user_email)
+                    )
 
             if i + batch_size < len(filtered_jobs):
                 await sse_broker.broadcast_status(user_email, "paused", "Batch rate-limit cooldown active...")
                 await asyncio.sleep(6.0)
                 await sse_broker.broadcast_status(user_email, "active", "Resuming evaluation batch...")
 
-        # Sort evaluated matches by fit score descending
+        # Sort evaluated matches by fit score descending for final summary/telemetry
         all_evaluated_matches.sort(key=lambda x: safe_int(x.get('fit_score'), 0), reverse=True)
-        
-        # NOTE: Removed 'top_matches = all_evaluated_matches[:requested_count]' cap 
-        # so all discovered jobs meeting criteria are processed and saved.
-
-        if all_evaluated_matches:
-            with db_transaction_scope() as (_, ic):
-                for match_item in all_evaluated_matches:
-                    company_val = safe_str(match_item.get('company_name'))
-                    title_val = safe_str(match_item.get('job_title'))
-                    fit_score_val = safe_int(match_item.get('fit_score'), 50)
-                    url_val = safe_str(match_item.get('ats_portal_url'))
-                    
-                    # Every evaluated job meeting the min match score is saved to the UI Kanban/Grid table.
-                    is_qualified_match = fit_score_val >= min_match_score
-                    outcome_status = 'saved_to_ui' if is_qualified_match else 'sub_threshold_or_backlog'
-
-                    # Log EVERY evaluated job into evaluated_job_history
-                    if DATABASE_URL:
-                        ic.execute(
-                            """
-                            INSERT INTO evaluated_job_history (user_email, company_name, job_title, ats_portal_url, fit_score, outcome)
-                            VALUES (%s, %s, %s, %s, %s, %s)
-                            """,
-                            (user_email, company_val, title_val, url_val, fit_score_val, outcome_status)
-                        )
-                    else:
-                        ic.execute(
-                            """
-                            INSERT INTO evaluated_job_history (user_email, company_name, job_title, ats_portal_url, fit_score, outcome)
-                            VALUES (?, ?, ?, ?, ?, ?)
-                            """,
-                            (user_email, company_val, title_val, url_val, fit_score_val, outcome_status)
-                        )
-
-                    # Save qualified matches to the active UI Kanban / Grid table
-                    if is_qualified_match:
-                        if DATABASE_URL:
-                            ic.execute(
-                                "SELECT id FROM job_matches WHERE user_email = %s AND (LOWER(ats_portal_url) = LOWER(%s) OR (LOWER(company_name) = LOWER(%s) AND LOWER(job_title) = LOWER(%s)))", 
-                                (user_email, url_val, company_val, title_val)
-                            )
-                        else:
-                            ic.execute(
-                                "SELECT id FROM job_matches WHERE user_email = ? AND (LOWER(ats_portal_url) = LOWER(?) OR (LOWER(company_name) = LOWER(?) AND LOWER(job_title) = LOWER(?)))", 
-                                (user_email, url_val, company_val, title_val)
-                            )
-                        
-                        existing_row = ic.fetchone()
-                        if existing_row:
-                            logger.info(f"Match already exists for {user_email} at {company_val} - {title_val}. Skipping duplicate insert.")
-                            continue
-
-                        if DATABASE_URL:
-                            ic.execute("INSERT INTO system_learning_metrics (user_email, company_name, job_title, fit_score, outcome_status) VALUES (%s, %s, %s, %s, 'pending')", (user_email, company_val, title_val, fit_score_val))
-                            ic.execute("SELECT tier, credits_remaining FROM subscribers s JOIN subscriber_credits c ON s.email = c.email WHERE s.email = %s", (user_email,))
-                        else:
-                            ic.execute("INSERT INTO system_learning_metrics (user_email, company_name, job_title, fit_score, outcome_status) VALUES (?, ?, ?, ?, 'pending')", (user_email, company_val, title_val, fit_score_val))
-                            ic.execute("SELECT tier, credits_remaining FROM subscribers s JOIN subscriber_credits c ON s.email = c.email WHERE s.email = ?", (user_email,))
-                        
-                        sub_row = ic.fetchone()
-                        user_tier = (sub_row["tier"] if isinstance(sub_row, dict) else sub_row[0]) if sub_row else "starter"
-
-                        vector_str = json.dumps(match_item.get('embedding', [0.0] * 256))
-                        matched_reqs_json = json.dumps(match_item.get('matched_requirements', []))
-                        transferable_json = json.dumps(match_item.get('transferable_gaps', []))
-                        critical_json = json.dumps(match_item.get('critical_missing', []))
-
-                        if DATABASE_URL:
-                            sql = """
-                                INSERT INTO job_matches (
-                                    user_email, company_name, job_title, job_description, location, 
-                                    fit_score, match_rationale, matched_requirements, transferable_gaps, critical_missing, 
-                                    decision_maker_name, decision_maker_title, decision_maker_email, warm_intro_pathway, 
-                                    outreach_draft, salary_benchmark, negotiation_strategy, cv_variant, cover_letter_variant, 
-                                    interview_playbook, ats_portal_url, embedding, status
-                                )
-                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'discovered')
-                            """
-                        else:
-                            sql = """
-                                INSERT INTO job_matches (
-                                    user_email, company_name, job_title, job_description, location, 
-                                    fit_score, match_rationale, matched_requirements, transferable_gaps, critical_missing, 
-                                    decision_maker_name, decision_maker_title, decision_maker_email, warm_intro_pathway, 
-                                    outreach_draft, salary_benchmark, negotiation_strategy, cv_variant, cover_letter_variant, 
-                                    interview_playbook, ats_portal_url, embedding, status
-                                )
-                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'discovered')
-                            """
-                        
-                        ic.execute(sql, (
-                            user_email, 
-                            company_val, 
-                            title_val,
-                            safe_str(match_item.get('job_description')),
-                            safe_str(match_item.get('location')),
-                            fit_score_val,
-                            safe_str(match_item.get('match_rationale')),
-                            matched_reqs_json, 
-                            transferable_json, 
-                            critical_json,
-                            safe_str(match_item.get('decision_maker_name')),
-                            safe_str(match_item.get('decision_maker_title')),
-                            safe_str(match_item.get('decision_maker_email')),
-                            safe_str(match_item.get('warm_intro_pathway')),
-                            safe_str(match_item.get('outreach_draft')),
-                            safe_str(match_item.get('salary_benchmark')),
-                            safe_str(match_item.get('negotiation_strategy')),
-                            safe_str(match_item.get('cv_variant')),
-                            safe_str(match_item.get('cover_letter_variant')),
-                            safe_str(match_item.get('interview_playbook')),
-                            url_val,
-                            vector_str
-                        ))
-                        
-                        if ic.rowcount > 0 and user_tier != "enterprise":
-                            if DATABASE_URL:
-                                ic.execute("UPDATE subscriber_credits SET credits_remaining = credits_remaining - 1 WHERE email = %s", (user_email,))
-                            else:
-                                ic.execute("UPDATE subscriber_credits SET credits_remaining = credits_remaining - 1 WHERE email = ?", (user_email,))
-                            saved_count += 1
-
-        total_discovered_so_far = len([m for m in all_evaluated_matches if safe_int(m.get('fit_score'), 0) >= min_match_score])
 
         with db_transaction_scope() as (_, cursor):
             p_str = json.dumps(list(processed_ids))
             if DATABASE_URL:
-                cursor.execute("UPDATE swarm_sessions SET processed_job_ids = %s, total_discovered = %s, status = 'completed', updated_at = NOW() WHERE user_email = %s", (p_str, total_discovered_so_far, user_email))
+                cursor.execute("UPDATE swarm_sessions SET processed_job_ids = %s, total_discovered = %s, status = 'completed', updated_at = NOW() WHERE user_email = %s", (p_str, qualified_discovered_count, user_email))
             else:
-                cursor.execute("UPDATE swarm_sessions SET processed_job_ids = ?, total_discovered = ?, status = 'completed', updated_at = datetime('now') WHERE user_email = ?", (p_str, total_discovered_so_far, user_email))
+                cursor.execute("UPDATE swarm_sessions SET processed_job_ids = ?, total_discovered = ?, status = 'completed', updated_at = datetime('now') WHERE user_email = ?", (p_str, qualified_discovered_count, user_email))
 
-        await sse_broker.broadcast_status(user_email, "completed", f"Swarm finished. Indexed {total_discovered_so_far} matches.")
+        await sse_broker.broadcast_status(user_email, "completed", f"Swarm finished. Indexed {qualified_discovered_count} matches.")
         await sse_broker.broadcast("career_swarm_update", {
             "user": user_email, 
             "status": "scouted", 
-            "total_found": total_discovered_so_far,
+            "total_found": qualified_discovered_count,
             "action": "refresh_matches",
-            "message": f"Swarm completed. Indexed {total_discovered_so_far} matches."
+            "message": f"Swarm completed. Indexed {qualified_discovered_count} matches."
         })
         await sse_broker.broadcast("swarm_status_change", {
             "user": user_email,
             "swarm_state": "completed",
-            "total_found": total_discovered_so_far,
-            "message": f"Swarm finished with {total_discovered_so_far} matches."
+            "total_found": qualified_discovered_count,
+            "message": f"Swarm finished with {qualified_discovered_count} matches."
         })
         
     except Exception as e:
@@ -2615,26 +2699,26 @@ async def isolated_user_job_scouting_worker(
         try:
             with db_transaction_scope() as (_, cursor):
                 if DATABASE_URL:
-                    cursor.execute("UPDATE swarm_sessions SET status = 'interrupted' WHERE user_email = %s", (user_email,))
+                    cursor.execute("UPDATE swarm_sessions SET status = 'interrupted', total_discovered = %s WHERE user_email = %s", (qualified_discovered_count, user_email))
                 else:
-                    cursor.execute("UPDATE swarm_sessions SET status = 'interrupted' WHERE user_email = ?", (user_email,))
+                    cursor.execute("UPDATE swarm_sessions SET status = 'interrupted', total_discovered = ? WHERE user_email = ?", (qualified_discovered_count, user_email))
         except Exception:
             pass
 
-        if total_discovered_so_far > 0:
-            await sse_broker.broadcast_status(user_email, "completed", f"Swarm halted mid-stream, but saved {total_discovered_so_far} matches.")
+        if qualified_discovered_count > 0:
+            await sse_broker.broadcast_status(user_email, "completed", f"Swarm halted mid-stream, but saved {qualified_discovered_count} matches.")
             await sse_broker.broadcast("career_swarm_update", {
                 "user": user_email,
                 "status": "scouted",
-                "total_found": total_discovered_so_far,
+                "total_found": qualified_discovered_count,
                 "action": "refresh_matches",
-                "message": f"Swarm preserved {total_discovered_so_far} matches."
+                "message": f"Swarm preserved {qualified_discovered_count} matches."
             })
             await sse_broker.broadcast("swarm_status_change", {
                 "user": user_email,
                 "swarm_state": "completed",
-                "total_found": total_discovered_so_far,
-                "message": f"Swarm preserved {total_discovered_so_far} matches."
+                "total_found": qualified_discovered_count,
+                "message": f"Swarm preserved {qualified_discovered_count} matches."
             })
         else:
             await sse_broker.broadcast_status(user_email, "error", f"Swarm halted: {str(e)}")
@@ -2651,7 +2735,6 @@ async def isolated_user_job_scouting_worker(
                 "message": f"Swarm halted: {str(e)}"
             })
     finally:
-        # Guarantee lock release and cleanup when task finishes or cancels
         async with _TASK_LOCK:
             _ACTIVE_SCOUTING_TASKS.discard(user_email)
         logger.info(f"Released scouting worker lock for {user_email}")
@@ -3590,9 +3673,12 @@ async def stream_telemetry(request: Request):
                     break
                 try:
                     msg = await asyncio.wait_for(queue.get(), timeout=15.0)
-                    yield f"data: {json.dumps(msg)}\n\n"
+                    ev_name = msg.get("event", "message") if isinstance(msg, dict) else "message"
+                    yield f"event: {ev_name}\ndata: {json.dumps(msg)}\n\n"
                 except asyncio.TimeoutError:
-                    yield f"data: {json.dumps({'event': 'ping'})}\n\n"
+                    if await request.is_disconnected():
+                        break
+                    yield f"event: ping\ndata: {json.dumps({'event': 'ping'})}\n\n"
         except asyncio.CancelledError:
             pass
         finally:

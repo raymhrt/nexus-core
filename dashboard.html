@@ -640,6 +640,7 @@
         let isListening = false;
         let drawerRadarChart = null;
         let pipelineFunnelChart = null;
+        let lastKnownDiscoveredCount = 0;
 
         function safeJsonParse(val, fallback = []) {
             if (!val) return fallback;
@@ -1166,8 +1167,12 @@
                 
                 if (data.matches) {
                     cachedCareerMatches = data.matches;
-                    applyMatchFilter(); 
-                    document.getElementById('kpiTotalScanned').innerText = data.matches.length;
+                    applyMatchFilter();
+                    const total = data.matches.length;
+                    if (total >= lastKnownDiscoveredCount) {
+                        lastKnownDiscoveredCount = total;
+                    }
+                    document.getElementById('kpiTotalScanned').innerText = lastKnownDiscoveredCount;
                     loadCredits();
                     showToast("Career matches refreshed successfully!");
                 }
@@ -2033,7 +2038,7 @@
             }
         }
 
-        // --- ADAPTED & FULLY INTEGRATED SSE EVENTSOURCE STREAMING TELEMETRY (FIXED REFRESH BUG) ---
+        // --- ADAPTED & FULLY INTEGRATED SSE EVENTSOURCE STREAMING TELEMETRY ---
         function initSSETelemetry() {
             const sseBadge = document.getElementById('sse-status-badge');
             const banner = document.getElementById("swarm-loading-banner");
@@ -2046,10 +2051,37 @@
 
             const userEmail = localStorage.getItem('nexus_user_email') || 'user@quantcodenexus.com';
 
+            function syncDiscoveredCounter(rawCount, messageText = '') {
+                if (rawCount === undefined || rawCount === null || rawCount === '--') return;
+                const numericCount = parseInt(rawCount, 10);
+                if (Number.isNaN(numericCount)) return;
+
+                const isFreshInit = numericCount === 0 && String(messageText).toLowerCase().includes('initializing');
+                if (isFreshInit) {
+                    lastKnownDiscoveredCount = 0;
+                } else if (numericCount >= lastKnownDiscoveredCount) {
+                    lastKnownDiscoveredCount = numericCount;
+                }
+
+                const scannedKpi = document.getElementById('kpiTotalScanned');
+                if (scannedKpi) {
+                    scannedKpi.innerText = lastKnownDiscoveredCount;
+                }
+            }
+
+            function refreshMatchesAndViews() {
+                if (typeof loadCareerMatches !== 'function') return Promise.resolve();
+                return loadCareerMatches().then(() => {
+                    if (typeof applyMatchFilter === 'function') applyMatchFilter();
+                    if (typeof currentViewMode !== 'undefined' && currentViewMode === 'kanban' && typeof cachedCareerMatches !== 'undefined' && typeof renderKanbanBoard === 'function') {
+                        renderKanbanBoard(cachedCareerMatches);
+                    }
+                });
+            }
+
             function connect() {
                 if (isTerminalPaused) return;
                 try {
-                    // Connect to FastAPI SSE telemetry endpoint
                     sseEventSource = new EventSource(`/api/v1/career/stream?user=${encodeURIComponent(userEmail)}`);
                     window.sseEventSource = sseEventSource;
                     
@@ -2060,42 +2092,29 @@
                             sseBadge.className = "flex items-center space-x-1.5 bg-emerald-500/10 border border-emerald-500/30 px-2.5 py-1 rounded-full text-[11px] font-semibold text-emerald-400";
                             sseBadge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span><span>Telemetry Connected</span>`;
                         }
-                        
-                        if (typeof loadCareerMatches === 'function') {
-                            loadCareerMatches().then(() => {
-                                if (typeof applyMatchFilter === 'function') {
-                                    applyMatchFilter();
-                                }
-                            });
+                        if (typeof updateStatusBadge === 'function') {
+                            updateStatusBadge("Connected", "bg-green-500");
                         }
+                        refreshMatchesAndViews();
                     };
 
-                    // Listen for custom multi-agent career update events & refresh matches when swarm completes
                     sseEventSource.addEventListener("career_swarm_update", function(event) {
                         if (isTerminalPaused) return;
                         try {
-                            const data = JSON.parse(event.data);
-                            
-                            if (data.total_found !== undefined || data.total_discovered !== undefined) {
-                                const total = data.total_found !== undefined ? data.total_found : data.total_discovered;
-                                updateBadgeCount(total);
-                            }
+                            const parsed = JSON.parse(event.data);
+                            const data = parsed.data || parsed;
+                            const countVal = data.total_found !== undefined ? data.total_found : data.total_discovered;
+                            syncDiscoveredCounter(countVal, data.message || '');
 
-                            // Force immediate refresh and UI render when swarm completes
                             if (data.action === "refresh_matches" || data.status === "scouted" || data.status === "completed") {
                                 console.log("Swarm completed or action received. Refreshing UI matches...");
-                                loadCareerMatches().then(() => {
-                                    if (typeof applyMatchFilter === 'function') {
-                                        applyMatchFilter();
+                                refreshMatchesAndViews().then(() => {
+                                    if (typeof showToast === 'function') {
+                                        showToast(data.message || "Career matches successfully updated!");
                                     }
-                                    if (typeof currentViewMode !== 'undefined' && currentViewMode === 'kanban' && typeof cachedCareerMatches !== 'undefined') {
-                                        renderKanbanBoard(cachedCareerMatches);
-                                    }
+                                    if (banner) banner.style.display = "none";
                                 });
-                                showToast(data.message || "Career matches successfully updated!");
-                                if (banner) banner.style.display = "none";
                             }
-
                             appendTelemetryLog(`[${getTimeStr()}] career_swarm_update: ${data.message || JSON.stringify(data)}`);
                         } catch (err) {
                             console.error("Error parsing SSE career_swarm_update payload:", err);
@@ -2104,118 +2123,104 @@
 
                     sseEventSource.addEventListener("multi_tenant_launched", (event) => {
                         if (isTerminalPaused) return;
-                        const data = JSON.parse(event.data);
-                        if (banner) banner.style.display = "flex";
-                        if (statusTitle) statusTitle.textContent = "Swarm Deployed 🚀";
-                        if (statusMsg) statusMsg.textContent = `Target roles initialized for ${data.roles || 'target roles'} in ${data.locations || 'target locations'}.`;
-                        
-                        appendTelemetryLog(`[${getTimeStr()}] swarm_agent: Event: multi_tenant_launched - Target roles initialized.`);
+                        try {
+                            const parsed = JSON.parse(event.data);
+                            const data = parsed.data || parsed;
+                            lastKnownDiscoveredCount = 0;
+                            const scannedKpi = document.getElementById('kpiTotalScanned');
+                            if (scannedKpi) scannedKpi.innerText = 0;
+
+                            if (banner) banner.style.display = "flex";
+                            if (statusTitle) statusTitle.textContent = "Swarm Deployed 🚀";
+                            if (statusMsg) statusMsg.textContent = `Target roles initialized for ${data.roles || 'target roles'} in ${data.locations || 'target locations'}.`;
+                            appendTelemetryLog(`[${getTimeStr()}] swarm_agent: Event: multi_tenant_launched - Target roles initialized.`);
+                        } catch (err) {
+                            console.error("Error parsing SSE multi_tenant_launched payload:", err);
+                        }
                     });
 
-                    // Listen for incoming telemetry events sent by the swarm worker
                     sseEventSource.addEventListener("multi_tenant_telemetry", (event) => {
                         if (isTerminalPaused) return;
                         try {
-                            const data = JSON.parse(event.data);
+                            const parsed = JSON.parse(event.data);
+                            const data = parsed.data || parsed;
                             if (banner) banner.style.display = "flex";
                             if (statusTitle) statusTitle.textContent = "Swarm Infiltration Active...";
-                            if (statusMsg) statusMsg.textContent = data.message;
+                            if (statusMsg) statusMsg.textContent = data.message || "Evaluating live positions...";
 
-                            const discoveredCount = data.total_discovered !== undefined ? data.total_discovered : (data.total_found !== undefined ? data.total_found : '--');
-                            
-                            const scannedKpi = document.getElementById('kpiTotalScanned');
-                            if (scannedKpi && discoveredCount !== '--') {
-                                scannedKpi.innerText = discoveredCount;
+                            const rawCount = data.total_discovered !== undefined ? data.total_discovered : (data.total_found !== undefined ? data.total_found : '--');
+                            syncDiscoveredCounter(rawCount, data.message || '');
+
+                            if (data.status === 'completed' || (typeof data.match_score === 'number')) {
+                                refreshMatchesAndViews();
                             }
 
-                            if (data.status === 'completed' || data.new_matches_discovered > 0 || (data.total_discovered !== undefined && data.total_discovered > 0)) {
-                                if (typeof loadCareerMatches === 'function') {
-                                    loadCareerMatches();
-                                }
-                            }
-
-                            const logText = `[${getTimeStr()}] swarm_agent: Event: multi_tenant_telemetry - Discovered Jobs: ${discoveredCount} | ${data.message || JSON.stringify(data)}`;
-                            appendTelemetryLog(logText);
+                            const displayCount = rawCount === '--' ? '--' : lastKnownDiscoveredCount;
+                            appendTelemetryLog(`[${getTimeStr()}] swarm_agent: Event: multi_tenant_telemetry - Discovered Jobs: ${displayCount} | ${data.message || JSON.stringify(data)}`);
                         } catch (err) {
                             console.error("[SSE] Failed to parse telemetry event:", err);
                         }
                     });
 
-                    sseEventSource.addEventListener("swarm_status_change", function (e) {
+                    sseEventSource.addEventListener("swarm_status_change", function(event) {
                         if (isTerminalPaused) return;
-                        const data = JSON.parse(e.data);
-                        
-                        if (data.swarm_state === "completed" || data.swarm_state === "stopped") {
-                            console.log(`Swarm state changed to: ${data.swarm_state}. Refreshing matches...`);
-                            if (banner) banner.style.display = "none";
+                        try {
+                            const parsed = JSON.parse(event.data);
+                            const data = parsed.data || parsed;
                             const statusText = document.getElementById("swarm-status-text");
-                            if (statusText) statusText.innerText = data.message || "Swarm Standby";
-                            loadCareerMatches().then(() => {
-                                if (typeof applyMatchFilter === 'function') applyMatchFilter();
-                                if (typeof currentViewMode !== 'undefined' && currentViewMode === 'kanban' && typeof cachedCareerMatches !== 'undefined') {
-                                    renderKanbanBoard(cachedCareerMatches);
-                                }
-                            });
-                        } else if (data.swarm_state === "active") {
-                            const statusText = document.getElementById("swarm-status-text");
-                            if (statusText) statusText.innerText = data.message;
+
+                            if (data.swarm_state === "completed" || data.swarm_state === "stopped") {
+                                console.log(`Swarm state changed to: ${data.swarm_state}. Refreshing matches...`);
+                                if (banner) banner.style.display = "none";
+                                if (statusText) statusText.innerText = data.message || "Swarm Standby";
+                                refreshMatchesAndViews();
+                            } else if (data.swarm_state === "active" || data.swarm_state === "paused") {
+                                if (statusText) statusText.innerText = data.message;
+                            }
+                            appendTelemetryLog(`[${getTimeStr()}] swarm_agent: Event: swarm_status_change - State: ${data.swarm_state} | ${data.message}`);
+                        } catch (err) {
+                            console.error("Error parsing SSE swarm_status_change payload:", err);
                         }
-                        
-                        const logText = `[${getTimeStr()}] swarm_agent: Event: swarm_status_change - State: ${data.swarm_state} | ${data.message}`;
-                        appendTelemetryLog(logText);
                     });
 
-                    // Listen for general incoming messages from the backend generator
                     sseEventSource.onmessage = (event) => {
                         if (isTerminalPaused) return;
                         try {
                             const payload = JSON.parse(event.data);
                             const eventType = payload.event;
                             const data = payload.data || {};
-
-                            if (eventType === 'connected') {
+                            if (eventType === 'connected' && typeof updateStatusBadge === 'function') {
                                 updateStatusBadge("Connected", "bg-green-500");
-                            } 
-                            else if (eventType === 'career_swarm_update' && data.action === 'refresh_matches') {
-                                console.log("Swarm completed via general message. Refreshing UI matches...");
-                                loadCareerMatches().then(() => {
-                                    if (typeof applyMatchFilter === 'function') applyMatchFilter();
-                                });
-                            } 
-                            else if (eventType === 'swarm_status_change') {
-                                if (data.swarm_state === 'completed' || data.swarm_state === 'stopped') {
-                                    console.log(`Swarm state changed to: ${data.swarm_state}`);
-                                    loadCareerMatches().then(() => {
-                                        if (typeof applyMatchFilter === 'function') applyMatchFilter();
-                                    });
-                                }
+                            } else if (eventType === 'career_swarm_update' && data.action === 'refresh_matches') {
+                                refreshMatchesAndViews();
+                            } else if (eventType === 'swarm_status_change' && (data.swarm_state === 'completed' || data.swarm_state === 'stopped')) {
+                                refreshMatchesAndViews();
                             }
-
-                            const logText = `[${getTimeStr()}] ${eventType || 'message'}: ${JSON.stringify(data)}`;
-                            appendTelemetryLog(logText);
+                            appendTelemetryLog(`[${getTimeStr()}] ${eventType || 'message'}: ${JSON.stringify(data)}`);
                         } catch (err) {
                             console.error("Failed to parse incoming SSE telemetry payload:", err);
                             appendTelemetryLog(event.data);
                         }
                     };
 
-                    // Handle connection drops or network interruptions automatically with exponential backoff
                     sseEventSource.onerror = (error) => {
                         console.warn("SSE connection lost. Reconnecting...", error);
-                        updateStatusBadge("Reconnecting...", "bg-yellow-500");
-                        
+                        if (typeof updateStatusBadge === 'function') {
+                            updateStatusBadge("Reconnecting...", "bg-yellow-500");
+                        }
                         sseEventSource.close();
                         if (sseBadge) {
                             sseBadge.className = "flex items-center space-x-1.5 bg-amber-500/10 border border-amber-500/30 px-2.5 py-1 rounded-full text-[11px] font-semibold text-amber-400";
                             sseBadge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span><span>Reconnecting...</span>`;
                         }
-                        
                         const timeout = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000);
                         reconnectAttempts++;
                         setTimeout(connect, timeout);
                     };
                 } catch(e) {
-                    runFallbackTelemetrySimulation();
+                    if (typeof runFallbackTelemetrySimulation === 'function') {
+                        runFallbackTelemetrySimulation();
+                    }
                 }
             }
             connect();
@@ -2230,8 +2235,12 @@
         }
 
         function updateBadgeCount(count) {
+            const num = parseInt(count, 10);
+            if (!Number.isNaN(num) && num >= lastKnownDiscoveredCount) {
+                lastKnownDiscoveredCount = num;
+            }
             const kpi = document.getElementById('kpiTotalScanned');
-            if (kpi) kpi.innerText = count;
+            if (kpi) kpi.innerText = lastKnownDiscoveredCount;
         }
 
         function getTimeStr() {
